@@ -96,7 +96,8 @@ func New(cfg Config) (*App, error) {
 // reconciliation.
 func (a *App) Ready() <-chan struct{} { return a.ready }
 
-// Serve reconciles the fencing deadline, then serves the runtime API on the
+// Serve restores the Machines from the state directory and reconciles the
+// fencing deadline against them, then serves the runtime API on the
 // socket until the context ends or the deadline's expiry loop fails. No call
 // is served before the reconciliation has finished: the socket does not exist
 // until then. It closes the database before it returns.
@@ -104,6 +105,9 @@ func (a *App) Serve(ctx context.Context) error {
 	defer a.db.Close()
 	if a.beforeReconcile != nil {
 		a.beforeReconcile()
+	}
+	if err := a.machines.Restore(ctx); err != nil {
+		return fmt.Errorf("restore the Machines: %w", err)
 	}
 	if err := a.deadline.Reconcile(ctx, a.machines); err != nil {
 		return fmt.Errorf("reconcile the fencing deadline: %w", err)

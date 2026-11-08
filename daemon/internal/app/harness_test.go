@@ -56,7 +56,13 @@ func testConfig(t *testing.T) app.Config {
 // it, and connects a client once it is ready.
 func start(t *testing.T, cfg app.Config) *node {
 	t.Helper()
-	n := serve(t, cfg)
+	return startWith(t, cfg, nil)
+}
+
+// startWith is start with serveWith's step.
+func startWith(t *testing.T, cfg app.Config, beforeServe func(*app.App)) *node {
+	t.Helper()
+	n := serveWith(t, cfg, beforeServe)
 	dial, cancelDial := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelDial()
 	var err error
@@ -70,8 +76,18 @@ func start(t *testing.T, cfg app.Config) *node {
 // connecting a client.
 func serve(t *testing.T, cfg app.Config) *node {
 	t.Helper()
+	return serveWith(t, cfg, nil)
+}
+
+// serveWith is serve with a step between building the app and serving it, for
+// a test that sets up what the node holds when the daemon starts.
+func serveWith(t *testing.T, cfg app.Config, beforeServe func(*app.App)) *node {
+	t.Helper()
 	a, err := app.New(cfg)
 	require.NoError(t, err)
+	if beforeServe != nil {
+		beforeServe(a)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	n := &node{app: a, cfg: cfg, stop: cancel, done: make(chan error, 1)}
 	go func() { n.done <- a.Serve(ctx) }()

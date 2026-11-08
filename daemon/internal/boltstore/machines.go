@@ -79,30 +79,38 @@ func (s *MachineStore) Remove(ctx context.Context, id machine.MachineID) error {
 	})
 }
 
-// Records reads back every record, ordered by identifier. The lifecycle does
-// not load them yet: that arrives with reattachment.
-func (s *MachineStore) Records(ctx context.Context) ([]machine.Record, error) {
+// Load implements machine.StateStore. A record that cannot be decoded is
+// returned under its key with Unreadable set to the reason.
+func (s *MachineStore) Load(ctx context.Context) ([]machine.Record, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var out []machine.Record
 	err := s.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(machinesBucket).ForEach(func(k, v []byte) error {
-			var j recordJSON
-			if err := json.Unmarshal(v, &j); err != nil {
-				return fmt.Errorf("decode the record of %q: %w", k, err)
-			}
-			r := machine.Record{ID: j.ID, Machine: j.Machine, Request: machine.Request{ID: j.Request.ID, Spec: j.Request.Spec}}
-			if f := j.Request.Failure; f != nil {
-				kind, ok := kinds[f.Kind]
-				if !ok {
-					return fmt.Errorf("the record of %q names the unknown outcome kind %q", k, f.Kind)
-				}
-				r.Request.Failure = machine.NewError(kind, "%s", f.Reason)
+			r, err := decode(v)
+			if err != nil {
+				r = machine.Record{ID: machine.MachineID(k), Unreadable: err.Error()}
 			}
 			out = append(out, r)
 			return nil
 		})
 	})
 	return out, err
+}
+
+func decode(raw []byte) (machine.Record, error) {
+	var j recordJSON
+	if err := json.Unmarshal(raw, &j); err != nil {
+		return machine.Record{}, fmt.Errorf("decode the record: %w", err)
+	}
+	r := machine.Record{ID: j.ID, Machine: j.Machine, Request: machine.Request{ID: j.Request.ID, Spec: j.Request.Spec}}
+	if f := j.Request.Failure; f != nil {
+		kind, ok := kinds[f.Kind]
+		if !ok {
+			return machine.Record{}, fmt.Errorf("the record names the unknown outcome kind %q", f.Kind)
+		}
+		r.Request.Failure = machine.NewError(kind, "%s", f.Reason)
+	}
+	return r, nil
 }

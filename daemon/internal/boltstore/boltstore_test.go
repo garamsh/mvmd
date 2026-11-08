@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/garamsh/mvmd/daemon/internal/boltstore"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
@@ -66,7 +67,7 @@ func TestStore_RecordsSurviveCloseAndReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	got, err := db.Machines().Records(ctx)
+	got, err := db.Machines().Load(ctx)
 	require.NoError(t, err)
 	want := records()
 	require.Len(t, got, 2)
@@ -93,14 +94,14 @@ func TestStore_SaveReplacesAndRemoveDeletes(t *testing.T) {
 	require.NoError(t, db.Machines().Save(ctx, r))
 	r.Machine.State = machine.StateRunning
 	require.NoError(t, db.Machines().Save(ctx, r))
-	got, err := db.Machines().Records(ctx)
+	got, err := db.Machines().Load(ctx)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, machine.StateRunning, got[0].Machine.State)
 
 	require.NoError(t, db.Machines().Remove(ctx, "m"))
 	require.NoError(t, db.Machines().Remove(ctx, "m"), "removing an absent record succeeds")
-	got, err = db.Machines().Records(ctx)
+	got, err = db.Machines().Load(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -122,7 +123,7 @@ func TestStore_ACancelledContextWritesNothing(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, db.Machines().Save(ctx, records()[0]), context.Canceled)
 	require.ErrorIs(t, db.Deadline().Save(ctx, fencing.Record{}), context.Canceled)
-	got, err := db.Machines().Records(context.Background())
+	got, err := db.Machines().Load(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -135,6 +136,34 @@ func TestStore_OneProcessHoldsTheFile(t *testing.T) {
 	_, err = boltstore.Open(dir)
 	require.Error(t, err, "a second open of the same file does not wait for the first")
 	assert.FileExists(t, filepath.Join(dir, "mvmd.db"))
+}
+
+func TestStore_UndecodableRecordIsReturnedUnreadableBesideTheOthers(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := boltstore.Open(dir)
+	require.NoError(t, err)
+	require.NoError(t, db.Machines().Save(ctx, records()[0]))
+	require.NoError(t, db.Close())
+
+	raw, err := bolt.Open(filepath.Join(dir, "mvmd.db"), 0o600, nil)
+	require.NoError(t, err)
+	require.NoError(t, raw.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("machines")).Put([]byte("a-broken"), []byte("{not json"))
+	}))
+	require.NoError(t, raw.Close())
+
+	db, err = boltstore.Open(dir)
+	require.NoError(t, err)
+	defer db.Close()
+	got, err := db.Machines().Load(ctx)
+	require.NoError(t, err, "one bad record does not fail the load")
+	require.Len(t, got, 2)
+	assert.Equal(t, machine.MachineID("a-broken"), got[0].ID)
+	assert.NotEmpty(t, got[0].Unreadable)
+	assert.Nil(t, got[0].Machine)
+	assert.Empty(t, got[1].Unreadable)
+	assert.Equal(t, records()[0].Machine.ID, got[1].ID)
 }
 
 // The adapters satisfy the ports they serve.

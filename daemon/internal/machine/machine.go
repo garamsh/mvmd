@@ -106,6 +106,9 @@ type Record struct {
 	ID      MachineID
 	Machine *Machine
 	Request Request
+	// Unreadable is set by StateStore.Load on a record it could not decode, to
+	// the reason. Nothing else of such a record is known.
+	Unreadable string
 }
 
 // The outcome kinds of runtime-api.md §Calling rules. Success is a nil error.

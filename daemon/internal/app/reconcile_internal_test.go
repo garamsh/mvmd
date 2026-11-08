@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,12 +136,28 @@ func TestServe_FirstCallSeesTheReconciledDeadline(t *testing.T) {
 	}
 }
 
-// A reconciliation that fails serves nothing and reports why.
-func TestServe_FailedReconciliationServesNothing(t *testing.T) {
+// A state store that cannot be read serves nothing: the daemon does not start
+// with an empty memory of Machines it cannot load.
+func TestServe_FailedRestoreServesNothing(t *testing.T) {
 	cfg := config(t)
 	a, err := New(cfg)
 	require.NoError(t, err)
-	require.NoError(t, a.db.Close()) // the record cannot be read
+	require.NoError(t, a.db.Close()) // the records cannot be read
+	err = a.Serve(context.Background())
+	require.ErrorContains(t, err, "restore the Machines")
+	_, statErr := os.Lstat(cfg.Socket.Path)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+// A reconciliation that fails serves nothing and reports why.
+func TestServe_FailedReconciliationServesNothing(t *testing.T) {
+	cfg := config(t)
+	seed(t, cfg, func(now fencing.BootTime, id string) fencing.Record {
+		return fencing.Record{Expiry: now.Add(time.Hour), BootID: id, Length: time.Hour, Renewal: 1}
+	})
+	a, err := New(cfg)
+	require.NoError(t, err)
+	a.Substitutes.Supervisors.FailAt("live", errors.New("unreadable")) // the supervisors cannot be listed
 	err = a.Serve(context.Background())
 	require.ErrorContains(t, err, "reconcile the fencing deadline")
 	_, statErr := os.Lstat(cfg.Socket.Path)

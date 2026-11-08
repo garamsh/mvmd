@@ -117,6 +117,20 @@ func (s *service) Start(ctx context.Context, id machine.MachineID, process machi
 	return s.sup.Start(ctx, id, process, rec.Expiry)
 }
 
+// Live lists the Machines whose supervisors exist: the same listing the
+// deadline walks, so the lifecycle checks its recorded Machines against it.
+func (s *service) Live(ctx context.Context) ([]machine.MachineID, error) {
+	live, err := s.sup.Live(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]machine.MachineID, len(live))
+	for i, sv := range live {
+		ids[i] = sv.Machine
+	}
+	return ids, nil
+}
+
 // Terminate forces the Machine's supervisor and VMM down. It is not ordered
 // against renewals: a supervisor that is gone holds no expiry.
 func (s *service) Terminate(ctx context.Context, id machine.MachineID) error {

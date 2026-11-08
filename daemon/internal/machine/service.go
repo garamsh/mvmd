@@ -12,6 +12,11 @@ import (
 // Calls on one Machine run one at a time; calls on different Machines run
 // together, and share only short critical sections.
 type Service interface {
+	// Restore rebuilds the lifecycle from the State Store after a restart and
+	// reconciles its Machines against the live supervisors. The composition
+	// site calls it once, before the fencing Reconcile and before any other
+	// call.
+	Restore(ctx context.Context) error
 	// Create configures a Machine without booting it.
 	Create(ctx context.Context, id MachineID, request RequestID, spec Spec) error
 	Start(ctx context.Context, id MachineID) error
