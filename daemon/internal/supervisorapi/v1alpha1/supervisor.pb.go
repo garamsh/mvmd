@@ -202,7 +202,8 @@ func (x *Process) GetOverheadCpus() float64 {
 type StartRequest struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Process *Process               `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
-	// The user and group the Machine's VMM runs as. Zero means unspecified.
+	// The user and group the Machine's VMM runs as. The supervisor refuses a
+	// start where either is zero: root is never a Machine's user.
 	Uid           uint32 `protobuf:"varint,2,opt,name=uid,proto3" json:"uid,omitempty"`
 	Gid           uint32 `protobuf:"varint,3,opt,name=gid,proto3" json:"gid,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -431,7 +432,10 @@ type InspectResponse struct {
 	ProcessRunning bool `protobuf:"varint,3,opt,name=process_running,json=processRunning,proto3" json:"process_running,omitempty"`
 	// The release's name of the API it speaks, such as "v1alpha1". Absent from
 	// a release that did not report it.
-	ApiVersion    string `protobuf:"bytes,4,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
+	ApiVersion string `protobuf:"bytes,4,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
+	// The VMM process's id as the supervisor's own PID namespace numbers it, zero
+	// while no process runs. Absent from a release that did not report it.
+	VmmPid        int32 `protobuf:"varint,5,opt,name=vmm_pid,json=vmmPid,proto3" json:"vmm_pid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -494,6 +498,13 @@ func (x *InspectResponse) GetApiVersion() string {
 	return ""
 }
 
+func (x *InspectResponse) GetVmmPid() int32 {
+	if x != nil {
+		return x.VmmPid
+	}
+	return 0
+}
+
 var File_mvmd_supervisor_v1alpha1_supervisor_proto protoreflect.FileDescriptor
 
 const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
@@ -526,14 +537,15 @@ const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\x12expiry_boottime_ns\x18\x01 \x01(\x03R\x10expiryBoottimeNs\"A\n" +
 	"\x11SetExpiryResponse\x12,\n" +
 	"\x12expiry_boottime_ns\x18\x01 \x01(\x03R\x10expiryBoottimeNs\"\x10\n" +
-	"\x0eInspectRequest\"\xa8\x01\n" +
+	"\x0eInspectRequest\"\xc1\x01\n" +
 	"\x0fInspectResponse\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12,\n" +
 	"\x12expiry_boottime_ns\x18\x02 \x01(\x03R\x10expiryBoottimeNs\x12'\n" +
 	"\x0fprocess_running\x18\x03 \x01(\bR\x0eprocessRunning\x12\x1f\n" +
 	"\vapi_version\x18\x04 \x01(\tR\n" +
-	"apiVersion2\xb3\x02\n" +
+	"apiVersion\x12\x17\n" +
+	"\avmm_pid\x18\x05 \x01(\x05R\x06vmmPid2\xb3\x02\n" +
 	"\x11SupervisorService\x12X\n" +
 	"\x05Start\x12&.mvmd.supervisor.v1alpha1.StartRequest\x1a'.mvmd.supervisor.v1alpha1.StartResponse\x12d\n" +
 	"\tSetExpiry\x12*.mvmd.supervisor.v1alpha1.SetExpiryRequest\x1a+.mvmd.supervisor.v1alpha1.SetExpiryResponse\x12^\n" +

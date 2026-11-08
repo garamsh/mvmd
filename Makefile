@@ -48,7 +48,7 @@ format-apply:
 	$(call each_module, (cd "$$dir" && git ls-files --cached --others --exclude-standard -z -- '*.go' | xargs -0 gofmt -w))
 
 test:
-	$(call each_module, $(count_packages); (cd "$$dir" && go test ./...))
+	$(call each_module, $(count_packages); (cd "$$dir" && go test -v ./...))
 
 build:
 	$(call each_module, $(count_packages); (cd "$$dir" && go build ./...))

@@ -144,9 +144,20 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 
 	err = withClient(ctx, sock, func(ctx context.Context, c pb.SupervisorServiceClient) error {
-		_, err := c.Start(ctx, &pb.StartRequest{Process: toProcess(process)})
+		_, err := c.Start(ctx, &pb.StartRequest{Process: toProcess(process), Uid: process.UID, Gid: process.GID})
 		return err
 	})
+	if err == nil {
+		// The pidfd to the VMM is taken at the start: a started process that
+		// cannot be held is not a start.
+		var h *attached
+		if h, err = attach(ctx, sock); err == nil {
+			if h.vmmFD < 0 {
+				err = errors.New("the supervisor reported no VMM process after its start")
+			}
+			h.close()
+		}
+	}
 	if err != nil {
 		if termErr := a.Terminate(context.WithoutCancel(ctx), id); termErr != nil {
 			err = errors.Join(err, termErr)
@@ -168,16 +179,36 @@ func (a *Adapter) SetExpiry(ctx context.Context, id machine.MachineID, expiry fe
 	})
 }
 
+// Ended reports whether the Machine's supervisor and its VMM have both ended:
+// nobody listens on the socket, or the pidfds of both are readable. A Machine
+// whose VMM has not started, or whose supervisor does not report it, is judged
+// by the supervisor alone.
+func (a *Adapter) Ended(ctx context.Context, id machine.MachineID) (bool, error) {
+	dir, err := a.machineDir(id)
+	if err != nil {
+		return false, err
+	}
+	h, err := attach(ctx, filepath.Join(dir, socketName))
+	if isAbsent(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("reach the supervisor of %q: %w", id, err)
+	}
+	defer h.close()
+	return ended(h.supFD) && (h.vmmFD < 0 || ended(h.vmmFD)), nil
+}
+
 // Terminate implements fencing.Supervisors. It kills the supervisor through a
-// pidfd taken from its socket and returns once the supervisor and every process
-// of its namespace have ended.
-func (a *Adapter) Terminate(_ context.Context, id machine.MachineID) error {
+// pidfd taken from its socket and returns once the supervisor, its VMM and
+// every process of its namespace have ended.
+func (a *Adapter) Terminate(ctx context.Context, id machine.MachineID) error {
 	dir, err := a.machineDir(id)
 	if err != nil {
 		return err
 	}
 	sock := filepath.Join(dir, socketName)
-	pid, err := peerPID(sock)
+	h, err := attach(ctx, sock)
 	if isAbsent(err) {
 		_ = os.Remove(sock)
 		return nil
@@ -185,22 +216,19 @@ func (a *Adapter) Terminate(_ context.Context, id machine.MachineID) error {
 	if err != nil {
 		return fmt.Errorf("reach the supervisor of %q: %w", id, err)
 	}
-	ns, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/pid", pid))
-	if err != nil {
-		return fmt.Errorf("read the namespace of the supervisor of %q: %w", id, err)
-	}
-	pidfd, err := unix.PidfdOpen(pid, 0)
-	if err != nil {
-		return fmt.Errorf("open a pidfd to the supervisor of %q: %w", id, err)
-	}
-	defer unix.Close(pidfd)
-	if err := unix.PidfdSendSignal(pidfd, unix.SIGKILL, nil, 0); err != nil && !errors.Is(err, unix.ESRCH) {
+	defer h.close()
+	if err := unix.PidfdSendSignal(h.supFD, unix.SIGKILL, nil, 0); err != nil && !errors.Is(err, unix.ESRCH) {
 		return fmt.Errorf("kill the supervisor of %q: %w", id, err)
 	}
-	if err := waitReadable(pidfd, endTimeout); err != nil {
+	if err := waitReadable(h.supFD, endTimeout); err != nil {
 		return fmt.Errorf("wait for the supervisor of %q to end: %w", id, err)
 	}
-	if err := waitNamespaceEmpty(ns, endTimeout); err != nil {
+	if h.vmmFD >= 0 {
+		if err := waitReadable(h.vmmFD, endTimeout); err != nil {
+			return fmt.Errorf("wait for the VMM of %q to end: %w", id, err)
+		}
+	}
+	if err := waitNamespaceEmpty(h.ns, endTimeout); err != nil {
 		return fmt.Errorf("wait for the namespace of %q to empty: %w", id, err)
 	}
 	_ = os.Remove(sock)

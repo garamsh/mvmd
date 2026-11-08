@@ -46,7 +46,8 @@ message Process {
 
 message StartRequest {
   Process process = 1;
-  // The user and group the Machine's VMM runs as. Zero means unspecified.
+  // The user and group the Machine's VMM runs as. The supervisor refuses a
+  // start where either is zero: root is never a Machine's user.
   uint32 uid = 2;
   uint32 gid = 3;
 }
@@ -74,4 +75,7 @@ message InspectResponse {
   // The release's name of the API it speaks, such as "v1alpha1". Absent from
   // a release that did not report it.
   string api_version = 4;
+  // The VMM process's id as the supervisor's own PID namespace numbers it, zero
+  // while no process runs. Absent from a release that did not report it.
+  int32 vmm_pid = 5;
 }

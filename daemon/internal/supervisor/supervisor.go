@@ -149,6 +149,9 @@ func (s *server) Start(_ context.Context, req *pb.StartRequest) (*pb.StartRespon
 	if p.GetExecutable() == "" {
 		return nil, status.Error(codes.InvalidArgument, "the process has no executable")
 	}
+	if req.GetUid() == 0 || req.GetGid() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "the Machine's user and group must not be root (uid and gid nonzero)")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
@@ -191,12 +194,16 @@ func (s *server) Inspect(context.Context, *pb.InspectRequest) (*pb.InspectRespon
 	if s.started {
 		running = unix.Kill(s.vmm, 0) == nil
 	}
-	return &pb.InspectResponse{
+	resp := &pb.InspectResponse{
 		MachineId:        s.cfg.Machine,
 		ExpiryBoottimeNs: s.expiry,
 		ProcessRunning:   running,
 		ApiVersion:       APIVersion,
-	}, nil
+	}
+	if running {
+		resp.VmmPid = int32(s.vmm)
+	}
+	return resp, nil
 }
 
 // Main is the binary: it reads the flags mvmd starts it with and runs until

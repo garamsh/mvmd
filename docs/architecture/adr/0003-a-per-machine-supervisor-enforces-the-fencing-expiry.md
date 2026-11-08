@@ -95,3 +95,7 @@ Each Machine whose VMM process exists runs under its own supervisor, `mvmd-super
 - Renewal latency at the node's Machine density approaches the deadline lengths clients choose.
 - The range of supervisor releases mvmd must speak to keeps widening, because Machines are rarely restarted.
 - δ measured under load is of the order of the deadline's margin, so a real-time policy and locked memory are not what bounds it.
+
+## Errata
+
+- 2026-11-09. The decision stands. §Consequences, Privileges and kernel, lists `CAP_SYS_ADMIN` as what mvmd needs, for the supervisor's PID namespace. That was incomplete: to confirm that a Machine's processes have ended, mvmd reads `/proc/<pid>/ns/pid` of each process of the host, and the kernel allows that for a process of another user only to a reader with ptrace access, which needs `CAP_SYS_PTRACE` (`proc(5)`, `/proc/pid/ns/`, and `ptrace(2)`, ptrace access mode checks). It was found while implementing the supervisor (#44). mvmd therefore needs `CAP_SYS_ADMIN` and `CAP_SYS_PTRACE`.

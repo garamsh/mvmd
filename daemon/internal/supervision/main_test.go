@@ -51,6 +51,7 @@ func TestMain(m *testing.M) {
 		defer os.RemoveAll(dir)
 		supervisorBin = buildSupervisor(dir)
 	}
+	describeHost()
 	os.Exit(m.Run())
 }
 
@@ -139,7 +140,25 @@ func helper(args []string) {
 }
 
 func vmmProcess(work string) machine.ProcessDescription {
-	return machine.ProcessDescription{Executable: os.Args[0], Args: []string{"__vmm__", work}}
+	return machine.ProcessDescription{Executable: os.Args[0], Args: []string{"__vmm__", work}, UID: 65534, GID: 65534}
+}
+
+// describeHost prints the kernel and the CPU the measured times come from.
+func describeHost() {
+	var u unix.Utsname
+	_ = unix.Uname(&u)
+	cpu := "unknown"
+	if raw, err := os.ReadFile("/proc/cpuinfo"); err == nil {
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(line, "model name") {
+				if _, v, ok := strings.Cut(line, ":"); ok {
+					cpu = strings.TrimSpace(v)
+				}
+				break
+			}
+		}
+	}
+	fmt.Printf("host: kernel %s, cpu %s\n", unix.ByteSliceToString(u.Release[:]), cpu)
 }
 
 func boottime(t testing.TB) int64 {

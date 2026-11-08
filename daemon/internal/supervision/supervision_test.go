@@ -257,6 +257,51 @@ func TestStart_RefusesAPassedExpiryAndNoExpiry(t *testing.T) {
 	_ = cmd.Wait()
 }
 
+// The supervisor never takes root as the Machine's user; the control is the
+// nonzero user every other test starts with.
+func TestStart_RefusesRootAsTheMachinesUser(t *testing.T) {
+	n := newNode(t)
+	for name, user := range map[string][2]uint32{"uid 0": {0, 65534}, "gid 0": {65534, 0}, "both 0": {0, 0}} {
+		work := filepath.Join(n.dir, "work-"+strings.ReplaceAll(name, " ", ""))
+		require.NoError(t, os.MkdirAll(work, 0o700))
+		p := vmmProcess(work)
+		p.UID, p.GID = user[0], user[1]
+		err := n.a.Start(ctx, "m", p, fencing.BootTime(boottime(t)+int64(time.Hour)))
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "root", name)
+		_, statErr := os.Stat(filepath.Join(work, "vmm.pid"))
+		assert.ErrorIs(t, statErr, os.ErrNotExist, "%s: no VMM process was started", name)
+		assert.Empty(t, processes("--machine m "), "%s: the supervisor that refused is gone", name)
+	}
+	_, _ = n.run(t, "m", time.Hour)
+}
+
+// mvmd holds a pidfd to the VMM as well as to the supervisor: Ended is false
+// while both run, a new adapter finds the same, and Terminate returns only once
+// the VMM has gone too.
+func TestVMMPidfd_BothAreHeldAndEndedTogether(t *testing.T) {
+	n := newNode(t)
+	_, ns := n.run(t, "m", time.Hour)
+	vmm := processes("__vmm__", filepath.Join(n.dir, "work-m"))
+	require.Len(t, vmm, 1)
+
+	end, err := n.a.Ended(ctx, "m")
+	require.NoError(t, err)
+	assert.False(t, end, "control: both are running")
+	again, err := supervision.New(supervision.Config{Binary: supervisorBin, Dir: n.dir})
+	require.NoError(t, err)
+	end, err = again.Ended(ctx, "m")
+	require.NoError(t, err)
+	assert.False(t, end, "a new adapter finds both running")
+
+	require.NoError(t, again.Terminate(ctx, "m"))
+	assert.Empty(t, processes("__vmm__", filepath.Join(n.dir, "work-m")), "the VMM has ended when Terminate returns")
+	assert.Empty(t, members(ns))
+	end, err = again.Ended(ctx, "m")
+	require.NoError(t, err)
+	assert.True(t, end)
+}
+
 func TestTerminate_ReturnsOnceTheNamespaceIsEmpty(t *testing.T) {
 	n := newNode(t)
 	_, ns := n.run(t, "m", time.Hour)
