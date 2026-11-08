@@ -38,14 +38,14 @@ mvmd defines and versions it. Each operation states its idempotency and the stat
 
 mvmd owns the actual VM state on its node and the snapshot and image caches; they are not exposed outside it (#2 §3 state ownership table). Desired state, binding and epochs are its client's.
 
-- VMs survive an mvmd restart. The VMM runs as a separate process and mvmd reattaches through the Driver's `List` (#2 §5 design principle 4; [driver.md](./driver.md)).
+- VMs survive an mvmd restart, until the recorded fencing expiry. The VMM runs as a separate process and mvmd reattaches through the Driver's `List` (#2 §5 design principle 4; [driver.md](./driver.md)).
 - mvmd keeps its own state durably on local storage and continues after a restart (#2 §3 stability structure, the node as the reference for actual state).
-- Running Machines keep running while the control plane or the client is down, until the fencing deadline passes (#2 §3 stability structure, static stability).
+- Running Machines keep running while the control plane or the client is down, until the fencing deadline passes, whether or not the mvmd process is running (#2 §3 stability structure, static stability).
 - Lease, epochs, cells and the global layer belong to gaon.
 
 ## Fencing
 
-If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply). How the client sets and renews it, and what holds across an mvmd restart, is in [runtime-api.md](./runtime-api.md) §Fencing deadline.
+If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply). How the client sets and renews it, and what holds across an mvmd restart, is in [runtime-api.md](./runtime-api.md) §Fencing deadline. The expiry is enforced whether or not the mvmd process is running: a VM never runs past a recorded expiry.
 
 ## Invariants
 
@@ -70,4 +70,4 @@ These are #2 §6 questions inside mvmd's scope, as they apply to the runtime. Th
 - **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume.
 - **Network enforcement (item 10):** the technology that enforces external traffic policy on the node (nftables, eBPF and others are named in #2). The fail-closed start rule above holds whichever is chosen.
 - **Density and restore numbers (item 13):** the fencing deadline's default, restore time and the latency right after a restore, and idle and active memory per node. None is measured; a value is set only after the single-node prototype of #2 §6 measures it.
-- **Runtime API wire encoding and transport, and fencing while mvmd is down:** see [runtime-api.md](./runtime-api.md) §Open questions.
+- **Runtime API wire encoding and transport, and the mechanism that enforces the expiry while mvmd is not running:** see [runtime-api.md](./runtime-api.md) §Open questions.
