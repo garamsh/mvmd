@@ -38,14 +38,25 @@ mvmd defines and versions it. Each operation states its idempotency and the stat
 
 mvmd owns the actual VM state on its node and the snapshot and image caches; they are not exposed outside it (#2 §3 state ownership table). Desired state, binding and epochs are its client's.
 
-- VMs survive an mvmd restart, until the recorded fencing expiry. The VMM runs as a separate process and mvmd reattaches through the Driver's `List` (#2 §5 design principle 4; [driver.md](./driver.md)).
+- VMs survive an mvmd restart, until the recorded fencing expiry. The VMM runs as a separate process under its supervisor (§Fencing). Before serving any call, mvmd reattaches to each supervisor through its socket in the Machine's state directory, then to the VMMs through the Driver's `List` (#2 §5 design principle 4; [driver.md](./driver.md)).
 - mvmd keeps its own state durably on local storage and continues after a restart (#2 §3 stability structure, the node as the reference for actual state).
 - Running Machines keep running while the control plane or the client is down, until the fencing deadline passes, whether or not the mvmd process is running (#2 §3 stability structure, static stability).
 - Lease, epochs, cells and the global layer belong to gaon.
 
 ## Fencing
 
-If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply). How the client sets and renews it, and what holds across an mvmd restart, is in [runtime-api.md](./runtime-api.md) §Fencing deadline. The expiry is enforced whether or not the mvmd process is running: a VM never runs past a recorded expiry.
+If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply). How the client sets and renews it, and what holds across an mvmd restart, is in [runtime-api.md](./runtime-api.md) §Fencing deadline. The expiry is enforced whether or not the mvmd process is running: a VM runs at most δ past a recorded expiry, where δ is the time the enforcing process takes to end the VMM. The guarantee covers failures of mvmd, of the enforcing process and of the host, not a privileged host process acting on the enforcing process, and the client's margin covers δ ([runtime-api.md](./runtime-api.md) §Fencing deadline).
+
+How it is enforced ([ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md)):
+
+- **A supervisor per Machine.** Every Machine whose VMM process exists runs under its own `mvmd-supervisor` process. The supervisor is the init process of a PID namespace and starts the VMM inside it, so the kernel kills the VMM and everything it started when the supervisor ends, however it ends.
+- **No VMM without an expiry.** mvmd gives the supervisor the current expiry as part of its start, and the supervisor refuses to start the VMM without one or with one that has passed. Each start and each restore is a new supervisor.
+- **The supervisor counts the expiry.** It holds the expiry as an absolute `CLOCK_BOOTTIME` value, in mvmd's time namespace, and ends its namespace when the clock reaches it. It runs under a real-time scheduling policy that its VMM does not inherit, with its memory locked. It depends on nothing of mvmd's while it counts.
+- **mvmd counts it too.** While running, mvmd kills every supervisor through its pidfd at the expiry.
+- **Renewal reaches every supervisor before it is acknowledged.** An extension is recorded and then passed on; a shortening is passed on and then recorded, and a supervisor that does not take a shortening is killed first. No supervisor ever holds an expiry later than the recorded one.
+- **Reboot.** The record carries the host's `boot_id`; a different one at start means no supervisor or VM survived, and the deadline is not armed.
+- **The supervisor runs outside mvmd's cgroup**, so stopping mvmd under a service manager does not stop it.
+- **Bound.** In each failure case the ADR lists, mvmd dying while it starts a Machine among them, a VM runs past the expiry for at most δ, the time the supervisor takes to wake and end its namespace. δ is not yet measured.
 
 ## Invariants
 
@@ -60,6 +71,7 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 ## Rationale
 
 - The scope and the boundary: [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md).
+- The enforcement mechanism, the candidates rejected and the bound in each failure case: [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md).
 - Why the boundary sits at a runtime API and not at gaon's resource API: the original requirement of swappable components behind interfaces, and a one-way dependency (#2 §3 principle 3).
 
 ## Open questions
@@ -70,4 +82,6 @@ These are #2 §6 questions inside mvmd's scope, as they apply to the runtime. Th
 - **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume.
 - **Network enforcement (item 10):** the technology that enforces external traffic policy on the node (nftables, eBPF and others are named in #2). The fail-closed start rule above holds whichever is chosen.
 - **Density and restore numbers (item 13):** the fencing deadline's default, restore time and the latency right after a restore, and idle and active memory per node. None is measured; a value is set only after the single-node prototype of #2 §6 measures it.
-- **Runtime API wire encoding and transport, and the mechanism that enforces the expiry while mvmd is not running:** see [runtime-api.md](./runtime-api.md) §Open questions.
+- **Runtime API wire encoding and transport:** see [runtime-api.md](./runtime-api.md) §Open questions.
+- **The time a supervisor takes to end its namespace at the expiry**, under load and after a suspend; measured with the prototype numbers above.
+- **How many earlier releases' supervisors mvmd must speak to**, since a supervisor outlives an mvmd upgrade until its Machine is next started.

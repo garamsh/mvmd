@@ -12,7 +12,8 @@ Checked against garamsh/discussions#2 as read on 2026-11-08, §5 (discussioncomm
 - **Snapshot compatibility (principle 2).** A snapshot records the Driver name and version, the CPU model and the guest kernel. A snapshot does not move to another VMM, and the contract says so.
 - **Idempotency and post-failure state (principle 3).** Create-type calls carry a request ID, and each operation defines the state a VM is left in when it fails.
 - **Restart (principle 4).** The VMM runs as its own process; mvmd reattaches to running VMs after its own restart through `List`.
-- **In-process first (principle 5).** Drivers are Go implementations inside the daemon, with messages shaped so that they can move to gRPC. An out-of-process Driver protocol, in the role containerd's shim API plays, is introduced when the first out-of-process VMM, such as an in-house one, arrives (decision-change reply).
+- **The Driver does not start the VMM process.** For start and restore it describes the process to run, and mvmd starts it under the Machine's supervisor, which enforces the fencing expiry ([runtime.md](./runtime.md) §Fencing). Every process a Machine needs runs under that supervisor, and none runs under a real-time scheduling policy. The Driver never sees the expiry, so a new VMM is fenced without fencing code of its own ([ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md)).
+- **In-process first (principle 5).** Drivers are Go implementations inside the daemon, with messages shaped so that they can move to gRPC. An out-of-process Driver protocol, in the role containerd's shim API plays, is introduced when the first out-of-process VMM, such as an in-house one, arrives (decision-change reply). It keeps the VMM process started by the supervisor.
 - **Other driven ports.** Disk, Network, Snapshot Store and Image Store are interfaces with one implementation each at first (#2 §5, first implementation scope). They are ports in [structure.md](./structure.md) §Ports.
 
 ## VMM support for resizing
@@ -30,6 +31,7 @@ Resize operations are optional capabilities because of this difference.
 
 - Why Drivers are the one thing kept swappable, and why there is no container runtime option: #2 §5, isolation unit and runtime choice; [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md).
 - Why two implementations: an abstraction with one implementation cannot be verified (#2 §5, first implementation scope).
+- Why the Driver describes the VMM process instead of starting it: [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md).
 
 ## Open questions
 
