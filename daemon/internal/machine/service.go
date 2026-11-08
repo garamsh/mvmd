@@ -9,7 +9,8 @@ import (
 
 // Service is what the Machine lifecycle offers a driving adapter. Every call
 // returns nil on success, or an *Error whose kind is one of the Err values.
-// Calls are serialized: one runs at a time.
+// Calls on one Machine run one at a time; calls on different Machines run
+// together, and share only short critical sections.
 type Service interface {
 	// Create configures a Machine without booting it.
 	Create(ctx context.Context, id MachineID, request RequestID, spec Spec) error
@@ -36,8 +37,15 @@ type service struct {
 	store      StateStore
 	permitter  StartPermitter
 
+	// mu guards the maps below and every record's Machine pointer, and is held
+	// only for map and pointer work, never across a port call. A Machine's
+	// value is replaced and never changed, so a reader holding mu sees a whole
+	// one.
 	mu      sync.Mutex
 	records map[MachineID]*Record
+	locks   map[MachineID]*sync.Mutex
+	// held maps each disk to its one holder (ADR 0009).
+	held map[DiskID]MachineID
 }
 
 // NewService returns the lifecycle over the given ports.
@@ -51,16 +59,46 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		store:      store,
 		permitter:  permitter,
 		records:    make(map[MachineID]*Record),
+		locks:      make(map[MachineID]*sync.Mutex),
+		held:       make(map[DiskID]MachineID),
 	}
+}
+
+// lock serializes the calls on one Machine and returns the unlock. A Machine
+// the node has never seen is serialized too, so two creates of one identifier
+// do not interleave. The lock of a deleted identifier is kept.
+func (s *service) lock(id MachineID) func() {
+	s.mu.Lock()
+	l, ok := s.locks[id]
+	if !ok {
+		l = new(sync.Mutex)
+		s.locks[id] = l
+	}
+	s.mu.Unlock()
+	l.Lock()
+	return l.Unlock
+}
+
+func (s *service) lookup(id MachineID) (*Record, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.records[id]
+	return rec, ok
 }
 
 // machine returns the record of an existing Machine.
 func (s *service) machine(id MachineID) (*Record, error) {
-	rec, ok := s.records[id]
+	rec, ok := s.lookup(id)
 	if !ok || rec.Machine == nil {
 		return nil, fail(ErrNotFound, "no Machine %q", id)
 	}
 	return rec, nil
+}
+
+func (s *service) setMachine(rec *Record, m *Machine) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec.Machine = m
 }
 
 // commit durably records next and, only then, makes it the Machine's state.
@@ -69,7 +107,7 @@ func (s *service) commit(ctx context.Context, rec *Record, next Machine) error {
 	if err := s.store.Save(ctx, Record{ID: rec.ID, Machine: &next, Request: rec.Request}); err != nil {
 		return err
 	}
-	rec.Machine = &next
+	s.setMachine(rec, &next)
 	return nil
 }
 
@@ -79,7 +117,7 @@ func (s *service) unrecorded(rec *Record, err error) error {
 	faulted := rec.Machine.clone()
 	faulted.State = StateFaulted
 	faulted.FailureReason = "the Machine's state could not be recorded: " + err.Error()
-	rec.Machine = &faulted
+	s.setMachine(rec, &faulted)
 	return fail(ErrFailed, "%s", faulted.FailureReason)
 }
 
@@ -90,22 +128,37 @@ func (s *service) requireNotFaulted(m Machine, call string) error {
 	return nil
 }
 
-// holder returns the Machine holding a disk, if any does.
-func (s *service) holder(disk DiskID) (MachineID, bool) {
-	for _, rec := range s.records {
-		if rec.Machine != nil && rec.Machine.holds(disk) {
-			return rec.ID, true
+// claim makes id the holder of the disks, all or none, and reports the first
+// disk another holder has, with that holder. A disk its claimant already holds
+// is a conflict too: the caller decides what a repeat means.
+func (s *service) claim(id MachineID, disks ...DiskID) (taken DiskID, holder MachineID, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range disks {
+		if h, held := s.held[d]; held {
+			return d, h, false
 		}
 	}
-	return "", false
+	for _, d := range disks {
+		s.held[d] = id
+	}
+	return "", "", true
+}
+
+func (s *service) release(disks ...DiskID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range disks {
+		delete(s.held, d)
+	}
 }
 
 func (s *service) Inspect(ctx context.Context, id MachineID) (Machine, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rec, err := s.machine(id)
-	if err != nil {
-		return Machine{}, err
+	rec, ok := s.records[id]
+	if !ok || rec.Machine == nil {
+		return Machine{}, fail(ErrNotFound, "no Machine %q", id)
 	}
 	m := rec.Machine.clone()
 	m.Driver = s.driver.Info()

@@ -19,6 +19,8 @@ type Driver struct {
 	grace   time.Duration
 	devices map[machine.MachineID][]machine.DiskID
 	sizes   map[machine.MachineID]machine.Resources
+	hold    chan struct{}
+	entered chan struct{}
 }
 
 // NewDriver returns a Driver reporting the given name, version and
@@ -55,8 +57,23 @@ func (d *Driver) Boot(_ context.Context, id machine.MachineID) error {
 func (d *Driver) Shutdown(_ context.Context, _ machine.MachineID, grace time.Duration) error {
 	d.mu.Lock()
 	d.grace = grace
+	hold, entered := d.hold, d.entered
 	d.mu.Unlock()
+	if hold != nil {
+		close(entered)
+		<-hold
+	}
 	return d.enter("shutdown")
+}
+
+// HoldShutdown makes the next Shutdown wait, as a guest does for its grace
+// period. entered is closed when a Shutdown is waiting; release lets it return.
+func (d *Driver) HoldShutdown() (entered <-chan struct{}, release func()) {
+	hold, ch := make(chan struct{}), make(chan struct{})
+	d.mu.Lock()
+	d.hold, d.entered = hold, ch
+	d.mu.Unlock()
+	return ch, func() { close(hold) }
 }
 
 // Pause implements machine.Driver.

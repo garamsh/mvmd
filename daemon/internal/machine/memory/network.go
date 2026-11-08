@@ -9,8 +9,8 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// Network is an in-memory machine.Network. Its steps are "allocate", "apply"
-// and "release".
+// Network is an in-memory machine.Network. Its steps are "allocate", "apply",
+// "withdraw" and "release".
 type Network struct {
 	Failures
 
@@ -58,6 +58,17 @@ func (n *Network) Apply(_ context.Context, id machine.MachineID, policy machine.
 	return "tap-" + string(id), nil
 }
 
+// Withdraw implements machine.Network.
+func (n *Network) Withdraw(_ context.Context, id machine.MachineID) error {
+	if err := n.enter("withdraw"); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	delete(n.applied, id)
+	n.mu.Unlock()
+	return nil
+}
+
 // Release implements machine.Network.
 func (n *Network) Release(_ context.Context, id machine.MachineID) error {
 	if err := n.enter("release"); err != nil {
@@ -78,7 +89,7 @@ func (n *Network) Allocated(id machine.MachineID) bool {
 	return ok
 }
 
-// Applied returns the policy committed at the Machine's tap, if any.
+// Applied returns the policy committed at the Machine's tap, if a tap exists.
 func (n *Network) Applied(id machine.MachineID) (machine.NetworkPolicy, bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()

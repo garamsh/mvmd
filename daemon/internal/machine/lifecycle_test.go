@@ -552,3 +552,88 @@ func TestInspectAndList_ReadWithoutChangingState(t *testing.T) {
 	assert.Equal(t, []machine.MachineID{"a", "b", "c"}, ids)
 	assert.Equal(t, machine.StateRunning, first[2].State)
 }
+
+// ADR 0011: the tap exists while the VMM process exists, and goes after it.
+func TestNetwork_RemovedWhenNoVMMHoldsIt(t *testing.T) {
+	ctx := context.Background()
+	requireNoTap := func(t *testing.T, e *env) {
+		t.Helper()
+		_, applied := e.net.Applied("m")
+		assert.False(t, applied, "the Network port still holds a tap for the Machine")
+		assert.True(t, e.net.Allocated("m"), "the addresses are the Machine's until delete")
+	}
+
+	failures := []struct {
+		name string
+		fail func(*env)
+	}{
+		{"the Driver cannot describe the process", func(e *env) { e.driver.FailAt("describe", errBoom) }},
+		{"the supervisor cannot start the process", func(e *env) { e.sup.FailAt("start", errBoom) }},
+		{"the boot fails", func(e *env) { e.driver.FailAt("boot", errBoom) }},
+	}
+	for _, tt := range failures {
+		t.Run("a start fails when "+tt.name, func(t *testing.T) {
+			e := newEnv()
+			e.created(t, "m")
+			tt.fail(e)
+			requireKind(t, e.svc.Start(ctx, "m"), machine.ErrFailed)
+			assert.Equal(t, 1, e.net.Calls("apply"), "the policy was applied before the failure")
+			requireNoTap(t, e)
+		})
+	}
+
+	t.Run("a start that succeeds keeps the tap", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateRunning)
+		_, applied := e.net.Applied("m")
+		assert.True(t, applied)
+	})
+
+	t.Run("a stop removes the tap once the VMM has ended", func(t *testing.T) {
+		for _, from := range []machine.State{machine.StateRunning, machine.StatePaused, machine.StateFaulted} {
+			e := newEnv()
+			e.inState(t, "m", from)
+			require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+			requireNoTap(t, e)
+		}
+	})
+
+	t.Run("a stop that never began keeps the tap with the running VMM", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateRunning)
+		e.sup.FailAt("terminate", machine.ErrNotAttempted)
+		requireKind(t, e.svc.Stop(ctx, "m", time.Second), machine.ErrFailed)
+		_, applied := e.net.Applied("m")
+		assert.True(t, applied)
+	})
+
+	t.Run("a tap that cannot be removed after the VMM ended leaves Faulted, and a stop retries it", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateRunning)
+		e.net.FailAt("withdraw", errBoom)
+		requireKind(t, e.svc.Stop(ctx, "m", time.Second), machine.ErrFailed)
+		e.requireState(t, "m", machine.StateFaulted)
+
+		e.net.Heal("withdraw")
+		require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+		e.requireState(t, "m", machine.StateStopped)
+		requireNoTap(t, e)
+	})
+
+	t.Run("a failed boot whose tap cannot be removed is Faulted", func(t *testing.T) {
+		e := newEnv()
+		e.created(t, "m")
+		e.driver.FailAt("boot", errBoom)
+		e.net.FailAt("withdraw", errBoom)
+		requireKind(t, e.svc.Start(ctx, "m"), machine.ErrFailed)
+		e.requireState(t, "m", machine.StateFaulted)
+	})
+
+	t.Run("a start restarts the tap after a stop", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateStopped)
+		require.NoError(t, e.svc.Start(ctx, "m"))
+		_, applied := e.net.Applied("m")
+		assert.True(t, applied)
+	})
+}

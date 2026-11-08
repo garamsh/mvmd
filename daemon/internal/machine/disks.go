@@ -11,8 +11,7 @@ func hot(m Machine) bool {
 }
 
 func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -34,19 +33,20 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		}
 		return fail(ErrFailed, "locate disk %q: %v", a.Disk, err)
 	}
-	// One holder per disk (ADR 0009): a disk another Machine holds, as writer
-	// or as reader, takes no second holder.
-	if holder, held := s.holder(a.Disk); held {
-		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", a.Disk, holder)
-	}
 	if hot(m) && !s.driver.Info().has(CapabilityDiskHotplug) {
 		return fail(ErrUnsupported, "the Driver cannot attach a disk to a %s Machine", m.State)
+	}
+	// One holder per disk (ADR 0009): a disk another Machine holds, as writer
+	// or as reader, takes no second holder.
+	if _, holder, ok := s.claim(id, a.Disk); !ok {
+		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", a.Disk, holder)
 	}
 
 	// The holder is recorded durably before a Driver is asked to attach.
 	next := m.clone()
 	next.Disks = append(next.Disks, a)
 	if err := s.commit(ctx, rec, next); err != nil {
+		s.release(a.Disk)
 		return fail(ErrFailed, "record the holder of disk %q: %v", a.Disk, err)
 	}
 	if hot(m) {
@@ -55,6 +55,7 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 			if cerr := s.commit(ctx, rec, m); cerr != nil {
 				return s.unrecorded(rec, cerr)
 			}
+			s.release(a.Disk)
 			return fail(ErrFailed, "attach disk %q: %v", a.Disk, err)
 		}
 	}
@@ -62,8 +63,7 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 }
 
 func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -96,12 +96,12 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 		}
 		return fail(ErrFailed, "record the release of disk %q: %v", disk, err)
 	}
+	s.release(disk)
 	return nil
 }
 
 func (s *service) SetResources(ctx context.Context, id MachineID, target Resources) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err

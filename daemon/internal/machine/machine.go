@@ -158,8 +158,3 @@ func (m Machine) attachment(disk DiskID) (DiskAttachment, bool) {
 	}
 	return DiskAttachment{}, false
 }
-
-func (m Machine) holds(disk DiskID) bool {
-	_, attached := m.attachment(disk)
-	return attached || m.RootDisk == disk
-}

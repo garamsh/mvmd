@@ -20,6 +20,10 @@ type Network interface {
 	// Apply creates the Machine's tap if absent and commits the policy at it,
 	// fail-closed, returning the tap's name. Repeating it changes nothing.
 	Apply(ctx context.Context, id MachineID, policy NetworkPolicy) (tap string, err error)
+	// Withdraw removes the tap and its rules, keeping the addresses. It is
+	// called once the Machine's VMM process has ended or never began.
+	// Withdrawing a Machine with no tap succeeds.
+	Withdraw(ctx context.Context, id MachineID) error
 	// Release removes the tap if present and frees the addresses. Releasing a
 	// Machine that holds nothing succeeds.
 	Release(ctx context.Context, id MachineID) error

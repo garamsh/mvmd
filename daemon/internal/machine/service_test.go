@@ -172,3 +172,53 @@ func TestService_ConcurrentCallsAreSerialized(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, all, 42)
 }
+
+// A Stop waiting out a long grace period holds only its own Machine.
+func TestService_LongStopGraceDoesNotBlockOtherMachines(t *testing.T) {
+	e := newEnv()
+	ctx := context.Background()
+	e.inState(t, "a", machine.StateRunning)
+	e.created(t, "b")
+	entered, release := e.driver.HoldShutdown()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- e.svc.Stop(ctx, "a", time.Hour) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stop never reached the guest")
+	}
+
+	others := make(chan error, 1)
+	go func() {
+		if _, err := e.svc.Inspect(ctx, "b"); err != nil {
+			others <- err
+			return
+		}
+		if _, err := e.svc.Inspect(ctx, "a"); err != nil {
+			others <- err
+			return
+		}
+		if _, err := e.svc.List(ctx); err != nil {
+			others <- err
+			return
+		}
+		if err := e.svc.Start(ctx, "b"); err != nil {
+			others <- err
+			return
+		}
+		others <- e.svc.Create(ctx, "c", "r", baseSpec())
+	}()
+	select {
+	case err := <-others:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("calls on other Machines waited for the stop's grace period")
+	}
+	e.requireState(t, "b", machine.StateRunning)
+	e.requireState(t, "a", machine.StateRunning) // still stopping
+
+	release()
+	require.NoError(t, <-stopped)
+	e.requireState(t, "a", machine.StateStopped)
+}

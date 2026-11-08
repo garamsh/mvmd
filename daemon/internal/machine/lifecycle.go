@@ -8,11 +8,10 @@ import (
 )
 
 func (s *service) Create(ctx context.Context, id MachineID, request RequestID, spec Spec) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	spec = spec.clone()
 
-	if rec, ok := s.records[id]; ok {
+	if rec, ok := s.lookup(id); ok {
 		if rec.Request.ID == request && rec.Request.Spec.equal(spec) {
 			if rec.Request.Failure != nil {
 				return rec.Request.Failure
@@ -35,6 +34,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		}
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "locate image: %v", err))
 	}
+	var disks []DiskID
 	for _, a := range spec.Disks {
 		if _, err := s.disks.Locate(ctx, a.Disk); err != nil {
 			if errors.Is(err, ErrDiskAbsent) {
@@ -42,27 +42,34 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 			}
 			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "locate disk %q: %v", a.Disk, err))
 		}
-		if holder, held := s.holder(a.Disk); held {
-			return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", a.Disk, holder)
-		}
+		disks = append(disks, a.Disk)
+	}
+	if taken, holder, ok := s.claim(id, disks...); !ok {
+		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", taken, holder)
 	}
 
 	identity, err := s.network.Allocate(ctx, id)
 	if err != nil {
+		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))
 	}
 	root, err := s.disks.CreateRoot(ctx, id, spec.RootDiskBytes)
 	if err != nil {
 		reason := fmt.Sprintf("create root disk: %v", err)
+		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", reason)))
 	}
+	s.claim(id, root) // a root disk is new, so no one else holds it
 	m := Machine{ID: id, State: StateCreated, Spec: spec, RootDisk: root, Network: identity}
 	rec := &Record{ID: id, Machine: &m, Request: Request{ID: request, Spec: spec}}
 	if err := s.store.Save(ctx, *rec); err != nil {
 		reason := fmt.Sprintf("record the Machine: %v", err)
+		s.release(append(disks, root)...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, reason)))
 	}
+	s.mu.Lock()
 	s.records[id] = rec
+	s.mu.Unlock()
 	return nil
 }
 
@@ -110,7 +117,9 @@ func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, rea
 // returns the same outcome, and returns it. No Machine exists after it.
 func (s *service) failCreate(ctx context.Context, id MachineID, request RequestID, spec Spec, failure *Error) error {
 	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec, Failure: failure}}
+	s.mu.Lock()
 	s.records[id] = rec
+	s.mu.Unlock()
 	if err := s.store.Save(ctx, *rec); err != nil {
 		return fail(ErrFailed, "%s; the failure could not be recorded: %v", failure.Reason, err)
 	}
@@ -118,8 +127,7 @@ func (s *service) failCreate(ctx context.Context, id MachineID, request RequestI
 }
 
 func (s *service) Start(ctx context.Context, id MachineID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -147,10 +155,10 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	boot.Network = NetworkDevice{Tap: tap, MAC: m.Network.MAC}
 	process, err := s.driver.Describe(ctx, id, boot)
 	if err != nil {
-		return fail(ErrFailed, "describe the VMM process: %v", err)
+		return s.withdrawn(ctx, id, fail(ErrFailed, "describe the VMM process: %v", err))
 	}
 	if err := s.supervisor.Start(ctx, id, process); err != nil {
-		return fail(ErrFailed, "start the VMM process: %v", err)
+		return s.withdrawn(ctx, id, fail(ErrFailed, "start the VMM process: %v", err))
 	}
 	if err := s.driver.Boot(ctx, id); err != nil {
 		return s.bootFailed(ctx, rec, err)
@@ -163,6 +171,16 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		return s.unrecorded(rec, err)
 	}
 	return nil
+}
+
+// withdrawn removes the network a start applied before it failed, with no VMM
+// process to hold it, and returns the failure, extended by a removal that
+// failed.
+func (s *service) withdrawn(ctx context.Context, id MachineID, failure *Error) error {
+	if err := s.network.Withdraw(ctx, id); err != nil {
+		return fail(failure.Kind, "%s; the network could not be removed: %v", failure.Reason, err)
+	}
+	return failure
 }
 
 // bootDevices lists a Machine's block devices in boot order: its image
@@ -201,6 +219,9 @@ func (s *service) bootFailed(ctx context.Context, rec *Record, boot error) error
 	if err := s.supervisor.Terminate(ctx, rec.ID); err != nil {
 		next.State = StateFaulted
 		next.FailureReason += fmt.Sprintf("; the VMM could not be ended: %v", err)
+	} else if err := s.network.Withdraw(ctx, rec.ID); err != nil {
+		next.State = StateFaulted
+		next.FailureReason += fmt.Sprintf("; the network could not be removed: %v", err)
 	}
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)
@@ -209,8 +230,7 @@ func (s *service) bootFailed(ctx context.Context, rec *Record, boot error) error
 }
 
 func (s *service) Stop(ctx context.Context, id MachineID, grace time.Duration) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -236,10 +256,18 @@ func (s *service) Stop(ctx context.Context, id MachineID, grace time.Duration) e
 		return fail(ErrFailed, "%s", next.FailureReason)
 	}
 
+	// The VMM has ended, so its tap goes (ADR 0011).
 	next := m.clone()
 	next.State = StateStopped
+	if err := s.network.Withdraw(ctx, id); err != nil {
+		next.State = StateFaulted
+		next.FailureReason = fmt.Sprintf("the VMM ended and the network could not be removed: %v", err)
+	}
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)
+	}
+	if next.State == StateFaulted {
+		return fail(ErrFailed, "%s", next.FailureReason)
 	}
 	return nil
 }
@@ -256,8 +284,7 @@ func (s *service) Resume(ctx context.Context, id MachineID) error {
 // Already being in the target state succeeds; a failure leaves the state it
 // was in.
 func (s *service) move(ctx context.Context, id MachineID, call string, from, to State, effect func(context.Context, MachineID) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -281,8 +308,7 @@ func (s *service) move(ctx context.Context, id MachineID, call string, from, to 
 }
 
 func (s *service) Delete(ctx context.Context, id MachineID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
 		return nil
@@ -305,6 +331,12 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	if err := s.store.Remove(ctx, id); err != nil {
 		return fail(ErrFailed, "remove the record: %v", err)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.records, id)
+	delete(s.held, rec.Machine.RootDisk)
+	for _, a := range rec.Machine.Disks {
+		delete(s.held, a.Disk)
+	}
 	return nil
 }
