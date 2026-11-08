@@ -1,6 +1,5 @@
 # The rules are owned; changes to these paths require review from their owner.
-# @project-owner-placeholder is a placeholder; bootstrap replaces it with the project owner.
-/AGENTS.md @project-owner-placeholder
-/docs/convention/ @project-owner-placeholder
-/docs/architecture/ @project-owner-placeholder
-/.github/ @project-owner-placeholder
+/AGENTS.md @sauce-git
+/docs/convention/ @sauce-git
+/docs/architecture/ @sauce-git
+/.github/ @sauce-git

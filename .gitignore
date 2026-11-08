@@ -25,3 +25,8 @@ target/
 
 # Agent worktrees
 .claude/worktrees/
+
+# Go: build outputs and test artifacts (the Rust Guest Agent's target/ is listed above)
+bin/
+*.test
+*.out
