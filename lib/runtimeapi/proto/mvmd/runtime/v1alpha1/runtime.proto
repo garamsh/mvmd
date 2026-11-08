@@ -316,6 +316,10 @@ message StateChanged {
   MachineState state = 1;
 }
 
+// MachineDeleted says the Machine named by machine_id no longer exists. A
+// deleted Machine has no state, so this is not a StateChanged.
+message MachineDeleted {}
+
 message DeadlineEvent {
   enum Kind {
     KIND_UNSPECIFIED = 0;
@@ -345,6 +349,7 @@ message WatchEventsResponse {
     DeadlineEvent deadline = 4;
     DriverEvent driver = 5;
     ResyncRequired resync_required = 6;
+    MachineDeleted machine_deleted = 7;
   }
 }
 

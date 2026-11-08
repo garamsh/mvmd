@@ -26,11 +26,15 @@ type Event struct {
 	Body    Body
 }
 
-// Body is what an event says: one of StateChanged, Deadline or Driver.
+// Body is what an event says: one of StateChanged, Deleted, Deadline or
+// Driver.
 type Body interface{ body() }
 
 // StateChanged says the Machine's state is now State.
 type StateChanged struct{ State machine.State }
+
+// Deleted says the Machine no longer exists.
+type Deleted struct{}
 
 // Deadline says the fencing deadline changed.
 type Deadline struct{ Event fencing.Event }
@@ -39,5 +43,6 @@ type Deadline struct{ Event fencing.Event }
 type Driver struct{ Event machine.DriverEvent }
 
 func (StateChanged) body() {}
+func (Deleted) body()      {}
 func (Deadline) body()     {}
 func (Driver) body()       {}
