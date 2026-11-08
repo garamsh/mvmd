@@ -28,9 +28,10 @@ const fileChunk = 64 << 10
 
 type server struct {
 	v1alpha1.UnimplementedRuntimeServiceServer
-	pulls atomic.Int32
-	mu    sync.Mutex
-	files map[string][]byte
+	pulls   atomic.Int32
+	creates atomic.Int32
+	mu      sync.Mutex
+	files   map[string][]byte
 }
 
 func (s *server) WriteFile(stream grpc.ClientStreamingServer[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]) error {
@@ -82,6 +83,11 @@ func (s *server) PullImage(context.Context, *v1alpha1.PullImageRequest) (*v1alph
 	return &v1alpha1.PullImageResponse{}, nil
 }
 
+func (s *server) CreateMachine(context.Context, *v1alpha1.CreateMachineRequest) (*v1alpha1.CreateMachineResponse, error) {
+	s.creates.Add(1)
+	return &v1alpha1.CreateMachineResponse{}, nil
+}
+
 // serve starts s on a Unix socket in a short temporary directory and returns
 // the socket path.
 func serve(t *testing.T, s *server) string {
@@ -130,6 +136,38 @@ func TestDial_RefusesTagImageReference(t *testing.T) {
 	_, err = client.PullImage(context.Background(), &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: "registry:5000/app", Digest: validDigest}})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), s.pulls.Load(), "the digest form must reach the server")
+}
+
+func TestDial_RefusesInvalidNetworkPolicy(t *testing.T) {
+	s := &server{}
+	client := dial(t, serve(t, s))
+
+	_, err := client.CreateMachine(context.Background(), &v1alpha1.CreateMachineRequest{
+		MachineId:     "m",
+		RequestId:     "r",
+		ImageDigest:   validDigest,
+		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 1024},
+		RootDiskBytes: 1 << 30,
+		NetworkPolicy: &v1alpha1.NetworkPolicy{
+			Egress: []*v1alpha1.NetworkRule{{Prefix: "fd00::/64", Protocol: v1alpha1.Protocol_PROTOCOL_ICMP}},
+		},
+	})
+	require.Error(t, err)
+	assert.Equal(t, v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha1.KindOf(err))
+	assert.Zero(t, s.creates.Load(), "a refused request must not reach the server")
+
+	_, err = client.CreateMachine(context.Background(), &v1alpha1.CreateMachineRequest{
+		MachineId:     "m2",
+		RequestId:     "r2",
+		ImageDigest:   validDigest,
+		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 1024},
+		RootDiskBytes: 1 << 30,
+		NetworkPolicy: &v1alpha1.NetworkPolicy{
+			Egress: []*v1alpha1.NetworkRule{{Prefix: "10.0.0.0/24", Protocol: v1alpha1.Protocol_PROTOCOL_TCP, Ports: []*v1alpha1.PortRange{{First: 80, Last: 80}}}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), s.creates.Load(), "the valid policy must reach the server")
 }
 
 func TestFiles_RoundTripAboveDefaultMessageLimit(t *testing.T) {
