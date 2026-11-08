@@ -23,7 +23,7 @@ Current architecture of the system and the decisions behind it. This file is the
 Responsibility documents:
 
 - [structure.md](./structure.md) — the hexagonal shape, repository layout, boundaries and dependency direction, ports
-- [runtime.md](./runtime.md) — what mvmd owns on a node, its boundary with gaon, fencing, the node network, invariants
+- [runtime.md](./runtime.md) — what mvmd owns on a node, its boundary with gaon, fencing, the node network, VMM confinement, invariants
 - [runtime-api.md](./runtime-api.md) — the runtime API: operations, calling rules, version v1alpha1, fencing deadline
 - [driver.md](./driver.md) — the VMM Driver contract
 - [image.md](./image.md) — image pull and conversion, MachineImage, node image cache, integrity
@@ -44,5 +44,6 @@ Decisions:
 - [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md) — each Machine gets a routed tap and addresses mvmd assigns
 - [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) — nftables on the host enforces each Machine's policy at its tap
 - [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md) — a network policy is an allow-list of address, protocol and port rules
+- [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) — the supervisor confines every VMM process the same way
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

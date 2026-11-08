@@ -67,6 +67,21 @@ How a Machine reaches the network on its node ([ADR 0011](./adr/0011-each-machin
 - **Addressing, dual stack.** The node's configuration names an IPv4 prefix, an IPv6 prefix, or both. mvmd assigns each Machine one address per configured family, at Create Machine and at Restore, and releases them at Delete Machine. The gateways are an IPv4 address and `fe80::1`, the same on every tap. The Guest Agent configures the addresses statically; no router advertisement or DHCP runs. A restored Machine gets new addresses, which the agent applies after the restore.
 - **Enforcement.** One nftables table mvmd owns. At each tap, frames not from the Machine's MAC and addresses are dropped, ARP and the ICMPv6 neighbour solicitations and advertisements it needs are admitted, and router advertisements, redirects and router solicitations from a guest are dropped. The inet chains accept only what the Machine's policy allows, plus replies and their ICMP errors; everything else is dropped. Traffic leaving the node is masqueraded to the node's address of its family, IPv6 included.
 - **Changed only by transactions**, which take effect whole or not at all (ADR 0012, at the Linux and nftables versions it names), and the table outlives an mvmd restart, which replaces it from mvmd's durable state before serving any call.
+- **No IP traffic from a VMM's own sockets.** The table's output chain drops every packet whose socket belongs to a UID in the node's VMM range, which covers a VMM that shares the host's network namespace ([ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md)).
+
+## VMM confinement
+
+How the supervisor confines the VMM process it starts, Machine and converter alike, so that a guest escaping into its VMM reaches as little of the node as possible ([ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md), at the Linux, Firecracker and Cloud Hypervisor versions it names).
+
+- **The supervisor confines, the same way for every VMM.** Its inputs are the Driver's description of the VMM process ([driver.md](./driver.md)); no step depends on which VMM runs, and none can be skipped. The VMM's own seccomp filter stays on beneath it. Firecracker's jailer is not used.
+- **A user per Machine.** One UID and GID from the node's VMM range per Machine, allocated at Create Machine and Restore and released at Delete Machine, and one per conversion. It owns the Machine's tap, root disk and run directory, and no supplementary groups.
+- **A mount namespace with nothing else in it.** An empty root holding the VMM executable, the boot description's files with their read-only flags, the host files and device nodes the Driver names, and the Machine's run directory, read-write. No `/proc` or `/sys`. The VMM's API and vsock sockets are in the run directory, where mvmd connects by path; a disk attached while it runs is hard-linked there, and a snapshot is written there and moved to the snapshot store.
+- **A network namespace with only loopback**, for a converter and for a VMM whose Driver takes the tap by descriptor. A VMM that opens the tap by name, Firecracker v1.17.0, shares the host's, under the output rule in §Network.
+- **No capabilities and `no_new_privs`.** The bounding and ambient sets are emptied before the change to the Machine's UID, so the VMM execs with none and cannot gain any.
+- **Landlock ABI 6.** File access only beneath the mount namespace's paths, `ioctl` only on the named devices, no TCP bind or connect, and no abstract Unix socket or signal outside its own domain. mvmd refuses to start on a kernel without it.
+- **A seccomp baseline** stacked under the VMM's own filters: no creating or entering namespaces (`unshare`, `setns`, `clone` with a namespace flag), and `clone3` answered `ENOSYS` so its flags are checked through `clone`.
+- **A cgroup per VMM**, under a parent of mvmd's outside mvmd's cgroup, entered at creation: `memory.max` at guest memory plus the Driver's overhead, `pids.max` at the Driver's task count, `cpu.max` at the vCPU count plus the Driver's overhead. The supervisor is not in it; on a kernel with `CONFIG_RT_GROUP_SCHED` the supervisors are in the root cgroup.
+- **Order, before `execve`:** open the descriptors to pass, enter the namespaces and build the root, drop capabilities and change user, `no_new_privs`, Landlock, the baseline filter. A failure at any step fails the start before the VMM runs.
 
 ## Invariants
 
@@ -84,6 +99,7 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 - The enforcement mechanism, the candidates rejected and the bound in each failure case: [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md).
 - The disk backing and how the one-writer rule is enforced on the node: [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md).
 - The node network and its enforcement: [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md), [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md).
+- Why the supervisor confines every VMM itself rather than each VMM's own mechanism, and what each VMM needs open: [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md).
 - Why the boundary sits at a runtime API and not at gaon's resource API: the original requirement of swappable components behind interfaces, and a one-way dependency (#2 §3 principle 3).
 
 ## Open questions
@@ -92,7 +108,7 @@ These are #2 §6 questions inside mvmd's scope, as they apply to the runtime. Th
 
 - **Preservation default (#2 §6 item 8):** whether a Machine keeps its disk only or its memory as well by default, and whether a snapshot is a public resource of the runtime API. #2 §2 offers disk-only as a proposal, not a decision.
 - **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume. A Machine's root disk is decided, a node-local sparse raw file ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)); any other disk is not.
-- **Confining the VMM process.** The network rules confine what a guest sends through its tap; a VMM process compromised by its guest runs in the host's network namespace ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md)). Namespaces or other confinement for the VMM are not decided.
+- **I/O limits per Machine.** A VMM's cgroup limits memory, tasks and CPU, not disk I/O, which needs per-device figures from the node's storage (§VMM confinement).
 - **Density and restore numbers (item 13):** the fencing deadline's default, restore time and the latency right after a restore, and idle and active memory per node. None is measured; a value is set only after the single-node prototype of #2 §6 measures it.
 - **The time a supervisor takes to end its namespace at the expiry**, under load and after a suspend; measured with the prototype numbers above.
 - **How many earlier releases' supervisors mvmd must speak to**, since a supervisor outlives an mvmd upgrade until its Machine is next started.
