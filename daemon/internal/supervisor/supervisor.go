@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -152,6 +151,13 @@ func (s *server) Start(_ context.Context, req *pb.StartRequest) (*pb.StartRespon
 	if req.GetUid() == 0 || req.GetGid() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "the Machine's user and group must not be root (uid and gid nonzero)")
 	}
+	if err := checkRequest(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	lim, err := limitsFor(req)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
@@ -164,13 +170,11 @@ func (s *server) Start(_ context.Context, req *pb.StartRequest) (*pb.StartRespon
 	if s.expiry <= now {
 		return nil, status.Error(codes.FailedPrecondition, "the expiry has passed")
 	}
-	// The user, the group and the confinement steps of ADR 0015 are applied
-	// here by the issue that adds them; the request already carries them.
-	cmd := exec.Command(p.GetExecutable(), p.GetArgs()...)
-	if err := cmd.Start(); err != nil {
+	pid, err := launch(s.cfg.Socket, req, lim)
+	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "start the process: %v", err)
 	}
-	s.started, s.vmm = true, cmd.Process.Pid
+	s.started, s.vmm = true, pid
 	return &pb.StartResponse{}, nil
 }
 
@@ -209,6 +213,9 @@ func (s *server) Inspect(context.Context, *pb.InspectRequest) (*pb.InspectRespon
 // Main is the binary: it reads the flags mvmd starts it with and runs until
 // the namespace ends. It returns the process's exit code.
 func Main(args []string, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == confineCommand {
+		return confineMain(args[1:])
+	}
 	fs := flag.NewFlagSet("mvmd-supervisor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var cfg Config

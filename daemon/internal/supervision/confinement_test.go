@@ -373,6 +373,15 @@ type raw struct {
 func newRaw(t *testing.T, name, cgroupParent string) *raw {
 	t.Helper()
 	dir := shortDir(t)
+	run := filepath.Join(dir, "run")
+	require.NoError(t, os.Mkdir(run, 0o700))
+	require.NoError(t, os.Chown(run, 65534, 65534))
+	cg := filepath.Join(cgroupParent, name)
+	require.NoError(t, os.Mkdir(cg, 0o755))
+	// Registered before the supervisor's kill, so that it runs after: a cgroup
+	// is removed once the processes in it have gone.
+	t.Cleanup(func() { removeCgroup(t, cg) })
+
 	sock := filepath.Join(dir, "s")
 	cmd := exec.Command(supervisorBin, "--socket", sock, "--machine", name,
 		"--expiry-boottime-ns="+strconv.FormatInt(boottime(t)+int64(time.Hour), 10))
@@ -390,14 +399,21 @@ func newRaw(t *testing.T, name, cgroupParent string) *raw {
 	conn, err := grpc.NewClient("unix:"+sock, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
-
-	run := filepath.Join(dir, "run")
-	require.NoError(t, os.Mkdir(run, 0o700))
-	require.NoError(t, os.Chown(run, 65534, 65534))
-	cg := filepath.Join(cgroupParent, name)
-	require.NoError(t, os.Mkdir(cg, 0o755))
-	t.Cleanup(func() { _ = os.Remove(cg) })
 	return &raw{client: pb.NewSupervisorServiceClient(conn), run: run, cgroup: cg}
+}
+
+// removeCgroup removes a cgroup, which the kernel lets go of a moment after its
+// last process has exited.
+func removeCgroup(t *testing.T, dir string) {
+	t.Helper()
+	var err error
+	for i := 0; i < 80; i++ {
+		if err = os.Remove(dir); err == nil || os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Errorf("remove the cgroup %s: %v", dir, err)
 }
 
 func (r *raw) request() *pb.StartRequest {
@@ -436,7 +452,7 @@ func TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns(t *testing.T) {
 		{"a cgroup whose controllers are not enabled", func(r *raw, req *pb.StartRequest) {
 			bare := filepath.Join(vmmBareCgroup, "bare")
 			require.NoError(t, os.Mkdir(bare, 0o755))
-			t.Cleanup(func() { _ = os.Remove(bare) })
+			t.Cleanup(func() { removeCgroup(t, bare) })
 			req.Cgroup = bare
 		}, "set the cgroup limits"},
 		{"an executable the Machine's user cannot execute", func(_ *raw, req *pb.StartRequest) {
