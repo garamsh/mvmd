@@ -24,7 +24,7 @@ func TestConfig_Parses(t *testing.T) {
 	}, cfg)
 
 	// Control for the supervision refusals: a well-formed section is accepted.
-	withSupervision, err := app.ParseConfig([]byte(`{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","supervision":{"binary":"/usr/libexec/mvmd-supervisor","cgroup":"/sys/fs/cgroup/mvmd-supervisors"}}`))
+	withSupervision, err := app.ParseConfig([]byte(`{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/usr/libexec/mvmd-supervisor","cgroup":"/sys/fs/cgroup/mvmd-supervisors"}}`))
 	require.NoError(t, err)
 	assert.Equal(t, &app.SupervisionConfig{Binary: "/usr/libexec/mvmd-supervisor", Cgroup: "/sys/fs/cgroup/mvmd-supervisors"}, withSupervision.Supervision)
 
@@ -44,9 +44,9 @@ func TestConfig_Refuses(t *testing.T) {
 		{"a mode above 0777", `{"socket":{"path":"/s","mode":"1777"},"state_dir":"/v","driver":"memory"}`, "socket.mode"},
 		{"no mode", `{"socket":{"path":"/s"},"state_dir":"/v","driver":"memory"}`, "socket.mode"},
 		{"an unknown driver", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"firecracker"}`, "driver"},
-		{"a relative supervisor binary", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","supervision":{"binary":"mvmd-supervisor"}}`, "supervision.binary"},
-		{"a relative supervisor directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","supervision":{"binary":"/b","dir":"d"}}`, "supervision.dir"},
-		{"a relative supervisor cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","supervision":{"binary":"/b","cgroup":"c"}}`, "supervision.cgroup"},
+		{"a relative supervisor binary", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"mvmd-supervisor"}}`, "supervision.binary"},
+		{"a relative supervisor directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"d"}}`, "supervision.dir"},
+		{"a relative supervisor cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","cgroup":"c"}}`, "supervision.cgroup"},
 		{"trailing data", goodConfig + `{}`, "trailing"},
 		{"not JSON", `socket: /s`, "parse"},
 	}

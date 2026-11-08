@@ -71,6 +71,7 @@ func wiredConfig(t *testing.T) (cfg app.Config, work string) {
 		Socket:      app.SocketConfig{Path: filepath.Join(dir, "s"), Mode: "0600"},
 		StateDir:    filepath.Join(dir, "state"),
 		Driver:      app.DriverMemory,
+		VMMUIDRange: app.VMMUIDRangeConfig{First: 65534, Count: 1},
 		Supervision: &app.SupervisionConfig{Binary: supervisorBin},
 	}, work
 }

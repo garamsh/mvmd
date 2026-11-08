@@ -170,6 +170,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err != nil {
 		return s.withdrawn(ctx, id, fail(ErrFailed, "describe the VMM process: %v", err))
 	}
+	process.UID, process.GID = m.User.UID, m.User.GID
 	if err := s.supervisor.Start(ctx, id, process); err != nil {
 		return s.withdrawn(ctx, id, fail(ErrFailed, "start the VMM process: %v", err))
 	}
