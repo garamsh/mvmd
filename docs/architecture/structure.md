@@ -14,9 +14,9 @@ Nothing here states how an adapter is built inside, or how mvmd is deployed.
 
 ## Repository layout
 
-Follows the monorepo shape of garamsh/garam at the commit above: each top-level folder is one responsibility, and one unit reaches another only through what that unit publishes. A folder is created by the pull request that first adds code to it, and not before; none of the code folders below exists yet.
+Follows the monorepo shape of garamsh/garam at the commit above: each top-level folder is one responsibility, and one unit reaches another only through what that unit publishes. A folder is created by the pull request that first adds code to it, and not before.
 
-- `daemon/` — the mvmd daemon: a Go module in the service layout of `docs/convention/stack-go.md` §1, binary at `daemon/cmd/mvmd/main.go`. It holds the inside, the driving adapter for the runtime API, and every driven adapter, including the in-process VMM Drivers.
+- `daemon/` — the mvmd daemon: a Go module in the service layout of `docs/convention/stack-go.md` §1, binary at `daemon/cmd/mvmd/main.go`. It holds the inside, the driving adapter for the runtime API, and every driven adapter, including the in-process VMM Drivers. The inside is the package `daemon/internal/machine/`, with the in-memory substitute of each driven port under `daemon/internal/machine/memory/`.
 - `daemon/cmd/mvmd-supervisor/main.go` — the per-Machine supervisor that enforces the fencing expiry ([runtime.md](./runtime.md) §Fencing), and the per-conversion one that enforces a conversion's time limit, a second binary of the daemon module. Each confines the VMM it starts ([runtime.md](./runtime.md) §VMM confinement). It holds no part of the inside, and its `main.go` wires only itself; the application's one composition site stays with `daemon/cmd/mvmd/main.go`.
 - `guest-agent/` — the Guest Agent as its own Cargo workspace (#2 §5, implementation language). Its Rust code follows `docs/convention/stack-rust.md`.
 - `lib/runtimeapi/` — the runtime API contract and its client, a Go library module in the library layout of `docs/convention/stack-go.md` §1, package at the module root. It is the one module gaon imports. It is a leaf: it imports no other package of mvmd.
@@ -59,6 +59,8 @@ In mvmd the composition site is in the daemon, placed as `docs/convention/stack-
 | Network | driven | tap devices and one nftables table on the node; [runtime.md](./runtime.md) §Network | #2 §5, first implementation scope; [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) |
 | Snapshot Store | driven | one implementation at first | #2 §5, first implementation scope |
 | Image Store | driven | the node image cache, an OCI image layout with fs-verity on the EROFS files; [image.md](./image.md) | #2 §5, first implementation scope |
+| State Store | driven | mvmd's own durable record of Machines and request IDs; the interface is `daemon/internal/machine/statestore.go` | #2 §3, the node as the reference for actual state |
+| Start permission | driven | whatever says a start may proceed; the fencing deadline fills it ([runtime-api.md](./runtime-api.md) §Fencing deadline) | [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md) |
 | Registry | driven | OCI distribution registries | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
 | Converter channel | driven | the converter in its microVM, over vsock; [image.md](./image.md) §Conversion | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
 | Guest Agent channel | driven | the Guest Agent over vsock; [guest.md](./guest.md) | #2 §3 wiring, §5 |
@@ -74,5 +76,4 @@ A port with one real adapter is kept only with a test substitute standing in for
 
 ## Open questions
 
-- Whether mvmd's own durable state (#2 §3, the node as the reference for actual state) is a driven port with a substitute, or an adapter detail of the inside. #2 does not name it among the interfaces of §5.
-- The names of the inside's domain packages; the first code pull request chooses them under `docs/convention/stack-go.md` §1.
+None.
