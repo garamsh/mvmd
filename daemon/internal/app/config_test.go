@@ -28,6 +28,11 @@ func TestConfig_Parses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &app.SupervisionConfig{Binary: "/usr/libexec/mvmd-supervisor", Cgroup: "/sys/fs/cgroup/mvmd-supervisors"}, withSupervision.Supervision)
 
+	// A valid absolute vmm_cgroup is parsed into the struct.
+	withVMMCgroup, err := app.ParseConfig([]byte(`{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/usr/libexec/mvmd-supervisor","vmm_cgroup":"/sys/fs/cgroup/mvmd-vmm"}}`))
+	require.NoError(t, err)
+	assert.Equal(t, &app.SupervisionConfig{Binary: "/usr/libexec/mvmd-supervisor", VMMCgroup: "/sys/fs/cgroup/mvmd-vmm"}, withVMMCgroup.Supervision)
+
 	path := filepath.Join(t.TempDir(), "mvmd.json")
 	require.NoError(t, os.WriteFile(path, []byte(goodConfig), 0o600))
 	loaded, err := app.LoadConfig(path)
@@ -47,6 +52,7 @@ func TestConfig_Refuses(t *testing.T) {
 		{"a relative supervisor binary", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"mvmd-supervisor"}}`, "supervision.binary"},
 		{"a relative supervisor directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"d"}}`, "supervision.dir"},
 		{"a relative supervisor cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","cgroup":"c"}}`, "supervision.cgroup"},
+		{"a relative vmm cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","vmm_cgroup":"vmm"}}`, "supervision.vmm_cgroup"},
 		{"trailing data", goodConfig + `{}`, "trailing"},
 		{"not JSON", `socket: /s`, "parse"},
 	}

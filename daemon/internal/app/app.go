@@ -87,7 +87,7 @@ func New(cfg Config) (*App, error) {
 		if dir == "" {
 			dir = filepath.Join(cfg.StateDir, "machines")
 		}
-		real, err := supervision.New(supervision.Config{Binary: s.Binary, Dir: dir, Cgroup: s.Cgroup})
+		real, err := supervision.New(supervision.Config{Binary: s.Binary, Dir: dir, Cgroup: s.Cgroup, VMMCgroup: s.VMMCgroup})
 		if err != nil {
 			_ = db.Close()
 			return nil, err
