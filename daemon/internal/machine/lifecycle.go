@@ -170,7 +170,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err != nil {
 		return s.withdrawn(ctx, id, fail(ErrFailed, "describe the VMM process: %v", err))
 	}
-	if err := s.supervisor.Start(ctx, id, process, m.User); err != nil {
+	if err := s.supervisor.Start(ctx, id, process.For(boot), m.User); err != nil {
 		return s.withdrawn(ctx, id, fail(ErrFailed, "start the VMM process: %v", err))
 	}
 	if err := s.driver.Boot(ctx, id); err != nil {

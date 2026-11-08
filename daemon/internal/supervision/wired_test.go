@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/garamsh/mvmd/daemon/internal/app"
+	"github.com/garamsh/mvmd/daemon/internal/supervision"
 	"github.com/garamsh/mvmd/lib/runtimeapi"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
 )
@@ -63,10 +66,14 @@ func (d *daemon) shutdown() {
 	d.stop = nil
 }
 
+// wiredConfig returns the config of a daemon over a fresh state directory and
+// the run directory its Machine "m" gets from the supervision adapter.
 func wiredConfig(t *testing.T) (cfg app.Config, work string) {
 	dir := shortDir(t)
-	work = filepath.Join(dir, "work")
-	require.NoError(t, os.MkdirAll(work, 0o700))
+	work = filepath.Join(dir, "state", "machines", "m", "run")
+	// The config names no cgroup for the VMMs, so the adapter's default is the
+	// parent this test leaves behind.
+	t.Cleanup(func() { _ = os.Remove(supervision.DefaultVMMCgroup) })
 	return app.Config{
 		Socket:      app.SocketConfig{Path: filepath.Join(dir, "s"), Mode: "0600"},
 		StateDir:    filepath.Join(dir, "state"),
@@ -102,7 +109,13 @@ func TestWired_ARealSupervisorRunsTheMachine(t *testing.T) {
 	ns := namespaceOf(supervisorOf(t, "m"))
 	requireTree(t, ns)
 
-	_, err := d.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
+	// The guest's memory comes from the Machine through the lifecycle, and the
+	// overhead from the Driver's description.
+	limit, err := os.ReadFile(filepath.Join(supervision.DefaultVMMCgroup, "m", "memory.max"))
+	require.NoError(t, err)
+	assert.Equal(t, strconv.Itoa(1<<30+256<<20), strings.TrimSpace(string(limit)))
+
+	_, err = d.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
 	require.NoError(t, err)
 	assert.Empty(t, members(ns), "stopping the Machine ends its supervisor and the namespace")
 	assert.Empty(t, processes("--machine m "))
