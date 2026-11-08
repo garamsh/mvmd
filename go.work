@@ -1,5 +1,6 @@
 go 1.26.0
 
+// Moved by a PM review on each Go minor release; Dependabot lists no update of a Go toolchain directive.
 toolchain go1.26.10
 
 use ./lib/runtimeapi

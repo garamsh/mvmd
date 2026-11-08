@@ -83,14 +83,17 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 
 | Operation | Needs | On success | Repeat | After failure |
 |---|---|---|---|---|
-| Exec | Running; Guest Agent reachable | Command started under the exec identifier | Same request ID: the same exec record, never a second run | Machine unaffected; the exec record says it did not start |
-| Read file | Running | Content | Always safe | Machine unaffected |
+| Exec | Running; Guest Agent reachable; the command, and optionally an environment and a working directory | Command started under the exec identifier | Same request ID: the same exec record, never a second run | Machine unaffected; the exec record says it did not start |
+| Read exec output | An exec record; an offset to resume after | The output chunks after the offset, each with its offset, then the final exec record once the command has ended | Always safe; resumes from any offset | Machine unaffected |
+| Read file | Running | Content, in chunks | Always safe | Machine unaffected |
 | Write file | Running | Whole new content or whole old content, never part (#2 §2, atomic write) | Same content: success | The old content |
 | Patch file | Running; the base content digest and the digest expected afterwards | Content with the patch applied | File already at the expected digest: success | The old content |
 | List and search | Running | Matches | Always safe | Machine unaffected |
 | Console | Running or Paused | A session to the console | Another session; no state changes | Machine unaffected |
 
 - **Exec is at most once per request ID.** mvmd never retries a command by itself, because a command has effects mvmd cannot see. If the Machine stops while a command runs, the exec record reports that it was cut short and why.
+- **Exec output is read separately from starting the command**, so a client that lost its connection reads it again. Output is one sequence of bytes, stdout and stderr in the order mvmd received them, each chunk naming its stream and its offset in that sequence. A read resumes after an offset because the channel to the guest can reset (vsock connections reset on restore, [guest.md](./guest.md) §Rationale). Once the command has ended, the exec record carries its exit code.
+- **File content moves in chunks.** A read returns the file as a stream of chunks, so no file is bounded by one message. A write sends the path, then chunks, and mvmd commits the whole new content only when the stream ends cleanly; a stream that breaks leaves the old content, which is the whole-old-or-whole-new rule above.
 - **Patch carries a precondition and a postcondition** so a retry after an unknown outcome is decidable without a request ID: the file is at the base digest (not yet applied), at the expected digest (applied), or elsewhere (precondition failed).
 
 ### Images
@@ -134,6 +137,10 @@ The deadline exists so a Machine cannot run on two nodes when its client is gone
 
 - **A remote listener.** The API is served on a Unix domain socket on the node and nowhere else ([ADR 0004](./adr/0004-the-runtime-api-is-grpc-on-a-unix-socket-with-committed-generated-code.md)). Whether a network listener exists, and how it would authenticate, is undecided.
 - **Running without a deadline.** Start and restore are refused unarmed; whether a standalone or development mode may opt out is undecided.
+- **The unit of CPU and memory in Create Machine and Set resources.** The encoding is a vCPU count and a memory size in bytes. A change to that encoding follows the version rule under Scope and version.
+- **The format of a patch in Patch file.** The encoding is an opaque byte string. A change to that encoding follows the version rule under Scope and version.
+- **How the console is framed.** The encoding is a bidirectional stream of bytes, the Machine named in the first message. A change to that encoding follows the version rule under Scope and version.
+- **The pattern syntax of List and search.** The encoding is a path and a pattern string with no syntax fixed, and the matches are returned as paths. A change to that encoding follows the version rule under Scope and version.
 - **Authorisation of callers beyond the socket.** Authentication is the socket's filesystem permissions (ADR 0004); #2 states no finer rule.
 - **How a disk comes to exist on the node** (creation, class, durability, movement): depends on #2 §6 item 9 ([runtime.md](./runtime.md) §Open questions). Attach assumes the node already holds it.
 - **How the network policy is described in Create Machine**: depends on the enforcement technology, #2 §6 item 10.

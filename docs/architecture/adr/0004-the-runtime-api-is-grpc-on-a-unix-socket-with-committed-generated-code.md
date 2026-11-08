@@ -23,7 +23,7 @@ Forces:
 - **Authentication.** The socket's filesystem permissions: only the owning user and group may connect. There is no network listener.
 - **Version in the package.** The protobuf package and the Go package path carry the version (`mvmd.runtime.v1alpha1`, `lib/runtimeapi/v1alpha1`). A breaking change is a new package beside it.
 - **Generated code is committed.** The `.proto` files are the authored source; the generated Go is committed, and a check fails when regenerating changes any committed file.
-- **Generator pinned in the module system.** `buf` and the two Go plugins are Go programs, pinned as `tool` directives in `lib/runtimeapi/tools.mod` with checksums in `tools.sum`, apart from the library's `go.mod` so that a consumer's dependency graph does not carry the generator's.
+- **Generator pinned in the module system.** `buf` and the two Go plugins are Go programs, pinned as `tool` directives in their own module, `tooling/protogen/go.mod`, apart from the library's `go.mod` so that a consumer's dependency graph does not carry the generator's. Only released versions are pinned, and `protoc-gen-go` is at the version of the library's `google.golang.org/protobuf`; the lint entry point fails when they differ.
 
 ## Consequences
 
@@ -32,7 +32,8 @@ Forces:
 - A remote client cannot connect. A remote listener is a later decision and is listed under runtime-api.md §Open questions.
 - The library module's `go` directive follows gRPC's (1.26.0 at the pinned version), so a consumer builds with at least that Go.
 - A change to a `.proto` file is two files in the diff, the source and its output, and the pipeline fails when they disagree.
-- The generator module's `go` directive follows buf's (1.26.7), so the entry points set a toolchain floor of that version.
+- The generator module's `go` directive follows buf's (1.26.7), so the toolchain line in `go.work` is at least that version.
+- A bump of the library's protobuf version without the generator's, or the reverse, fails lint, so the two move together.
 
 ## Signs the decision was wrong
 
