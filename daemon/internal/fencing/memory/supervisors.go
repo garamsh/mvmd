@@ -28,12 +28,14 @@ type held struct {
 
 // NewSupervisors returns Supervisors with none live, checked against the
 // store: any expiry a supervisor takes that is later than the recorded one is
-// a violation of the store.
+// a violation of the store. With a nil store nothing is checked.
 func NewSupervisors(store *DeadlineStore) *Supervisors {
 	s := &Supervisors{store: store, live: make(map[machine.MachineID]held)}
-	store.mu.Lock()
-	store.supervisor = s
-	store.mu.Unlock()
+	if store != nil {
+		store.mu.Lock()
+		store.supervisor = s
+		store.mu.Unlock()
+	}
 	return s
 }
 
@@ -128,6 +130,9 @@ func (s *Supervisors) held() map[machine.MachineID]fencing.BootTime {
 // check records a violation if the expiry is later than the recorded one, or
 // if nothing is recorded.
 func (s *Supervisors) check(what string, expiry fencing.BootTime) {
+	if s.store == nil {
+		return
+	}
 	rec, ok := s.store.Recorded()
 	switch {
 	case !ok:

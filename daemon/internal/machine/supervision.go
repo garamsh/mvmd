@@ -19,4 +19,6 @@ type Supervision interface {
 	// ended. It succeeds when no process exists. An error wrapping
 	// ErrNotAttempted means nothing was done.
 	Terminate(ctx context.Context, id MachineID) error
+	// Live lists the Machines that have a supervisor now.
+	Live(ctx context.Context) ([]MachineID, error)
 }

@@ -2,13 +2,15 @@ package memory
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// StateStore is an in-memory machine.StateStore. Its steps are "save" and
-// "remove".
+// StateStore is an in-memory machine.StateStore. Its steps are "save",
+// "remove" and "load".
 type StateStore struct {
 	Failures
 
@@ -41,6 +43,21 @@ func (s *StateStore) Remove(_ context.Context, id machine.MachineID) error {
 	delete(s.records, id)
 	s.mu.Unlock()
 	return nil
+}
+
+// Load implements machine.StateStore.
+func (s *StateStore) Load(context.Context) ([]machine.Record, error) {
+	if err := s.Enter("load"); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]machine.Record, 0, len(s.records))
+	for _, r := range s.records {
+		out = append(out, r)
+	}
+	slices.SortFunc(out, func(a, b machine.Record) int { return strings.Compare(string(a.ID), string(b.ID)) })
+	return out, nil
 }
 
 // Record returns what is durably recorded for the identifier.
