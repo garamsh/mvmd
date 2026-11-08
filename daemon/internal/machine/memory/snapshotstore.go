@@ -16,6 +16,8 @@ type SnapshotStore struct {
 	mu    sync.Mutex
 	held  map[machine.SnapshotID]heldSnapshot
 	order []machine.SnapshotID
+	// offered is the Driver files of every Put asked for.
+	offered [][]string
 }
 
 type heldSnapshot struct {
@@ -30,6 +32,9 @@ func NewSnapshotStore() *SnapshotStore {
 
 // Put implements machine.SnapshotStore.
 func (s *SnapshotStore) Put(_ context.Context, snapshot machine.Snapshot, files machine.SnapshotFiles) error {
+	s.mu.Lock()
+	s.offered = append(s.offered, slices.Clone(files.State))
+	s.mu.Unlock()
 	if err := s.Enter("put"); err != nil {
 		return err
 	}
@@ -69,6 +74,14 @@ func (s *SnapshotStore) Remove(_ context.Context, id machine.SnapshotID) error {
 	delete(s.held, id)
 	s.order = slices.DeleteFunc(s.order, func(o machine.SnapshotID) bool { return o == id })
 	return nil
+}
+
+// Offered returns the Driver files of each Put the store was asked for, kept
+// or not.
+func (s *SnapshotStore) Offered() [][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.offered)
 }
 
 // Held returns the identifiers of the snapshots held, in the order they were

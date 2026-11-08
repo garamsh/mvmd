@@ -39,14 +39,22 @@ type Snapshot struct {
 	// RootDiskUUID is the filesystem UUID of the root disk the guest was
 	// running on, which a restored guest still expects.
 	RootDiskUUID string
-	Compat       SnapshotCompat
+	// MAC is the guest's MAC, which a restored guest keeps (ADR 0011).
+	MAC    string
+	Compat SnapshotCompat
 }
 
 // SnapshotFiles are the files a snapshot holds: the Driver's own, opaque to
 // the inside, and a copy of the Machine's root disk, so that memory and disk
 // are one pair.
 type SnapshotFiles struct {
-	State    []string
+	// State are the files the Driver wrote in the run directory. The store
+	// may move them. A Driver names them the same on every Snapshot of a
+	// Machine, so the files a failed attempt left are written over by the
+	// next one.
+	State []string
+	// RootDisk is the path of the Machine's own root disk, which is running. The
+	// store copies it and never moves or changes it.
 	RootDisk string
 }
 
@@ -54,8 +62,8 @@ type SnapshotFiles struct {
 // each and its record.
 type SnapshotStore interface {
 	// Put takes the files in and records the snapshot, all or nothing, or
-	// returns ErrSnapshotExists. The caller's files are copied or moved as the
-	// store sees fit and are no longer the caller's.
+	// returns ErrSnapshotExists. It copies RootDisk and may move State; on an
+	// error nothing of the snapshot is left, and State is left where it was.
 	Put(ctx context.Context, snapshot Snapshot, files SnapshotFiles) error
 	// Get returns the snapshot and where its files are now, or
 	// ErrSnapshotAbsent.

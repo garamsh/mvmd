@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,6 +88,22 @@ func TestSnapshot_Needs(t *testing.T) {
 		assert.Empty(t, e.snaps.Held())
 		e.requireState(t, "m", machine.StateRunning)
 	})
+	t.Run("no disk attached but the root", func(t *testing.T) {
+		e := newEnv(machine.CapabilitySnapshot, machine.CapabilityDiskHotplug)
+		e.disks.Provide("data")
+		e.inState(t, "m", machine.StateRunning)
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", machine.DiskAttachment{Disk: "data"}))
+
+		requireKind(t, e.svc.Snapshot(ctx, "m", "snap", "r"), machine.ErrPreconditionFailed)
+		assert.Empty(t, e.snaps.Held())
+		assert.Zero(t, e.driver.Calls("snapshot"), "the guest was not paused for it")
+		e.requireState(t, "m", machine.StateRunning)
+
+		// Control: the same Machine, once the disk is detached.
+		require.NoError(t, e.svc.DetachDisk(ctx, "m", "data"))
+		require.NoError(t, e.svc.Snapshot(ctx, "m", "snap", "r"))
+		assert.Equal(t, []machine.SnapshotID{"snap"}, e.snaps.Held())
+	})
 	t.Run("an identifier or request ID that is empty", func(t *testing.T) {
 		e := newEnv(snapshotCaps...)
 		e.inState(t, "m", machine.StateRunning)
@@ -120,6 +137,7 @@ func TestSnapshot_OnSuccess(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a", KernelDigest: memory.KernelDigest}, got.Compat)
 		assert.Equal(t, machine.MachineID("m"), got.Machine)
+		assert.Equal(t, m.Network.MAC, got.MAC, "the MAC the guest uses")
 		assert.Equal(t, machine.Spec{Image: image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}, got.Spec,
 			"a snapshot carries no policy and no attached disk")
 		assert.Equal(t, "/disks/m-root", files.RootDisk, "the root disk goes with the memory")
@@ -179,6 +197,18 @@ func TestSnapshot_StateAfterFailure(t *testing.T) {
 		})
 	}
 
+	t.Run("the Driver's files of a failed attempt are named as the next attempt's", func(t *testing.T) {
+		e := newEnv(snapshotCaps...)
+		e.inState(t, "m", machine.StateRunning)
+		e.snaps.FailAt("put", errBoom)
+		requireKind(t, e.svc.Snapshot(ctx, "m", "snap", "r"), machine.ErrFailed)
+		e.snaps.Heal("put")
+		require.NoError(t, e.svc.Snapshot(ctx, "m", "snap", "r"))
+
+		offered := e.snaps.Offered()
+		require.Len(t, offered, 2)
+		assert.Equal(t, offered[0], offered[1], "the next attempt writes over what the failed one left")
+	})
 	t.Run("a Machine that cannot be returned to Running is Faulted and leaves no snapshot", func(t *testing.T) {
 		e := newEnv(snapshotCaps...)
 		e.inState(t, "m", machine.StateRunning)
@@ -315,8 +345,10 @@ func TestRestoreSnapshot_OnSuccess(t *testing.T) {
 	assert.NotEqual(t, source.User.UID, got.User.UID, "a new UID")
 	assert.Equal(t, got.User.UID, got.User.GID)
 	assert.Equal(t, uint32(1001), got.User.UID, "allocated as Create allocates")
-	assert.NotEqual(t, source.Network.MAC, got.Network.MAC, "a new MAC")
+	assert.Equal(t, source.Network.MAC, got.Network.MAC, "the guest keeps the snapshot's MAC (ADR 0011)")
 	assert.NotEqual(t, source.Network.Addresses, got.Network.Addresses, "new addresses")
+	e.created(t, "fresh")
+	assert.NotEqual(t, source.Network.MAC, e.requireState(t, "fresh", machine.StateCreated).Network.MAC, "control: a Create gets a MAC of its own")
 	assert.Equal(t, narrowPolicy, got.Policy, "the policy is the request's and not the source's")
 	assert.Equal(t, image, got.Image)
 	assert.Equal(t, source.Resources, got.Resources)
@@ -410,6 +442,9 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 
 			requireKind(t, e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy), tt.kind)
 			e.requireNoMachine(t, "new")
+			_, diskHeld := e.disks.Holds("new-root")
+			assert.False(t, diskHeld, "the root disk was removed")
+			assert.False(t, e.net.Allocated("new"), "the addresses were released")
 			_, running := e.sup.Running("new")
 			assert.False(t, running, "no VMM process is left")
 			_, tapped := e.net.Applied("new")
@@ -426,16 +461,119 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 		})
 	}
 
-	t.Run("a VMM that cannot be ended keeps what it holds, and no Machine exists", func(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		fail func(*env)
+	}{
+		{"the snapshot cannot be loaded", func(e *env) { e.driver.FailAt("restore", errBoom) }},
+		{"the Machine cannot be recorded", func(e *env) { e.store.FailAt("save", errBoom) }},
+	} {
+		t.Run("a VMM that cannot be ended is a Faulted Machine that holds what it allocated: "+tt.name, func(t *testing.T) {
+			e := newEnv(snapshotCaps...)
+			e.snapshotted(t, "src", machine.StateRunning)
+			tt.fail(e)
+			e.sup.FailAt("terminate", errBoom)
+
+			err := e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy)
+			requireKind(t, err, machine.ErrFailed)
+			assert.Contains(t, err.Error(), "could not be ended")
+			m := e.requireState(t, "new", machine.StateFaulted)
+			assert.Contains(t, m.FailureReason, "could not be ended")
+			assert.Equal(t, []machine.State{machine.StateFaulted}, e.events.States("new"), "the Faulted state is reported")
+			assert.True(t, e.net.Allocated("new"), "what it allocated is still its own")
+			_, diskHeld := e.disks.Holds("new-root")
+			assert.True(t, diskHeld)
+
+			// A repeat is the original outcome, and does not allocate again.
+			assert.Equal(t, err, e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy))
+			assert.Equal(t, 1, e.disks.Calls("create-root-from"))
+
+			// Delete releases all of it, as for every Faulted Machine.
+			e.sup.Heal("terminate")
+			e.store.Heal("save")
+			require.NoError(t, e.svc.Delete(ctx, "new"))
+			e.requireNoMachine(t, "new")
+			_, running := e.sup.Running("new")
+			assert.False(t, running)
+			_, tapped := e.net.Applied("new")
+			assert.False(t, tapped)
+			e.created(t, "next")
+			assert.Equal(t, uint32(1001), e.requireState(t, "next", machine.StateCreated).User.UID, "the UID was released")
+		})
+	}
+}
+
+// A snapshot is not visible to a restore while Snapshot is still taking it:
+// the restore waits for it, and finds no snapshot when it fails. Many restores
+// of one snapshot run at once.
+func TestRestoreSnapshot_WaitsForTheSnapshotToFinish(t *testing.T) {
+	ctx := context.Background()
+
+	// restoring runs a restore on its own goroutine and returns its result.
+	restoring := func(e *env, id machine.MachineID) <-chan error {
+		done := make(chan error, 1)
+		go func() { done <- e.svc.RestoreSnapshot(ctx, id, "r-"+machine.RequestID(id), "snap", narrowPolicy) }()
+		return done
+	}
+	requireWaiting := func(t *testing.T, done <-chan error) {
+		t.Helper()
+		select {
+		case err := <-done:
+			t.Fatalf("the restore finished while the snapshot was being taken: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	t.Run("a Snapshot that fails", func(t *testing.T) {
+		e := newEnv(snapshotCaps...)
+		e.inState(t, "src", machine.StateRunning)
+		entered, release := e.driver.Hold("resume")
+		e.driver.FailAt("resume", errBoom)
+		snapshotting := make(chan error, 1)
+		go func() { snapshotting <- e.svc.Snapshot(ctx, "src", "snap", "r-snap") }()
+		<-entered
+		require.Equal(t, []machine.SnapshotID{"snap"}, e.snaps.Held(), "the setup: the store holds it while the guest is still paused")
+
+		restored := restoring(e, "new")
+		requireWaiting(t, restored)
+		release()
+
+		requireKind(t, <-snapshotting, machine.ErrFailed)
+		requireKind(t, <-restored, machine.ErrNotFound)
+		e.requireNoMachine(t, "new")
+	})
+	t.Run("a Snapshot that succeeds", func(t *testing.T) {
+		e := newEnv(snapshotCaps...)
+		e.inState(t, "src", machine.StateRunning)
+		entered, release := e.driver.Hold("resume")
+		snapshotting := make(chan error, 1)
+		go func() { snapshotting <- e.svc.Snapshot(ctx, "src", "snap", "r-snap") }()
+		<-entered
+
+		restored := restoring(e, "new")
+		requireWaiting(t, restored)
+		release()
+
+		require.NoError(t, <-snapshotting)
+		require.NoError(t, <-restored)
+		e.requireState(t, "new", machine.StateRunning)
+	})
+	t.Run("restores of one snapshot run together", func(t *testing.T) {
 		e := newEnv(snapshotCaps...)
 		e.snapshotted(t, "src", machine.StateRunning)
-		e.driver.FailAt("restore", errBoom)
-		e.sup.FailAt("terminate", errBoom)
+		entered, release := e.driver.Hold("restore")
+		first := restoring(e, "first")
+		<-entered
 
-		err := e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy)
-		requireKind(t, err, machine.ErrFailed)
-		assert.Contains(t, err.Error(), "could not be ended")
-		_, inspectErr := e.svc.Inspect(ctx, "new")
-		requireKind(t, inspectErr, machine.ErrNotFound)
+		second := restoring(e, "second")
+		select {
+		case err := <-second:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			release()
+			t.Fatal("a second restore of the snapshot was held by the first")
+		}
+		release()
+		require.NoError(t, <-first)
 	})
 }

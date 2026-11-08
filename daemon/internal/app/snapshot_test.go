@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
 )
 
@@ -29,6 +30,7 @@ func TestAPI_SnapshotAndRestoreMachine(t *testing.T) {
 	resp, err := c.SnapshotMachine(ctx, snap)
 	require.NoError(t, err)
 	assert.Equal(t, "snap", resp.GetSnapshotId())
+	assert.Equal(t, []machine.SnapshotID{"snap"}, n.app.Substitutes.Snapshots.Held(), "the substitute the graph is wired with holds it")
 	got, err := c.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "src"})
 	require.NoError(t, err)
 	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, got.GetMachine().GetState(), "the Machine is left as it was")

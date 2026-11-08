@@ -57,7 +57,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	}
 	s.mu.Unlock()
 
-	identity, err := s.network.Allocate(ctx, id)
+	identity, err := s.network.Allocate(ctx, id, "")
 	if err != nil {
 		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))

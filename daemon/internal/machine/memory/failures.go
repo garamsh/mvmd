@@ -13,6 +13,7 @@ type Failures struct {
 	steps map[string]error
 	after map[string]int
 	calls map[string]int
+	holds map[string]heldCall
 }
 
 // FailAt makes every later call of the step return err.
@@ -48,8 +49,36 @@ func (f *Failures) Calls(step string) int {
 	return f.calls[step]
 }
 
+// Hold makes the next call of the step wait, as a slow VMM does. entered is
+// closed when that call is waiting; release lets it go on, to the failure the
+// step has by then or to success.
+func (f *Failures) Hold(step string) (entered <-chan struct{}, release func()) {
+	hold, ch := make(chan struct{}), make(chan struct{})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.holds == nil {
+		f.holds = make(map[string]heldCall)
+	}
+	f.holds[step] = heldCall{hold: hold, entered: ch}
+	return ch, func() { close(hold) }
+}
+
+type heldCall struct {
+	hold    chan struct{}
+	entered chan struct{}
+}
+
 // Enter counts a call of the step and returns the failure it was told to have.
 func (f *Failures) Enter(step string) error {
+	f.mu.Lock()
+	h, held := f.holds[step]
+	delete(f.holds, step)
+	f.mu.Unlock()
+	if held {
+		close(h.entered)
+		<-h.hold
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.calls == nil {

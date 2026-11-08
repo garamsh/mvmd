@@ -16,6 +16,9 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
 	}
+	// No restore reads the snapshot until this call has finished with it: not
+	// while the guest is still paused, and not if the call then fails.
+	defer s.lockSnapshot(snapshot, true)()
 
 	switch held, _, err := s.snapshots.Get(ctx, snapshot); {
 	case err == nil:
@@ -40,6 +43,11 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 	case StateRunning, StatePaused:
 	default:
 		return fail(ErrPreconditionFailed, "Machine %q is %s; snapshot needs Running or Paused", id, m.State)
+	}
+	// An attached disk has its own holder and cannot go with the snapshot, and
+	// the guest's saved device state would still name it.
+	if len(m.Disks) > 0 {
+		return fail(ErrPreconditionFailed, "Machine %q has a disk attached; snapshot needs no disk but the root disk", id)
 	}
 
 	// The guest is held paused for the whole capture, so its memory and its
@@ -86,7 +94,7 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	}
 	spec := Spec{Image: m.Image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}
 	record := Snapshot{
-		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID,
+		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
 		Compat: SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: taken.KernelDigest},
 	}
 	switch err := s.snapshots.Put(ctx, record, SnapshotFiles{State: taken.Files, RootDisk: disk}); {
@@ -123,6 +131,10 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	case snapshot == "":
 		return fail(ErrInvalid, "the snapshot identifier is empty")
 	}
+	// Shared from the lookup until the files are no longer read, so a Snapshot
+	// of it that is still running or that fails is never restored from, and
+	// restores of one snapshot still run together.
+	defer s.lockSnapshot(snapshot, false)()
 	if err := policy.validate(); err != nil {
 		return fail(ErrInvalid, "network policy: %v", err)
 	}
@@ -153,22 +165,26 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	if err != nil {
 		return err
 	}
-	identity, err := s.network.Allocate(ctx, id)
+	identity, err := s.network.Allocate(ctx, id, held.MAC)
 	if err != nil {
-		reason := s.undoRestore(ctx, id, "", false, fmt.Sprintf("allocate network: %v", err))
+		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("allocate network: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	spec := held.Spec.clone()
 	spec.Policy = policy.clone()
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
 	if err != nil {
-		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", s.undoRestore(ctx, id, "", false, fmt.Sprintf("create root disk: %v", err))))
+		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("create root disk: %v", err))
+		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	s.claim(id, root) // a root disk is new, so no one else holds it
 	m := Machine{ID: id, State: StateRunning, Spec: spec, RootDisk: root, RootDiskUUID: held.RootDiskUUID, User: User{UID: uid, GID: uid}, Network: identity}
 
 	if failure, vmm := s.bringUp(ctx, m, files); failure != nil {
-		reason := s.undoRestore(ctx, id, root, vmm, failure.Reason)
+		reason, ended := s.undoRestore(ctx, id, root, vmm, failure.Reason)
+		if !ended {
+			return s.faultedRestore(ctx, m, asked, reason)
+		}
 		if failure.Kind == ErrPreconditionFailed {
 			// Nothing was begun that a repeat could not begin again, so the
 			// refusal is not remembered, as Start's is not.
@@ -179,7 +195,10 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 
 	rec := &Record{ID: id, Request: Request{ID: request, Snapshot: snapshot, Spec: asked.Spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
-		reason := s.undoRestore(ctx, id, root, true, fmt.Sprintf("record the Machine: %v", err))
+		reason, ended := s.undoRestore(ctx, id, root, true, fmt.Sprintf("record the Machine: %v", err))
+		if !ended {
+			return s.faultedRestore(ctx, m, asked, reason)
+		}
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	s.mu.Lock()
@@ -229,12 +248,12 @@ func (s *service) bringUp(ctx context.Context, m Machine, files SnapshotFiles) (
 // undoRestore ends what a failed restore made and returns the failure's
 // reason, extended by anything that could not be undone. A VMM that cannot be
 // ended is not undone around: its tap, disk and UID stay held, since taking
-// them from a running VMM is worse than keeping them; no Machine exists then
-// either, and the next start of the daemon ends a supervisor no record claims.
-func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vmm bool, reason string) string {
+// them from a running VMM is worse than keeping them, and ended is false; the
+// caller then makes the Machine Faulted, which Delete releases.
+func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vmm bool, reason string) (_ string, ended bool) {
 	if vmm {
 		if err := s.supervisor.Terminate(ctx, id); err != nil {
-			return reason + fmt.Sprintf("; the VMM could not be ended, so nothing it holds was released: %v", err)
+			return reason + fmt.Sprintf("; the VMM could not be ended, so nothing it holds was released: %v", err), false
 		}
 	}
 	if err := s.network.Release(ctx, id); err != nil {
@@ -249,7 +268,28 @@ func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vm
 	s.mu.Lock()
 	s.releaseUID(id)
 	s.mu.Unlock()
-	return reason
+	return reason, true
+}
+
+// faultedRestore is the outcome of a failed restore whose VMM could not be
+// ended: the Machine exists, Faulted, holding what the restore allocated, and
+// Delete releases it as it does for any Faulted Machine. The failure is
+// remembered under the request ID, so a repeat returns it.
+func (s *service) faultedRestore(ctx context.Context, m Machine, asked Request, reason string) error {
+	m.State = StateFaulted
+	m.FailureReason = reason
+	asked.Failure = fail(ErrFailed, "%s", reason)
+	if err := s.store.Save(ctx, Record{ID: m.ID, Machine: &m, Request: asked}); err != nil {
+		reason += fmt.Sprintf("; the Machine could not be recorded: %v", err)
+		asked.Failure = fail(ErrFailed, "%s", reason)
+		m.FailureReason = reason
+	}
+	rec := &Record{ID: m.ID, Request: asked}
+	s.mu.Lock()
+	s.records[m.ID] = rec
+	s.mu.Unlock()
+	s.setMachine(rec, &m)
+	return asked.Failure
 }
 
 // failRestore records a failed restore under its request ID, so that a repeat

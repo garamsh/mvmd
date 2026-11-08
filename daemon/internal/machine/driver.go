@@ -136,7 +136,8 @@ type Driver interface {
 	// Snapshot, DescribeRestore and Restore need CapabilitySnapshot.
 	//
 	// Snapshot writes the paused Machine's memory and device state to files
-	// in its run directory.
+	// in its run directory, under the same names on every Snapshot of a
+	// Machine, so the files a failed attempt left are written over by the next.
 	Snapshot(ctx context.Context, id MachineID) (DriverSnapshot, error)
 	// DescribeRestore is Describe for a Machine that boots from the files of a
 	// snapshot. The boot's network device is the new Machine's tap, not the one

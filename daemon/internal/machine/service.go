@@ -49,6 +49,13 @@ type machineLock struct {
 	users int
 }
 
+// snapshotLock is one snapshot's lock and the number of calls using it, which
+// mu guards. Snapshot holds it exclusively; a restore holds it shared.
+type snapshotLock struct {
+	sync.RWMutex
+	users int
+}
+
 type service struct {
 	driver     Driver
 	supervisor Supervision
@@ -68,6 +75,9 @@ type service struct {
 	mu      sync.Mutex
 	records map[MachineID]*Record
 	locks   map[MachineID]*machineLock
+	// snapLocks serializes Snapshot against the restores of the same snapshot.
+	// A call takes a Machine's lock before a snapshot's.
+	snapLocks map[SnapshotID]*snapshotLock
 	// held maps each disk to its one holder (ADR 0009).
 	held         map[DiskID]MachineID
 	usedUID      map[MachineID]uint32 // allocated UID per Machine
@@ -92,6 +102,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		events:       events,
 		records:      make(map[MachineID]*Record),
 		locks:        make(map[MachineID]*machineLock),
+		snapLocks:    make(map[SnapshotID]*snapshotLock),
 		held:         make(map[DiskID]MachineID),
 		usedUID:      make(map[MachineID]uint32),
 		usedUIDByUID: make(map[uint32]MachineID),
@@ -117,6 +128,32 @@ func (s *service) lock(id MachineID) func() {
 		defer s.mu.Unlock()
 		if l.users--; l.users == 0 {
 			delete(s.locks, id)
+		}
+	}
+}
+
+// lockSnapshot takes the snapshot's lock, exclusively or shared, and returns
+// the unlock. The entry exists while a call holds or waits for it.
+func (s *service) lockSnapshot(id SnapshotID, exclusive bool) func() {
+	s.mu.Lock()
+	l, ok := s.snapLocks[id]
+	if !ok {
+		l = new(snapshotLock)
+		s.snapLocks[id] = l
+	}
+	l.users++
+	s.mu.Unlock()
+	lock, unlock := l.RLock, l.RUnlock
+	if exclusive {
+		lock, unlock = l.Lock, l.Unlock
+	}
+	lock()
+	return func() {
+		unlock()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if l.users--; l.users == 0 {
+			delete(s.snapLocks, id)
 		}
 	}
 }

@@ -15,8 +15,10 @@ type NetworkIdentity struct {
 // Network is the conversation with the node's network: addresses, a tap per
 // Machine, and the enforcement of the Machine's policy at that tap.
 type Network interface {
-	// Allocate assigns the Machine's MAC and addresses.
-	Allocate(ctx context.Context, id MachineID) (NetworkIdentity, error)
+	// Allocate assigns the Machine's addresses and its MAC. A non-empty mac is
+	// the one to assign, which a Machine restored from a snapshot keeps because
+	// its guest does; empty means choose one.
+	Allocate(ctx context.Context, id MachineID, mac string) (NetworkIdentity, error)
 	// Apply creates the Machine's tap if absent and commits the policy at it,
 	// fail-closed, returning the tap's name. Repeating it changes nothing.
 	Apply(ctx context.Context, id MachineID, policy NetworkPolicy) (tap string, err error)

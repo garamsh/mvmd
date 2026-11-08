@@ -42,6 +42,7 @@ type Substitutes struct {
 	Network     *machinememory.Network
 	Disks       *machinememory.Disk
 	Images      *machinememory.ImageStore
+	Snapshots   *machinememory.SnapshotStore
 	Supervisors *fencingmemory.Supervisors
 }
 
@@ -84,6 +85,7 @@ func New(cfg Config) (*App, error) {
 		Network:     machinememory.NewNetwork(),
 		Disks:       machinememory.NewDisk(),
 		Images:      machinememory.NewImageStore(),
+		Snapshots:   machinememory.NewSnapshotStore(),
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
 	var supervisors fencing.Supervisors = sub.Supervisors
@@ -101,7 +103,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, machinememory.NewSnapshotStore(), db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,
