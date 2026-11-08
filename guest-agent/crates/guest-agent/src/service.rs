@@ -82,7 +82,13 @@ impl GuestService for Guest {
         &self,
         request: Request<UpdateNetworkRequest>,
     ) -> Result<Response<UpdateNetworkResponse>, Status> {
-        let config = NetworkConfig::try_from(request.into_inner().network.unwrap_or_default())?;
+        // A request without a network is not an empty network: applying it would wipe the
+        // Machine's.
+        let network = request
+            .into_inner()
+            .network
+            .ok_or_else(|| Error::Invalid("network is missing".into()))?;
+        let config = NetworkConfig::try_from(network)?;
         self.boot.update_network(config).await?;
         Ok(Response::new(UpdateNetworkResponse {}))
     }

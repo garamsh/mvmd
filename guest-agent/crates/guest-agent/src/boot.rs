@@ -16,6 +16,39 @@ use crate::v1alpha1::{ExecRequest, ExecStatus};
 /// The exec ID the entrypoint runs under.
 pub const ENTRYPOINT: &str = "entrypoint";
 
+/// A boot step that failed.
+#[derive(Debug, Clone)]
+pub(crate) struct Failure {
+    pub(crate) step: BootStep,
+    pub(crate) detail: String,
+}
+
+impl Failure {
+    fn new(step: BootStep, cause: impl std::fmt::Display) -> Self {
+        Self {
+            step,
+            detail: cause.to_string(),
+        }
+    }
+
+    /// The line the console carries for it.
+    pub(crate) fn console_line(&self) -> String {
+        format!(
+            "mvmd-guest-agent: boot failed step={} detail={}",
+            self.step, self.detail
+        )
+    }
+}
+
+impl From<Failure> for Error {
+    fn from(failure: Failure) -> Self {
+        Self::Boot {
+            step: failure.step,
+            detail: failure.detail,
+        }
+    }
+}
+
 /// Where the boot stands.
 #[derive(Debug, Clone)]
 enum Phase {
@@ -28,7 +61,7 @@ enum Phase {
     /// Every step succeeded.
     Booted(Arc<BootDescription>),
     /// A step failed; the guest stays as that step left it.
-    Failed { step: BootStep, detail: String },
+    Failed(Failure),
 }
 
 /// The boot of one guest.
@@ -65,7 +98,7 @@ impl Boot {
             Phase::Pending | Phase::Booting => Err(Error::PreconditionFailed(
                 "the guest has not booted: Boot has not succeeded".into(),
             )),
-            Phase::Failed { step, detail } => Err(Error::PreconditionFailed(format!(
+            Phase::Failed(Failure { step, detail }) => Err(Error::PreconditionFailed(format!(
                 "the guest did not boot: boot step {step}: {detail}"
             ))),
         }
@@ -80,9 +113,14 @@ impl Boot {
             .await;
     }
 
-    /// Run the boot for `description`, or report what an earlier call to it came to.
-    pub(crate) async fn boot(&self, description: BootDescription) -> Result<(), Error> {
-        let Some(system) = &self.system else {
+    /// Start the boot for `description`, or find what an earlier call to it came to, and wait
+    /// for it to settle.
+    ///
+    /// The steps run in a task of their own, which settles the phase whatever becomes of this
+    /// call: a client that gives up, or a connection that resets, leaves the boot running and a
+    /// repeat finds its outcome.
+    pub(crate) async fn boot(self: &Arc<Self>, description: BootDescription) -> Result<(), Error> {
+        let Some(system) = self.system.clone() else {
             return Err(Error::PreconditionFailed(
                 "this agent does not boot the guest".into(),
             ));
@@ -95,16 +133,18 @@ impl Boot {
             pending
         });
         if claimed {
-            let outcome = self.steps(system, &description).await;
-            self.phase.send_replace(match &outcome {
-                Ok(()) => Phase::Booted(Arc::new(description)),
-                Err(Error::Boot { step, detail }) => Phase::Failed {
-                    step: *step,
-                    detail: detail.clone(),
-                },
-                Err(_) => unreachable!("every step reports its failure as Error::Boot"),
+            let boot = self.clone();
+            let description = description.clone();
+            tokio::spawn(async move {
+                let settled = match boot.steps(&system, &description).await {
+                    Ok(()) => Phase::Booted(Arc::new(description)),
+                    Err(failure) => {
+                        system.console.line(&failure.console_line());
+                        Phase::Failed(failure)
+                    }
+                };
+                boot.phase.send_replace(settled);
             });
-            return outcome;
         }
         let settled = self
             .phase
@@ -118,7 +158,7 @@ impl Boot {
             Phase::Booted(_) => Err(Error::PreconditionFailed(
                 "the guest booted with a different description".into(),
             )),
-            Phase::Failed { step, detail } => Err(Error::Boot { step, detail }),
+            Phase::Failed(failure) => Err(failure.into()),
             Phase::Disabled | Phase::Pending | Phase::Booting => {
                 Err(Error::PreconditionFailed("the boot did not settle".into()))
             }
@@ -138,11 +178,11 @@ impl Boot {
             ));
         }
         let network = system.network.clone();
-        blocking(BootStep::Network, move || network.apply(&config)).await
+        Ok(blocking(BootStep::Network, move || network.apply(&config)).await?)
     }
 
     /// The steps of the boot, each reported by its own name when it fails.
-    async fn steps(&self, system: &System, description: &BootDescription) -> Result<(), Error> {
+    async fn steps(&self, system: &System, description: &BootDescription) -> Result<(), Failure> {
         let mounts = system.mounts.clone();
         let (image, root_disk) = (description.image, description.root_disk);
         let (image_device, root_device) = blocking(BootStep::Check, move || {
@@ -181,9 +221,9 @@ impl Boot {
                 env: run.env.clone(),
                 working_dir: run.working_dir.clone(),
             })
-            .map_err(|failed| Error::boot(BootStep::Entrypoint, failed))?;
+            .map_err(|failed| Failure::new(BootStep::Entrypoint, failed))?;
         if record.status() == ExecStatus::NotStarted {
-            return Err(Error::boot(BootStep::Entrypoint, record.reason));
+            return Err(Failure::new(BootStep::Entrypoint, record.reason));
         }
         Ok(())
     }
@@ -193,9 +233,9 @@ impl Boot {
 async fn blocking<T: Send + 'static>(
     step: BootStep,
     work: impl FnOnce() -> io::Result<T> + Send + 'static,
-) -> Result<T, Error> {
+) -> Result<T, Failure> {
     tokio::task::spawn_blocking(work)
         .await
-        .map_err(|joined| Error::boot(step, joined))?
-        .map_err(|failed| Error::boot(step, failed))
+        .map_err(|joined| Failure::new(step, joined))?
+        .map_err(|failed| Failure::new(step, failed))
 }

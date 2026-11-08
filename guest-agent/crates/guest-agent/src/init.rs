@@ -1,6 +1,8 @@
 //! The agent as PID 1: it serves the channel, supervises the entrypoint, forwards termination to
-//! it, reaps what nobody else will, and powers the Machine off when the entrypoint is gone.
+//! it, reaps what nobody else will, and ends the Machine when the entrypoint is gone. PID 1 never
+//! returns: the kernel panics when init exits.
 
+use std::convert::Infallible;
 use std::io;
 use std::pin::pin;
 use std::sync::Arc;
@@ -16,49 +18,104 @@ use tonic::transport::server::Connected;
 use crate::boot::{Boot, ENTRYPOINT};
 use crate::error::Error;
 use crate::exec::Execs;
-use crate::system::System;
+use crate::system::{Console, System};
 use crate::v1alpha1::{ExecRecord, ExecStatus};
 use crate::{Config, serve_with};
 
 /// Why the agent stops serving.
 enum Ended {
-    /// The entrypoint ended; its record says how.
+    /// The entrypoint ended or never started; its record says how.
     Entrypoint(ExecRecord),
     /// A termination request came when no entrypoint was running or ever would.
     Terminated,
+    /// The agent itself failed at something; the text names it.
+    Failed(String),
 }
 
-/// Run as the guest's init: serve `incoming`, boot the guest when mvmd describes it, supervise the
-/// entrypoint, and power the Machine off once the entrypoint has ended.
+/// Run as the guest's init, and never return.
 ///
-/// Each signal received on `terminate` is forwarded to the entrypoint. One that arrives before the
-/// entrypoint runs powers the Machine off, since there is nothing to terminate.
+/// `setup` runs once the console is attached. It binds the listener and returns it with the
+/// termination requests to forward: each signal received on the receiver is sent to the
+/// entrypoint. One that arrives when the entrypoint is not running ends the Machine, since there
+/// is nothing to terminate.
 ///
-/// When the entrypoint ends, its record is final for every client still reading it; the agent
-/// then stops accepting calls, waits up to `Config::shutdown_grace` for the connected clients,
-/// and powers off. It returns only if the power-off fails or the server stops by itself.
+/// The agent serves `incoming`, boots the guest when mvmd describes it and supervises the
+/// entrypoint. When the entrypoint ends, or the agent cannot go on, it writes one line to the
+/// console saying why, stops accepting calls, waits up to `Config::shutdown_grace` for the
+/// connected clients, and powers the Machine off. If the power-off returns it has failed: the
+/// agent then restarts the Machine, and if that fails too it waits for ever.
 pub async fn run<I, IO>(
-    incoming: I,
+    setup: impl FnOnce() -> io::Result<(I, mpsc::Receiver<Signal>)>,
     config: Config,
     system: System,
-    mut terminate: mpsc::Receiver<Signal>,
-) -> Result<(), Error>
+) -> Infallible
 where
     I: Stream<Item = io::Result<IO>>,
     IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
     IO::ConnectInfo: Clone + Send + Sync + 'static,
 {
-    let mounts = system.mounts.clone();
-    tokio::task::spawn_blocking(move || mounts.prepare())
-        .await
-        .map_err(|joined| io_error("prepare the guest", io::Error::other(joined)))?
-        .map_err(|failed| io_error("prepare the guest", failed))?;
-    let mut children = signal(SignalKind::child())
-        .map_err(|failed| io_error("watch for exited children", failed))?;
+    serve_and_supervise(setup, &config, &system).await;
+    end(&system).await
+}
 
+fn failure_line(context: &str, error: impl std::fmt::Display) -> String {
+    format!("mvmd-guest-agent: failed to {context}: {error}")
+}
+
+/// End the Machine: power off, then restart, then wait.
+async fn end(system: &System) -> Infallible {
     let power = system.power.clone();
+    let outcome = tokio::task::spawn_blocking(move || power.power_off()).await;
+    system.console.line(&failure_line(
+        "power off",
+        outcome.map_or_else(|joined| joined.to_string(), describe_return),
+    ));
+    let power = system.power.clone();
+    let outcome = tokio::task::spawn_blocking(move || power.restart()).await;
+    system.console.line(&failure_line(
+        "restart",
+        outcome.map_or_else(|joined| joined.to_string(), describe_return),
+    ));
+    std::future::pending().await
+}
+
+/// What a return from a call that does not return on success says.
+fn describe_return(result: io::Result<()>) -> String {
+    match result {
+        Ok(()) => "the call returned".into(),
+        Err(error) => error.to_string(),
+    }
+}
+
+/// Serve and supervise until the agent has a reason to end, write the reason, and stop serving.
+async fn serve_and_supervise<I, IO>(
+    setup: impl FnOnce() -> io::Result<(I, mpsc::Receiver<Signal>)>,
+    config: &Config,
+    system: &System,
+) where
+    I: Stream<Item = io::Result<IO>>,
+    IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
+    IO::ConnectInfo: Clone + Send + Sync + 'static,
+{
+    let console: &dyn Console = system.console.as_ref();
+    let mounts = system.mounts.clone();
+    let prepared = tokio::task::spawn_blocking(move || mounts.prepare()).await;
+    match prepared {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return console.line(&failure_line("prepare the guest", error)),
+        Err(error) => return console.line(&failure_line("prepare the guest", error)),
+    }
+    let (incoming, mut terminate) = match setup() {
+        Ok(listening) => listening,
+        Err(error) => return console.line(&failure_line("listen for mvmd", error)),
+    };
+    let mut children = match signal(SignalKind::child()) {
+        Ok(children) => children,
+        Err(error) => return console.line(&failure_line("watch for exited children", error)),
+    };
+
     let execs = Arc::new(Execs::new(config.exec_output_retention));
-    let boot = Arc::new(Boot::pending(system, execs.clone()));
+    let boot = Arc::new(Boot::pending(system.clone(), execs.clone()));
     let (stop, stopped) = oneshot::channel::<()>();
     let mut server = pin!(serve_with(incoming, execs.clone(), boot.clone(), async {
         // A dropped sender stops the server as a sent one does.
@@ -75,48 +132,59 @@ where
             tokio::select! {
                 _ = children.recv() => execs.reap_orphans(getpid()),
                 Some(requested) = terminate.recv() => {
-                    // Not found means the entrypoint has not run and never will; any other
-                    // refusal means it has already ended, which its own branch reports.
-                    if let Err(Error::NotFound(_)) = execs.signal(ENTRYPOINT, requested as i32) {
-                        return Ok(Ended::Terminated);
+                    match execs.signal(ENTRYPOINT, requested as i32) {
+                        Ok(()) | Err(Error::Io { .. }) => {}
+                        // The entrypoint is not running: it has ended, never started, or
+                        // never will. Its record, if there is one, says which.
+                        Err(_) => return match execs.wait(ENTRYPOINT).await {
+                            Ok(record) => Ended::Entrypoint(record),
+                            Err(_) => Ended::Terminated,
+                        },
                     }
                 }
-                record = &mut entrypoint_ended => return record.map(Ended::Entrypoint),
+                record = &mut entrypoint_ended => return match record {
+                    Ok(record) => Ended::Entrypoint(record),
+                    Err(error) => Ended::Failed(failure_line("wait for the entrypoint", error)),
+                },
             }
         }
     };
     let ended = tokio::select! {
-        served = &mut server => return served,
-        ended = supervision => ended?,
+        served = &mut server => {
+            let reason = served.err().map_or_else(|| "the server ended".to_owned(), |e| e.to_string());
+            return console.line(&failure_line("serve the channel", reason));
+        }
+        ended = supervision => ended,
     };
 
-    eprintln!("guest-agent: {}; powering off", describe(&ended));
+    console.line(&describe(&ended));
     let _ = stop.send(());
     // A client that never finishes reading must not keep the Machine on.
     let _ = tokio::time::timeout(config.shutdown_grace, &mut server).await;
-    tokio::task::spawn_blocking(move || power.power_off())
-        .await
-        .map_err(|joined| io_error("power off", io::Error::other(joined)))?
-        .map_err(|failed| io_error("power off", failed))
 }
 
-fn io_error(context: &str, source: io::Error) -> Error {
-    Error::Io {
-        context: context.into(),
-        source,
-    }
-}
-
-/// What the console says about why the agent is ending.
+/// The line the console carries about why the agent is ending.
 fn describe(ended: &Ended) -> String {
     match ended {
-        Ended::Terminated => "terminated before the entrypoint ran".into(),
+        Ended::Terminated => "mvmd-guest-agent: terminated before the entrypoint ran".into(),
+        Ended::Failed(line) => line.clone(),
         Ended::Entrypoint(record) => match record.status() {
-            ExecStatus::Exited if record.term_signal != 0 => {
-                format!("the entrypoint was killed by signal {}", record.term_signal)
-            }
-            ExecStatus::Exited => format!("the entrypoint exited with code {}", record.exit_code),
-            _ => format!("the entrypoint ended: {}", record.reason),
+            ExecStatus::Exited if record.term_signal != 0 => format!(
+                "mvmd-guest-agent: entrypoint exited signal={}",
+                record.term_signal
+            ),
+            ExecStatus::Exited => format!(
+                "mvmd-guest-agent: entrypoint exited code={}",
+                record.exit_code
+            ),
+            ExecStatus::NotStarted => format!(
+                "mvmd-guest-agent: entrypoint not started reason={}",
+                record.reason
+            ),
+            _ => format!(
+                "mvmd-guest-agent: entrypoint ended reason={}",
+                record.reason
+            ),
         },
     }
 }

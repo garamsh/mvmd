@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::fs;
 use std::future::Future;
 use std::io;
@@ -18,13 +19,16 @@ use guest_agent::v1alpha1::{
     UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
     write_file_request,
 };
-use guest_agent::{BootStep, Filesystem, Mounts, Network, NetworkConfig, Power, System, Uuid};
+use guest_agent::{
+    BootStep, Console, Filesystem, Mounts, Network, NetworkConfig, Power, System, Uuid,
+};
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
 use tempfile::TempDir;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tokio_stream::StreamExt;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Code, Streaming};
@@ -159,10 +163,12 @@ impl Network for TestNetwork {
 struct TestPower {
     log: Log,
     done: Mutex<Option<oneshot::Sender<()>>>,
+    held: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     fail: bool,
 }
 
 impl Power for TestPower {
+    /// Returns, which the real call does only when it has failed.
     fn power_off(&self) -> io::Result<()> {
         self.log.push("power_off");
         if let Some(done) = lock(&self.done).take() {
@@ -171,7 +177,26 @@ impl Power for TestPower {
         if self.fail {
             return Err(io::Error::other("injected failure"));
         }
+        // A power-off that works does not return. This one waits until the test drops the
+        // agent, which drops the sender.
+        if let Some(held) = lock(&self.held).take() {
+            let _ = held.recv();
+        }
         Ok(())
+    }
+
+    fn restart(&self) -> io::Result<()> {
+        self.log.push("restart");
+        Err(io::Error::other("injected failure"))
+    }
+}
+
+/// A console that keeps its lines in the log, as `console: <line>`.
+struct TestConsole(Log);
+
+impl Console for TestConsole {
+    fn line(&self, text: &str) {
+        self.0.push(format!("console: {text}"));
     }
 }
 
@@ -181,6 +206,7 @@ struct Setup {
     fail_network: bool,
     fail_power: bool,
     overlay_takes: Duration,
+    listener_ends: bool,
     config: guest_agent::Config,
 }
 
@@ -193,7 +219,10 @@ struct Agent {
     network: Arc<TestNetwork>,
     terminate: mpsc::Sender<Signal>,
     powered_off: oneshot::Receiver<()>,
-    run: JoinHandle<std::result::Result<(), guest_agent::Error>>,
+    /// The agent never returns, so this task never finishes.
+    run: JoinHandle<Infallible>,
+    /// Keeps a power-off that works from returning until the agent is dropped.
+    _hold: std::sync::mpsc::Sender<()>,
 }
 
 impl Agent {
@@ -212,6 +241,7 @@ impl Agent {
             fail: setup.fail_network,
         });
         let (done, powered_off) = oneshot::channel();
+        let (hold, held) = std::sync::mpsc::channel();
         let system = System {
             mounts: Arc::new(TestMounts {
                 log: log.clone(),
@@ -222,14 +252,22 @@ impl Agent {
             power: Arc::new(TestPower {
                 log: log.clone(),
                 done: Mutex::new(Some(done)),
+                held: Mutex::new(Some(held)),
                 fail: setup.fail_power,
             }),
+            console: Arc::new(TestConsole(log.clone())),
         };
         let socket_dir = tempfile::tempdir()?;
         let socket = socket_dir.path().join("agent.sock");
         let incoming = UnixListenerStream::new(UnixListener::bind(&socket)?);
         let (terminate, requests) = mpsc::channel(4);
-        let run = tokio::spawn(guest_agent::run(incoming, setup.config, system, requests));
+        // A listener that accepts nothing and ends stands for a server that stops by itself.
+        let accepted = if setup.listener_ends { 0 } else { usize::MAX };
+        let run = tokio::spawn(guest_agent::run(
+            move || Ok((incoming.take(accepted), requests)),
+            setup.config,
+            system,
+        ));
         let channel = Endpoint::try_from("http://agent.invalid")?.connect_with_connector_lazy(
             service_fn(move |_| {
                 let socket = socket.clone();
@@ -245,6 +283,7 @@ impl Agent {
             terminate,
             powered_off,
             run,
+            _hold: hold,
         })
     }
 
@@ -288,6 +327,15 @@ impl Agent {
 
     fn is_powered_off(&self) -> bool {
         self.log.count("power_off") > 0
+    }
+
+    /// The lines the console has been given.
+    fn console(&self) -> Vec<String> {
+        self.log
+            .entries()
+            .into_iter()
+            .filter_map(|entry| entry.strip_prefix("console: ").map(str::to_owned))
+            .collect()
     }
 }
 
@@ -358,7 +406,7 @@ async fn boot_takes_the_steps_in_order_and_runs_the_entrypoint_as_described() ->
         .log
         .entries()
         .into_iter()
-        .filter(|entry| entry != "power_off")
+        .filter(|entry| entry != "power_off" && !entry.starts_with("console: "))
         .collect();
     assert_eq!(
         steps,
@@ -424,6 +472,14 @@ async fn each_step_that_fails_is_named_over_the_channel_and_ends_the_boot() -> R
         let failure = agent.boot("sleep 30").await.unwrap_err();
 
         assert_eq!(failure.code(), Code::Internal, "{operation}");
+        // The console carries the same failure, once, in the form the daemon reads.
+        assert_eq!(
+            agent.console(),
+            [format!(
+                "mvmd-guest-agent: boot failed step={step} detail=injected failure"
+            )],
+            "{operation}"
+        );
         assert!(
             failure.message().contains(&format!("boot step {step}")),
             "{operation}: {}",
@@ -477,6 +533,88 @@ async fn an_entrypoint_that_cannot_start_fails_the_boot_at_its_step() -> Result 
             .contains(&format!("boot step {}", BootStep::Entrypoint))
     );
     assert!(failure.message().contains("/no/such/program"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn termination_after_an_entrypoint_that_did_not_start_powers_the_machine_off() -> Result {
+    let mut agent = Agent::start().await?;
+    let mut request = agent.boot_request("");
+    request.run = Some(RunConfig {
+        argv: vec!["/no/such/program".into()],
+        ..RunConfig::default()
+    });
+    agent.client.boot(request).await.unwrap_err();
+    // The control: the failed boot alone does not power the Machine off.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!agent.is_powered_off());
+
+    agent.terminate.send(Signal::SIGTERM).await?;
+
+    agent.powered_off().await?;
+    assert!(
+        agent
+            .console()
+            .iter()
+            .any(|line| line.starts_with("mvmd-guest-agent: entrypoint not started reason="))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_boot_dropped_mid_step_still_finishes_and_a_repeat_finds_its_outcome() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        overlay_takes: Duration::from_millis(400),
+        ..Setup::default()
+    })
+    .await?;
+    let request = agent.boot_request("sleep 30");
+    let mut dropped = agent.client.clone();
+    let abandoned = tokio::spawn({
+        let request = request.clone();
+        async move { dropped.boot(request).await }
+    });
+    // The first call is inside the overlay step when its caller goes away.
+    eventually("the boot to reach the overlay", || {
+        agent.log.count("mount_root_disk") > 0
+    })
+    .await?;
+    abandoned.abort();
+    let _ = abandoned.await;
+
+    within(agent.client.boot(request)).await??;
+
+    assert_eq!(agent.log.count("overlay"), 1);
+    assert_eq!(agent.log.count("network"), 1);
+    // The repeat is served as a booted guest.
+    agent
+        .client
+        .list_files(ListFilesRequest { path: "/".into() })
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_update_without_a_network_is_refused_and_changes_nothing() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+
+    let refused = agent
+        .client
+        .update_network(UpdateNetworkRequest { network: None })
+        .await
+        .unwrap_err();
+
+    assert_eq!(refused.code(), Code::InvalidArgument);
+    assert_eq!(lock(&agent.network.applied).len(), 1);
+    // The control: an update that names a network, even an empty one, is applied.
+    agent
+        .client
+        .update_network(UpdateNetworkRequest {
+            network: Some(WireNetworkConfig::default()),
+        })
+        .await?;
+    assert_eq!(lock(&agent.network.applied).len(), 2);
     Ok(())
 }
 
@@ -653,7 +791,42 @@ async fn the_entrypoints_exit_is_reported_and_the_machine_powers_off() -> Result
     let record = record.ok_or("the stream ended without the record")?;
     assert_eq!(record.status(), ExecStatus::Exited);
     assert_eq!(record.exit_code, 7);
-    within(agent.run).await???;
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: entrypoint exited code=7".to_owned()]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_entrypoint_killed_by_a_signal_is_reported_with_the_signal() -> Result {
+    let mut agent = Agent::start().await?;
+    let flag = agent.dir.path().join("kill-now");
+    agent
+        .boot(&format!(
+            "while [ ! -e {} ]; do sleep 0.05; done; kill -KILL $$",
+            flag.display()
+        ))
+        .await?;
+    let mut stream = agent
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: guest_agent::ENTRYPOINT.into(),
+            after_offset: 0,
+        })
+        .await?
+        .into_inner();
+
+    fs::write(&flag, "")?;
+    let (_, record) = within(read_to_record(&mut stream, None)).await??;
+    let record = record.ok_or("the stream ended without the record")?;
+    agent.powered_off().await?;
+
+    assert_eq!(record.term_signal, 9);
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: entrypoint exited signal=9".to_owned()]
+    );
     Ok(())
 }
 
@@ -745,37 +918,76 @@ async fn termination_before_the_entrypoint_runs_powers_the_machine_off() -> Resu
     agent.terminate.send(Signal::SIGTERM).await?;
 
     agent.powered_off().await?;
-    within(agent.run).await???;
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: terminated before the entrypoint ran".to_owned()]
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn a_failed_power_off_is_returned() -> Result {
+async fn a_power_off_that_fails_falls_back_to_a_restart_and_the_agent_never_returns() -> Result {
     let agent = Agent::start_with(Setup {
         fail_power: true,
         ..Setup::default()
     })
     .await?;
     agent.terminate.send(Signal::SIGTERM).await?;
-    let outcome = within(agent.run).await??;
+
+    eventually("the restart", || agent.log.count("restart") > 0).await?;
+
+    let log = agent.log.entries();
+    let power_off = log
+        .iter()
+        .position(|e| e == "power_off")
+        .ok_or("no power-off")?;
+    let restart = log
+        .iter()
+        .position(|e| e == "restart")
+        .ok_or("no restart")?;
+    assert!(power_off < restart);
     assert!(
-        matches!(outcome, Err(guest_agent::Error::Io { .. })),
-        "{outcome:?}"
+        agent
+            .console()
+            .iter()
+            .any(|line| line == "mvmd-guest-agent: failed to power off: injected failure")
+    );
+    // Both calls have returned, so both have failed; the agent still does not return.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!agent.run.is_finished());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_prepare_ends_the_machine_and_says_why() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        fail_mount: Some("prepare"),
+        ..Setup::default()
+    })
+    .await?;
+
+    agent.powered_off().await?;
+
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: failed to prepare the guest: injected failure".to_owned()]
     );
     Ok(())
 }
 
 #[tokio::test]
-async fn a_failed_prepare_stops_the_agent_before_it_serves() -> Result {
-    let agent = Agent::start_with(Setup {
-        fail_mount: Some("prepare"),
+async fn a_server_that_stops_by_itself_ends_the_machine_and_says_why() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        listener_ends: true,
         ..Setup::default()
     })
     .await?;
-    let outcome = within(agent.run).await??;
-    assert!(
-        matches!(outcome, Err(guest_agent::Error::Io { .. })),
-        "{outcome:?}"
+
+    agent.powered_off().await?;
+
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: failed to serve the channel: the server ended".to_owned()]
     );
     Ok(())
 }

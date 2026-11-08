@@ -90,14 +90,6 @@ impl fmt::Display for BootStep {
 }
 
 impl Error {
-    /// A failure of boot `step`.
-    pub(crate) fn boot(step: BootStep, cause: impl fmt::Display) -> Self {
-        Self::Boot {
-            step,
-            detail: cause.to_string(),
-        }
-    }
-
     /// Classify an I/O error on `path`, so the kinds a caller branches on stay variants.
     pub(crate) fn from_io(context: &str, path: &Path, source: io::Error) -> Self {
         match source.kind() {

@@ -79,10 +79,47 @@ fn an_agent_of_any_length_keeps_the_alignment_and_its_content() -> Result {
     Ok(())
 }
 
+/// The archive for the agent `abc`, written out field by field from the format's description:
+/// the magic and thirteen eight-digit fields (inode, mode, owner, group, links, time, size, device
+/// major and minor, rdev major and minor, name size, checksum), the name and the content, each
+/// padded to four bytes, then the trailer.
+const GOLDEN: &str = concat!(
+    "070701",
+    "00000001",
+    "000081ED",
+    "00000000",
+    "00000000",
+    "00000001",
+    "00000000",
+    "00000003",
+    "00000000",
+    "00000000",
+    "00000000",
+    "00000000",
+    "00000005",
+    "00000000",
+    "init\0\0",
+    "abc\0",
+    "070701",
+    "00000000",
+    "00000000",
+    "00000000",
+    "00000000",
+    "00000001",
+    "00000000",
+    "00000000",
+    "00000000",
+    "00000000",
+    "00000000",
+    "00000000",
+    "0000000B",
+    "00000000",
+    "TRAILER!!!\0\0\0\0",
+);
+
 #[test]
-fn the_archive_is_a_function_of_the_agent_alone() {
-    let agent = b"agent";
-    assert_eq!(initrd(agent), initrd(agent));
-    // The control: a different agent gives a different archive, so equality means something.
-    assert_ne!(initrd(agent), initrd(b"agent!"));
+fn the_archive_is_byte_for_byte_the_golden_one() {
+    // Owner, group and time are zero, the inode is 1, and the padding is zeros: nothing of the
+    // build host is in the bytes.
+    assert_eq!(initrd(b"abc"), GOLDEN.as_bytes());
 }

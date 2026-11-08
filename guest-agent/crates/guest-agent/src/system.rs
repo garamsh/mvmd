@@ -39,10 +39,20 @@ pub trait Network: Send + Sync {
     fn apply(&self, config: &NetworkConfig) -> io::Result<()>;
 }
 
-/// Ending the Machine.
+/// Ending the Machine. Neither call returns on success, so a call that returns has failed.
 pub trait Power: Send + Sync {
-    /// Power the Machine off. It does not return on success.
+    /// Power the Machine off.
     fn power_off(&self) -> io::Result<()>;
+
+    /// Restart the Machine, for when powering off did not end it.
+    fn restart(&self) -> io::Result<()>;
+}
+
+/// Where the agent writes the lines that say why it ended, which the VMM's console carries to
+/// the daemon.
+pub trait Console: Send + Sync {
+    /// Write one line.
+    fn line(&self, text: &str);
 }
 
 /// The kernel-facing parts the agent is composed with.
@@ -54,9 +64,11 @@ pub struct System {
     pub network: Arc<dyn Network>,
     /// Powering the Machine off.
     pub power: Arc<dyn Power>,
+    /// The console.
+    pub console: Arc<dyn Console>,
 }
 
-/// Powers the Machine off through the `reboot` system call.
+/// Ends the Machine through the `reboot` system call.
 #[derive(Debug, Default)]
 pub struct LinuxPower;
 
@@ -66,5 +78,22 @@ impl Power for LinuxPower {
         reboot(RebootMode::RB_POWER_OFF)
             .map(|never| match never {})
             .map_err(io::Error::from)
+    }
+
+    fn restart(&self) -> io::Result<()> {
+        nix::unistd::sync();
+        reboot(RebootMode::RB_AUTOBOOT)
+            .map(|never| match never {})
+            .map_err(io::Error::from)
+    }
+}
+
+/// Writes to the standard error, which `Mounts::prepare` attached to the console.
+#[derive(Debug, Default)]
+pub struct LinuxConsole;
+
+impl Console for LinuxConsole {
+    fn line(&self, text: &str) {
+        eprintln!("{text}");
     }
 }

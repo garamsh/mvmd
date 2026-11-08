@@ -1,4 +1,4 @@
-.PHONY: lint format format-apply test build initrd audit generate generate-check ci
+.PHONY: lint format format-apply test build audit generate generate-check ci
 
 # The one statement of the Go toolchain is the toolchain line of go.work.
 export GOTOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.work)
@@ -92,10 +92,11 @@ build:
 	    $(CARGO) build --release --locked --target $(RUST_TARGET) -p "$$bin"; \
 	    echo "$@: $$ws: built $$bin for $(RUST_TARGET)"; \
 	  done)
+	$(initrd_twice)
 
-# initrd writes the Guest Agent's initrd to guest-agent/target/initrd.cpio and prints its digest.
-# The agent is built a second time in a fresh target directory, and the target fails unless that
-# build gives the same digest: the initrd is reproducible. The workspace, Cargo's home and the
+# The Guest Agent's initrd is part of build: it is written to guest-agent/target/initrd.cpio and
+# its digest printed. The agent is built a second time in a fresh target directory, and build fails
+# unless that build gives the same digest: the initrd is reproducible. The workspace, Cargo's home and the
 # target directory are remapped to fixed names, so no path of the machine that builds is in the
 # binary, and the digest does not depend on where the checkout is.
 define build_initrd
@@ -105,17 +106,18 @@ $(CARGO) run --locked --quiet -p mkinitrd -- "$(1)/$(RUST_TARGET)/release/guest-
 echo "$@: build $(3): $$(sha256sum "$(2)" | cut -d' ' -f1)  $$(wc -c < "$(2)") bytes"
 endef
 
-initrd:
-	@set -e; \
-	cd guest-agent; \
-	workspace=$$PWD; \
-	cargo_home=$${CARGO_HOME:-$$HOME/.cargo}; \
-	fresh=$$(mktemp -d); \
-	trap 'rm -rf "$$fresh"' EXIT; \
-	$(call build_initrd,$$workspace/target,target/initrd.cpio,1); \
-	$(call build_initrd,$$fresh/target,$$fresh/initrd.cpio,2); \
-	if ! cmp -s target/initrd.cpio "$$fresh/initrd.cpio"; then echo "$@: the two builds differ" >&2; exit 1; fi; \
-	echo "$@: both builds give $$(sha256sum target/initrd.cpio | cut -d' ' -f1)"
+define initrd_twice
+@set -e; \
+cd guest-agent; \
+workspace=$$PWD; \
+cargo_home=$${CARGO_HOME:-$$HOME/.cargo}; \
+fresh=$$(mktemp -d); \
+trap 'rm -rf "$$fresh"' EXIT; \
+$(call build_initrd,$$workspace/target,target/initrd.cpio,1); \
+$(call build_initrd,$$fresh/target,$$fresh/initrd.cpio,2); \
+if ! cmp -s target/initrd.cpio "$$fresh/initrd.cpio"; then echo "$@: the two initrd builds differ" >&2; exit 1; fi; \
+echo "$@: both initrd builds give $$(sha256sum target/initrd.cpio | cut -d' ' -f1)"
+endef
 
 # audit checks each Rust workspace's dependencies against the RustSec advisories and its sources.
 # It fetches the advisory database, so it needs the network and is not part of ci.
@@ -137,4 +139,4 @@ generate-check:
 	  echo "$@: $$dir: regenerating changed nothing ($$(printf '%s\n' "$$before" | wc -l) files compared)"; \
 	fi)
 
-ci: lint format generate-check test build initrd
+ci: lint format generate-check test build

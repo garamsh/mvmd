@@ -32,7 +32,7 @@ pub use error::{BootStep, Error};
 pub use init::run;
 pub use mounts::LinuxMounts;
 pub use network::LinuxNetwork;
-pub use system::{LinuxPower, Mounts, Network, Power, System};
+pub use system::{Console, LinuxConsole, LinuxPower, Mounts, Network, Power, System};
 pub use uuid::{Filesystem, Uuid};
 
 /// The generated contract: messages, the client and the server of `GuestService`.
