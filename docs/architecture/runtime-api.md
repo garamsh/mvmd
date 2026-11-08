@@ -32,7 +32,7 @@ Checked against garamsh/discussions#2 as read on 2026-11-08 (decision-change rep
 | Stopped | Not executing; disks retained. |
 | Faulted | mvmd cannot establish the Machine's state, for example a stop that could not be confirmed. The only calls that apply are stop, delete, inspect and reads. |
 
-Inspect reports the state, the reason for the last failure if any, the Driver and its version, the Machine's disks and resources as mvmd holds them, and its network address and the network policy in effect.
+Inspect reports the state, the reason for the last failure if any, the Driver and its version, the Machine's disks and resources as mvmd holds them, and its network addresses, one per family its node serves, and the network policy in effect.
 
 ## Operations
 
@@ -70,14 +70,14 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 
 ### Network policy
 
-Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its life ([ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md)). mvmd enforces it on the node ([ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)) and assigns the Machine's address itself ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-an-address-mvmd-assigns.md)).
+Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its life ([ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md)). mvmd enforces it on the node ([ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)) and assigns the Machine's address itself ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md)).
 
 | Message | Field | Meaning |
 |---|---|---|
 | `NetworkPolicy` | `egress` | Rules for packets the Machine sends. A packet leaves only if one matches. |
 | `NetworkPolicy` | `ingress` | Rules for packets sent to the Machine. A packet arrives only if one matches. |
-| `NetworkRule` | `prefix` | An IPv4 prefix in `a.b.c.d/n` form: the destination for egress, the source for ingress. One address is a `/32`. |
-| `NetworkRule` | `protocol` | TCP, UDP, ICMP or any. |
+| `NetworkRule` | `prefix` | An IPv4 prefix (`a.b.c.d/n`) or an IPv6 prefix (`x:x::/n`), which sets the rule's family: the destination for egress, the source for ingress. One address is a `/32` or a `/128`. |
+| `NetworkRule` | `protocol` | TCP, UDP, ICMP (IPv4 only), ICMPv6 (IPv6 only), or any protocol of the prefix's family. |
 | `NetworkRule` | `ports` | Port ranges: destination ports for egress, the Machine's own ports for ingress. Empty means every port; only TCP and UDP rules may set it. |
 | `PortRange` | `first`, `last` | Inclusive bounds, `1` to `65535`, `first` not above `last`. |
 
@@ -85,10 +85,12 @@ Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its l
 - **Allow only, order-free.** A packet passes if any rule of its direction matches; there are no deny rules, and the order of rules means nothing.
 - **Replies are implied.** Packets of a connection an accepted packet opened pass in both directions.
 - **Two Machines on one node** reach each other only when the sender's egress and the receiver's ingress both allow it.
-- **Invalid is rejected.** An unparseable or IPv6 prefix, a port outside `1` to `65535`, a range with `first` above `last`, or ports on an ICMP or any rule: rejected as invalid, nothing changes.
+- **Invalid is rejected.** Any of these is rejected as invalid, and nothing changes: an unparseable prefix; ICMP with an IPv6 prefix or ICMPv6 with an IPv4 prefix; a port outside `1` to `65535`; a range with `first` above `last`; ports on an ICMP, ICMPv6 or any rule.
+- **Both families.** A Machine gets one address per family its node serves ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md)). A rule for a family the node does not serve is valid and matches nothing there.
+- **Neighbour discovery is not policy.** mvmd admits the ICMPv6 a Machine needs to resolve its gateway and be resolved, and drops router advertisements, redirects and router solicitations from it, whatever the policy says ([ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)).
 - **DNS** is an address like any other: the guest's resolvers are the node's, and a policy reaching them allows their addresses on UDP and TCP port 53.
 - **A snapshot carries no policy.** Restore's policy is the new Machine's, and the restored Machine has a new address.
-- **Adding to it.** IPv6 prefixes, name-based rules, a client-chosen address and an operation that replaces a policy are optional additions whose absence means what this table means, so they keep the version. A change to what an empty list means is a new version.
+- **Adding to it.** Name-based rules, a client-chosen address and an operation that replaces a policy are optional additions whose absence means what this table means, so they keep the version. A change to what an empty list means is a new version.
 
 ### Observation
 

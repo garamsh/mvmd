@@ -17,6 +17,7 @@ Candidates weighed:
 - **Ordered allow and deny rules.** The result depends on order, two policies cannot be merged by concatenation, and an added rule can change what an earlier one meant.
 - **Named policies or networks as runtime resources.** They are gaon's resources (#2 §4), and the runtime API would gain lifecycle operations for objects only gaon reasons about. The client resolves its resources into the rules a Machine needs.
 - **Selectors over Machines (labels), as in Kubernetes NetworkPolicy.** Machines on mvmd carry no labels, and a selector is resolved against a view of other Machines that is the client's.
+- **One ICMP protocol for both families.** ICMPv6 carries neighbour discovery, which the tap check decides apart from any policy ([ADR 0012](./0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)), so "any ICMP" would read as covering what no rule controls.
 - **DNS names in rules.** Enforcement in the kernel matches addresses; a name needs a resolver or proxy that mvmd would run and trust, and a name's addresses change while the rule stands.
 
 ## Decision
@@ -24,15 +25,16 @@ Candidates weighed:
 A `NetworkPolicy` is two lists of rules, egress and ingress, each an allow-list. A packet passes when a rule of its direction matches, and nothing else passes. Both lists empty is the default, which blocks all traffic to and from the Machine.
 
 - **A rule** is a prefix, a protocol and a list of port ranges.
-  - **Prefix.** An IPv4 prefix (`a.b.c.d/n`). For egress it is the destination; for ingress, the source. A single address is a `/32`.
-  - **Protocol.** TCP, UDP, ICMP or any.
+  - **Prefix.** An IPv4 prefix (`a.b.c.d/n`) or an IPv6 prefix (`x:x::/n`), which also sets the rule's family. For egress it is the destination; for ingress, the source. A single address is a `/32` or a `/128`.
+  - **Protocol.** TCP, UDP, ICMP (IPv4 only), ICMPv6 (IPv6 only), or any protocol of the prefix's family. Neighbour discovery is never a policy matter: an ICMPv6 or any rule neither grants nor withholds it.
   - **Port ranges.** Each a first and a last port, inclusive, `1` to `65535`. For egress they are destination ports; for ingress, the Machine's own ports. Empty means every port. Only TCP and UDP rules may name ports.
 - **Replies are implied.** Packets of a connection an accepted packet opened are accepted in both directions, so a policy names only who opens connections.
-- **Validation.** An unparseable or IPv6 prefix, a port outside `1` to `65535`, a range whose first port is above its last, or ports on an ICMP or any rule make the call rejected as invalid, and nothing changes.
+- **Validation.** The call is rejected as invalid, and nothing changes, for any of these: an unparseable prefix; ICMP with an IPv6 prefix or ICMPv6 with an IPv4 prefix; a port outside `1` to `65535`; a range whose first port is above its last; ports on an ICMP, ICMPv6 or any rule.
+- **A family the node does not serve.** A rule for it is valid and matches nothing there, so one policy means the same on every node and is never refused for where it lands.
 - **Where it is given.** Create Machine and Restore carry the policy. A snapshot carries none: the restored Machine is a new Machine with its own policy. In v1alpha1 a Machine's policy is fixed for its life.
-- **DNS.** The resolvers are the node's ([ADR 0011](./0011-each-machine-gets-a-routed-tap-and-an-address-mvmd-assigns.md)), and a policy that allows them names their addresses on UDP and TCP port 53, like any other rule.
-- **Inspect** reports the Machine's address and the policy in effect.
-- **What later versions may add without a new version.** New optional fields whose absence means what v1alpha1 means: IPv6 prefixes, name-based rules, an operation that replaces a Machine's policy, and a client-chosen address. A change that makes an empty list mean something other than "nothing passes" is a new version.
+- **DNS.** The resolvers are the node's ([ADR 0011](./0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md)), and a policy that allows them names their addresses on UDP and TCP port 53, like any other rule.
+- **Inspect** reports the Machine's addresses, one per family the node serves, and the policy in effect.
+- **What later versions may add without a new version.** New optional fields whose absence means what v1alpha1 means: name-based rules, an operation that replaces a Machine's policy, and a client-chosen address. A change that makes an empty list mean something other than "nothing passes" is a new version.
 
 ## Consequences
 
