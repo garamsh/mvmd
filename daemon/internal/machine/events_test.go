@@ -120,12 +120,52 @@ func TestEvents_ACallThatChangesNoStateReportsNothing(t *testing.T) {
 		assert.Empty(t, e.events.Changes())
 	})
 	t.Run("a Delete", func(t *testing.T) {
-		// A deleted Machine has no state to report: the wire's MachineState
-		// has no value for it, and a client learns of it by listing.
+		// A deleted Machine has no state to report: its deletion is its own
+		// event.
 		e := newEnv(hotplugAndResize...)
 		e.inState(t, "m", stopped)
 		require.NoError(t, e.svc.Delete(ctx, "m"))
 		e.requireStates(t, "m", created, running, stopped)
+	})
+}
+
+func TestEvents_ADeletionIsReportedOnceItCommits(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a Delete reports the Machine, once", func(t *testing.T) {
+		e := newEnv(hotplugAndResize...)
+		e.inState(t, "m", stopped)
+		e.created(t, "control")
+		require.NoError(t, e.svc.Delete(ctx, "m"))
+		assert.Equal(t, []machine.MachineID{"m"}, e.events.Deletions())
+
+		// A repeat finds it absent and reports nothing more.
+		require.NoError(t, e.svc.Delete(ctx, "m"))
+		assert.Equal(t, []machine.MachineID{"m"}, e.events.Deletions())
+	})
+	t.Run("a Faulted Machine's Delete is reported", func(t *testing.T) {
+		e := newEnv(hotplugAndResize...)
+		e.inState(t, "m", faulted)
+		require.NoError(t, e.svc.Delete(ctx, "m"))
+		assert.Equal(t, []machine.MachineID{"m"}, e.events.Deletions())
+	})
+	t.Run("a refused Delete reports nothing", func(t *testing.T) {
+		e := newEnv(hotplugAndResize...)
+		e.inState(t, "m", running)
+		require.ErrorIs(t, e.svc.Delete(ctx, "m"), machine.ErrPreconditionFailed)
+		assert.Empty(t, e.events.Deletions())
+	})
+	t.Run("a Delete that failed before the record was removed reports nothing", func(t *testing.T) {
+		e := newEnv(hotplugAndResize...)
+		e.inState(t, "m", stopped)
+		e.store.FailAt("remove", errBoom)
+		require.ErrorIs(t, e.svc.Delete(ctx, "m"), machine.ErrFailed)
+		assert.Empty(t, e.events.Deletions())
+
+		// Control: the same Delete reports once the step stops failing.
+		e.store.Heal("remove")
+		require.NoError(t, e.svc.Delete(ctx, "m"))
+		assert.Equal(t, []machine.MachineID{"m"}, e.events.Deletions())
 	})
 }
 

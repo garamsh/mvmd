@@ -51,6 +51,8 @@ func eventToWire(e events.Event) *v1alpha1.WatchEventsResponse {
 		out.Event = &v1alpha1.WatchEventsResponse_StateChanged{
 			StateChanged: &v1alpha1.StateChanged{State: states[body.State]},
 		}
+	case events.Deleted:
+		out.Event = &v1alpha1.WatchEventsResponse_MachineDeleted{MachineDeleted: &v1alpha1.MachineDeleted{}}
 	case events.Deadline:
 		out.Event = &v1alpha1.WatchEventsResponse_Deadline{
 			Deadline: &v1alpha1.DeadlineEvent{Kind: deadlineEvents[body.Event]},

@@ -70,6 +70,11 @@ func (s *service) StateChanged(id machine.MachineID, state machine.State) {
 	s.emit(id, StateChanged{State: state})
 }
 
+// Deleted implements machine.Events.
+func (s *service) Deleted(id machine.MachineID) {
+	s.emit(id, Deleted{})
+}
+
 // Reported implements machine.Events.
 func (s *service) Reported(event machine.DriverEvent) {
 	s.emit("", Driver{Event: event})

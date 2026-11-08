@@ -146,6 +146,18 @@ func TestWatch_AWatcherThatFallsBehindEndsWithResyncNeverAHole(t *testing.T) {
 	requireResync(t, w)
 }
 
+func TestWatch_ADeletionIsAnEventOfItsMachine(t *testing.T) {
+	s := events.NewService(10)
+	s.StateChanged("m", machine.StateCreated)
+	s.Deleted("m")
+
+	w := s.Watch(0)
+	assert.Equal(t, events.StateChanged{State: machine.StateCreated}, next(t, w).Body)
+	e := next(t, w)
+	assert.Equal(t, machine.MachineID("m"), e.Machine)
+	assert.Equal(t, events.Deleted{}, e.Body)
+}
+
 func TestWatch_ManyConcurrentWritersAreOneConsecutiveSequence(t *testing.T) {
 	const writers, each = 8, 50
 	s := events.NewService(writers * each)

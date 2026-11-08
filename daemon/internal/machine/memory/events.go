@@ -11,6 +11,7 @@ type Events struct {
 	mu       sync.Mutex
 	changes  []Change
 	reported []machine.DriverEvent
+	deleted  []machine.MachineID
 }
 
 // Change is one state a Machine was reported to be in.
@@ -27,6 +28,20 @@ func (e *Events) StateChanged(id machine.MachineID, state machine.State) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.changes = append(e.changes, Change{id, state})
+}
+
+// Deleted implements machine.Events.
+func (e *Events) Deleted(id machine.MachineID) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.deleted = append(e.deleted, id)
+}
+
+// Deletions returns the Machines recorded as deleted, in order.
+func (e *Events) Deletions() []machine.MachineID {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]machine.MachineID(nil), e.deleted...)
 }
 
 // Reported implements machine.Events.

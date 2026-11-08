@@ -362,12 +362,15 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 		return fail(ErrFailed, "remove the record: %v", err)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.records, id)
 	delete(s.held, rec.Machine.RootDisk)
 	for _, a := range rec.Machine.Disks {
 		delete(s.held, a.Disk)
 	}
 	s.releaseUID(id)
+	s.mu.Unlock()
+	// The Machine's lock is still held, so this follows every event of its
+	// states, and a watcher that sees it finds the Machine gone from List.
+	s.events.Deleted(id)
 	return nil
 }

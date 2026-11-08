@@ -124,6 +124,39 @@ func TestEvents_ALiveStreamCarriesEveryChangeAndAReplayIsTheSameSequence(t *test
 	}
 }
 
+// A deleted Machine is announced on the stream, after the states it went
+// through, and a Machine that is not deleted is not.
+func TestEvents_ADeletedMachineIsOnTheStream(t *testing.T) {
+	ctx := context.Background()
+	n := start(t, testConfig(t))
+	n.app.Substitutes.Images.Provide(digest)
+	s := watch(t, n, 0)
+
+	_, err := n.client.CreateMachine(ctx, create("gone"))
+	require.NoError(t, err)
+	_, err = n.client.CreateMachine(ctx, create("control"))
+	require.NoError(t, err)
+	_, err = n.client.DeleteMachine(ctx, &v1alpha1.DeleteMachineRequest{MachineId: "gone"})
+	require.NoError(t, err)
+
+	events := recvN(t, s, 3)
+	assert.Equal(t, "gone", events[0].GetMachineId())
+	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, events[0].GetStateChanged().GetState())
+	assert.Equal(t, "control", events[1].GetMachineId())
+	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, events[1].GetStateChanged().GetState())
+	assert.Equal(t, "gone", events[2].GetMachineId())
+	assert.NotNil(t, events[2].GetMachineDeleted(), "the deletion is its own event")
+	assert.Nil(t, events[2].GetStateChanged(), "a deleted Machine has no state")
+
+	// Control: the Machine that was not deleted receives no MachineDeleted.
+	for _, e := range events {
+		if e.GetMachineId() == "control" {
+			assert.Nil(t, e.GetMachineDeleted())
+		}
+	}
+	requireWaiting(t, s) // and nothing more followed
+}
+
 func TestEvents_AWatcherResumesAfterASequence(t *testing.T) {
 	n := start(t, testConfig(t))
 	raise(n, 5, 1)
