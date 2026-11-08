@@ -49,12 +49,13 @@ func TestRestore_UIDOutsideRangeIsRejected(t *testing.T) {
 		disks:  memory.NewDisk(),
 		images: memory.NewImageStore(),
 		snaps:  memory.NewSnapshotStore(),
+		guest:  memory.NewGuest(0),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.store, e.permit, machine.UIDRange{First: 2000, Count: 10}, e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.store, e.permit, machine.UIDRange{First: 2000, Count: 10}, e.events)
 
 	// Save a record with UID 9000 — outside the range.
 	m := machine.Machine{

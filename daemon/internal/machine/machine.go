@@ -198,6 +198,8 @@ func fail(kind error, format string, args ...any) *Error {
 func (m Machine) clone() Machine {
 	m.Spec = m.Spec.clone()
 	m.Network.Addresses = slices.Clone(m.Network.Addresses)
+	m.Network.Gateways = slices.Clone(m.Network.Gateways)
+	m.Network.Resolvers = slices.Clone(m.Network.Resolvers)
 	return m
 }
 

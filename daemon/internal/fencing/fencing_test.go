@@ -48,7 +48,7 @@ func newEnv(t *testing.T) *env {
 	e.snaps = machinememory.NewSnapshotStore()
 	images := machinememory.NewImageStore()
 	images.Provide(image)
-	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, e.snaps, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256}, machinememory.NewEvents())
+	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, e.snaps, machinememory.NewGuest(0), machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256}, machinememory.NewEvents())
 	require.NoError(t, e.svc.Reconcile(context.Background(), e.m))
 	return e
 }

@@ -30,6 +30,7 @@ type env struct {
 	disks  *memory.Disk
 	images *memory.ImageStore
 	snaps  *memory.SnapshotStore
+	guest  *memory.Guest
 	store  *memory.StateStore
 	permit *memory.StartPermitter
 	events *memory.Events
@@ -45,12 +46,13 @@ func newEnv(caps ...machine.Capability) *env {
 		disks:  memory.NewDisk(),
 		images: memory.NewImageStore(),
 		snaps:  memory.NewSnapshotStore(),
+		guest:  memory.NewGuest(0),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
 	return e
 }
 

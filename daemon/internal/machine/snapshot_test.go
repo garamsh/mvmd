@@ -34,11 +34,12 @@ func (e *env) elsewhere(info machine.DriverInfo) *env {
 		disks:  memory.NewDisk(),
 		images: memory.NewImageStore(),
 		snaps:  e.snaps,
+		guest:  memory.NewGuest(0),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
-	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.store, o.permit, machine.UIDRange{First: 1000, Count: 256}, o.events)
+	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.guest, o.store, o.permit, machine.UIDRange{First: 1000, Count: 256}, o.events)
 	return o
 }
 
@@ -378,6 +379,18 @@ func TestRestoreSnapshot_OnSuccess(t *testing.T) {
 	user, _ := e.sup.User("new")
 	assert.Equal(t, got.User, user, "the supervisor runs the VMM as the new user")
 
+	// The guest holds the new Machine's addresses, gateways and resolvers, and
+	// not the snapshot's.
+	sent, ok := e.guest.Network("new")
+	require.True(t, ok, "the guest was sent its network")
+	assert.Equal(t, got.Network.Addresses, sent.Addresses)
+	assert.Equal(t, got.Network.Gateways, sent.Gateways)
+	assert.Equal(t, got.Network.Resolvers, sent.Resolvers)
+	assert.NotEmpty(t, sent.Gateways)
+	assert.NotEqual(t, source.Network.Addresses, sent.Addresses)
+	_, sentToSource := e.guest.Network("src")
+	assert.False(t, sentToSource, "control: the source's guest is not touched")
+
 	// Control: the source is as it was.
 	e.requireState(t, "src", machine.StateRunning)
 	assert.Equal(t, source.User, e.requireState(t, "src", machine.StateRunning).User)
@@ -434,6 +447,7 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 		{"the supervisor cannot start", func(e *env) { e.sup.FailAt("start", errBoom) }, func(e *env) { e.sup.Heal("start") }, machine.ErrFailed},
 		{"the snapshot cannot be loaded", func(e *env) { e.driver.FailAt("restore", errBoom) }, func(e *env) { e.driver.Heal("restore") }, machine.ErrFailed},
 		{"the Machine cannot be recorded", func(e *env) { e.store.FailAt("save", errBoom) }, func(e *env) { e.store.Heal("save") }, machine.ErrFailed},
+		{"the guest cannot be sent its network", func(e *env) { e.guest.FailAt("update-network", errBoom) }, func(e *env) { e.guest.Heal("update-network") }, machine.ErrFailed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(snapshotCaps...)
@@ -467,6 +481,7 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 	}{
 		{"the snapshot cannot be loaded", func(e *env) { e.driver.FailAt("restore", errBoom) }},
 		{"the Machine cannot be recorded", func(e *env) { e.store.FailAt("save", errBoom) }},
+		{"the guest cannot be sent its network", func(e *env) { e.guest.FailAt("update-network", errBoom) }},
 	} {
 		t.Run("a VMM that cannot be ended is a Faulted Machine that holds what it allocated: "+tt.name, func(t *testing.T) {
 			e := newEnv(snapshotCaps...)
@@ -501,6 +516,30 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 			assert.Equal(t, uint32(1001), e.requireState(t, "next", machine.StateCreated).User.UID, "the UID was released")
 		})
 	}
+}
+
+// The Machine is not Running, nor reported so, until its guest holds the new
+// addresses.
+func TestRestoreSnapshot_IsNotRunningUntilTheGuestHasItsNetwork(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(snapshotCaps...)
+	e.snapshotted(t, "src", machine.StateRunning)
+	entered, release := e.guest.Hold("update-network")
+	done := make(chan error, 1)
+	go func() { done <- e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the restore never sent the guest its network")
+	}
+
+	_, err := e.svc.Inspect(ctx, "new")
+	requireKind(t, err, machine.ErrNotFound)
+	assert.Empty(t, e.events.States("new"), "no state is reported while the guest has the old addresses")
+
+	release()
+	require.NoError(t, <-done)
+	e.requireState(t, "new", machine.StateRunning)
 }
 
 // A snapshot is not visible to a restore while Snapshot is still taking it:

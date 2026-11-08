@@ -67,7 +67,7 @@ In mvmd the composition site is in the daemon, placed as `docs/convention/stack-
 | Deadline events | driven | the same log, for each change of the fencing deadline; the interface is `daemon/internal/fencing/events.go` | [runtime-api.md](./runtime-api.md) §Observation |
 | Registry | driven | OCI distribution registries | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
 | Converter channel | driven | the converter in its microVM, over vsock; [image.md](./image.md) §Conversion | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
-| Guest Agent channel | driven | the Guest Agent over vsock; [guest.md](./guest.md) | #2 §3 wiring, §5 |
+| Guest Agent channel | driven | the Guest Agent over vsock; [guest.md](./guest.md); the interface is `daemon/internal/machine/guest.go`, with an in-memory substitute under `daemon/internal/machine/memory/` and no real adapter yet | #2 §3 wiring, §5 |
 | Supervision | driven | `mvmd-supervisor` processes, one per Machine whose VMM process exists and one per running conversion, each starting and confining its VMM; the adapter is `daemon/internal/supervision/`, behind `daemon/internal/fencing/supervisors.go`; [runtime.md](./runtime.md) §Fencing and §VMM confinement | [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md), [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) |
 
 A port with one real adapter is kept only with a test substitute standing in for it ([ADR 0002](./adr/0002-mvmd-is-structured-as-a-hexagonal-application.md) §Consequences). The Driver port has two real adapters from the start, since an abstraction with one implementation cannot be verified (#2 §5, first implementation scope).

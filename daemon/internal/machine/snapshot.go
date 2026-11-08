@@ -242,6 +242,11 @@ func (s *service) bringUp(ctx context.Context, m Machine, files SnapshotFiles) (
 	if err := s.driver.Restore(ctx, id); err != nil {
 		return fail(ErrFailed, "load the snapshot: %v", err), true
 	}
+	// The guest still holds the snapshot's addresses. The Machine is not
+	// Running, nor reported so, until it holds its own (ADR 0011, "Restore").
+	if err := s.guest.UpdateNetwork(ctx, id, m.Network.guestNetwork()); err != nil {
+		return fail(ErrFailed, "send the guest its network: %v", err), true
+	}
 	return nil, true
 }
 

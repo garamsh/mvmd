@@ -45,6 +45,8 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string) 
 	identity := machine.NetworkIdentity{
 		MAC:       mac,
 		Addresses: []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 0, byte(n.next)})},
+		Gateways:  []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 255, 254})},
+		Resolvers: []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 255, 253})},
 	}
 	n.allocated[id] = identity
 	return identity, nil
