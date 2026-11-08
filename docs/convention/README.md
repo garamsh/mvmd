@@ -37,7 +37,7 @@ Selection is not once. A change that alters the project's stack carries the sele
 
 ## Stack-specific
 
-These apply only when the project uses that stack. The bootstrap process (root `README.md` §Bootstrap) keeps the relevant ones and deletes the rest, removing the rows below for the files it deletes.
+These apply only when the project uses that stack. The bootstrap process keeps the relevant ones and deletes the rest, removing the rows below for the files it deletes.
 
 | File | Extends | Governs |
 |---|---|---|

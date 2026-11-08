@@ -10,7 +10,7 @@ Checked against garamsh/discussions#2 as read on 2026-11-08, §2 (discussioncomm
 - **mvmd reaches it over vsock.** The Guest Agent channel is a driven port ([structure.md](./structure.md) §Ports).
 - **Boot order (#2 §5):** kernel, init in the initrd, check the root filesystem device, mount the EROFS read-only, overlay the writable disk as the upper layer, switch root, apply the run configuration, run the entrypoint.
 - **The host never mounts a guest disk.** A host kernel would interpret an untrusted filesystem, and a second writer would be possible (#2 §2, and §5 security).
-- **Language: Rust**, because one runs per VM and memory and start time matter. The UFFD lazy-restore handler, a page-fault path where garbage-collection pauses become guest latency, is Rust too (#2 §5, implementation language).
+- **Language: Rust**, because one runs per VM and memory and start time matter (#2 §5, implementation language).
 - **Guest kernel.** Build and management are a separate project, created at the prototype stage when mvmd first needs to build a kernel itself. The reasons are the GPLv2 source-distribution obligation and a build toolchain and update cadence different from mvmd's. Until then mvmd holds no kernel configuration or patches (guest kernel reply). The kernel conditions the Guest Agent requires are stated explicitly (#2 §5).
 
 ## Rationale
