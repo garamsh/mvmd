@@ -12,7 +12,7 @@ workspace = true
 diffy = "0.5.2"
 futures-core = "0.3.34"
 globset = "0.4.21"
-nix = { version = "0.31.3", features = ["signal"] }
+nix = { version = "0.31.3", features = ["fs", "mount", "process", "reboot", "signal", "socket"] }
 prost = "0.14.4"
 sha2 = "0.11.1"
 thiserror = "2.0.21"

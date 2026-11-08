@@ -7,16 +7,19 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
+use crate::boot::Boot;
+use crate::description::{BootDescription, NetworkConfig};
 use crate::error::Error;
 use crate::exec::Execs;
 use crate::files::{self, Locks, Reader, Upload};
 use crate::v1alpha1::guest_service_server::GuestService;
 use crate::v1alpha1::{
-    ExecRequest, ExecResponse, FileEntry, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
-    ListFilesRequest, ListFilesResponse, PatchFileRequest, PatchFileResponse,
-    ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest, ReadFileResponse,
-    SearchFilesRequest, SearchFilesResponse, SignalRequest, SignalResponse, WriteFileRequest,
-    WriteFileResponse, read_exec_output_response, write_file_request,
+    BootRequest, BootResponse, ExecRequest, ExecResponse, FileEntry, HealthRequest, HealthResponse,
+    InfoRequest, InfoResponse, ListFilesRequest, ListFilesResponse, PatchFileRequest,
+    PatchFileResponse, ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest,
+    ReadFileResponse, SearchFilesRequest, SearchFilesResponse, SignalRequest, SignalResponse,
+    UpdateNetworkRequest, UpdateNetworkResponse, WriteFileRequest, WriteFileResponse,
+    read_exec_output_response, write_file_request,
 };
 
 /// The contract versions the agent serves.
@@ -49,6 +52,7 @@ fn batches<M>(entries: Vec<FileEntry>, message: impl Fn(Vec<FileEntry>) -> M) ->
 pub(crate) struct Guest {
     pub(crate) execs: Arc<Execs>,
     pub(crate) locks: Locks,
+    pub(crate) boot: Arc<Boot>,
 }
 
 impl From<Error> for Status {
@@ -61,14 +65,30 @@ impl From<Error> for Status {
             Error::PermissionDenied(_) => Status::permission_denied(message),
             Error::PreconditionFailed(_) => Status::failed_precondition(message),
             Error::DigestMismatch(_) => Status::data_loss(message),
-            Error::Io { .. } | Error::Serve(_) => Status::internal(message),
+            Error::Boot { .. } | Error::Io { .. } | Error::Serve(_) => Status::internal(message),
         }
     }
 }
 
 #[tonic::async_trait]
 impl GuestService for Guest {
+    async fn boot(&self, request: Request<BootRequest>) -> Result<Response<BootResponse>, Status> {
+        let description = BootDescription::try_from(request.into_inner())?;
+        self.boot.boot(description).await?;
+        Ok(Response::new(BootResponse {}))
+    }
+
+    async fn update_network(
+        &self,
+        request: Request<UpdateNetworkRequest>,
+    ) -> Result<Response<UpdateNetworkResponse>, Status> {
+        let config = NetworkConfig::try_from(request.into_inner().network.unwrap_or_default())?;
+        self.boot.update_network(config).await?;
+        Ok(Response::new(UpdateNetworkResponse {}))
+    }
+
     async fn exec(&self, request: Request<ExecRequest>) -> Result<Response<ExecResponse>, Status> {
+        self.boot.ready()?;
         let record = self.execs.start(request.into_inner())?;
         Ok(Response::new(ExecResponse {
             record: Some(record),
@@ -81,6 +101,7 @@ impl GuestService for Guest {
         &self,
         request: Request<ReadExecOutputRequest>,
     ) -> Result<Response<Self::ReadExecOutputStream>, Status> {
+        self.boot.ready()?;
         let request = request.into_inner();
         let mut follower = self.execs.follow(&request.exec_id, request.after_offset)?;
         let (tx, rx) = mpsc::channel(STREAM_DEPTH);
@@ -117,6 +138,7 @@ impl GuestService for Guest {
         &self,
         request: Request<SignalRequest>,
     ) -> Result<Response<SignalResponse>, Status> {
+        self.boot.ready()?;
         let request = request.into_inner();
         self.execs.signal(&request.exec_id, request.signal)?;
         Ok(Response::new(SignalResponse {}))
@@ -128,6 +150,7 @@ impl GuestService for Guest {
         &self,
         request: Request<ReadFileRequest>,
     ) -> Result<Response<Self::ReadFileStream>, Status> {
+        self.boot.ready()?;
         let mut reader = Reader::open(&request.into_inner().path).await?;
         let (tx, rx) = mpsc::channel(STREAM_DEPTH);
         tokio::spawn(async move {
@@ -150,6 +173,7 @@ impl GuestService for Guest {
         &self,
         request: Request<Streaming<WriteFileRequest>>,
     ) -> Result<Response<WriteFileResponse>, Status> {
+        self.boot.ready()?;
         let mut stream = request.into_inner();
         let mut upload: Option<Upload> = None;
         while let Some(message) = stream.message().await? {
@@ -181,6 +205,7 @@ impl GuestService for Guest {
         &self,
         request: Request<PatchFileRequest>,
     ) -> Result<Response<PatchFileResponse>, Status> {
+        self.boot.ready()?;
         let request = request.into_inner();
         let outcome = files::patch(
             &self.locks,
@@ -201,6 +226,7 @@ impl GuestService for Guest {
         &self,
         request: Request<ListFilesRequest>,
     ) -> Result<Response<Self::ListFilesStream>, Status> {
+        self.boot.ready()?;
         let entries = files::list(&request.into_inner().path).await?;
         Ok(Response::new(batches(entries, |entries| {
             ListFilesResponse { entries }
@@ -213,6 +239,7 @@ impl GuestService for Guest {
         &self,
         request: Request<SearchFilesRequest>,
     ) -> Result<Response<Self::SearchFilesStream>, Status> {
+        self.boot.ready()?;
         let request = request.into_inner();
         let matches = files::search(&request.path, &request.pattern).await?;
         Ok(Response::new(batches(matches, |matches| {
