@@ -48,20 +48,20 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", taken, holder)
 	}
 
-	identity, err := s.network.Allocate(ctx, id)
-	if err != nil {
-		s.release(disks...)
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))
-	}
 	s.mu.Lock()
 	uid, err := s.allocateUID(id)
 	if err != nil {
 		s.mu.Unlock()
 		s.release(disks...)
-		s.network.Release(ctx, id)
-		return err // preserve the kind from allocateUID
+		return err
 	}
 	s.mu.Unlock()
+
+	identity, err := s.network.Allocate(ctx, id)
+	if err != nil {
+		s.release(disks...)
+		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))
+	}
 	root, uuid, err := s.disks.CreateRoot(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, spec.RootDiskBytes)
 	if err != nil {
 		reason := fmt.Sprintf("create root disk: %v", err)
