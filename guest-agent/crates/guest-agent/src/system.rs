@@ -39,13 +39,31 @@ pub trait Network: Send + Sync {
     fn apply(&self, config: &NetworkConfig) -> io::Result<()>;
 }
 
-/// Ending the Machine. Neither call returns on success, so a call that returns has failed.
+/// Ending the Machine. Neither `power_off` nor `restart` returns on success, so a call that
+/// returns has failed.
 pub trait Power: Send + Sync {
     /// Power the Machine off.
     fn power_off(&self) -> io::Result<()>;
 
     /// Restart the Machine, for when powering off did not end it.
     fn restart(&self) -> io::Result<()>;
+
+    /// Wait for ever, once neither of the others has ended the Machine. It returns only in a
+    /// test.
+    fn halt(&self);
+}
+
+/// The kernel's random pool, after a restore.
+pub trait Entropy: Send + Sync {
+    /// Mix `bytes` into the pool and count them as entropy, then make the kernel reseed its
+    /// generator from the pool at once.
+    fn mix_and_reseed(&self, bytes: &[u8]) -> io::Result<()>;
+}
+
+/// The wall clock.
+pub trait Clock: Send + Sync {
+    /// Set the wall clock to `unix_nanos` nanoseconds after the Unix epoch.
+    fn set_realtime(&self, unix_nanos: i64) -> io::Result<()>;
 }
 
 /// Where the agent writes the lines that say why it ended, which the VMM's console carries to
@@ -66,6 +84,10 @@ pub struct System {
     pub power: Arc<dyn Power>,
     /// The console.
     pub console: Arc<dyn Console>,
+    /// The kernel's random pool.
+    pub entropy: Arc<dyn Entropy>,
+    /// The wall clock.
+    pub clock: Arc<dyn Clock>,
 }
 
 /// Ends the Machine through the `reboot` system call.
@@ -85,6 +107,12 @@ impl Power for LinuxPower {
         reboot(RebootMode::RB_AUTOBOOT)
             .map(|never| match never {})
             .map_err(io::Error::from)
+    }
+
+    fn halt(&self) {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
     }
 }
 

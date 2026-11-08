@@ -41,13 +41,28 @@ fn listen() -> io::Result<(
     Ok((listener.incoming(), terminate))
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let system = guest_agent::System {
         mounts: Arc::new(guest_agent::LinuxMounts),
         network: Arc::new(guest_agent::LinuxNetwork::default()),
         power: Arc::new(guest_agent::LinuxPower),
         console: Arc::new(guest_agent::LinuxConsole),
+        entropy: Arc::new(guest_agent::LinuxEntropy),
+        clock: Arc::new(guest_agent::LinuxClock),
     };
-    match guest_agent::run(listen, guest_agent::Config::default(), system).await {}
+    // A panic from here on ends the Machine, the runtime failing to build included.
+    guest_agent::end_on_panic(system.clone());
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => guest_agent::fail(&system, "build the runtime", error),
+    };
+    // `run` never returns, so nothing follows.
+    runtime.block_on(guest_agent::run(
+        listen,
+        guest_agent::Config::default(),
+        system,
+    ));
 }

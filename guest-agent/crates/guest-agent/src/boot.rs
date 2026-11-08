@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use crate::description::{BootDescription, NetworkConfig};
+use crate::description::{BootDescription, CatchUp, NetworkConfig};
 use crate::error::{BootStep, Error};
 use crate::exec::Execs;
 use crate::system::System;
@@ -70,6 +70,9 @@ pub(crate) struct Boot {
     /// What the steps act on; `None` when the agent does not boot the guest.
     system: Option<System>,
     execs: Arc<Execs>,
+    /// The restore ID of the last catch-up that succeeded. It is held while a catch-up runs, so
+    /// two calls with one ID do the work once.
+    last_restore: tokio::sync::Mutex<Option<String>>,
 }
 
 impl Boot {
@@ -79,6 +82,7 @@ impl Boot {
             phase: watch::Sender::new(Phase::Pending),
             system: Some(system),
             execs,
+            last_restore: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -88,6 +92,7 @@ impl Boot {
             phase: watch::Sender::new(Phase::Disabled),
             system: None,
             execs,
+            last_restore: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -181,6 +186,42 @@ impl Boot {
         Ok(blocking(BootStep::Network, move || network.apply(&config)).await?)
     }
 
+    /// Catch a restored guest up: entropy, then the clock, then the network. A call with the
+    /// restore ID of the last one that succeeded has nothing left to do.
+    ///
+    /// A call dropped part-way leaves the ID unrecorded, so a repeat does every step again,
+    /// each of which is safe to do twice.
+    pub(crate) async fn catch_up(&self, request: CatchUp) -> Result<(), Error> {
+        let Some(system) = &self.system else {
+            return Err(Error::PreconditionFailed(
+                "this agent does not boot the guest".into(),
+            ));
+        };
+        if !matches!(&*self.phase.borrow(), Phase::Booted(_)) {
+            return Err(Error::PreconditionFailed(
+                "the guest has not booted: Boot has not succeeded".into(),
+            ));
+        }
+        let mut last = self.last_restore.lock().await;
+        if last.as_deref() == Some(request.restore_id.as_str()) {
+            return Ok(());
+        }
+        let entropy = system.entropy.clone();
+        let bytes = request.entropy;
+        io_step("mix entropy into the kernel's pool", move || {
+            entropy.mix_and_reseed(&bytes)
+        })
+        .await?;
+        let clock = system.clock.clone();
+        let nanos = request.host_unix_nanos;
+        io_step("set the wall clock", move || clock.set_realtime(nanos)).await?;
+        let network = system.network.clone();
+        let config = request.network;
+        io_step("configure the network", move || network.apply(&config)).await?;
+        *last = Some(request.restore_id);
+        Ok(())
+    }
+
     /// The steps of the boot, each reported by its own name when it fails.
     async fn steps(&self, system: &System, description: &BootDescription) -> Result<(), Failure> {
         let mounts = system.mounts.clone();
@@ -227,6 +268,21 @@ impl Boot {
         }
         Ok(())
     }
+}
+
+/// Run a blocking step of a catch-up off the async threads, naming it if it fails.
+async fn io_step(
+    context: &str,
+    work: impl FnOnce() -> io::Result<()> + Send + 'static,
+) -> Result<(), Error> {
+    let failed = |source| Error::Io {
+        context: context.to_owned(),
+        source,
+    };
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|joined| failed(io::Error::other(joined)))?
+        .map_err(failed)
 }
 
 /// Run a blocking step off the async threads, naming it if it fails.
