@@ -46,5 +46,6 @@ Decisions:
 - [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md) — a network policy is an allow-list of address, protocol and port rules
 - [ADR 0014](./adr/0014-the-guest-agent-serves-a-grpc-contract-it-owns-over-vsock.md) — the Guest Agent serves a gRPC contract it owns over vsock
 - [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) — the supervisor confines every VMM process the same way
+- [ADR 0016](./adr/0016-a-restored-guest-reseeds-from-host-entropy-and-takes-its-time-from-the-host.md) — a restored guest reseeds from host entropy and takes its time from the host
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

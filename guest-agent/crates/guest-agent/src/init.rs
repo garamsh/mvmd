@@ -62,21 +62,51 @@ fn failure_line(context: &str, error: impl std::fmt::Display) -> String {
     format!("mvmd-guest-agent: failed to {context}: {error}")
 }
 
-/// End the Machine: power off, then restart, then wait.
+/// End the Machine from async code: power off, then restart, then wait.
 async fn end(system: &System) -> Infallible {
-    let power = system.power.clone();
-    let outcome = tokio::task::spawn_blocking(move || power.power_off()).await;
-    system.console.line(&failure_line(
-        "power off",
-        outcome.map_or_else(|joined| joined.to_string(), describe_return),
-    ));
-    let power = system.power.clone();
-    let outcome = tokio::task::spawn_blocking(move || power.restart()).await;
-    system.console.line(&failure_line(
-        "restart",
-        outcome.map_or_else(|joined| joined.to_string(), describe_return),
-    ));
+    let system = system.clone();
+    // The blocking thread that waits for ever is not the runtime's to wait on.
+    let _ = tokio::task::spawn_blocking(move || end_now(&system)).await;
     std::future::pending().await
+}
+
+/// End the Machine: power off, then restart, then wait. Each of the first two returns only when it
+/// has failed, and the console says so.
+fn end_now(system: &System) {
+    let outcome = system.power.power_off();
+    system
+        .console
+        .line(&failure_line("power off", describe_return(outcome)));
+    let outcome = system.power.restart();
+    system
+        .console
+        .line(&failure_line("restart", describe_return(outcome)));
+    system.power.halt();
+}
+
+/// Write the line for a failure of the agent itself, then end the Machine. For the code that
+/// runs before `run` does, with no runtime to await on.
+pub fn fail(system: &System, context: &str, error: impl std::fmt::Display) -> ! {
+    system.console.line(&failure_line(context, error));
+    end_now(system);
+    // Only a test's `halt` returns.
+    loop {
+        std::thread::park();
+    }
+}
+
+/// Make a panic anywhere in the agent end the Machine as any other failure of the agent does,
+/// instead of unwinding or aborting out of PID 1, which panics the guest's kernel.
+///
+/// The hook runs on the panicking thread before the process aborts, and does not return in
+/// production.
+pub fn end_on_panic(system: System) {
+    std::panic::set_hook(Box::new(move |info| {
+        system
+            .console
+            .line(&format!("mvmd-guest-agent: panic: {info}"));
+        end_now(&system);
+    }));
 }
 
 /// What a return from a call that does not return on success says.

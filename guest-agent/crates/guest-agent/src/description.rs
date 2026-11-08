@@ -83,6 +83,52 @@ impl TryFrom<v1alpha1::BootRequest> for BootDescription {
     }
 }
 
+/// What mvmd sends to catch a restored guest up.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchUp {
+    /// Unique to the restore.
+    pub restore_id: String,
+    /// Fresh random bytes for the kernel's pool.
+    pub entropy: Vec<u8>,
+    /// The host's wall clock, in nanoseconds since the Unix epoch; positive.
+    pub host_unix_nanos: i64,
+    /// The Machine's network after the restore.
+    pub network: NetworkConfig,
+}
+
+/// The fewest and the most bytes of entropy a catch-up carries.
+pub const ENTROPY_BYTES: std::ops::RangeInclusive<usize> = 32..=256;
+
+impl TryFrom<v1alpha1::CatchUpRequest> for CatchUp {
+    type Error = Error;
+
+    fn try_from(request: v1alpha1::CatchUpRequest) -> Result<Self, Error> {
+        if request.restore_id.is_empty() {
+            return Err(Error::Invalid("restore_id is empty".into()));
+        }
+        if !ENTROPY_BYTES.contains(&request.entropy.len()) {
+            return Err(Error::Invalid(format!(
+                "entropy is {} bytes, not from {} to {}",
+                request.entropy.len(),
+                ENTROPY_BYTES.start(),
+                ENTROPY_BYTES.end()
+            )));
+        }
+        if request.host_unix_nanos <= 0 {
+            return Err(Error::Invalid("host_unix_nanos is not positive".into()));
+        }
+        let network = request
+            .network
+            .ok_or_else(|| Error::Invalid("network is missing".into()))?;
+        Ok(Self {
+            restore_id: request.restore_id,
+            entropy: request.entropy,
+            host_unix_nanos: request.host_unix_nanos,
+            network: network.try_into()?,
+        })
+    }
+}
+
 impl TryFrom<v1alpha1::NetworkConfig> for NetworkConfig {
     type Error = Error;
 

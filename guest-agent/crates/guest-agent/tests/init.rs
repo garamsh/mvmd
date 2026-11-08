@@ -9,18 +9,20 @@ use std::fs;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
-    BootRequest, ExecRecord, ExecRequest, ExecStatus, HealthRequest, Ipv4Config, Ipv6Config,
-    ListFilesRequest, NetworkConfig as WireNetworkConfig, ReadExecOutputRequest, RunConfig,
-    UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
+    BootRequest, CatchUpRequest, ExecRecord, ExecRequest, ExecStatus, HealthRequest, Ipv4Config,
+    Ipv6Config, ListFilesRequest, NetworkConfig as WireNetworkConfig, ReadExecOutputRequest,
+    RunConfig, UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
     write_file_request,
 };
 use guest_agent::{
-    BootStep, Console, Filesystem, Mounts, Network, NetworkConfig, Power, System, Uuid,
+    BootStep, Clock, Console, Entropy, Filesystem, Mounts, Network, NetworkConfig, Power, System,
+    Uuid,
 };
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
@@ -189,6 +191,45 @@ impl Power for TestPower {
         self.log.push("restart");
         Err(io::Error::other("injected failure"))
     }
+
+    /// Waits until the test drops the agent, which a halt that works never does.
+    fn halt(&self) {
+        if let Some(held) = lock(&self.held).take() {
+            let _ = held.recv();
+        }
+    }
+}
+
+/// An entropy pool that keeps what it is given and fails while `failing` is set.
+struct TestEntropy {
+    log: Log,
+    mixed: Mutex<Vec<Vec<u8>>>,
+    failing: AtomicBool,
+}
+
+impl Entropy for TestEntropy {
+    fn mix_and_reseed(&self, bytes: &[u8]) -> io::Result<()> {
+        self.log.push("entropy");
+        if self.failing.load(Ordering::SeqCst) {
+            return Err(io::Error::other("injected failure"));
+        }
+        lock(&self.mixed).push(bytes.to_vec());
+        Ok(())
+    }
+}
+
+/// A clock that keeps what it is set to.
+struct TestClock {
+    log: Log,
+    set: Mutex<Vec<i64>>,
+}
+
+impl Clock for TestClock {
+    fn set_realtime(&self, unix_nanos: i64) -> io::Result<()> {
+        self.log.push("clock");
+        lock(&self.set).push(unix_nanos);
+        Ok(())
+    }
 }
 
 /// A console that keeps its lines in the log, as `console: <line>`.
@@ -217,6 +258,8 @@ struct Agent {
     _socket_dir: TempDir,
     log: Log,
     network: Arc<TestNetwork>,
+    entropy: Arc<TestEntropy>,
+    clock: Arc<TestClock>,
     terminate: mpsc::Sender<Signal>,
     powered_off: oneshot::Receiver<()>,
     /// The agent never returns, so this task never finishes.
@@ -242,6 +285,15 @@ impl Agent {
         });
         let (done, powered_off) = oneshot::channel();
         let (hold, held) = std::sync::mpsc::channel();
+        let entropy = Arc::new(TestEntropy {
+            log: log.clone(),
+            mixed: Mutex::default(),
+            failing: AtomicBool::new(false),
+        });
+        let clock = Arc::new(TestClock {
+            log: log.clone(),
+            set: Mutex::default(),
+        });
         let system = System {
             mounts: Arc::new(TestMounts {
                 log: log.clone(),
@@ -256,6 +308,8 @@ impl Agent {
                 fail: setup.fail_power,
             }),
             console: Arc::new(TestConsole(log.clone())),
+            entropy: entropy.clone(),
+            clock: clock.clone(),
         };
         let socket_dir = tempfile::tempdir()?;
         let socket = socket_dir.path().join("agent.sock");
@@ -280,6 +334,8 @@ impl Agent {
             _socket_dir: socket_dir,
             log,
             network,
+            entropy,
+            clock,
             terminate,
             powered_off,
             run,
@@ -304,20 +360,6 @@ impl Agent {
     async fn boot(&mut self, script: &str) -> std::result::Result<(), tonic::Status> {
         let request = self.boot_request(script);
         self.client.boot(request).await.map(|_| ())
-    }
-
-    /// Read the entrypoint's output until the stream ends with its final record.
-    async fn entrypoint_output(&mut self) -> Result<(String, ExecRecord)> {
-        let mut stream = self
-            .client
-            .read_exec_output(ReadExecOutputRequest {
-                exec_id: guest_agent::ENTRYPOINT.into(),
-                after_offset: 0,
-            })
-            .await?
-            .into_inner();
-        let (output, record) = within(read_to_record(&mut stream, None)).await??;
-        Ok((output, record.ok_or("the stream ended without a record")?))
     }
 
     async fn powered_off(&mut self) -> Result {
@@ -396,10 +438,26 @@ async fn boot_takes_the_steps_in_order_and_runs_the_entrypoint_as_described() ->
     let mut agent = Agent::start().await?;
     let dir = agent.dir.path().canonicalize()?;
 
+    // The entrypoint waits for the reader, so the agent is still serving when it is read.
+    let flag = agent.dir.path().join("read-now");
     agent
-        .boot(r#"echo "$GREETING from $(pwd)"; test -e network-applied && echo network-first"#)
+        .boot(&format!(
+            r#"echo "$GREETING from $(pwd)"; test -e network-applied && echo network-first; \
+               while [ ! -e {} ]; do sleep 0.05; done"#,
+            flag.display()
+        ))
         .await?;
-    let (output, record) = agent.entrypoint_output().await?;
+    let mut stream = agent
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: guest_agent::ENTRYPOINT.into(),
+            after_offset: 0,
+        })
+        .await?
+        .into_inner();
+    fs::write(&flag, "")?;
+    let (output, record) = within(read_to_record(&mut stream, None)).await??;
+    let record = record.ok_or("the stream ended without the record")?;
 
     // The entrypoint ends at once, and the power-off that follows is another test's subject.
     let steps: Vec<String> = agent
@@ -591,6 +649,163 @@ async fn a_boot_dropped_mid_step_still_finishes_and_a_repeat_finds_its_outcome()
         .client
         .list_files(ListFilesRequest { path: "/".into() })
         .await?;
+    Ok(())
+}
+
+fn catch_up_request(restore_id: &str) -> CatchUpRequest {
+    CatchUpRequest {
+        restore_id: restore_id.into(),
+        entropy: (0..32).collect(),
+        host_unix_nanos: 1_700_000_000_123_456_789,
+        network: Some(network_config("10.9.9.9/32", "fd00::9/128")),
+    }
+}
+
+#[tokio::test]
+async fn catch_up_mixes_the_entropy_sets_the_time_and_applies_the_network_in_that_order() -> Result
+{
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+    let after_boot = agent.log.entries().len();
+
+    agent.client.catch_up(catch_up_request("restore-1")).await?;
+
+    let steps: Vec<String> = agent.log.entries().split_off(after_boot);
+    assert_eq!(steps, ["entropy", "clock", "network"]);
+    // What was given is what reached the seams.
+    assert_eq!(*lock(&agent.entropy.mixed), [(0..32).collect::<Vec<u8>>()]);
+    assert_eq!(*lock(&agent.clock.set), [1_700_000_000_123_456_789]);
+    let applied = lock(&agent.network.applied).clone();
+    assert_eq!(
+        applied[1]
+            .ipv4
+            .as_ref()
+            .ok_or("no IPv4")?
+            .address
+            .to_string(),
+        "10.9.9.9"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_repeated_catch_up_does_nothing_and_a_new_restore_does_it_again() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+    agent.client.catch_up(catch_up_request("restore-1")).await?;
+
+    // The control: another restore is carried out.
+    let mut again = catch_up_request("restore-2");
+    again.entropy = vec![9; 32];
+    again.host_unix_nanos += 5;
+    agent.client.catch_up(again).await?;
+    assert_eq!(lock(&agent.entropy.mixed).len(), 2);
+
+    // A repeat of the last one, even with a stale time, changes nothing: the clock does not go
+    // back.
+    let mut stale = catch_up_request("restore-2");
+    stale.host_unix_nanos = 1;
+    agent.client.catch_up(stale).await?;
+    assert_eq!(lock(&agent.entropy.mixed).len(), 2);
+    assert_eq!(lock(&agent.clock.set).len(), 2);
+    assert_eq!(lock(&agent.network.applied).len(), 3);
+    Ok(())
+}
+
+#[tokio::test]
+async fn two_catch_ups_at_once_with_one_restore_id_do_the_work_once() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+    let mut other = agent.client.clone();
+
+    let (first, second) = tokio::join!(
+        agent.client.catch_up(catch_up_request("restore-1")),
+        other.catch_up(catch_up_request("restore-1"))
+    );
+
+    first?;
+    second?;
+    assert_eq!(lock(&agent.entropy.mixed).len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_catch_up_before_the_boot_is_refused() -> Result {
+    let mut agent = Agent::start().await?;
+
+    let refused = agent
+        .client
+        .catch_up(catch_up_request("restore-1"))
+        .await
+        .unwrap_err();
+
+    assert_eq!(refused.code(), Code::FailedPrecondition);
+    assert!(lock(&agent.entropy.mixed).is_empty());
+    // The control: after the boot the same request is served.
+    agent.boot("sleep 30").await?;
+    agent.client.catch_up(catch_up_request("restore-1")).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_catch_up_that_is_not_valid_is_refused_and_changes_nothing() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+    let mut requests = Vec::new();
+    for change in [
+        |r: &mut CatchUpRequest| r.restore_id.clear(),
+        |r: &mut CatchUpRequest| r.entropy.truncate(31),
+        |r: &mut CatchUpRequest| r.entropy = vec![0; 257],
+        |r: &mut CatchUpRequest| r.host_unix_nanos = 0,
+        |r: &mut CatchUpRequest| r.network = None,
+    ] {
+        let mut request = catch_up_request("restore-1");
+        change(&mut request);
+        requests.push(request);
+    }
+
+    for request in requests {
+        let refused = agent.client.catch_up(request).await.unwrap_err();
+        assert_eq!(refused.code(), Code::InvalidArgument);
+    }
+
+    assert!(lock(&agent.entropy.mixed).is_empty());
+    assert!(lock(&agent.clock.set).is_empty());
+    // The control: a request with every part right is carried out.
+    agent.client.catch_up(catch_up_request("restore-1")).await?;
+    assert_eq!(lock(&agent.entropy.mixed).len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_step_that_fails_is_named_stops_the_catch_up_and_a_repeat_does_it_all_again() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+    agent.entropy.failing.store(true, Ordering::SeqCst);
+
+    let failed = agent
+        .client
+        .catch_up(catch_up_request("restore-1"))
+        .await
+        .unwrap_err();
+
+    assert_eq!(failed.code(), Code::Internal);
+    assert!(
+        failed
+            .message()
+            .contains("mix entropy into the kernel's pool"),
+        "{}",
+        failed.message()
+    );
+    assert!(
+        lock(&agent.clock.set).is_empty(),
+        "the clock was set after the failure"
+    );
+
+    agent.entropy.failing.store(false, Ordering::SeqCst);
+    agent.client.catch_up(catch_up_request("restore-1")).await?;
+    assert_eq!(lock(&agent.entropy.mixed).len(), 1);
+    assert_eq!(lock(&agent.clock.set).len(), 1);
     Ok(())
 }
 
