@@ -508,8 +508,7 @@ func TestConfinement_TheVMMWritesItsOwnLogAndNotTheSupervisors(t *testing.T) {
 	require.NoError(t, os.MkdirAll(run, 0o700))
 	require.NoError(t, os.Symlink(victim, filepath.Join(run, "vmm.log")))
 
-	_ = n.started(t, "m", vmmUser, nil, nil)
-	untilReady(t, run)
+	_, _ = n.run(t, "m", time.Hour)
 
 	log, err := os.ReadFile(filepath.Join(run, "vmm.log"))
 	require.NoError(t, err)
