@@ -5,6 +5,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/garamsh/mvmd/daemon/internal/events"
 )
 
 // Service is what the Machine lifecycle offers a driving adapter. Every call
@@ -52,6 +54,7 @@ type service struct {
 	store      StateStore
 	permitter  StartPermitter
 	uidRange   UIDRange
+	eventer    events.Emitter
 
 	// mu guards the maps below and every record's Machine pointer, and is held
 	// only for map and pointer work, never across a port call. A Machine's
@@ -68,7 +71,7 @@ type service struct {
 
 // NewService returns the lifecycle over the given ports. uidRange names the
 // range of UIDs the node reserves for its Machines (ADR 0015).
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange) Service {
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange, eventer events.Emitter) Service {
 	return &service{
 		driver:       driver,
 		supervisor:   supervisor,
@@ -78,6 +81,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		store:        store,
 		permitter:    permitter,
 		uidRange:     uidRange,
+		eventer:      eventer,
 		records:      make(map[MachineID]*Record),
 		locks:        make(map[MachineID]*machineLock),
 		held:         make(map[DiskID]MachineID),

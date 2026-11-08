@@ -25,8 +25,46 @@ func (*Server) RestoreMachine(context.Context, *v1alpha1.RestoreMachineRequest) 
 	return nil, unsupported("RestoreMachine", "garamsh/mvmd#19")
 }
 
-func (*Server) WatchEvents(*v1alpha1.WatchEventsRequest, grpc.ServerStreamingServer[v1alpha1.WatchEventsResponse]) error {
-	return unsupported("WatchEvents", "garamsh/mvmd#19")
+func (s *Server) WatchEvents(req *v1alpha1.WatchEventsRequest, srv grpc.ServerStreamingServer[v1alpha1.WatchEventsResponse]) error {
+	w := s.events.Subscribe(req.AfterSequence)
+	defer w.Close()
+
+	// If resync is required, send it immediately and close.
+	if w.Events() == nil {
+		if err := srv.Send(&v1alpha1.WatchEventsResponse{
+			Event: &v1alpha1.WatchEventsResponse_ResyncRequired{
+				ResyncRequired: &v1alpha1.ResyncRequired{},
+			},
+		}); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	for e := range w.Events() {
+		resp := &v1alpha1.WatchEventsResponse{
+			Sequence:  e.Sequence,
+			MachineId: e.MachineID,
+		}
+		switch body := e.Body.(type) {
+		case *v1alpha1.StateChanged:
+			resp.Event = &v1alpha1.WatchEventsResponse_StateChanged{
+				StateChanged: &v1alpha1.StateChanged{State: body.State},
+			}
+		case *v1alpha1.DeadlineEvent:
+			resp.Event = &v1alpha1.WatchEventsResponse_Deadline{
+				Deadline: &v1alpha1.DeadlineEvent{Kind: body.Kind},
+			}
+		case *v1alpha1.DriverEvent:
+			resp.Event = &v1alpha1.WatchEventsResponse_Driver{
+				Driver: &v1alpha1.DriverEvent{Name: body.Name, Detail: body.Detail},
+			}
+		}
+		if err := srv.Send(resp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (*Server) Exec(context.Context, *v1alpha1.ExecRequest) (*v1alpha1.ExecResponse, error) {

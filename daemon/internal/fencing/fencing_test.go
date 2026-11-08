@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/fencing/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -43,7 +44,7 @@ func newEnv(t *testing.T) *env {
 	e.disks = machinememory.NewDisk()
 	images := machinememory.NewImageStore()
 	images.Provide(image)
-	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256})
+	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256}, events.Noop{})
 	require.NoError(t, e.svc.Reconcile(context.Background(), e.m))
 	return e
 }

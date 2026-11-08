@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
@@ -26,12 +27,13 @@ type Server struct {
 	machines machine.Service
 	deadline fencing.Service
 	drivers  []machine.DriverInfo
+	events   events.Store
 }
 
 // New returns the server over the lifecycle and the deadline, reporting the
 // given Drivers in runtime info.
-func New(machines machine.Service, deadline fencing.Service, drivers []machine.DriverInfo) *Server {
-	return &Server{machines: machines, deadline: deadline, drivers: drivers}
+func New(machines machine.Service, deadline fencing.Service, drivers []machine.DriverInfo, evts events.Store) *Server {
+	return &Server{machines: machines, deadline: deadline, drivers: drivers, events: evts}
 }
 
 // Register registers the server on a gRPC server.
@@ -46,6 +48,29 @@ func Interceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler 
 		}
 	}
 	return handler(ctx, req)
+}
+
+// StreamInterceptor wraps the server stream so that every message received
+// through RecvMsg is validated; an invalid message is refused as REJECTED.
+func StreamInterceptor(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	wrapped := &validatingStream{ServerStream: ss}
+	return handler(srv, wrapped)
+}
+
+type validatingStream struct {
+	grpc.ServerStream
+}
+
+func (v *validatingStream) RecvMsg(m any) error {
+	if err := v.ServerStream.RecvMsg(m); err != nil {
+		return err
+	}
+	if val, ok := m.(interface{ Validate() error }); ok {
+		if err := val.Validate(); err != nil {
+			return v1alpha1.NewError(v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, err.Error())
+		}
+	}
+	return nil
 }
 
 func rejected(format string, args ...any) error {

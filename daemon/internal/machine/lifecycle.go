@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
 )
 
 func (s *service) Create(ctx context.Context, id MachineID, request RequestID, spec Spec) error {
@@ -76,6 +78,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		s.release(append(disks, root)...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, reason)))
 	}
+	s.eventer.EmitStateChanged(string(id), v1alpha1.MachineState(StateCreated))
 	s.mu.Lock()
 	s.records[id] = rec
 	s.mu.Unlock()
@@ -183,6 +186,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)
 	}
+	s.eventer.EmitStateChanged(string(id), v1alpha1.MachineState(StateRunning))
 	return nil
 }
 
@@ -290,6 +294,7 @@ func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, g
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)
 	}
+	s.eventer.EmitStateChanged(string(id), v1alpha1.MachineState(next.State))
 	if next.State == StateFaulted {
 		return fail(ErrFailed, "%s", next.FailureReason)
 	}
@@ -328,6 +333,7 @@ func (s *service) move(ctx context.Context, id MachineID, call string, from, to 
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)
 	}
+	s.eventer.EmitStateChanged(string(id), v1alpha1.MachineState(to))
 	return nil
 }
 

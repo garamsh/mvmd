@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
@@ -46,7 +47,7 @@ func newEnv(caps ...machine.Capability) *env {
 		permit: memory.NewStartPermitter(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256})
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, events.Noop{})
 	return e
 }
 

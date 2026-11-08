@@ -21,6 +21,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/api"
 	"github.com/garamsh/mvmd/daemon/internal/boltstore"
 	"github.com/garamsh/mvmd/daemon/internal/bootclock"
+	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -38,6 +39,7 @@ type Substitutes struct {
 	Disks       *machinememory.Disk
 	Images      *machinememory.ImageStore
 	Supervisors *fencingmemory.Supervisors
+	Events      events.Store
 }
 
 // App is the wired daemon.
@@ -95,14 +97,16 @@ func New(cfg Config) (*App, error) {
 		supervisors, sub.Supervisors = real, nil
 	}
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange())
+	store := events.New(1024)
+	sub.Events = store
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), store)
 
 	return &App{
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
 		deadline:    deadline,
-		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}),
+		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}, store),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil
@@ -133,7 +137,10 @@ func (a *App) Serve(ctx context.Context) error {
 		return err
 	}
 
-	g := grpc.NewServer(grpc.UnaryInterceptor(api.Interceptor))
+	g := grpc.NewServer(
+		grpc.UnaryInterceptor(api.Interceptor),
+		grpc.StreamInterceptor(api.StreamInterceptor),
+	)
 	a.server.Register(g)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
