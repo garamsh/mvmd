@@ -51,6 +51,7 @@ How it is enforced ([ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-
 
 - **A supervisor per Machine.** Every Machine whose VMM process exists runs under its own `mvmd-supervisor` process. The supervisor is the init process of a PID namespace and starts the VMM inside it, so the kernel kills the VMM and everything it started when the supervisor ends, however it ends.
 - **No VMM without an expiry.** mvmd gives the supervisor the current expiry as part of its start, and the supervisor refuses to start the VMM without one or with one that has passed. Each start and each restore is a new supervisor.
+- **A converter's VMM is supervised too**, with the end of the conversion time limit as its expiry in place of the fencing deadline, since it runs no workload ([ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md)).
 - **The supervisor counts the expiry.** It holds the expiry as an absolute `CLOCK_BOOTTIME` value, in mvmd's time namespace, and ends its namespace when the clock reaches it. It runs under a real-time scheduling policy that its VMM does not inherit, with its memory locked. It depends on nothing of mvmd's while it counts.
 - **mvmd counts it too.** While running, mvmd kills every supervisor through its pidfd at the expiry.
 - **Renewal reaches every supervisor before it is acknowledged.** An extension is recorded and then passed on; a shortening is passed on and then recorded, and a supervisor that does not take a shortening is killed first. No supervisor ever holds an expiry later than the recorded one.
@@ -65,13 +66,14 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 | Invariant (#2 §4) | mvmd's part |
 |---|---|
 | 1. A Machine runs on at most one node at a time | The fencing deadline above |
-| 2. A Volume has at most one writer at a time | One writer per disk at a time on its node |
+| 2. A Volume has at most one writer at a time | One holder per disk on its node, recorded durably by the inside before a Driver attaches it and released only once the holder's VMM process has ended ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)) |
 | 6. A Machine does not start until its network policy is applied | Fail-closed start: the Machine does not start until the policy is applied |
 
 ## Rationale
 
 - The scope and the boundary: [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md).
 - The enforcement mechanism, the candidates rejected and the bound in each failure case: [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md).
+- The disk backing and how the one-writer rule is enforced on the node: [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md).
 - Why the boundary sits at a runtime API and not at gaon's resource API: the original requirement of swappable components behind interfaces, and a one-way dependency (#2 §3 principle 3).
 
 ## Open questions
@@ -79,9 +81,8 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 These are #2 §6 questions inside mvmd's scope, as they apply to the runtime. They bind nothing.
 
 - **Preservation default (#2 §6 item 8):** whether a Machine keeps its disk only or its memory as well by default, and whether a snapshot is a public resource of the runtime API. #2 §2 offers disk-only as a proposal, not a decision.
-- **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume.
+- **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume. A Machine's root disk is decided, a node-local sparse raw file ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)); any other disk is not.
 - **Network enforcement (item 10):** the technology that enforces external traffic policy on the node (nftables, eBPF and others are named in #2). The fail-closed start rule above holds whichever is chosen.
 - **Density and restore numbers (item 13):** the fencing deadline's default, restore time and the latency right after a restore, and idle and active memory per node. None is measured; a value is set only after the single-node prototype of #2 §6 measures it.
-- **Runtime API wire encoding and transport:** see [runtime-api.md](./runtime-api.md) §Open questions.
 - **The time a supervisor takes to end its namespace at the expiry**, under load and after a suspend; measured with the prototype numbers above.
 - **How many earlier releases' supervisors mvmd must speak to**, since a supervisor outlives an mvmd upgrade until its Machine is next started.
