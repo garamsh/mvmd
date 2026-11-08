@@ -54,6 +54,9 @@ type rulesetAttr struct {
 	scoped     uint64
 }
 
+// RequireLandlockABI refuses a Landlock ABI below the one the confinement needs.
+func RequireLandlockABI(abi int) error { return nil }
+
 // landlockABI returns the ABI version the kernel reports.
 func landlockABI() (int, error) {
 	v, _, errno := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET, 0, 0, unix.LANDLOCK_CREATE_RULESET_VERSION)

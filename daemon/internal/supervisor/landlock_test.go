@@ -181,3 +181,10 @@ func acceptAll(l net.Listener) {
 		c.Close()
 	}
 }
+
+func TestRequireLandlockABI_RefusesAKernelBelowSix(t *testing.T) {
+	assert.Error(t, RequireLandlockABI(5))
+	assert.Error(t, RequireLandlockABI(0))
+	assert.NoError(t, RequireLandlockABI(6), "control: the ABI the confinement needs is accepted")
+	assert.NoError(t, RequireLandlockABI(8), "control: a later ABI is accepted")
+}

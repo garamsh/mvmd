@@ -59,6 +59,7 @@ func sleep() { time.Sleep(24 * time.Hour) }
 // vmm writes its pid, starts a child that daemonizes and exits, and runs on.
 func vmm(dir string) {
 	_ = os.WriteFile(filepath.Join(dir, "vmm.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600)
+	_, _ = os.Stdout.WriteString("vmm started\n")
 	pid, err := spawn(&syscall.SysProcAttr{Setsid: true}, nil, "daemonize", dir)
 	if err != nil {
 		os.Exit(1)

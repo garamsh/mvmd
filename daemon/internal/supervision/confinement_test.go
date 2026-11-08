@@ -301,9 +301,12 @@ func TestConfinement_TheNamespacesFollowTheDriversTap(t *testing.T) {
 		p.TapByDescriptor = true
 		p.Tap = tap
 	})
-	name, fd := reportOf(t, byName), reportOf(t, byFD)
+	noTap := n.started(t, "notap", vmmUser, []string{"ifaces:", "fd3:"}, nil)
+	name, fd, none := reportOf(t, byName), reportOf(t, byFD), reportOf(t, noTap)
 
 	assert.Equal(t, "lo", fd["ifaces:"], "a VMM that takes its tap by descriptor has a network namespace with only its loopback")
+	assert.Equal(t, "lo", none["ifaces:"], "a VMM with no network device, as a converter, has one too")
+	assert.Equal(t, "EBADF", none["fd3:"], "and is passed no descriptor")
 	assert.Contains(t, name["ifaces:"], tap, "control: a VMM that opens its tap by name shares the host's namespace, where the tap is")
 	assert.Equal(t, "ok:"+tap, fd["fd3:"], "the descriptor 3 is the Machine's tap, opened in the host's namespace")
 	assert.Equal(t, "EBADF", name["fd3:"], "control: a Driver that takes no descriptor is passed none")
@@ -358,12 +361,18 @@ func TestConfinement_TheVMMReachesNoAbstractSocketOfTheHost(t *testing.T) {
 	try := "abstract:" + name
 
 	n := newNode(t)
-	// Neither Machine takes its tap by descriptor, so both share the host's
-	// network namespace, where the socket is.
-	rep := reportOf(t, n.started(t, "m", vmmUser, []string{try}, nil))
+	// A VMM that opens its tap by name shares the host's network namespace,
+	// where the socket is, so what refuses it is the Landlock scope. One with
+	// no network device has a namespace of its own, where there is no such
+	// socket.
+	rep := reportOf(t, n.started(t, "byname", vmmUser, []string{try}, func(p *machine.ProcessDescription) {
+		p.Tap = "mvmdt-byname"
+	}))
+	isolated := reportOf(t, n.started(t, "notap", vmmUser, []string{try}, nil))
 	ctl := outside(t, vmmUser.UID, try).report
 	assert.Equal(t, "EPERM", rep[try], "the Landlock scope refuses a socket outside the domain")
 	assert.Equal(t, "ok", ctl[try], "control: the same user connects without the supervisor")
+	assert.Equal(t, "ECONNREFUSED", isolated[try], "the host's abstract socket is not in a VMM's own namespace")
 }
 
 // raw is a supervisor started directly, in a PID namespace as the adapter
@@ -462,6 +471,9 @@ func TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns(t *testing.T) {
 		{"an executable the Machine's user cannot execute", func(_ *raw, req *pb.StartRequest) {
 			req.Process.Executable = notExecutable
 		}, "execve"},
+		{"a task count the confining child cannot start in", func(_ *raw, req *pb.StartRequest) {
+			req.Process.OverheadTasks = 1
+		}, "before it reached execve"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRaw(t, "fails", vmmCgroup)
@@ -483,4 +495,34 @@ func TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns(t *testing.T) {
 		_, statErr := os.Stat(filepath.Join(r.run, "vmm.pid"))
 		assert.NoError(t, statErr, "the VMM ran")
 	})
+}
+
+// The VMM's output goes to a file in its run directory, not to the log of the
+// supervisor, which mvmd quotes in its errors and a compromised VMM must not
+// write. A symlink a former VMM left in the run directory is not followed.
+func TestConfinement_TheVMMWritesItsOwnLogAndNotTheSupervisors(t *testing.T) {
+	n := newNode(t)
+	run := runDir(n.dir, "m")
+	victim := filepath.Join(shortDir(t), "victim")
+	require.NoError(t, os.WriteFile(victim, []byte("untouched"), 0o600))
+	require.NoError(t, os.MkdirAll(run, 0o700))
+	require.NoError(t, os.Symlink(victim, filepath.Join(run, "vmm.log")))
+
+	_ = n.started(t, "m", vmmUser, nil, nil)
+	untilReady(t, run)
+
+	log, err := os.ReadFile(filepath.Join(run, "vmm.log"))
+	require.NoError(t, err)
+	assert.Contains(t, string(log), "vmm started", "the VMM's output is in its own log")
+	info, err := os.Lstat(filepath.Join(run, "vmm.log"))
+	require.NoError(t, err)
+	assert.True(t, info.Mode().IsRegular(), "the planted symlink was replaced, not followed")
+	assert.Equal(t, uint32(vmmUser.UID), info.Sys().(*syscall.Stat_t).Uid, "the log is the Machine's user's")
+	got, err := os.ReadFile(victim)
+	require.NoError(t, err)
+	assert.Equal(t, "untouched", string(got), "the file the symlink named was not written")
+
+	sup, err := os.ReadFile(filepath.Join(n.dir, "m", "supervisor.log"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(sup), "vmm started", "control: the supervisor's log is not the VMM's output")
 }

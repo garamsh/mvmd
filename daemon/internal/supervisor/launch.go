@@ -59,6 +59,10 @@ func checkRequest(req *pb.StartRequest) error {
 	return nil
 }
 
+// newNetworkNamespace reports whether the VMM is started in a network
+// namespace of its own.
+func newNetworkNamespace(req *pb.StartRequest) bool { return req.GetProcess().GetTapByDescriptor() }
+
 // launch starts the VMM process confined and returns its id. It opens the tap
 // in the host's network namespace, sets the cgroup's limits, and starts the
 // confining child in new mount and, for a VMM that takes its tap by descriptor,
