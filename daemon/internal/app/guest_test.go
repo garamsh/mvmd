@@ -79,10 +79,12 @@ func TestGuestAPI_ExecAndItsOutput(t *testing.T) {
 		require.NoError(t, err)
 		_, err = bad.Recv()
 		requireKind(t, err, precondition)
-		assert.Contains(t, err.Error(), "resume from", "the reason names the earliest offset held")
+		earliest, ok := v1alpha1.EarliestOffset(err)
+		require.True(t, ok, "the earliest offset held is data a client resumes from")
+		assert.Equal(t, uint64(11), earliest)
 
-		// Control: a read inside the window succeeds.
-		inside, err := c.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: "m", ExecId: "x", AfterOffset: 11})
+		// Control: a read from that offset succeeds.
+		inside, err := c.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: "m", ExecId: "x", AfterOffset: earliest})
 		require.NoError(t, err)
 		chunk, err := inside.Recv()
 		require.NoError(t, err)

@@ -2,9 +2,14 @@ package machine
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 )
+
+// catchUpEntropy is the bytes of entropy a restore sends its guest, within the
+// 32 to 256 ADR 0016 allows.
+const catchUpEntropy = 64
 
 func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotID, request RequestID) error {
 	defer s.lock(id)()
@@ -180,7 +185,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	s.claim(id, root) // a root disk is new, so no one else holds it
 	m := Machine{ID: id, State: StateRunning, Spec: spec, RootDisk: root, RootDiskUUID: held.RootDiskUUID, User: User{UID: uid, GID: uid}, Network: identity}
 
-	if failure, vmm := s.bringUp(ctx, m, files); failure != nil {
+	if failure, vmm := s.bringUp(ctx, m, request, files); failure != nil {
 		reason, ended := s.undoRestore(ctx, id, root, vmm, failure.Reason)
 		if !ended {
 			return s.faultedRestore(ctx, m, asked, reason)
@@ -213,7 +218,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 // supervisor start is the fencing service's, so it is the same step that
 // hands over the current expiry. It returns the failure, and whether a VMM
 // process exists when it returns.
-func (s *service) bringUp(ctx context.Context, m Machine, files SnapshotFiles) (failure *Error, vmm bool) {
+func (s *service) bringUp(ctx context.Context, m Machine, request RequestID, files SnapshotFiles) (failure *Error, vmm bool) {
 	id := m.ID
 	boot := BootSpec{Resources: m.Resources}
 	var err error
@@ -242,10 +247,17 @@ func (s *service) bringUp(ctx context.Context, m Machine, files SnapshotFiles) (
 	if err := s.driver.Restore(ctx, id); err != nil {
 		return fail(ErrFailed, "load the snapshot: %v", err), true
 	}
-	// The guest still holds the snapshot's addresses. The Machine is not
-	// Running, nor reported so, until it holds its own (ADR 0011, "Restore").
-	if err := s.guest.UpdateNetwork(ctx, id, m.Network.guestNetwork()); err != nil {
-		return fail(ErrFailed, "send the guest its network: %v", err), true
+	// The guest still holds the snapshot's memory, clock and addresses. The
+	// Machine is not Running, nor reported so, until it has caught up
+	// (ADR 0016). Entropy is drawn afresh here: two restores sent the same
+	// bytes would share random state again.
+	entropy := make([]byte, catchUpEntropy)
+	if _, err := rand.Read(entropy); err != nil {
+		return fail(ErrFailed, "draw entropy for the guest: %v", err), true
+	}
+	catchUp := CatchUp{RestoreID: request, Entropy: entropy, HostTime: s.clock.Now(), Network: m.Network.guestNetwork()}
+	if err := s.guest.CatchUp(ctx, id, catchUp); err != nil {
+		return fail(ErrFailed, "catch the guest up: %v", err), true
 	}
 	return nil, true
 }

@@ -7,6 +7,10 @@ import (
 	"reflect"
 )
 
+// entrypointExec is the exec identifier the Guest Agent keeps for the
+// entrypoint (guest.md); a client's Exec under it would run nothing.
+const entrypointExec ExecID = "entrypoint"
+
 // execEntry is what mvmd keeps of one exec: the call that made it, for its
 // repeat, and the record as far as mvmd knows it.
 type execEntry struct {
@@ -14,8 +18,9 @@ type execEntry struct {
 	request RequestID
 	spec    ExecSpec
 	record  ExecRecord
-	// failure is the outcome of an Exec that did not start, for its repeat.
-	failure *Error
+	// answered is whether the guest answered the call. Until it has, there is no
+	// record: whether the command runs is not known.
+	answered bool
 }
 
 // requireRunning refuses a guest access call unless the Machine exists and is
@@ -57,40 +62,57 @@ func (s *service) Exec(ctx context.Context, id MachineID, exec ExecID, request R
 	case len(spec.Command) == 0:
 		return ExecRecord{}, fail(ErrInvalid, "the command is empty")
 	}
+	if exec == entrypointExec {
+		return ExecRecord{}, fail(ErrInvalid, "the exec identifier %q belongs to the guest's entrypoint", exec)
+	}
 	defer s.lock(id)()
 
 	s.execMu.Lock()
 	entry, ok := s.execs[exec]
 	s.execMu.Unlock()
 	if ok {
-		if entry.machine == id && entry.request == request && reflect.DeepEqual(entry.spec, spec) {
-			if entry.failure != nil {
-				return entry.record, entry.failure
-			}
+		if entry.machine != id || entry.request != request || !reflect.DeepEqual(entry.spec, spec) {
+			return ExecRecord{}, fail(ErrConflict, "exec %q exists under another request ID or other parameters", exec)
+		}
+		if entry.answered {
 			return entry.record, nil
 		}
-		return ExecRecord{}, fail(ErrConflict, "exec %q exists under another request ID or other parameters", exec)
+		// The guest never answered the first call, so the command may or may not
+		// run: ask again. The guest returns the existing record of an exec ID it
+		// has and runs nothing twice.
 	}
 	if err := s.requireRunning(id, "exec"); err != nil {
 		return ExecRecord{}, err
 	}
 
 	started, err := s.guest.Exec(ctx, id, exec, spec)
-	entry = &execEntry{machine: id, request: request, spec: spec, record: started}
-	entry.record.ID = exec
-	var failure *Error
 	if err != nil {
-		failure = guestFailure(err, "start the command")
-		entry.record = ExecRecord{ID: exec, Status: ExecNotStarted, Reason: failure.Reason}
-		entry.failure = failure
+		// An outcome is remembered only when the guest gave one; the identity
+		// of the call is kept, so a conflicting repeat is still refused.
+		s.execMu.Lock()
+		if _, ok := s.execs[exec]; !ok {
+			s.execs[exec] = &execEntry{machine: id, request: request, spec: spec}
+		}
+		s.execMu.Unlock()
+		return ExecRecord{}, guestFailure(err, "start the command")
 	}
+	started.ID = exec
 	s.execMu.Lock()
-	s.execs[exec] = entry
+	s.execs[exec] = &execEntry{machine: id, request: request, spec: spec, record: started, answered: true}
 	s.execMu.Unlock()
-	if failure != nil {
-		return entry.record, failure
+	return started, nil
+}
+
+// dropExecs forgets the records of a Machine that is deleted, which frees
+// their identifiers.
+func (s *service) dropExecs(id MachineID) {
+	s.execMu.Lock()
+	defer s.execMu.Unlock()
+	for exec, e := range s.execs {
+		if e.machine == id {
+			delete(s.execs, exec)
+		}
 	}
-	return entry.record, nil
 }
 
 // cutShort marks the commands of a Machine that still run as cut short: its
@@ -112,6 +134,11 @@ func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID,
 	var held ExecRecord
 	if ok {
 		held = entry.record
+		if !entry.answered {
+			// The guest never answered the start, so the command is taken to run
+			// until the guest says otherwise.
+			held = ExecRecord{ID: exec, Status: ExecStarted}
+		}
 	}
 	s.execMu.Unlock()
 	if !ok || entry.machine != id {

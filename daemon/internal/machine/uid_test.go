@@ -174,11 +174,12 @@ func newEnvWithRange(uidRange machine.UIDRange) *env {
 		images: memory.NewImageStore(),
 		snaps:  memory.NewSnapshotStore(),
 		guest:  memory.NewGuest(0),
+		clock:  memory.NewWallClock(epoch),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.store, e.permit, uidRange, e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, uidRange, e.events)
 	return e
 }

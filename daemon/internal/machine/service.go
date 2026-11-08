@@ -82,6 +82,7 @@ type service struct {
 	images     ImageStore
 	snapshots  SnapshotStore
 	guest      Guest
+	clock      WallClock
 	store      StateStore
 	permitter  StartPermitter
 	uidRange   UIDRange
@@ -111,7 +112,7 @@ type service struct {
 // NewService returns the lifecycle over the given ports. uidRange names the
 // range of UIDs the node reserves for its Machines (ADR 0015). Every state
 // change and every event the Driver raises goes to events.
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, clock WallClock, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
 	driver.Observe(events.Reported)
 	return &service{
 		driver:       driver,
@@ -121,6 +122,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		images:       images,
 		snapshots:    snapshots,
 		guest:        guest,
+		clock:        clock,
 		execs:        make(map[ExecID]*execEntry),
 		store:        store,
 		permitter:    permitter,

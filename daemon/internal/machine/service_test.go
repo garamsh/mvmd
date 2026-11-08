@@ -20,6 +20,9 @@ const image machine.ImageDigest = "sha256:image"
 
 var errBoom = errors.New("injected failure")
 
+// epoch is the host's wall clock in a test until it is moved.
+var epoch = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+
 // env is a service over the in-memory substitutes, which the test keeps hold
 // of to configure and to read back.
 type env struct {
@@ -31,6 +34,7 @@ type env struct {
 	images *memory.ImageStore
 	snaps  *memory.SnapshotStore
 	guest  *memory.Guest
+	clock  *memory.WallClock
 	store  *memory.StateStore
 	permit *memory.StartPermitter
 	events *memory.Events
@@ -47,12 +51,13 @@ func newEnv(caps ...machine.Capability) *env {
 		images: memory.NewImageStore(),
 		snaps:  memory.NewSnapshotStore(),
 		guest:  memory.NewGuest(0),
+		clock:  memory.NewWallClock(epoch),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
 	return e
 }
 

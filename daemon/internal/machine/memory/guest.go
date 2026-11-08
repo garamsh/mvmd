@@ -18,7 +18,7 @@ import (
 // Guest is an in-memory machine.Guest: one guest per Machine, holding files
 // and commands. It does not model a VMM, so it answers whether or not the
 // Machine runs; the lifecycle is what refuses a call. Its steps are "health",
-// "boot", "update-network", "exec", "read-exec-output", "read-file",
+// "boot", "catch-up", "exec", "read-exec-output", "read-file",
 // "write-file", "patch-file" and "search-files"; a failing step answers
 // machine.ErrGuestUnreachable unless told another error.
 type Guest struct {
@@ -28,8 +28,10 @@ type Guest struct {
 	files     map[machine.MachineID]map[string][]byte
 	special   map[machine.MachineID]map[string]bool
 	execs     map[machine.ExecID]*guestExec
-	network   map[machine.MachineID]machine.GuestNetwork
+	catchUps  map[machine.MachineID][]machine.CatchUp
 	boots     map[machine.MachineID]machine.GuestBoot
+	refused   map[machine.ExecID]string
+	loseExec  bool
 	retention int
 }
 
@@ -47,8 +49,9 @@ func NewGuest(retention int) *Guest {
 		files:     make(map[machine.MachineID]map[string][]byte),
 		special:   make(map[machine.MachineID]map[string]bool),
 		execs:     make(map[machine.ExecID]*guestExec),
-		network:   make(map[machine.MachineID]machine.GuestNetwork),
+		catchUps:  make(map[machine.MachineID][]machine.CatchUp),
 		boots:     make(map[machine.MachineID]machine.GuestBoot),
+		refused:   make(map[machine.ExecID]string),
 		retention: retention,
 	}
 }
@@ -91,23 +94,38 @@ func (g *Guest) Boot(_ context.Context, id machine.MachineID, boot machine.Guest
 	return nil
 }
 
-// UpdateNetwork implements machine.Guest.
-func (g *Guest) UpdateNetwork(_ context.Context, id machine.MachineID, network machine.GuestNetwork) error {
-	if err := g.enter("update-network"); err != nil {
+// CatchUp implements machine.Guest.
+func (g *Guest) CatchUp(_ context.Context, id machine.MachineID, catchUp machine.CatchUp) error {
+	if err := g.enter("catch-up"); err != nil {
 		return err
 	}
 	g.mu.Lock()
-	g.network[id] = network
+	g.catchUps[id] = append(g.catchUps[id], catchUp)
 	g.mu.Unlock()
 	return nil
 }
 
-// Network returns what the guest of the Machine was last told of its network.
-func (g *Guest) Network(id machine.MachineID) (machine.GuestNetwork, bool) {
+// CatchUps returns what the guest of the Machine was told, in order.
+func (g *Guest) CatchUps(id machine.MachineID) []machine.CatchUp {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	n, ok := g.network[id]
-	return n, ok
+	return append([]machine.CatchUp(nil), g.catchUps[id]...)
+}
+
+// LoseExecAnswer makes the next Exec start its command and then fail as a call
+// that did not get an answer: the command runs and the caller cannot know.
+func (g *Guest) LoseExecAnswer() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.loseExec = true
+}
+
+// RefuseExec makes Exec answer with a record that says the command did not
+// start, for the identifier.
+func (g *Guest) RefuseExec(exec machine.ExecID, reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refused[exec] = reason
 }
 
 // Exec implements machine.Guest: the command starts and runs until Finish.
@@ -117,11 +135,19 @@ func (g *Guest) Exec(_ context.Context, _ machine.MachineID, exec machine.ExecID
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if e, ok := g.execs[exec]; ok {
-		return e.record, nil
+	if reason, ok := g.refused[exec]; ok {
+		return machine.ExecRecord{ID: exec, Status: machine.ExecNotStarted, Reason: reason}, nil
 	}
-	g.execs[exec] = &guestExec{record: machine.ExecRecord{ID: exec, Status: machine.ExecStarted}}
-	return g.execs[exec].record, nil
+	e, ok := g.execs[exec]
+	if !ok {
+		e = &guestExec{record: machine.ExecRecord{ID: exec, Status: machine.ExecStarted}}
+		g.execs[exec] = e
+	}
+	if g.loseExec {
+		g.loseExec = false
+		return machine.ExecRecord{}, machine.ErrGuestUnreachable
+	}
+	return e.record, nil
 }
 
 // Started returns how many commands the guests were started with the

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -32,6 +33,11 @@ import (
 // eventsKept is how many events the node holds for a client that resumes.
 // runtime-api.md leaves how long events are kept open.
 const eventsKept = 1024
+
+// wallClock is the host's wall clock, which a restored guest is set to.
+type wallClock struct{}
+
+func (wallClock) Now() time.Time { return time.Now() }
 
 // Substitutes are the in-memory adapters behind the ports when the
 // configuration selects the memory driver, so that what a Machine needs on the
@@ -105,7 +111,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,

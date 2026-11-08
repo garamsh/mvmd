@@ -74,6 +74,12 @@ message Failure {
   string reason = 2;
 }
 
+// OutputGone is a status detail of a read of exec output whose offset is older
+// than the output still held: the client resumes from earliest_offset.
+message OutputGone {
+  uint64 earliest_offset = 1;
+}
+
 enum MachineState {
   MACHINE_STATE_UNSPECIFIED = 0;
   MACHINE_STATE_CREATED = 1;

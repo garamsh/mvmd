@@ -35,11 +35,12 @@ func (e *env) elsewhere(info machine.DriverInfo) *env {
 		images: memory.NewImageStore(),
 		snaps:  e.snaps,
 		guest:  memory.NewGuest(0),
+		clock:  memory.NewWallClock(epoch),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
-	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.guest, o.store, o.permit, machine.UIDRange{First: 1000, Count: 256}, o.events)
+	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.guest, o.clock, o.store, o.permit, machine.UIDRange{First: 1000, Count: 256}, o.events)
 	return o
 }
 
@@ -381,15 +382,19 @@ func TestRestoreSnapshot_OnSuccess(t *testing.T) {
 
 	// The guest holds the new Machine's addresses, gateways and resolvers, and
 	// not the snapshot's.
-	sent, ok := e.guest.Network("new")
-	require.True(t, ok, "the guest was sent its network")
-	assert.Equal(t, got.Network.Addresses, sent.Addresses)
-	assert.Equal(t, got.Network.Gateways, sent.Gateways)
-	assert.Equal(t, got.Network.Resolvers, sent.Resolvers)
-	assert.NotEmpty(t, sent.Gateways)
-	assert.NotEqual(t, source.Network.Addresses, sent.Addresses)
-	_, sentToSource := e.guest.Network("src")
-	assert.False(t, sentToSource, "control: the source's guest is not touched")
+	catchUps := e.guest.CatchUps("new")
+	require.Len(t, catchUps, 1, "the guest was caught up once")
+	sent := catchUps[0]
+	assert.Equal(t, got.Network.Addresses, sent.Network.Addresses)
+	assert.Equal(t, got.Network.Gateways, sent.Network.Gateways)
+	assert.Equal(t, got.Network.Resolvers, sent.Network.Resolvers)
+	assert.NotEmpty(t, sent.Network.Gateways)
+	assert.NotEqual(t, source.Network.Addresses, sent.Network.Addresses)
+	assert.Equal(t, machine.RequestID("r-new"), sent.RestoreID, "the restore ID is the request ID")
+	assert.Equal(t, e.clock.Now(), sent.HostTime, "the host's wall clock")
+	assert.GreaterOrEqual(t, len(sent.Entropy), 32, "entropy within ADR 0016's 32 to 256 bytes")
+	assert.LessOrEqual(t, len(sent.Entropy), 256)
+	assert.Empty(t, e.guest.CatchUps("src"), "control: the source's guest is not touched")
 
 	// Control: the source is as it was.
 	e.requireState(t, "src", machine.StateRunning)
@@ -447,7 +452,7 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 		{"the supervisor cannot start", func(e *env) { e.sup.FailAt("start", errBoom) }, func(e *env) { e.sup.Heal("start") }, machine.ErrFailed},
 		{"the snapshot cannot be loaded", func(e *env) { e.driver.FailAt("restore", errBoom) }, func(e *env) { e.driver.Heal("restore") }, machine.ErrFailed},
 		{"the Machine cannot be recorded", func(e *env) { e.store.FailAt("save", errBoom) }, func(e *env) { e.store.Heal("save") }, machine.ErrFailed},
-		{"the guest cannot be sent its network", func(e *env) { e.guest.FailAt("update-network", errBoom) }, func(e *env) { e.guest.Heal("update-network") }, machine.ErrFailed},
+		{"the guest cannot be caught up", func(e *env) { e.guest.FailAt("catch-up", errBoom) }, func(e *env) { e.guest.Heal("catch-up") }, machine.ErrFailed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(snapshotCaps...)
@@ -481,7 +486,7 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 	}{
 		{"the snapshot cannot be loaded", func(e *env) { e.driver.FailAt("restore", errBoom) }},
 		{"the Machine cannot be recorded", func(e *env) { e.store.FailAt("save", errBoom) }},
-		{"the guest cannot be sent its network", func(e *env) { e.guest.FailAt("update-network", errBoom) }},
+		{"the guest cannot be caught up", func(e *env) { e.guest.FailAt("catch-up", errBoom) }},
 	} {
 		t.Run("a VMM that cannot be ended is a Faulted Machine that holds what it allocated: "+tt.name, func(t *testing.T) {
 			e := newEnv(snapshotCaps...)
@@ -518,13 +523,33 @@ func TestRestoreSnapshot_StateAfterFailure(t *testing.T) {
 	}
 }
 
-// The Machine is not Running, nor reported so, until its guest holds the new
-// addresses.
+// Two restores of one snapshot send their guests different entropy, each under
+// its own restore ID: clones that were sent the same bytes would share random
+// state again (ADR 0016).
+func TestRestoreSnapshot_EachRestoreSendsEntropyOfItsOwn(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(snapshotCaps...)
+	e.snapshotted(t, "src", machine.StateRunning)
+	require.NoError(t, e.svc.RestoreSnapshot(ctx, "a", "r-a", "snap", narrowPolicy))
+	e.clock.Set(e.clock.Now().Add(time.Hour))
+	require.NoError(t, e.svc.RestoreSnapshot(ctx, "b", "r-b", "snap", narrowPolicy))
+
+	a, b := e.guest.CatchUps("a"), e.guest.CatchUps("b")
+	require.Len(t, a, 1)
+	require.Len(t, b, 1)
+	assert.NotEqual(t, a[0].Entropy, b[0].Entropy, "fresh bytes for each restore")
+	assert.NotEqual(t, make([]byte, len(a[0].Entropy)), a[0].Entropy, "and not zeroes")
+	assert.Equal(t, machine.RequestID("r-a"), a[0].RestoreID)
+	assert.Equal(t, machine.RequestID("r-b"), b[0].RestoreID)
+	assert.Equal(t, b[0].HostTime.Sub(a[0].HostTime), time.Hour, "each takes the host's time when it is sent")
+}
+
+// The Machine is not Running, nor reported so, until its guest has caught up.
 func TestRestoreSnapshot_IsNotRunningUntilTheGuestHasItsNetwork(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(snapshotCaps...)
 	e.snapshotted(t, "src", machine.StateRunning)
-	entered, release := e.guest.Hold("update-network")
+	entered, release := e.guest.Hold("catch-up")
 	done := make(chan error, 1)
 	go func() { done <- e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy) }()
 	select {

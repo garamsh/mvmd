@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"time"
 )
 
 // ExecID is the client-chosen identifier of an exec record.
@@ -105,6 +106,24 @@ type GuestNetwork struct {
 	Resolvers []netip.Addr
 }
 
+// CatchUp is what a restored guest is told (ADR 0016): the restore it is
+// told of, fresh entropy to reseed from, the host's wall clock, and its new
+// network, in that order.
+type CatchUp struct {
+	// RestoreID is the request ID of the restore, unique to it.
+	RestoreID RequestID
+	// Entropy is cryptographically random bytes drawn afresh for this restore.
+	Entropy []byte
+	// HostTime is the host's wall clock when the restore sent this.
+	HostTime time.Time
+	Network  GuestNetwork
+}
+
+// WallClock is the host's wall clock, which a restored guest is set to.
+type WallClock interface {
+	Now() time.Time
+}
+
 // GuestBoot is the boot description: the filesystem UUIDs of the Machine's
 // image and root disk, what to run and the network.
 type GuestBoot struct {
@@ -124,9 +143,9 @@ type Guest interface {
 	// Boot sends the boot description and returns when the entrypoint runs.
 	// Repeating it is safe.
 	Boot(ctx context.Context, id MachineID, boot GuestBoot) error
-	// UpdateNetwork replaces the addresses, gateways and resolvers the guest
-	// holds, as after a restore.
-	UpdateNetwork(ctx context.Context, id MachineID, network GuestNetwork) error
+	// CatchUp brings a restored guest up to date and returns when it has caught
+	// up. Repeating it with the same restore ID is safe (ADR 0016).
+	CatchUp(ctx context.Context, id MachineID, catchUp CatchUp) error
 	// Exec starts the command under the exec identifier. A repeat of an
 	// identifier returns its record and runs nothing.
 	Exec(ctx context.Context, id MachineID, exec ExecID, spec ExecSpec) (ExecRecord, error)

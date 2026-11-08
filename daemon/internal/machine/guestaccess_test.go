@@ -64,6 +64,39 @@ func TestExec_Needs(t *testing.T) {
 		}
 		assert.Zero(t, e.guest.Calls("exec"))
 	})
+	t.Run("not the identifier the agent keeps for the entrypoint", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateRunning)
+		_, err := e.svc.Exec(ctx, "m", "entrypoint", "r", echo)
+		requireKind(t, err, machine.ErrInvalid)
+		assert.Zero(t, e.guest.Calls("exec"), "nothing is recorded as the client's command")
+
+		// Control: a neighbouring identifier is accepted.
+		_, err = e.svc.Exec(ctx, "m", "entrypoint2", "r", echo)
+		require.NoError(t, err)
+	})
+}
+
+// A Machine's exec records go with it: after Delete the identifiers are free.
+func TestExec_RecordsGoWithTheirMachine(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+	require.NoError(t, err)
+	require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+	_, err = e.svc.Exec(ctx, "m", "x", "other", echo)
+	require.Error(t, err, "the setup: while the Machine exists, the identifier is taken")
+
+	require.NoError(t, e.svc.Delete(ctx, "m"))
+	e.inState(t, "again", machine.StateRunning)
+	record, err := e.svc.Exec(ctx, "again", "x", "r2", echo)
+	require.NoError(t, err, "the identifier is free once its Machine is gone")
+	assert.Equal(t, machine.ExecStarted, record.Status)
+
+	// Control: another Machine's records are kept.
+	_, err = e.svc.Exec(ctx, "again", "x", "r3", echo)
+	requireKind(t, err, machine.ErrConflict)
 }
 
 // Row "Exec", column On success.
@@ -108,26 +141,51 @@ func TestExec_Repeat(t *testing.T) {
 func TestExec_AfterFailure(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("a command that could not be started says so, and repeats so", func(t *testing.T) {
+	t.Run("a call that did not reach the guest is no outcome, and its repeat asks again", func(t *testing.T) {
 		e := newEnv()
 		e.inState(t, "m", machine.StateRunning)
 		e.guest.FailAt("exec", errBoom)
 
-		record, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+		_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
 		requireKind(t, err, machine.ErrFailed)
-		assert.Equal(t, machine.ExecNotStarted, record.Status)
-		assert.NotEmpty(t, record.Reason)
 		e.requireState(t, "m", machine.StateRunning)
+		_, err = e.svc.Exec(ctx, "m", "x", "other", echo)
+		requireKind(t, err, machine.ErrConflict) // the call's identity is kept
 
 		e.guest.Heal("exec")
-		again, err := e.svc.Exec(ctx, "m", "x", "r", echo)
-		requireKind(t, err, machine.ErrFailed)
-		assert.Equal(t, record, again, "the original outcome; mvmd never retries a command by itself")
-		assert.Zero(t, e.guest.Started("x"))
-
-		// Control: another exec identifier starts once the guest answers.
-		_, err = e.svc.Exec(ctx, "m", "y", "r2", echo)
+		record, err := e.svc.Exec(ctx, "m", "x", "r", echo)
 		require.NoError(t, err)
+		assert.Equal(t, machine.ExecStarted, record.Status, "the repeat reached the guest, whose record it is")
+		assert.Equal(t, 1, e.guest.Started("x"))
+	})
+	t.Run("an answer that was lost leaves the command running, and the repeat returns its record", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateRunning)
+		e.guest.LoseExecAnswer()
+
+		_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+		requireKind(t, err, machine.ErrFailed)
+		require.Equal(t, 1, e.guest.Started("x"), "the setup: the command did run")
+
+		record, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+		require.NoError(t, err)
+		assert.Equal(t, machine.ExecStarted, record.Status, "not a record that says it never started")
+		assert.Equal(t, 1, e.guest.Started("x"), "the command ran once")
+		assert.Equal(t, 2, e.guest.Calls("exec"))
+	})
+	t.Run("a guest that answers the command did not start says so, and repeats so", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateRunning)
+		e.guest.RefuseExec("x", "no such file")
+
+		record, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+		require.NoError(t, err)
+		assert.Equal(t, machine.ExecRecord{ID: "x", Status: machine.ExecNotStarted, Reason: "no such file"}, record)
+		again, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+		require.NoError(t, err)
+		assert.Equal(t, record, again)
+		assert.Equal(t, 1, e.guest.Calls("exec"), "the answer is the outcome, and the guest is not asked again")
+		assert.Zero(t, e.guest.Started("x"))
 	})
 	t.Run("a Machine that stops while the command runs cuts it short", func(t *testing.T) {
 		e := newEnv()
@@ -193,6 +251,27 @@ func TestReadExecOutput_Needs(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Row "Read exec output", column Needs: a command that runs is read only while
+// its Machine is Running; a Paused Machine's guest does not answer. A record
+// that is final is answered from what mvmd holds.
+func TestReadExecOutput_NeedsRunningWhileTheCommandRuns(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+	require.NoError(t, err)
+	require.NoError(t, e.svc.Pause(ctx, "m"))
+
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, collect(new([]machine.OutputChunk)))
+	requireKind(t, err, machine.ErrPreconditionFailed)
+	assert.Zero(t, e.guest.Calls("read-exec-output"), "the guest was not asked")
+
+	// Control: the same read succeeds once the Machine runs again.
+	require.NoError(t, e.svc.Resume(ctx, "m"))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, collect(new([]machine.OutputChunk)))
+	require.NoError(t, err)
+}
+
 // Row "Read exec output", columns On success and Repeat: the chunks after the
 // offset, then the record once the command has ended, and a resume from any
 // offset still held.
@@ -235,7 +314,7 @@ func TestReadExecOutput_AnOffsetNoLongerHeld(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv()
 	e.guest = memory.NewGuest(8) // keeps the newest 8 bytes
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
 	e.inState(t, "m", machine.StateRunning)
 	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
 	require.NoError(t, err)

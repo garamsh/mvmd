@@ -94,9 +94,7 @@ func status(err error) error {
 	reason := err.Error()
 	var gone *machine.OutputGoneError
 	if errors.As(err, &gone) {
-		// The reason names the earliest offset held; the contract has no field
-		// for it yet, so the client reads it from the reason.
-		return v1alpha1.NewError(v1alpha1.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED, gone.Error())
+		return v1alpha1.NewOutputGone(gone.Error(), gone.Earliest)
 	}
 	var outcome *machine.Error
 	if errors.As(err, &outcome) {
