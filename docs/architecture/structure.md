@@ -17,10 +17,11 @@ Nothing here states how an adapter is built inside, or how mvmd is deployed.
 Follows the monorepo shape of garamsh/garam at the commit above: each top-level folder is one responsibility, and one unit reaches another only through what that unit publishes. A folder is created by the pull request that first adds code to it, and not before; none of the code folders below exists yet.
 
 - `daemon/` — the mvmd daemon: a Go module in the service layout of `docs/convention/stack-go.md` §1, binary at `daemon/cmd/mvmd/main.go`. It holds the inside, the driving adapter for the runtime API, and every driven adapter, including the in-process VMM Drivers.
-- `daemon/cmd/mvmd-supervisor/main.go` — the per-Machine supervisor that enforces the fencing expiry ([runtime.md](./runtime.md) §Fencing), a second binary of the daemon module. It holds no part of the inside, and its `main.go` wires only itself; the application's one composition site stays with `daemon/cmd/mvmd/main.go`.
+- `daemon/cmd/mvmd-supervisor/main.go` — the per-Machine supervisor that enforces the fencing expiry ([runtime.md](./runtime.md) §Fencing), and the per-conversion one that enforces a conversion's time limit, a second binary of the daemon module. It holds no part of the inside, and its `main.go` wires only itself; the application's one composition site stays with `daemon/cmd/mvmd/main.go`.
 - `guest-agent/` — the Guest Agent as its own Cargo workspace (#2 §5, implementation language). Its Rust code follows `docs/convention/stack-rust.md`.
 - `lib/runtimeapi/` — the runtime API contract and its client, a Go library module in the library layout of `docs/convention/stack-go.md` §1, package at the module root. It is the one module gaon imports. It is a leaf: it imports no other package of mvmd.
-- `mvmctl/` and `imageconv/` — the names reserved for a CLI and for the isolated image converter (#2 §5, image section, security), each a top-level folder if and when it ships as its own executable. Neither is committed to existing.
+- `imageconv/` — the image converter that runs inside the converter microVM, and the build of its initrd ([ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md)): its own Cargo workspace, whose Rust code follows `docs/convention/stack-rust.md`. It holds no part of the inside and links nothing of the daemon; the daemon reaches it only over the Converter channel.
+- `mvmctl/` — the name reserved for a CLI, a top-level folder if and when it ships as its own executable. It is not committed to existing.
 - `docs/` — conventions, architecture, procedures.
 - `tooling/protogen/` — a Go module that holds nothing but the pins of the protobuf generator (`buf`, `protoc-gen-go`, `protoc-gen-go-grpc`) as `tool` directives, released versions only, with `protoc-gen-go` at the version of the library's `google.golang.org/protobuf`. It ships no package and is not in `go.work`, so the generator's dependencies stay out of every unit's graph.
 - `deploy/` — added later, by the first pull request that needs one.
@@ -54,12 +55,14 @@ In mvmd the composition site is in the daemon, placed as `docs/convention/stack-
 |---|---|---|---|
 | Runtime API | driving | gaon's Node Agent, through `lib/runtimeapi/` | #2 decision-change reply; [runtime.md](./runtime.md) |
 | VMM Driver | driven | Firecracker, Cloud Hypervisor; later an in-house VMM | #2 §5, VMM Driver; [driver.md](./driver.md) |
-| Disk | driven | one implementation at first | #2 §5, first implementation scope |
+| Disk | driven | sparse raw files in each Machine's state directory; [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) | #2 §5, first implementation scope |
 | Network | driven | one implementation at first | #2 §5, first implementation scope |
 | Snapshot Store | driven | one implementation at first | #2 §5, first implementation scope |
-| Image Store | driven | one implementation at first; [image.md](./image.md) | #2 §5, first implementation scope |
+| Image Store | driven | the node image cache, an OCI image layout with fs-verity on the EROFS files; [image.md](./image.md) | #2 §5, first implementation scope |
+| Registry | driven | OCI distribution registries | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
+| Converter channel | driven | the converter in its microVM, over vsock; [image.md](./image.md) §Conversion | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
 | Guest Agent channel | driven | the Guest Agent over vsock; [guest.md](./guest.md) | #2 §3 wiring, §5 |
-| Supervision | driven | `mvmd-supervisor` processes, one per Machine whose VMM process exists; [runtime.md](./runtime.md) §Fencing | [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md) |
+| Supervision | driven | `mvmd-supervisor` processes, one per Machine whose VMM process exists and one per running conversion; [runtime.md](./runtime.md) §Fencing | [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md) |
 
 A port with one real adapter is kept only with a test substitute standing in for it ([ADR 0002](./adr/0002-mvmd-is-structured-as-a-hexagonal-application.md) §Consequences). The Driver port has two real adapters from the start, since an abstraction with one implementation cannot be verified (#2 §5, first implementation scope).
 

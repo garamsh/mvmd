@@ -2,7 +2,7 @@
 
 The contract between the mvmd inside and a virtual machine monitor, and what implements it first.
 
-Checked against garamsh/discussions#2 as read on 2026-11-08, §5 (discussioncomment-19288321) and the decision-change reply (discussioncomment-19466961). Claims about what a VMM supports (the table below) are #2's, which marks the Firecracker entry as needing a version check.
+Checked against garamsh/discussions#2 as read on 2026-11-08, §5 (discussioncomment-19288321) and the decision-change reply (discussioncomment-19466961). Claims about what a VMM supports in the resizing table are #2's, which marks the Firecracker entry as needing a version check; claims about boot formats and disks are ADR 0009's and ADR 0010's, at Firecracker v1.17.0 and Cloud Hypervisor v54.0.
 
 ## Current decisions
 
@@ -14,7 +14,11 @@ Checked against garamsh/discussions#2 as read on 2026-11-08, §5 (discussioncomm
 - **Restart (principle 4).** The VMM runs as its own process; mvmd reattaches to running VMs after its own restart through `List`.
 - **The Driver does not start the VMM process.** For start and restore it describes the process to run, and mvmd starts it under the Machine's supervisor, which enforces the fencing expiry ([runtime.md](./runtime.md) §Fencing). Every process a Machine needs runs under that supervisor, and none runs under a real-time scheduling policy. The Driver never sees the expiry, so a new VMM is fenced without fencing code of its own ([ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md)).
 - **In-process first (principle 5).** Drivers are Go implementations inside the daemon, with messages shaped so that they can move to gRPC. An out-of-process Driver protocol, in the role containerd's shim API plays, is introduced when the first out-of-process VMM, such as an in-house one, arrives (decision-change reply). It keeps the VMM process started by the supervisor.
-- **Other driven ports.** Disk, Network, Snapshot Store and Image Store are interfaces with one implementation each at first (#2 §5, first implementation scope). They are ports in [structure.md](./structure.md) §Ports.
+- **Boot artefacts ([ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md)).** A Driver boots a VM from: a kernel file (on x86_64 an uncompressed ELF kernel with a PVH entry, on aarch64 a PE `Image`, both taken by Firecracker and Cloud Hypervisor), an initrd file, a kernel command line, an ordered list of block devices each a file path and a read-only flag, one vsock device, and the vCPU count and memory size. A Machine's devices are its image's EROFS read-only, its root disk read-write, then its attached disks; a converter's are its output disk alone. The Driver learns nothing of what each device holds.
+- **Disks are raw.** Every disk is a raw file, and a Driver whose VMM takes a disk format names raw, so nothing a guest writes selects a format ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)).
+- **The command line** carries mvmd's guest parameters; a Driver may add what its VMM's devices need and removes none.
+- **The converter is booted through the Driver** the node's configuration names for conversion, with no optional capability ([ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md)).
+- **Other driven ports.** Disk, Network, Snapshot Store and Image Store are interfaces with one implementation each at first (#2 §5, first implementation scope); Registry and Converter channel join them for image pull ([ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md)). They are ports in [structure.md](./structure.md) §Ports.
 
 ## VMM support for resizing
 
@@ -37,4 +41,4 @@ Resize operations are optional capabilities because of this difference.
 
 - Whether Firecracker supports vCPU hotplug in the version mvmd pins; #2 states it as unchecked.
 - The Driver contract's wire shape for the out-of-process case; introduced when the first out-of-process VMM arrives.
-- Which boot formats each Driver accepts for MachineImage; #2 §5 says this differs by VMM and is checked per Driver.
+- The boot formats of a VMM admitted later; each new Driver is checked against the artefacts above.

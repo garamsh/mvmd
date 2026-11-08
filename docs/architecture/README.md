@@ -26,7 +26,7 @@ Responsibility documents:
 - [runtime.md](./runtime.md) — what mvmd owns on a node, its boundary with gaon, fencing, invariants
 - [runtime-api.md](./runtime-api.md) — the runtime API: operations, calling rules, version v1alpha1, fencing deadline
 - [driver.md](./driver.md) — the VMM Driver contract
-- [image.md](./image.md) — image pull, MachineImage, node image cache
+- [image.md](./image.md) — image pull and conversion, MachineImage, node image cache, integrity
 - [guest.md](./guest.md) — the Guest Agent, guest boot order, guest kernel scope
 
 Decisions:
@@ -35,5 +35,11 @@ Decisions:
 - [ADR 0002](./adr/0002-mvmd-is-structured-as-a-hexagonal-application.md) — mvmd is structured as a hexagonal application
 - [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md) — a per-Machine supervisor enforces the fencing expiry
 - [ADR 0004](./adr/0004-the-runtime-api-is-grpc-on-a-unix-socket-with-committed-generated-code.md) — the runtime API is gRPC on a Unix socket, with committed generated code
+- [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) — untrusted images are converted in a converter microVM
+- [ADR 0006](./adr/0006-mkfs-erofs-converts-an-image-one-layer-at-a-time.md) — mkfs.erofs converts an image one layer at a time
+- [ADR 0007](./adr/0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md) — the node image cache is an OCI image layout, published by one index swap
+- [ADR 0008](./adr/0008-fs-verity-on-the-host-guards-every-read-of-a-machineimage.md) — fs-verity on the host guards every read of a MachineImage
+- [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) — a Machine's root disk is a sparse raw file with one holder
+- [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md) — a Machine boots a pinned kernel and the Guest Agent initrd from raw block devices
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

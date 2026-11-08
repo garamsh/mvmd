@@ -103,7 +103,8 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 | Pull image | A reference that names a digest | Image converted and in the node cache | Already present: success | Nothing visible in the cache |
 
 - **A reference names a digest, never a tag.** A tag can move, which would make a repeat mean something different from the original and would defeat the integrity check (#2 §5 image security).
-- **An image becomes visible only after conversion and integrity verification finish** ([image.md](./image.md)), so a failed pull leaves no partial image.
+- **An image becomes visible only after conversion and integrity verification finish** ([image.md](./image.md)), so a failed pull leaves no partial image. Each step of a pull and the state its failure leaves are listed in [ADR 0007](./adr/0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md) §Pull image.
+- **A boot checks the image.** Start and restore measure the image's root hash before the boot begins; a mismatch fails the call in its prior state, with the reason ([image.md](./image.md) §Integrity).
 
 ## Fencing deadline
 
@@ -142,7 +143,7 @@ The deadline exists so a Machine cannot run on two nodes when its client is gone
 - **How the console is framed.** The encoding is a bidirectional stream of bytes, the Machine named in the first message. A change to that encoding follows the version rule under Scope and version.
 - **The pattern syntax of List and search.** The encoding is a path and a pattern string with no syntax fixed, and the matches are returned as paths. A change to that encoding follows the version rule under Scope and version.
 - **Authorisation of callers beyond the socket.** Authentication is the socket's filesystem permissions (ADR 0004); #2 states no finer rule.
-- **How a disk comes to exist on the node** (creation, class, durability, movement): depends on #2 §6 item 9 ([runtime.md](./runtime.md) §Open questions). Attach assumes the node already holds it.
+- **How a disk other than a root disk comes to exist on the node** (creation, class, durability, movement): depends on #2 §6 item 9 ([runtime.md](./runtime.md) §Open questions). Attach assumes the node already holds it. A root disk is created by Create Machine and deleted by Delete Machine ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)).
 - **How the network policy is described in Create Machine**: depends on the enforcement technology, #2 §6 item 10.
 - **Removal and retention of snapshots and images**, including garbage collection of the node cache.
 - **How long events are kept**, how long request IDs are kept after their object is deleted, and how many API versions are served at once.
