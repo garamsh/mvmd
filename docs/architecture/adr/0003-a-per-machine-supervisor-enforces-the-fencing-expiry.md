@@ -1,6 +1,6 @@
 # ADR 0003: A per-Machine supervisor enforces the fencing expiry
 
-> Status: proposed
+> Status: accepted
 > Date: 2026-11-08
 
 Append-only: once merged, the body below is not rewritten. A fact later found wrong is corrected in an appended note, not edited out; a revised decision is a new ADR that supersedes this one.
@@ -9,7 +9,7 @@ Append-only: once merged, the body below is not rewritten. A fact later found wr
 
 Raised as garamsh/mvmd#8 and decided in review of the pull request that adds this ADR.
 
-`runtime-api.md` §Fencing deadline fixes the guarantee: a VM never runs past the recorded expiry, whether or not the mvmd daemon process is running, across a crash, a kill and a restart of mvmd alike. The expiry is held against a clock that keeps counting while mvmd is down and cannot be set, tied to the identity of the host's current boot. The mechanism was left open, with a per-VM supervisor or the VMM's own launcher holding the expiry as the named candidates. Three further constraints:
+`runtime-api.md` §Fencing deadline, before this ADR, fixed the guarantee: a VM never runs past the recorded expiry, whether or not the mvmd daemon process is running, across a crash, a kill and a restart of mvmd alike. The expiry is held against a clock that keeps counting while mvmd is down and cannot be set, tied to the identity of the host's current boot. The mechanism was left open, with a per-VM supervisor or the VMM's own launcher holding the expiry as the named candidates. Three further constraints:
 
 - Whatever counts the expiry while mvmd is down must not, by its own death, leave a VM unfenced.
 - It must not depend on which VMM runs: an in-house or out-of-process VMM must be admissible (ADR 0001, VMM extensibility).
@@ -44,9 +44,10 @@ Candidates weighed:
 
 ## Decision
 
-Each Machine whose VMM process exists runs under its own supervisor, `mvmd-supervisor`, a separate executable mvmd starts. The supervisor is the init process of a new PID namespace and starts the VMM inside it, so the VMM and everything it starts die with the supervisor. It holds the expiry as an absolute `CLOCK_BOOTTIME` value and ends its namespace when that clock reaches it. mvmd renews by passing each supervisor the new expiry.
+Each Machine whose VMM process exists runs under its own supervisor, `mvmd-supervisor`, a separate executable mvmd starts. The supervisor is the init process of a new PID namespace and starts the VMM inside it, so the VMM and everything it starts die with the supervisor. It receives the current expiry as part of its own start, holds it as an absolute `CLOCK_BOOTTIME` value, and ends its namespace when that clock reaches it. mvmd renews by passing each supervisor the new expiry.
 
 - **Which process counts.** The supervisor, one per Machine whose VMM process exists. It shares mvmd's time namespace, so an absolute value means the same to both, and the value crosses as an absolute time so that delivery delay cannot lengthen it. It holds the expiry in memory only: its death takes the VM with it, so nothing outlives a lost value.
+- **No VMM without an expiry.** The supervisor is given the current expiry when mvmd starts it, and refuses to start the VMM without one or with one that has passed. Every start and every restore is a new supervisor, so no VMM process ever exists under a supervisor that is counting nothing. Starts and renewals are applied one at a time, so every supervisor that exists when a renewal is applied receives it.
 - **Its own death.** The kernel kills every process in the namespace when its init ends, whatever killed it and whatever the VMM did to its credentials or process tree.
 - **How it acts at the expiry.** It exits, and the kernel kills the namespace. It runs under a real-time scheduling policy with reset-on-fork, so the VMM it starts does not inherit that policy and cannot delay it, and with its memory locked, so its path to exit takes no page-in.
 - **mvmd acts too.** While running, mvmd holds the same expiry and at it kills every supervisor through its pidfd. Either one suffices; the second covers a supervisor that is alive but not acting.
@@ -67,6 +68,7 @@ Each Machine whose VMM process exists runs under its own supervisor, `mvmd-super
 | A supervisor killed, mvmd alive | The kernel kills its VMM at once; mvmd sees both pidfds readable and reports the Machine Stopped. | δ, and 0 when the death comes before the expiry | The namespace dies with its init. |
 | mvmd and a supervisor both killed | As the previous case; mvmd plays no part in it. | δ, and 0 when the death comes before the expiry | The namespace dies with its init. |
 | Host reboot | No process survives it. On start mvmd sees a new `boot_id`, treats the deadline as not armed and starts nothing. | δ, up to the reboot; nothing runs after it | Before the reboot the other cases hold; after it no VM exists. |
+| mvmd dies while starting a Machine | If mvmd dies before the supervisor starts, no VMM process exists. Once the supervisor has started, it holds the expiry it was started with and counts it, whether or not it has started the VMM. On restart mvmd finds the supervisor by its socket and reattaches as for any other. | δ | The supervisor has an expiry before any VMM process exists. |
 | Renewal acknowledged just before mvmd crashes | The acknowledgement follows the durable record and the push, so every supervisor already holds the acknowledged expiry. | δ past the acknowledged expiry | The supervisors enforce what the client was told. |
 | mvmd crashes during a renewal, before acknowledging | Each supervisor holds an expiry no later than the recorded one. On restart mvmd passes the recorded one; the client resolves the unknown outcome by repeating the renewal. | δ past the recorded expiry | The ordering rule. |
 | Host suspended across the expiry | The guest executes nothing while suspended; `CLOCK_BOOTTIME` counted the suspension, so the timer is due at resume. | δ after resume | The clock counts suspension. |
@@ -76,11 +78,12 @@ Each Machine whose VMM process exists runs under its own supervisor, `mvmd-super
 
 ## Consequences
 
+- The guarantee holds to within δ, and against failures of mvmd, the supervisor and the host, not against a privileged host process acting on the supervisor. `runtime-api.md` §Fencing deadline states it so, and the client's margin covers δ.
 - One more process per running Machine, with locked memory and a real-time policy.
 - Every renewal reaches every supervisor before it is acknowledged, so renewal latency grows with the number of Machines on the node.
 - Fencing is independent of the VMM: an in-house or out-of-process VMM is fenced as soon as its Driver describes its process, with no enforcement code of its own. An out-of-process Driver protocol must keep the VMM process started by the supervisor.
 - Supervisors outlive an mvmd upgrade, so mvmd speaks to supervisors started by an earlier release, and a supervisor is upgraded only when its Machine is next started.
-- mvmd needs `CAP_SYS_ADMIN` to create a PID namespace, and a kernel with `pidfd_open` (Linux 5.3).
+- Privileges and kernel. mvmd needs `CAP_SYS_ADMIN` to create the supervisor's PID namespace (`clone(2)`), and a kernel with `pidfd_open` (Linux 5.3). The supervisor needs `CAP_SYS_NICE`, or a nonzero `RLIMIT_RTPRIO` soft limit at or above the priority it takes, to set its real-time policy (`sched(7)`, Privileges and resource limits), and `CAP_IPC_LOCK`, or an `RLIMIT_MEMLOCK` soft limit covering its memory, for `mlockall` (`mlockall(2)`, Limits and permissions).
 - A PID namespace is used, and no container: the microVM stays the isolation and execution unit, no OCI runtime is involved, and the namespace holds only the supervisor and its VMM. This reads ADR 0001's "no container as an isolation or execution unit" as not reaching a kernel namespace used for process lifetime.
 - The kill ends guest execution. Host I/O the VMM had already submitted to the kernel may complete after it, which matters once a disk can be reached from another node.
 - Deploying mvmd under a service manager must keep supervisors out of mvmd's cgroup; a deployment that does not loses VMs on every mvmd restart, though never past the expiry.

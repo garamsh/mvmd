@@ -45,17 +45,18 @@ mvmd owns the actual VM state on its node and the snapshot and image caches; the
 
 ## Fencing
 
-If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply). How the client sets and renews it, and what holds across an mvmd restart, is in [runtime-api.md](./runtime-api.md) §Fencing deadline. The expiry is enforced whether or not the mvmd process is running: a VM never runs past a recorded expiry.
+If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply). How the client sets and renews it, and what holds across an mvmd restart, is in [runtime-api.md](./runtime-api.md) §Fencing deadline. The expiry is enforced whether or not the mvmd process is running: a VM runs at most δ past a recorded expiry, where δ is the time the enforcing process takes to end the VMM. The guarantee covers failures of mvmd, of the enforcing process and of the host, not a privileged host process acting on the enforcing process, and the client's margin covers δ ([runtime-api.md](./runtime-api.md) §Fencing deadline).
 
 How it is enforced ([ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md)):
 
 - **A supervisor per Machine.** Every Machine whose VMM process exists runs under its own `mvmd-supervisor` process. The supervisor is the init process of a PID namespace and starts the VMM inside it, so the kernel kills the VMM and everything it started when the supervisor ends, however it ends.
+- **No VMM without an expiry.** mvmd gives the supervisor the current expiry as part of its start, and the supervisor refuses to start the VMM without one or with one that has passed. Each start and each restore is a new supervisor.
 - **The supervisor counts the expiry.** It holds the expiry as an absolute `CLOCK_BOOTTIME` value, in mvmd's time namespace, and ends its namespace when the clock reaches it. It runs under a real-time scheduling policy that its VMM does not inherit, with its memory locked. It depends on nothing of mvmd's while it counts.
 - **mvmd counts it too.** While running, mvmd kills every supervisor through its pidfd at the expiry.
 - **Renewal reaches every supervisor before it is acknowledged.** An extension is recorded and then passed on; a shortening is passed on and then recorded, and a supervisor that does not take a shortening is killed first. No supervisor ever holds an expiry later than the recorded one.
 - **Reboot.** The record carries the host's `boot_id`; a different one at start means no supervisor or VM survived, and the deadline is not armed.
 - **The supervisor runs outside mvmd's cgroup**, so stopping mvmd under a service manager does not stop it.
-- **Bound.** In each failure case the ADR lists, a VM runs past the expiry for at most the time the supervisor takes to wake and end its namespace. That time is not yet measured.
+- **Bound.** In each failure case the ADR lists, mvmd dying while it starts a Machine among them, a VM runs past the expiry for at most δ, the time the supervisor takes to wake and end its namespace. δ is not yet measured.
 
 ## Invariants
 
