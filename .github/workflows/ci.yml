@@ -31,5 +31,14 @@ jobs:
           rust-src-dir: guest-agent
           cache: false
           build-warnings: ""
+      # Pins cargo-deny at the version stack-rust.md names; the action checks the download
+      # against the checksum it records for that version.
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-deny@0.20.2
       - name: Run the whole check set
         run: make ci
+      # Not part of make ci: it fetches the advisory database. Its output is on every run, so a
+      # Dependabot cargo pull request carries it.
+      - name: Audit the Rust dependencies
+        run: make audit

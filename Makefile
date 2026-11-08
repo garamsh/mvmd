@@ -1,4 +1,4 @@
-.PHONY: lint format format-apply test build generate generate-check ci
+.PHONY: lint format format-apply test build audit generate generate-check ci
 
 # The one statement of the Go toolchain is the toolchain line of go.work.
 export GOTOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.work)
@@ -92,6 +92,11 @@ build:
 	    $(CARGO) build --release --locked --target $(RUST_TARGET) -p "$$bin"; \
 	    echo "$@: $$ws: built $$bin for $(RUST_TARGET)"; \
 	  done)
+
+# audit checks each Rust workspace's dependencies against the RustSec advisories and its sources.
+# It fetches the advisory database, so it needs the network and is not part of ci.
+audit:
+	$(call each_rust, $(count_members); $(CARGO) deny --locked check advisories sources)
 
 # generate regenerates the committed output of every module that has a buf.gen.yaml.
 generate:
