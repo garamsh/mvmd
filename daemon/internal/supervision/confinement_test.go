@@ -113,7 +113,11 @@ func TestConfinement_TheVMMHoldsNoCapabilityAndCannotGainOne(t *testing.T) {
 
 	for _, set := range []string{"CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"} {
 		assert.Equal(t, noCaps, st[set], "the VMM's %s", set)
-		assert.NotEqual(t, noCaps, control[set], "control: the same probe, run as root without the supervisor, has a %s", set)
+		// Root starts with an empty inheritable and ambient set, so those two
+		// have no control here; the other three do.
+		if set != "CapInh" && set != "CapAmb" {
+			assert.NotEqual(t, noCaps, control[set], "control: the same probe, run as root without the supervisor, has a %s", set)
+		}
 	}
 	assert.Equal(t, "1", st["NoNewPrivs"], "the VMM cannot gain a privilege")
 	assert.Equal(t, "0", control["NoNewPrivs"], "control")
