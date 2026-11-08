@@ -182,6 +182,7 @@ func describe(probe, mode, run string, args ...string) machine.ProcessDescriptio
 		Args:       append([]string{mode, run}, args...),
 		Overhead:   machine.ProcessOverhead{MemoryBytes: 256 << 20, Tasks: 256, CPUs: 1},
 		Guest:      machine.Resources{VCPUs: 1, MemoryBytes: 256 << 20},
+		RunDir:     run,
 	}
 }
 

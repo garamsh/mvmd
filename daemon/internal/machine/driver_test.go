@@ -32,3 +32,12 @@ func TestProcessDescriptionFor_TakesTheTapAndTheGuestFromTheBoot(t *testing.T) {
 	assert.Equal(t, uint32(7), got.Overhead.Tasks)
 	assert.Equal(t, "the Driver's own claim", described.Tap, "the description it was called on is not changed")
 }
+
+// The run directory is the lifecycle's too: a Driver cannot send the
+// supervisor to another directory than the one it wrote its sockets in.
+func TestProcessDescriptionFor_TakesTheRunDirectoryFromTheBoot(t *testing.T) {
+	got := machine.ProcessDescription{Executable: "/vmm", RunDir: "/the/Driver's/own"}.For(machine.BootSpec{RunDir: "/run/m"})
+
+	assert.Equal(t, "/run/m", got.RunDir)
+	assert.Equal(t, "/vmm", got.Executable, "control: the rest of the description is kept")
+}

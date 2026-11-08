@@ -301,6 +301,20 @@ func TestTerminate_ReturnsOnceTheNamespaceIsEmpty(t *testing.T) {
 	assert.Empty(t, live)
 }
 
+// The adapter names a Machine's run directory under its state directory, and
+// only for an identifier that is a directory name.
+func TestRunDir_IsUnderTheMachinesStateDirectory(t *testing.T) {
+	n := newNode(t)
+	got, err := n.a.RunDir("m")
+	require.NoError(t, err)
+	assert.Equal(t, runDir(n.dir, "m"), got)
+
+	for _, id := range []machine.MachineID{"", ".", "..", "a/b", "../x"} {
+		_, err := n.a.RunDir(id)
+		assert.Error(t, err, "%q", id)
+	}
+}
+
 func TestStart_RefusesAnIdentifierThatIsNotADirectoryName(t *testing.T) {
 	n := newNode(t)
 	for _, id := range []machine.MachineID{"", ".", "..", "a/b", "../x"} {

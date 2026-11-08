@@ -103,6 +103,17 @@ func (a *Adapter) machineDir(id machine.MachineID) (string, error) {
 	return filepath.Join(a.cfg.Dir, s), nil
 }
 
+// RunDir implements fencing.Supervisors. It is the one place the run
+// directory is named: Start uses the description's, which the lifecycle took
+// from here.
+func (a *Adapter) RunDir(id machine.MachineID) (string, error) {
+	dir, err := a.machineDir(id)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, runName), nil
+}
+
 // Start implements fencing.Supervisors.
 func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machine.ProcessDescription, user machine.User, expiry fencing.BootTime) error {
 	dir, err := a.machineDir(id)
@@ -121,7 +132,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 	_ = os.Remove(sock)
 
-	runDir := filepath.Join(dir, runName)
+	runDir := process.RunDir
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return fmt.Errorf("create the run directory: %w", err)
 	}

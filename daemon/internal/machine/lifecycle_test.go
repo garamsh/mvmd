@@ -11,6 +11,45 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
+// The run directory a Driver is given in Describe is the one the supervisor
+// receives in its start request, and it is the one the Supervision port names
+// for the Machine.
+func TestStart_TheDriverAndTheSupervisorGetTheSameRunDirectory(t *testing.T) {
+	e := newEnv()
+	e.inState(t, "a", machine.StateRunning)
+	e.inState(t, "b", machine.StateRunning)
+
+	for _, id := range []machine.MachineID{"a", "b"} {
+		want, err := e.sup.RunDir(id)
+		require.NoError(t, err)
+		require.NotEmpty(t, want, "the setup: the port names a run directory")
+
+		process, running := e.sup.Running(id)
+		require.True(t, running)
+		assert.Equal(t, want, e.driver.BootSpec(id).RunDir, "the Driver's")
+		assert.Equal(t, want, process.RunDir, "the supervisor's")
+	}
+
+	// Control: each Machine has a run directory of its own.
+	assert.NotEqual(t, e.driver.BootSpec("a").RunDir, e.driver.BootSpec("b").RunDir)
+}
+
+// A Machine whose run directory cannot be named is not started.
+func TestStart_ARunDirectoryThatCannotBeNamedFailsTheStart(t *testing.T) {
+	e := newEnv()
+	e.created(t, "m")
+	e.sup.FailAt("run-dir", errBoom)
+
+	requireKind(t, e.svc.Start(context.Background(), "m"), machine.ErrFailed)
+	e.requireState(t, "m", machine.StateCreated)
+	_, running := e.sup.Running("m")
+	assert.False(t, running)
+
+	// Control: the same start succeeds once the step stops failing.
+	e.sup.Heal("run-dir")
+	require.NoError(t, e.svc.Start(context.Background(), "m"))
+}
+
 // Row "Start", column Needs.
 func TestStart_Needs(t *testing.T) {
 	ctx := context.Background()

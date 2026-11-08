@@ -13,6 +13,10 @@ var ErrNotAttempted = errors.New("not attempted")
 // and confines the VMM process. The fencing expiry joins Start with the
 // fencing issue.
 type Supervision interface {
+	// RunDir returns the Machine's run directory. It is the one place the
+	// path is decided: the lifecycle gives it to the Driver in BootSpec and to
+	// Start in the description, and Start uses the latter as given.
+	RunDir(id MachineID) (string, error)
 	// Start starts the described VMM process under a new supervisor, as the
 	// Machine's user. The user comes from the lifecycle and never from the
 	// Driver's description (ADR 0015).
