@@ -53,6 +53,10 @@ type SupervisionConfig struct {
 	// Cgroup is a cgroup v2 directory the supervisors start in, outside
 	// mvmd's cgroup. Empty leaves them in mvmd's.
 	Cgroup string `json:"cgroup"`
+	// VMMCgroup is the cgroup v2 parent under which each VMM gets a cgroup
+	// of its own (ADR 0015). It must be absolute when given; empty
+	// defaults to the adapter's default.
+	VMMCgroup string `json:"vmm_cgroup"`
 }
 
 // SocketConfig is where the runtime API is served and who may reach it: the
@@ -115,6 +119,8 @@ func (c Config) check() error {
 			return fmt.Errorf("supervision.dir %q is not an absolute path", s.Dir)
 		case s.Cgroup != "" && !filepath.IsAbs(s.Cgroup):
 			return fmt.Errorf("supervision.cgroup %q is not an absolute path", s.Cgroup)
+		case s.VMMCgroup != "" && !filepath.IsAbs(s.VMMCgroup):
+			return fmt.Errorf("supervision.vmm_cgroup %q is not an absolute path", s.VMMCgroup)
 		}
 	}
 	return nil
