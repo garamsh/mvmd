@@ -22,6 +22,14 @@ type DiskID string
 // ImageDigest names an image on the node by its digest, never by a tag.
 type ImageDigest string
 
+// DiskOwner names the Machine that owns a disk and the UID and GID of its VMM
+// user (ADR 0015).
+type DiskOwner struct {
+	ID  MachineID
+	UID uint32
+	GID uint32
+}
+
 // State is where a Machine is in its lifecycle.
 type State int
 
@@ -84,6 +92,9 @@ type Machine struct {
 	Spec
 	// RootDisk is the disk Create Machine made for this Machine.
 	RootDisk DiskID
+	// RootDiskUUID is the ext4 filesystem UUID of the root disk, sent to
+	// the Guest Agent over the channel (ADR 0010).
+	RootDiskUUID string
 	// Network is the identity mvmd assigned for the Machine's life.
 	Network NetworkIdentity
 	// FailureReason is the reason for the last failure, empty if none.

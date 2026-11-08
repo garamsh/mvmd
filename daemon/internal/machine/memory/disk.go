@@ -43,15 +43,15 @@ func (d *Disk) Locate(_ context.Context, disk machine.DiskID) (string, error) {
 }
 
 // CreateRoot implements machine.Disk.
-func (d *Disk) CreateRoot(_ context.Context, id machine.MachineID, sizeBytes uint64) (machine.DiskID, error) {
+func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes uint64) (machine.DiskID, string, error) {
 	if err := d.Enter("create-root"); err != nil {
-		return "", err
+		return "", "", err
 	}
-	disk := machine.DiskID(string(id) + "-root")
+	disk := machine.DiskID(string(owner.ID) + "-root")
 	d.mu.Lock()
 	d.disks[disk] = sizeBytes
 	d.mu.Unlock()
-	return disk, nil
+	return disk, "", nil
 }
 
 // Remove implements machine.Disk.
