@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -15,7 +14,7 @@ import (
 // builds it, with the substitutes the test chooses to keep or empty.
 func (e *env) reopened(t *testing.T) machine.Service {
 	t.Helper()
-	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, events.Noop{})
+	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
 	require.NoError(t, svc.Restore(context.Background()))
 	return svc
 }
@@ -121,7 +120,7 @@ func TestRestore_AnUnclaimedSupervisorThatCannotBeEndedFaultsOrFails(t *testing.
 
 	// An unrecorded supervisor is an error, so the daemon does not serve.
 	require.NoError(t, e.sup.Start(ctx, "ghost", someProcess, someUser))
-	err = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, events.Noop{}).Restore(ctx)
+	err = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events).Restore(ctx)
 	require.ErrorIs(t, err, errBoom)
 }
 

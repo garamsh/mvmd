@@ -33,6 +33,10 @@ func (s *service) Renew(ctx context.Context, length time.Duration, number uint64
 		return status(rec, stopped, now), nil
 	}
 
+	event := EventRenewed
+	if rec == nil || now >= rec.Expiry {
+		event = EventArmed
+	}
 	next := &Record{Expiry: now.Add(length), BootID: s.clock.BootID(), Length: length, Renewal: number}
 	live, err := s.sup.Live(ctx)
 	if err != nil {
@@ -56,14 +60,14 @@ func (s *service) Renew(ctx context.Context, length time.Duration, number uint64
 		if err := s.store.Save(ctx, *next); err != nil {
 			return Status{}, machine.NewError(machine.ErrFailed, "record the renewal: %v", err)
 		}
-		s.set(next, false)
+		s.set(next, false, event)
 	} else {
 		// An extension is recorded first and passed on second, so that no
 		// supervisor ever holds an expiry the record does not.
 		if err := s.store.Save(ctx, *next); err != nil {
 			return Status{}, machine.NewError(machine.ErrFailed, "record the renewal: %v", err)
 		}
-		s.set(next, false)
+		s.set(next, false, event)
 		for _, sv := range live {
 			if err := s.sup.SetExpiry(ctx, sv.Machine, next.Expiry); err != nil {
 				return Status{}, machine.NewError(machine.ErrFailed,

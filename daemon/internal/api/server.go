@@ -27,14 +27,22 @@ type Server struct {
 	machines machine.Service
 	deadline fencing.Service
 	drivers  []machine.DriverInfo
-	events   events.Store
+	events   events.Service
+	// stopping ends the event streams when Stop is called: a stream has no
+	// end of its own, and a graceful stop of the gRPC server waits for it.
+	stopping context.Context
+	stop     context.CancelFunc
 }
 
-// New returns the server over the lifecycle and the deadline, reporting the
-// given Drivers in runtime info.
-func New(machines machine.Service, deadline fencing.Service, drivers []machine.DriverInfo, evts events.Store) *Server {
-	return &Server{machines: machines, deadline: deadline, drivers: drivers, events: evts}
+// New returns the server over the lifecycle, the deadline and the event log,
+// reporting the given Drivers in runtime info.
+func New(machines machine.Service, deadline fencing.Service, drivers []machine.DriverInfo, log events.Service) *Server {
+	stopping, stop := context.WithCancel(context.Background())
+	return &Server{machines: machines, deadline: deadline, drivers: drivers, events: log, stopping: stopping, stop: stop}
 }
+
+// Stop ends every event stream, so the gRPC server can stop gracefully.
+func (s *Server) Stop() { s.stop() }
 
 // Register registers the server on a gRPC server.
 func (s *Server) Register(g *grpc.Server) { v1alpha1.RegisterRuntimeServiceServer(g, s) }

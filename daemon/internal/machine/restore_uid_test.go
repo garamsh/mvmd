@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
@@ -51,9 +50,10 @@ func TestRestore_UIDOutsideRangeIsRejected(t *testing.T) {
 		images: memory.NewImageStore(),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
+		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 2000, Count: 10}, events.Noop{})
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 2000, Count: 10}, e.events)
 
 	// Save a record with UID 9000 — outside the range.
 	m := machine.Machine{

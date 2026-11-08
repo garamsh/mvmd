@@ -29,6 +29,10 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
 )
 
+// eventsKept is how many events the node holds for a client that resumes.
+// runtime-api.md leaves how long events are kept open.
+const eventsKept = 1024
+
 // Substitutes are the in-memory adapters behind the ports when the
 // configuration selects the memory driver, so that what a Machine needs on the
 // node can be provided: images and disks. Supervisors is nil when the
@@ -39,7 +43,6 @@ type Substitutes struct {
 	Disks       *machinememory.Disk
 	Images      *machinememory.ImageStore
 	Supervisors *fencingmemory.Supervisors
-	Events      events.Store
 }
 
 // App is the wired daemon.
@@ -96,17 +99,16 @@ func New(cfg Config) (*App, error) {
 		}
 		supervisors, sub.Supervisors = real, nil
 	}
-	deadline := fencing.NewService(clock, db.Deadline(), supervisors)
-	store := events.New(1024)
-	sub.Events = store
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), store)
+	log := events.NewService(eventsKept)
+	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
 		deadline:    deadline,
-		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}, store),
+		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}, log),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil
@@ -158,6 +160,7 @@ func (a *App) Serve(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
+		a.server.Stop()
 		g.GracefulStop()
 	}()
 	close(a.ready)

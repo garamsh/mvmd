@@ -23,12 +23,12 @@ func (s *service) Reconcile(ctx context.Context, machines Machines) error {
 	case !ok, rec.BootID != s.clock.BootID():
 		// No record, or a reboot: no supervisor or VM survived it, and the
 		// deadline is not armed until a renewal arms it.
-		s.set(nil, false)
+		s.set(nil, false, 0)
 		s.order.Unlock()
 		return nil
 	case s.clock.Now() >= rec.Expiry:
 		// A passed expiry is never extended: everything stops first.
-		s.set(&rec, false)
+		s.set(&rec, false, 0)
 		s.order.Unlock()
 		return s.expire(ctx)
 	}
@@ -37,7 +37,7 @@ func (s *service) Reconcile(ctx context.Context, machines Machines) error {
 	// survived, and the time left is what is left of it, never the length. A
 	// supervisor that cannot be reached still enforces the earlier expiry it
 	// holds (ADR 0003), so it is not an error here.
-	s.set(&rec, false)
+	s.set(&rec, false, EventArmed)
 	live, err := s.sup.Live(ctx)
 	if err != nil {
 		s.order.Unlock()
@@ -113,7 +113,7 @@ func (s *service) expire(ctx context.Context) error {
 		s.order.Unlock()
 		return errors.Join(errs...)
 	}
-	s.set(rec, true)
+	s.set(rec, true, EventExpired)
 	s.order.Unlock()
 
 	// The supervisors are gone; the lifecycle learns that its Machines stopped.
