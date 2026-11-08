@@ -16,9 +16,10 @@ type Supervisor struct {
 // fencing deadline needs it. A supervisor never holds an expiry later than the
 // one it was last given, and no supervisor exists without one.
 type Supervisors interface {
-	// Start starts a supervisor for the Machine with the process to run and the
+	// Start starts a supervisor for the Machine with the process to run, the
+	// user to run it as and the
 	// expiry it counts.
-	Start(ctx context.Context, id machine.MachineID, process machine.ProcessDescription, expiry BootTime) error
+	Start(ctx context.Context, id machine.MachineID, process machine.ProcessDescription, user machine.User, expiry BootTime) error
 	// SetExpiry passes the supervisor a new expiry, which replaces its own.
 	SetExpiry(ctx context.Context, id machine.MachineID, expiry BootTime) error
 	// Terminate kills the supervisor and with it the Machine's VMM, returning

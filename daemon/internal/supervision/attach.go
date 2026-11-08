@@ -60,7 +60,13 @@ func attach(ctx context.Context, sock string) (*attached, error) {
 	if inner > 0 {
 		if host, ok := hostPID(pid, int(inner)); ok {
 			if fd, err := unix.PidfdOpen(host, 0); err == nil {
-				h.vmmFD, h.vmmPID = fd, host
+				// The id may have been reused between the scan and the open:
+				// the pidfd is kept only if the id still names the child.
+				if stillTheChild(host, pid, int(inner)) {
+					h.vmmFD, h.vmmPID = fd, host
+				} else {
+					unix.Close(fd)
+				}
 			}
 		}
 	}
@@ -81,30 +87,30 @@ func hostPID(supervisor, inner int) (int, bool) {
 		if err != nil {
 			continue
 		}
-		raw, err := os.ReadFile("/proc/" + e.Name() + "/status")
-		if err != nil {
-			continue
-		}
-		var ppid int
-		var nspid []string
-		for _, line := range strings.Split(string(raw), "\n") {
-			switch {
-			case strings.HasPrefix(line, "PPid:"):
-				ppid, _ = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PPid:")))
-			case strings.HasPrefix(line, "NSpid:"):
-				nspid = strings.Fields(strings.TrimPrefix(line, "NSpid:"))
-			}
-		}
-		if ppid == supervisor && len(nspid) > 1 && nspid[len(nspid)-1] == strconv.Itoa(inner) {
+		if stillTheChild(pid, supervisor, inner) {
 			return pid, true
 		}
 	}
 	return 0, false
 }
 
-// ended reports whether the process behind the pidfd has terminated.
-func ended(fd int) bool {
-	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-	n, err := unix.Poll(fds, 0)
-	return err == nil && n > 0
+// stillTheChild reports whether pid is the child of supervisor that the
+// supervisor numbers inner, read from /proc/<pid>/status. A process that is
+// gone is not.
+func stillTheChild(pid, supervisor, inner int) bool {
+	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	if err != nil {
+		return false
+	}
+	var ppid int
+	var nspid []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		switch {
+		case strings.HasPrefix(line, "PPid:"):
+			ppid, _ = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PPid:")))
+		case strings.HasPrefix(line, "NSpid:"):
+			nspid = strings.Fields(strings.TrimPrefix(line, "NSpid:"))
+		}
+	}
+	return ppid == supervisor && len(nspid) > 1 && nspid[len(nspid)-1] == strconv.Itoa(inner)
 }

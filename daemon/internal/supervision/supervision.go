@@ -82,7 +82,7 @@ func (a *Adapter) machineDir(id machine.MachineID) (string, error) {
 }
 
 // Start implements fencing.Supervisors.
-func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machine.ProcessDescription, expiry fencing.BootTime) error {
+func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machine.ProcessDescription, user machine.User, expiry fencing.BootTime) error {
 	dir, err := a.machineDir(id)
 	if err != nil {
 		return err
@@ -144,7 +144,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 
 	err = withClient(ctx, sock, func(ctx context.Context, c pb.SupervisorServiceClient) error {
-		_, err := c.Start(ctx, &pb.StartRequest{Process: toProcess(process), Uid: process.UID, Gid: process.GID})
+		_, err := c.Start(ctx, &pb.StartRequest{Process: toProcess(process), Uid: user.UID, Gid: user.GID})
 		return err
 	})
 	if err == nil {
@@ -177,26 +177,6 @@ func (a *Adapter) SetExpiry(ctx context.Context, id machine.MachineID, expiry fe
 		_, err := c.SetExpiry(ctx, &pb.SetExpiryRequest{ExpiryBoottimeNs: int64(expiry)})
 		return err
 	})
-}
-
-// Ended reports whether the Machine's supervisor and its VMM have both ended:
-// nobody listens on the socket, or the pidfds of both are readable. A Machine
-// whose VMM has not started, or whose supervisor does not report it, is judged
-// by the supervisor alone.
-func (a *Adapter) Ended(ctx context.Context, id machine.MachineID) (bool, error) {
-	dir, err := a.machineDir(id)
-	if err != nil {
-		return false, err
-	}
-	h, err := attach(ctx, filepath.Join(dir, socketName))
-	if isAbsent(err) {
-		return true, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("reach the supervisor of %q: %w", id, err)
-	}
-	defer h.close()
-	return ended(h.supFD) && (h.vmmFD < 0 || ended(h.vmmFD)), nil
 }
 
 // Terminate implements fencing.Supervisors. It kills the supervisor through a

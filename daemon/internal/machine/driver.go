@@ -61,10 +61,6 @@ type ProcessDescription struct {
 	// TapByDescriptor is true when the VMM takes its tap by descriptor.
 	TapByDescriptor bool
 	Overhead        ProcessOverhead
-	// UID and GID are the Machine's user, which the lifecycle fills and no
-	// Driver chooses (ADR 0015). The supervisor refuses a start where either
-	// is zero.
-	UID, GID uint32
 }
 
 // ProcessOverhead is what the VMM needs beyond the guest's memory and vCPUs.

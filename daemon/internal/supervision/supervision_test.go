@@ -227,7 +227,7 @@ func TestStart_RefusesAPassedExpiryAndNoExpiry(t *testing.T) {
 	work := filepath.Join(n.dir, "work-m")
 	require.NoError(t, os.MkdirAll(work, 0o700))
 
-	err := n.a.Start(ctx, "m", vmmProcess(work), fencing.BootTime(boottime(t)-int64(time.Second)))
+	err := n.a.Start(ctx, "m", vmmProcess(work), vmmUser, fencing.BootTime(boottime(t)-int64(time.Second)))
 	require.Error(t, err, "a passed expiry")
 	assert.Contains(t, err.Error(), "passed")
 	_, statErr := os.Stat(filepath.Join(work, "vmm.pid"))
@@ -264,9 +264,7 @@ func TestStart_RefusesRootAsTheMachinesUser(t *testing.T) {
 	for name, user := range map[string][2]uint32{"uid 0": {0, 65534}, "gid 0": {65534, 0}, "both 0": {0, 0}} {
 		work := filepath.Join(n.dir, "work-"+strings.ReplaceAll(name, " ", ""))
 		require.NoError(t, os.MkdirAll(work, 0o700))
-		p := vmmProcess(work)
-		p.UID, p.GID = user[0], user[1]
-		err := n.a.Start(ctx, "m", p, fencing.BootTime(boottime(t)+int64(time.Hour)))
+		err := n.a.Start(ctx, "m", vmmProcess(work), machine.User{UID: user[0], GID: user[1]}, fencing.BootTime(boottime(t)+int64(time.Hour)))
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "root", name)
 		_, statErr := os.Stat(filepath.Join(work, "vmm.pid"))
@@ -276,30 +274,21 @@ func TestStart_RefusesRootAsTheMachinesUser(t *testing.T) {
 	_, _ = n.run(t, "m", time.Hour)
 }
 
-// mvmd holds a pidfd to the VMM as well as to the supervisor: Ended is false
-// while both run, a new adapter finds the same, and Terminate returns only once
-// the VMM has gone too.
-func TestVMMPidfd_BothAreHeldAndEndedTogether(t *testing.T) {
+// mvmd holds a pidfd to the VMM as well as to the supervisor: a new adapter
+// that attaches finds both, and its Terminate returns only once the VMM has
+// gone too.
+func TestVMMPidfd_TerminateWaitsForTheVMM(t *testing.T) {
 	n := newNode(t)
 	_, ns := n.run(t, "m", time.Hour)
-	vmm := processes("__vmm__", filepath.Join(n.dir, "work-m"))
-	require.Len(t, vmm, 1)
+	work := filepath.Join(n.dir, "work-m")
+	require.Len(t, processes("__vmm__", work), 1, "control: the VMM runs before Terminate")
+	require.NotEmpty(t, members(ns), "control: the namespace is occupied before Terminate")
 
-	end, err := n.a.Ended(ctx, "m")
-	require.NoError(t, err)
-	assert.False(t, end, "control: both are running")
 	again, err := supervision.New(supervision.Config{Binary: supervisorBin, Dir: n.dir})
 	require.NoError(t, err)
-	end, err = again.Ended(ctx, "m")
-	require.NoError(t, err)
-	assert.False(t, end, "a new adapter finds both running")
-
 	require.NoError(t, again.Terminate(ctx, "m"))
-	assert.Empty(t, processes("__vmm__", filepath.Join(n.dir, "work-m")), "the VMM has ended when Terminate returns")
+	assert.Empty(t, processes("__vmm__", work), "the VMM has ended when Terminate returns")
 	assert.Empty(t, members(ns))
-	end, err = again.Ended(ctx, "m")
-	require.NoError(t, err)
-	assert.True(t, end)
 }
 
 func TestTerminate_ReturnsOnceTheNamespaceIsEmpty(t *testing.T) {
@@ -316,7 +305,7 @@ func TestTerminate_ReturnsOnceTheNamespaceIsEmpty(t *testing.T) {
 func TestStart_RefusesAnIdentifierThatIsNotADirectoryName(t *testing.T) {
 	n := newNode(t)
 	for _, id := range []machine.MachineID{"", ".", "..", "a/b", "../x"} {
-		err := n.a.Start(ctx, id, machine.ProcessDescription{Executable: "/bin/true"}, fencing.BootTime(boottime(t)+int64(time.Hour)))
+		err := n.a.Start(ctx, id, machine.ProcessDescription{Executable: "/bin/true"}, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour)))
 		assert.Error(t, err, "%q", id)
 	}
 	// Control: an ordinary identifier is accepted.
@@ -345,7 +334,7 @@ func TestCgroup_TheSupervisorStartsOutsideMvmdsCgroup(t *testing.T) {
 	require.NoError(t, err)
 	work := filepath.Join(shortDir(t), "w")
 	require.NoError(t, os.MkdirAll(work, 0o700))
-	require.NoError(t, a.Start(ctx, "placed", vmmProcess(work), fencing.BootTime(boottime(t)+int64(time.Hour))))
+	require.NoError(t, a.Start(ctx, "placed", vmmProcess(work), vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour))))
 	t.Cleanup(func() { _ = a.Terminate(ctx, "placed") })
 	got := cgroupOf(supervisorOf(t, "placed"))
 	assert.Contains(t, got, "mvmd-test-")

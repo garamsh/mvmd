@@ -136,23 +136,22 @@ func TestStart_RunsAsTheMachinesUser(t *testing.T) {
 	for _, id := range []machine.MachineID{"a", "b"} {
 		m, err := e.svc.Inspect(ctx, id)
 		require.NoError(t, err)
-		process, running := e.sup.Running(id)
+		user, running := e.sup.User(id)
 		require.True(t, running)
-		assert.Equal(t, m.User.UID, process.UID, id)
-		assert.Equal(t, m.User.GID, process.GID, id)
-		assert.NotZero(t, process.UID, "never root")
+		assert.Equal(t, m.User, user, id)
+		assert.NotZero(t, user.UID, "never root")
+		assert.NotZero(t, user.GID, "never root")
 		users[m.User] = true
 	}
 	assert.Len(t, users, 2, "each Machine has its own user")
 
-	// A restart describes the process again and fills the same user.
+	// A restart passes the same user again.
 	m, err := e.svc.Inspect(ctx, "a")
 	require.NoError(t, err)
 	require.NoError(t, e.svc.Stop(ctx, "a", time.Second))
 	require.NoError(t, e.svc.Start(ctx, "a"))
-	process, _ := e.sup.Running("a")
-	assert.Equal(t, m.User.UID, process.UID)
-	assert.Equal(t, m.User.GID, process.GID)
+	user, _ := e.sup.User("a")
+	assert.Equal(t, m.User, user)
 }
 
 // Row "Start", column Repeat.

@@ -107,14 +107,14 @@ func permitted(machines Machines, st Status) error {
 // Start starts the Machine's supervisor with the current expiry. The check
 // and the hand-over are one step under the ordering lock, so a renewal never
 // falls between them.
-func (s *service) Start(ctx context.Context, id machine.MachineID, process machine.ProcessDescription) error {
+func (s *service) Start(ctx context.Context, id machine.MachineID, process machine.ProcessDescription, user machine.User) error {
 	s.order.Lock()
 	defer s.order.Unlock()
 	rec, stopped, machines := s.current()
 	if err := permitted(machines, status(rec, stopped, s.clock.Now())); err != nil {
 		return err
 	}
-	return s.sup.Start(ctx, id, process, rec.Expiry)
+	return s.sup.Start(ctx, id, process, user, rec.Expiry)
 }
 
 // Live lists the Machines whose supervisors exist: the same listing the

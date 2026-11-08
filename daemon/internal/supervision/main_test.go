@@ -130,7 +130,7 @@ func helper(args []string) {
 		}
 		work := filepath.Join(dir, "work-"+id)
 		os.MkdirAll(work, 0o700)
-		if err := a.Start(context.Background(), machine.MachineID(id), vmmProcess(work), fencing.BootTime(n)); err != nil {
+		if err := a.Start(context.Background(), machine.MachineID(id), vmmProcess(work), vmmUser, fencing.BootTime(n)); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -139,8 +139,11 @@ func helper(args []string) {
 	}
 }
 
+// vmmUser is the unprivileged user the tests run the VMM as.
+var vmmUser = machine.User{UID: 65534, GID: 65534}
+
 func vmmProcess(work string) machine.ProcessDescription {
-	return machine.ProcessDescription{Executable: os.Args[0], Args: []string{"__vmm__", work}, UID: 65534, GID: 65534}
+	return machine.ProcessDescription{Executable: os.Args[0], Args: []string{"__vmm__", work}}
 }
 
 // describeHost prints the kernel and the CPU the measured times come from.
@@ -313,7 +316,7 @@ func (n *node) run(t testing.TB, id string, after time.Duration) (expiry int64, 
 		t.Fatal(err)
 	}
 	expiry = boottime(t) + int64(after)
-	if err := n.a.Start(context.Background(), machine.MachineID(id), vmmProcess(work), fencing.BootTime(expiry)); err != nil {
+	if err := n.a.Start(context.Background(), machine.MachineID(id), vmmProcess(work), vmmUser, fencing.BootTime(expiry)); err != nil {
 		t.Fatalf("start the supervisor of %q: %v", id, err)
 	}
 	untilReady(t, work)

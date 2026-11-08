@@ -43,7 +43,7 @@ func populate(t *testing.T, n *node) {
 // daemon's restart.
 func superviseA(a *app.App) {
 	provide(a)
-	err := a.Substitutes.Supervisors.Start(context.Background(), "a", machine.ProcessDescription{}, 0)
+	err := a.Substitutes.Supervisors.Start(context.Background(), "a", machine.ProcessDescription{}, machine.User{UID: 1000, GID: 1000}, 0)
 	if err != nil {
 		panic(err)
 	}

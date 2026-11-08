@@ -24,6 +24,7 @@ type Supervisors struct {
 type held struct {
 	expiry  fencing.BootTime
 	process machine.ProcessDescription
+	user    machine.User
 }
 
 // NewSupervisors returns Supervisors with none live, checked against the
@@ -40,13 +41,13 @@ func NewSupervisors(store *DeadlineStore) *Supervisors {
 }
 
 // Start implements fencing.Supervisors.
-func (s *Supervisors) Start(_ context.Context, id machine.MachineID, process machine.ProcessDescription, expiry fencing.BootTime) error {
+func (s *Supervisors) Start(_ context.Context, id machine.MachineID, process machine.ProcessDescription, user machine.User, expiry fencing.BootTime) error {
 	if err := s.Enter("start"); err != nil {
 		return err
 	}
 	s.check("start of "+string(id), expiry)
 	s.mu.Lock()
-	s.live[id] = held{expiry: expiry, process: process}
+	s.live[id] = held{expiry: expiry, process: process, user: user}
 	s.mu.Unlock()
 	return nil
 }
@@ -140,4 +141,12 @@ func (s *Supervisors) check(what string, expiry fencing.BootTime) {
 	case expiry > rec.Expiry:
 		s.store.violate(fmt.Sprintf("%s: %v is later than the recorded %v", what, expiry, rec.Expiry))
 	}
+}
+
+// User returns the user the Machine's supervisor was started with.
+func (s *Supervisors) User(id machine.MachineID) (machine.User, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h, ok := s.live[id]
+	return h.user, ok
 }

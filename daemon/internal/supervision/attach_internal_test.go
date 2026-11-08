@@ -29,3 +29,24 @@ func TestHostPID_MapsAChildOfTheSupervisorToItsHostID(t *testing.T) {
 	_, ok = hostPID(2147483647, 1)
 	assert.False(t, ok, "the child of another parent is not found")
 }
+
+// stillTheChild is the check that turns a host id into a pidfd safely: after
+// the open, the id must still name the supervisor's child with the same inner
+// number, or the number was reused.
+func TestStillTheChild_RechecksTheProcessBehindTheID(t *testing.T) {
+	child := exec.Command("/bin/sleep", "100")
+	child.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWPID}
+	require.NoError(t, child.Start())
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	pid := child.Process.Pid
+
+	assert.True(t, stillTheChild(pid, os.Getpid(), 1))
+
+	// Controls: another parent, another inner number, and a process that is
+	// gone each fail the check.
+	assert.False(t, stillTheChild(pid, 2147483647, 1), "another parent")
+	assert.False(t, stillTheChild(pid, os.Getpid(), 2), "another inner number")
+	_ = child.Process.Kill()
+	_ = child.Wait()
+	assert.False(t, stillTheChild(pid, os.Getpid(), 1), "the process is gone")
+}

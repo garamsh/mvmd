@@ -13,21 +13,26 @@ type Supervision struct {
 	Failures
 
 	mu      sync.Mutex
-	running map[machine.MachineID]machine.ProcessDescription
+	running map[machine.MachineID]started
+}
+
+type started struct {
+	process machine.ProcessDescription
+	user    machine.User
 }
 
 // NewSupervision returns a Supervision with no process running.
 func NewSupervision() *Supervision {
-	return &Supervision{running: make(map[machine.MachineID]machine.ProcessDescription)}
+	return &Supervision{running: make(map[machine.MachineID]started)}
 }
 
 // Start implements machine.Supervision.
-func (s *Supervision) Start(_ context.Context, id machine.MachineID, process machine.ProcessDescription) error {
+func (s *Supervision) Start(_ context.Context, id machine.MachineID, process machine.ProcessDescription, user machine.User) error {
 	if err := s.Enter("start"); err != nil {
 		return err
 	}
 	s.mu.Lock()
-	s.running[id] = process
+	s.running[id] = started{process, user}
 	s.mu.Unlock()
 	return nil
 }
@@ -62,6 +67,14 @@ func (s *Supervision) Live(context.Context) ([]machine.MachineID, error) {
 func (s *Supervision) Running(id machine.MachineID) (machine.ProcessDescription, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.running[id]
-	return p, ok
+	r, ok := s.running[id]
+	return r.process, ok
+}
+
+// User returns the user the Machine's supervisor was started with.
+func (s *Supervision) User(id machine.MachineID) (machine.User, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.running[id]
+	return r.user, ok
 }
