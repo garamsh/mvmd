@@ -2,7 +2,7 @@
 
 How a Rust Cargo workspace is laid out, where its mechanisms are declared, and the commands behind the entry-point names.
 
-Checked against rustc, cargo and clippy 1.99.1 (58cf8f9c35, 2026-10-13), rustfmt 1.10.0, cargo-deny 0.20.2 and thiserror 2.0.21, on x86_64 Linux. A claim below that names no version holds for these. A claim marked "measured" was run against that toolchain in a scratch workspace; one without the mark is the documented behaviour of the tool.
+Checked against rustc, cargo and clippy 1.99.1 (58cf8f9c35b355199727627d07ae34a4e2846d67, 2026-10-13), rustfmt 1.10.0, cargo-deny 0.20.2 and thiserror 2.0.21, on x86_64 Linux. A claim below that names no version holds for these. A claim marked "measured" was run against that toolchain in a scratch workspace; one without the mark is the documented behaviour of the tool.
 
 ## Contents
 - Workspace and crate layout
@@ -38,7 +38,7 @@ This section states the Rust spelling only; casing is the compiler's own `non_sn
 
 - `rust-toolchain.toml` at the workspace root pins one exact release (`channel = "1.99.1"` form, never `stable`), with `components = ["clippy", "rustfmt"]` and the musl `targets`. `rustup` picks it up for every `cargo` and `rustc` call under the directory (measured: `rustc --version` reports 1.99.1 inside, 1.98.0 outside), and installs it on first use. A channel name would move the compiler on a day nobody changed the code.
 - Each manifest's `rust-version` equals the pin, via `[workspace.package]`.
-- Moving the pin is an ordinary change. It re-reads the release's documentation, updates this file's first paragraph, and re-measures the claims marked "measured".
+- **Dependabot moves the pin**, through its `rust-toolchain` ecosystem, which its documentation lists as updating `channel = "1.xx.yy"` in `rust-toolchain.toml`. Its pull request is not complete until it also moves each `rust-version`, re-reads the release's documentation, updates this file's first paragraph, and re-measures the claims marked "measured". The configuration arrives with the change that creates the workspace.
 - No `rustfmt.toml`: the defaults are the format.
 
 ## Lints
@@ -72,7 +72,6 @@ This section states the Rust spelling only; casing is the compiler's own `non_sn
 ## Comments
 
 - A crate or module is described by an inner doc comment (`//!`) on its first line and every `pub` item of a library crate carries an outer one (`///`).
-- The one marker is `// TODO(name): …`. `todo!()` is a panic and is denied (§Error handling).
 - A `// SAFETY:` comment states why the block upholds the invariants of what it calls (§Unsafe code).
 
 ## Dependencies
@@ -82,15 +81,15 @@ This section states the Rust spelling only; casing is the compiler's own `non_sn
 - A manifest requirement is the version `cargo add` writes, read from the registry at the time, never recalled. The lock, not the requirement, decides what builds.
 - A git dependency is pinned by `rev` to a full commit SHA, never `branch` or `tag`. `deny.toml` sets `[sources] unknown-registry = "deny"` and `unknown-git = "deny"`, so a git source outside `allow-git` fails (measured: `detected 'git' source not explicitly allowed`).
 - Advisories are checked by `cargo deny check advisories` against the RustSec database, with `[advisories] yanked = "deny"`. The check fetches the database, so it needs the network.
-- The lock moves by `cargo update` in its own change, which carries the audit output.
+- **Dependabot moves the dependencies**, through its `cargo` ecosystem, which updates `Cargo.toml` requirements and `Cargo.lock`. Its pull request carries the Audit entry point's output. The configuration arrives with the change that creates the workspace.
 
 ## Testing
 
 This section states the Rust placement and tooling only.
 
 - **Runner:** `cargo test`, which also runs the doc examples of library targets. Assertions are the standard `assert!`, `assert_eq!` and `assert_ne!`.
-- **Unit tests** sit in a `#[cfg(test)] mod tests` at the foot of the file they test, and reach its private items. A test that can be written against the public API goes in `tests/` instead; the in-file module is for a seam that is private.
-- **Integration tests** are files in `tests/` at the crate root, each built as its own binary and linking the library target. A subdirectory without a root file builds no test and holds what several files share.
+- **Unit tests** sit in a `#[cfg(test)] mod tests` at the foot of the file they test, and reach its private items. Whatever a unit test reaches, it stays in that module.
+- **Integration tests**, and only they, are files in `tests/` at the crate root, each built as its own binary and linking the library target. A subdirectory without a root file builds no test and holds what several files share.
 - **E2E tests** are a test-only member at `e2e/` (`publish = false`, no library), listed in `members`. They run the binary the Build entry point produced for the musl target, and none is a unit or integration test of a crate. An integration test of a package that has a binary target can also reach that binary through `env!("CARGO_BIN_EXE_<name>")` (measured), which runs the host build and not the musl one.
 - **Substitutes:** a dependency a test replaces is a trait the code under test receives, and the substitute is a hand-written type implementing it. No mock-generation crate is used.
 - A test returns `Result<(), E>` and uses `?` where its setup can fail; `unwrap` and `expect` stay allowed there (§Lints).
