@@ -14,8 +14,9 @@ service GuestService {
   // with the same description succeeds and changes nothing; a repeat after
   // a failure fails the same way.
   rpc Boot(BootRequest) returns (BootResponse);
-  // Replace the Machine's network configuration, as after a restore. The
-  // agent applies it whole: what it applied before is removed.
+  // Replace the network configuration of a running Machine. The agent
+  // applies it whole: what it applied before is removed. After a restore the
+  // client sends CatchUp, which applies the network itself, and not this.
   rpc UpdateNetwork(UpdateNetworkRequest) returns (UpdateNetworkResponse);
   // Catch a guest up after a snapshot restore: mix the entropy into the
   // kernel's pool and reseed it, set the wall clock to the host's time, then
