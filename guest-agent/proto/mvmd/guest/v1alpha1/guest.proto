@@ -1,0 +1,226 @@
+// The guest channel contract, v1alpha1. Its meaning is fixed by
+// docs/architecture/guest.md and docs/architecture/runtime-api.md
+// (Guest access); this file is the encoding.
+syntax = "proto3";
+
+package mvmd.guest.v1alpha1;
+
+// GuestService is the guest channel. The Guest Agent serves it over vsock.
+service GuestService {
+  // Start a command under the client's exec ID. A repeated start with the
+  // same ID returns the same record and never runs the command twice.
+  rpc Exec(ExecRequest) returns (ExecResponse);
+  // Stream the output after an offset. The stream follows a running
+  // command and ends with the final record.
+  rpc ReadExecOutput(ReadExecOutputRequest)
+      returns (stream ReadExecOutputResponse);
+  // Deliver a signal to a running command.
+  rpc Signal(SignalRequest) returns (SignalResponse);
+
+  // Read a file as a stream of chunks.
+  rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
+  // Write a file atomically: whole old or whole new content. The stream is
+  // a start, chunks, then an end that carries the content digest; a stream
+  // that breaks before its end leaves the old content.
+  rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+  // Patch a file, guarded by a base and an expected digest.
+  rpc PatchFile(PatchFileRequest) returns (PatchFileResponse);
+
+  // List a directory. The entries come sorted by path across the messages
+  // of the stream, so no listing is bounded by one message.
+  rpc ListFiles(ListFilesRequest) returns (stream ListFilesResponse);
+  // Search a directory tree by glob. The matches come sorted by path across
+  // the messages of the stream.
+  rpc SearchFiles(SearchFilesRequest) returns (stream SearchFilesResponse);
+
+  // Whether the agent serves.
+  rpc Health(HealthRequest) returns (HealthResponse);
+  // The agent version and the contract versions it serves.
+  rpc Info(InfoRequest) returns (InfoResponse);
+}
+
+enum ExecStatus {
+  EXEC_STATUS_UNSPECIFIED = 0;
+  // The command did not start; the record's reason says why.
+  EXEC_STATUS_NOT_STARTED = 1;
+  // The command is running.
+  EXEC_STATUS_STARTED = 2;
+  // The command ended; the record carries its exit code or terminating
+  // signal.
+  EXEC_STATUS_EXITED = 3;
+  // The agent ended while the command ran.
+  EXEC_STATUS_CUT_SHORT = 4;
+}
+
+message ExecRecord {
+  string exec_id = 1;
+  ExecStatus status = 2;
+  // Why the command did not start or was cut short.
+  string reason = 3;
+  // The exit code; meaningful when status is EXITED and term_signal is zero.
+  int32 exit_code = 4;
+  // The signal that ended the command; zero when it exited by itself.
+  int32 term_signal = 5;
+  // The agent keeps only the newest bytes of a command's output. This is the
+  // offset of the earliest byte still held; a read after an earlier offset
+  // fails with OUT_OF_RANGE and names it.
+  uint64 earliest_offset = 6;
+}
+
+message ExecRequest {
+  // Chosen by the client.
+  string exec_id = 1;
+  // The program and its arguments; the first element is the program.
+  repeated string argv = 2;
+  // Environment variables. The command's environment is exactly these.
+  map<string, string> env = 3;
+  // Working directory; empty keeps the agent's.
+  string working_dir = 4;
+}
+
+message ExecResponse {
+  ExecRecord record = 1;
+}
+
+message ReadExecOutputRequest {
+  string exec_id = 1;
+  // Resume after this byte offset of the output sequence; zero starts at
+  // the beginning.
+  uint64 after_offset = 2;
+}
+
+enum OutputStream {
+  OUTPUT_STREAM_UNSPECIFIED = 0;
+  OUTPUT_STREAM_STDOUT = 1;
+  OUTPUT_STREAM_STDERR = 2;
+}
+
+// A run of bytes of one stream. Stdout and stderr share one sequence in
+// the order the agent received them; offset is the position of the chunk's
+// first byte in it.
+message OutputChunk {
+  OutputStream stream = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message ReadExecOutputResponse {
+  oneof part {
+    OutputChunk chunk = 1;
+    // Last message of the stream.
+    ExecRecord record = 2;
+  }
+}
+
+message SignalRequest {
+  string exec_id = 1;
+  // A signal number, as on Linux.
+  int32 signal = 2;
+}
+
+message SignalResponse {}
+
+message ReadFileRequest {
+  // An absolute path.
+  string path = 1;
+}
+
+message ReadFileResponse {
+  bytes chunk = 1;
+}
+
+message WriteFileStart {
+  // An absolute path.
+  string path = 1;
+}
+
+message WriteFileEnd {
+  // The digest of the whole content sent, as "sha256:" and 64 lowercase
+  // hexadecimal digits.
+  string digest = 1;
+}
+
+message WriteFileRequest {
+  oneof part {
+    WriteFileStart start = 1;
+    bytes chunk = 2;
+    WriteFileEnd end = 3;
+  }
+}
+
+message WriteFileResponse {}
+
+message PatchFileRequest {
+  // An absolute path.
+  string path = 1;
+  // Digests as "sha256:" and 64 lowercase hexadecimal digits.
+  string base_digest = 2;
+  string expected_digest = 3;
+  // A unified diff.
+  bytes patch = 4;
+}
+
+enum PatchOutcome {
+  PATCH_OUTCOME_UNSPECIFIED = 0;
+  // The file was at the base digest and now has the patch applied.
+  PATCH_OUTCOME_APPLIED = 1;
+  // The file was already at the expected digest; nothing changed.
+  PATCH_OUTCOME_ALREADY_APPLIED = 2;
+}
+
+message PatchFileResponse {
+  PatchOutcome outcome = 1;
+}
+
+message ListFilesRequest {
+  // An absolute directory path.
+  string path = 1;
+}
+
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  ENTRY_KIND_FILE = 1;
+  ENTRY_KIND_DIRECTORY = 2;
+  ENTRY_KIND_SYMLINK = 3;
+  ENTRY_KIND_OTHER = 4;
+}
+
+message FileEntry {
+  // The absolute path of the entry.
+  string path = 1;
+  EntryKind kind = 2;
+  // Size in bytes.
+  uint64 size = 3;
+}
+
+message ListFilesResponse {
+  // A run of the directory's entries.
+  repeated FileEntry entries = 1;
+}
+
+message SearchFilesRequest {
+  // An absolute directory path; the search covers its tree.
+  string path = 1;
+  // A glob matched against an entry's path relative to the directory. "*"
+  // and "?" do not cross "/", "**" does, and "{a,b}" and "[ab]" are
+  // supported.
+  string pattern = 2;
+}
+
+message SearchFilesResponse {
+  // A run of the matches.
+  repeated FileEntry matches = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {}
+
+message InfoRequest {}
+
+message InfoResponse {
+  // The agent's version.
+  string agent_version = 1;
+  // The contract versions the agent serves, for example "v1alpha1".
+  repeated string api_versions = 2;
+}

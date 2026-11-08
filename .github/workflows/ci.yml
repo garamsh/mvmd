@@ -23,5 +23,22 @@ jobs:
             tooling/protogen/go.sum
       - name: Record the toolchain this run resolved
         run: go version
+      # Installs what guest-agent/rust-toolchain.toml pins and prints the versions it
+      # resolved. Caching is off, so a run reads only the pinned inputs; build-warnings is
+      # empty so CI sets no cargo flag that a local run lacks.
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          rust-src-dir: guest-agent
+          cache: false
+          build-warnings: ""
+      # Pins cargo-deny at the version stack-rust.md names; the action checks the download
+      # against the checksum it records for that version.
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-deny@0.20.2
       - name: Run the whole check set
         run: make ci
+      # Not part of make ci: it fetches the advisory database. Its output is on every run, so a
+      # Dependabot cargo pull request carries it.
+      - name: Audit the Rust dependencies
+        run: make audit

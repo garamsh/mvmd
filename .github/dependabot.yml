@@ -16,3 +16,11 @@ updates:
         group-by: dependency-name
         patterns:
           - google.golang.org/protobuf
+  - package-ecosystem: cargo
+    directory: /guest-agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: rust-toolchain
+    directory: /guest-agent
+    schedule:
+      interval: weekly
