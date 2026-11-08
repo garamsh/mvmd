@@ -49,6 +49,37 @@ func (s *service) Restore(ctx context.Context) error {
 			}
 		}
 	}
+	// Rebuild usedUID from every restored record so that a restarted daemon
+	// does not hand out a UID still in use (ADR 0015).
+	for i := range records {
+		rec := records[i]
+		if rec.Unreadable != "" || rec.Machine == nil {
+			continue
+		}
+		uid := rec.Machine.User.UID
+		if uid == 0 {
+			continue
+		}
+		// Reject a UID outside the configured range.
+		if uid < s.uidRange.First || uid >= s.uidRange.First+s.uidRange.Count {
+			s.mu.Unlock()
+			return fail(ErrPreconditionFailed,
+				"restored record %q carries UID %d outside the configured range [%d, %d)",
+				rec.ID, uid, s.uidRange.First, s.uidRange.First+s.uidRange.Count)
+		}
+		// Reject a collision: two records with the same UID.
+		if _, ok := s.usedUID[rec.ID]; ok {
+			// Not possible on a fresh load, but guard anyway.
+		}
+		if _, collides := s.usedUIDByUID[uid]; collides {
+			s.mu.Unlock()
+			return fail(ErrPreconditionFailed,
+				"restored records %q and %q share UID %d",
+				s.usedUIDByUID[uid], rec.ID, uid)
+		}
+		s.usedUID[rec.ID] = uid
+		s.usedUIDByUID[uid] = rec.ID
+	}
 	s.mu.Unlock()
 
 	live := map[MachineID]bool{}

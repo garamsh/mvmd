@@ -61,26 +61,28 @@ type service struct {
 	records map[MachineID]*Record
 	locks   map[MachineID]*machineLock
 	// held maps each disk to its one holder (ADR 0009).
-	held    map[DiskID]MachineID
-	usedUID map[MachineID]uint32 // allocated UID per Machine
+	held         map[DiskID]MachineID
+	usedUID      map[MachineID]uint32 // allocated UID per Machine
+	usedUIDByUID map[uint32]MachineID // reverse index for O(1) collision check
 }
 
 // NewService returns the lifecycle over the given ports. uidRange names the
 // range of UIDs the node reserves for its Machines (ADR 0015).
 func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange) Service {
 	return &service{
-		driver:     driver,
-		supervisor: supervisor,
-		network:    network,
-		disks:      disks,
-		images:     images,
-		store:      store,
-		permitter:  permitter,
-		uidRange:   uidRange,
-		records:    make(map[MachineID]*Record),
-		locks:      make(map[MachineID]*machineLock),
-		held:       make(map[DiskID]MachineID),
-		usedUID:    make(map[MachineID]uint32),
+		driver:       driver,
+		supervisor:   supervisor,
+		network:      network,
+		disks:        disks,
+		images:       images,
+		store:        store,
+		permitter:    permitter,
+		uidRange:     uidRange,
+		records:      make(map[MachineID]*Record),
+		locks:        make(map[MachineID]*machineLock),
+		held:         make(map[DiskID]MachineID),
+		usedUID:      make(map[MachineID]uint32),
+		usedUIDByUID: make(map[uint32]MachineID),
 	}
 }
 
@@ -184,16 +186,11 @@ func (s *service) release(disks ...DiskID) {
 // allocateUID allocates the lowest free UID in the range for the given
 // Machine. It must be called under mu.
 func (s *service) allocateUID(id MachineID) (uint32, error) {
-	for u := s.uidRange.First; u < s.uidRange.First+s.uidRange.Count; u++ {
-		claimed := false
-		for _, m := range s.usedUID {
-			if m == u {
-				claimed = true
-				break
-			}
-		}
-		if !claimed {
+	for i := uint32(0); i < s.uidRange.Count; i++ {
+		u := s.uidRange.First + i
+		if _, occupied := s.usedUIDByUID[u]; !occupied {
 			s.usedUID[id] = u
+			s.usedUIDByUID[u] = id
 			return u, nil
 		}
 	}
@@ -203,7 +200,11 @@ func (s *service) allocateUID(id MachineID) (uint32, error) {
 // releaseUID returns the UID of the given Machine to the range.
 // The caller must hold mu.
 func (s *service) releaseUID(id MachineID) {
-	delete(s.usedUID, id)
+	uid, ok := s.usedUID[id]
+	if ok {
+		delete(s.usedUID, id)
+		delete(s.usedUIDByUID, uid)
+	}
 }
 
 func (s *service) Inspect(ctx context.Context, id MachineID) (Machine, error) {
