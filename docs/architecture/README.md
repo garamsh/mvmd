@@ -34,5 +34,6 @@ Decisions:
 - [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md) — mvmd is a containerd-like microVM runtime that does not know gaon
 - [ADR 0002](./adr/0002-mvmd-is-structured-as-a-hexagonal-application.md) — mvmd is structured as a hexagonal application
 - [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md) — a per-Machine supervisor enforces the fencing expiry
+- [ADR 0004](./adr/0004-the-runtime-api-is-grpc-on-a-unix-socket-with-committed-generated-code.md) — the runtime API is gRPC on a Unix socket, with committed generated code
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

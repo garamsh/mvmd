@@ -9,6 +9,7 @@ Checked against garamsh/discussions#2 as read on 2026-11-08 (decision-change rep
 - **The API models Machines.** It does not model Pods or containers and is not CRI (#2 §1 conclusion; [runtime.md](./runtime.md) §Runtime API scope). A Machine is one microVM on this node.
 - **It names nothing of its client.** No type, resource or identifier of the client appears in it. The client is whatever calls it; mvmd does not know what that is.
 - **The version is `v1alpha1`.**
+- **Encoding and transport.** A gRPC service defined in Protocol Buffers, served on a Unix domain socket on the node; the socket's filesystem permissions are the authentication. The protobuf package and the Go package path carry the version, and the generated code is committed ([ADR 0004](./adr/0004-the-runtime-api-is-grpc-on-a-unix-socket-with-committed-generated-code.md)).
 - **Rule for changing the version.** A change that adds an operation, an optional field or a capability keeps the version. A change that removes or renames anything, changes what an operation means, or changes its idempotency rule or its state after failure is a new version identifier (`v1alpha2`, then `v1beta1`, and so on). The reason is that the client builds against the version number: it must be able to tell that nothing it relies on moved. The rule has no exception for the alpha stage, so the client can build against `v1alpha1` as soon as this document is merged.
 - **Versions in service.** mvmd reports the versions it serves in the runtime info call below, and a call naming a version it does not serve is refused as unsupported. How many versions are served at once is an open question.
 
@@ -131,9 +132,9 @@ The deadline exists so a Machine cannot run on two nodes when its client is gone
 
 ## Open questions
 
-- **Wire encoding and transport.** The operations and their meaning are fixed here; how they are encoded and carried is not. #2 shapes the Driver's messages for gRPC and does not say the same of this API. The first code pull request that creates `lib/runtimeapi/` settles it.
+- **A remote listener.** The API is served on a Unix domain socket on the node and nowhere else ([ADR 0004](./adr/0004-the-runtime-api-is-grpc-on-a-unix-socket-with-committed-generated-code.md)). Whether a network listener exists, and how it would authenticate, is undecided.
 - **Running without a deadline.** Start and restore are refused unarmed; whether a standalone or development mode may opt out is undecided.
-- **Authentication and authorisation of callers.** #2 states none for this API.
+- **Authorisation of callers beyond the socket.** Authentication is the socket's filesystem permissions (ADR 0004); #2 states no finer rule.
 - **How a disk comes to exist on the node** (creation, class, durability, movement): depends on #2 §6 item 9 ([runtime.md](./runtime.md) §Open questions). Attach assumes the node already holds it.
 - **How the network policy is described in Create Machine**: depends on the enforcement technology, #2 §6 item 10.
 - **Removal and retention of snapshots and images**, including garbage collection of the node cache.
