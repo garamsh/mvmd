@@ -18,7 +18,7 @@ func unsupported(call, issue string) error {
 }
 
 func (*Server) Console(grpc.BidiStreamingServer[v1alpha1.ConsoleRequest, v1alpha1.ConsoleResponse]) error {
-	return unsupported("Console", "garamsh/mvmd#43")
+	return unsupported("Console", "garamsh/mvmd#60")
 }
 
 func (*Server) PullImage(context.Context, *v1alpha1.PullImageRequest) (*v1alpha1.PullImageResponse, error) {
