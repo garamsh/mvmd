@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"net/netip"
 	"regexp"
 	"strings"
 )
@@ -67,4 +68,61 @@ func (r *ExecRequest) Validate() error {
 // Validate refuses an image reference that is not a sha256 digest.
 func (r *PullImageRequest) Validate() error {
 	return r.GetImage().Validate()
+}
+
+// Validate refuses a NetworkRule whose fields violate the NetworkPolicy
+// contract: an unparseable prefix; ICMP with an IPv6 prefix or ICMPv6 with
+// an IPv4 prefix; a port outside 1 to 65535; a range with first above last;
+// ports on an ICMP, ICMPv6, or any-protocol rule (runtime-api.md).
+func (r *NetworkRule) Validate() error {
+	prefix, err := netip.ParsePrefix(r.GetPrefix())
+	if err != nil {
+		return fmt.Errorf("network rule prefix %q: %w", r.GetPrefix(), err)
+	}
+
+	switch r.GetProtocol() {
+	case Protocol_PROTOCOL_ICMP:
+		if prefix.Addr().Is6() {
+			return fmt.Errorf("ICMP rule must not use an IPv6 prefix")
+		}
+	case Protocol_PROTOCOL_ICMPV6:
+		if !prefix.Addr().Is6() {
+			return fmt.Errorf("ICMPv6 rule must not use an IPv4 prefix")
+		}
+	}
+
+	if hasPorts := r.GetProtocol() == Protocol_PROTOCOL_TCP || r.GetProtocol() == Protocol_PROTOCOL_UDP; !hasPorts {
+		if len(r.GetPorts()) > 0 {
+			return fmt.Errorf("ICMP, ICMPv6, and any-protocol rules must not set ports")
+		}
+		return nil
+	}
+
+	for _, p := range r.GetPorts() {
+		if p.GetFirst() < 1 || p.GetLast() < 1 {
+			return fmt.Errorf("port range first must be >= 1, got %d", p.GetFirst())
+		}
+		if p.GetFirst() > 65535 || p.GetLast() > 65535 {
+			return fmt.Errorf("port range last must be <= 65535, got %d", p.GetLast())
+		}
+		if p.GetFirst() > p.GetLast() {
+			return fmt.Errorf("port range first (%d) must not be above last (%d)", p.GetFirst(), p.GetLast())
+		}
+	}
+	return nil
+}
+
+// Validate refuses a NetworkPolicy whose rules are invalid (runtime-api.md).
+func (p *NetworkPolicy) Validate() error {
+	for i, rule := range p.GetEgress() {
+		if err := rule.Validate(); err != nil {
+			return fmt.Errorf("egress rule %d: %w", i, err)
+		}
+	}
+	for i, rule := range p.GetIngress() {
+		if err := rule.Validate(); err != nil {
+			return fmt.Errorf("ingress rule %d: %w", i, err)
+		}
+	}
+	return nil
 }
