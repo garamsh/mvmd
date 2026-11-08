@@ -30,6 +30,19 @@ type DiskOwner struct {
 	GID uint32
 }
 
+// UIDRange names a contiguous range of UIDs (and GIDs) the node reserves
+// for its Machines (ADR 0015).
+type UIDRange struct {
+	First uint32
+	Count uint32
+}
+
+// User is the UID and GID of a Machine's VMM user, always equal (ADR 0015).
+type User struct {
+	UID uint32
+	GID uint32
+}
+
 // State is where a Machine is in its lifecycle.
 type State int
 
@@ -95,6 +108,8 @@ type Machine struct {
 	// RootDiskUUID is the ext4 filesystem UUID of the root disk, sent to
 	// the Guest Agent over the channel (ADR 0010).
 	RootDiskUUID string
+	// User is the UID and GID allocated for this Machine's VMM (ADR 0015).
+	User User
 	// Network is the identity mvmd assigned for the Machine's life.
 	Network NetworkIdentity
 	// FailureReason is the reason for the last failure, empty if none.

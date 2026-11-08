@@ -53,14 +53,26 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))
 	}
-	root, uuid, err := s.disks.CreateRoot(ctx, DiskOwner{ID: id, UID: 0, GID: 0}, spec.RootDiskBytes)
+	s.mu.Lock()
+	uid, err := s.allocateUID(id)
+	if err != nil {
+		s.mu.Unlock()
+		s.release(disks...)
+		s.network.Release(ctx, id)
+		return err // preserve the kind from allocateUID
+	}
+	s.mu.Unlock()
+	root, uuid, err := s.disks.CreateRoot(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, spec.RootDiskBytes)
 	if err != nil {
 		reason := fmt.Sprintf("create root disk: %v", err)
-		s.release(disks...)
+		s.release(append(disks, root)...)
+		s.mu.Lock()
+		s.releaseUID(id)
+		s.mu.Unlock()
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", reason)))
 	}
 	s.claim(id, root) // a root disk is new, so no one else holds it
-	m := Machine{ID: id, State: StateCreated, Spec: spec, RootDisk: root, RootDiskUUID: uuid, Network: identity}
+	m := Machine{ID: id, State: StateCreated, Spec: spec, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
 	rec := &Record{ID: id, Machine: &m, Request: Request{ID: request, Spec: spec}}
 	if err := s.store.Save(ctx, *rec); err != nil {
 		reason := fmt.Sprintf("record the Machine: %v", err)
@@ -354,5 +366,6 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	for _, a := range rec.Machine.Disks {
 		delete(s.held, a.Disk)
 	}
+	s.releaseUID(id)
 	return nil
 }
