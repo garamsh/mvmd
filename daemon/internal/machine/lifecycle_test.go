@@ -637,3 +637,26 @@ func TestNetwork_RemovedWhenNoVMMHoldsIt(t *testing.T) {
 		assert.True(t, applied)
 	})
 }
+
+// ForceStop is Stop without the request to the guest: the fencing expiry
+// allows no grace period.
+func TestForceStop_EndsTheVMMWithoutAskingTheGuest(t *testing.T) {
+	ctx := context.Background()
+	for _, from := range []machine.State{machine.StateRunning, machine.StatePaused, machine.StateFaulted} {
+		e := newEnv()
+		e.inState(t, "m", from)
+		asked := e.driver.Calls("shutdown")
+		require.NoError(t, e.svc.ForceStop(ctx, "m"))
+		e.requireState(t, "m", machine.StateStopped)
+		assert.Equal(t, asked, e.driver.Calls("shutdown"), "the guest was not asked, from %s", from)
+		_, running := e.sup.Running("m")
+		assert.False(t, running)
+		_, applied := e.net.Applied("m")
+		assert.False(t, applied)
+	}
+	e := newEnv()
+	e.created(t, "m")
+	require.NoError(t, e.svc.ForceStop(ctx, "m"))
+	e.requireState(t, "m", machine.StateCreated)
+	requireKind(t, e.svc.ForceStop(ctx, "absent"), machine.ErrNotFound)
+}

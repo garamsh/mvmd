@@ -17,5 +17,5 @@ func NewStartPermitter() *StartPermitter { return &StartPermitter{} }
 
 // PermitStart implements machine.StartPermitter.
 func (p *StartPermitter) PermitStart(_ context.Context, _ machine.MachineID) error {
-	return p.enter("permit")
+	return p.Enter("permit")
 }

@@ -31,7 +31,7 @@ func (d *Disk) Provide(disk machine.DiskID) {
 
 // Locate implements machine.Disk.
 func (d *Disk) Locate(_ context.Context, disk machine.DiskID) (string, error) {
-	if err := d.enter("locate"); err != nil {
+	if err := d.Enter("locate"); err != nil {
 		return "", err
 	}
 	d.mu.Lock()
@@ -44,7 +44,7 @@ func (d *Disk) Locate(_ context.Context, disk machine.DiskID) (string, error) {
 
 // CreateRoot implements machine.Disk.
 func (d *Disk) CreateRoot(_ context.Context, id machine.MachineID, sizeBytes uint64) (machine.DiskID, error) {
-	if err := d.enter("create-root"); err != nil {
+	if err := d.Enter("create-root"); err != nil {
 		return "", err
 	}
 	disk := machine.DiskID(string(id) + "-root")
@@ -56,7 +56,7 @@ func (d *Disk) CreateRoot(_ context.Context, id machine.MachineID, sizeBytes uin
 
 // Remove implements machine.Disk.
 func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {
-	if err := d.enter("remove"); err != nil {
+	if err := d.Enter("remove"); err != nil {
 		return err
 	}
 	d.mu.Lock()

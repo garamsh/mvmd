@@ -39,7 +39,7 @@ func (d *Driver) Info() machine.DriverInfo { return d.info }
 
 // Describe implements machine.Driver.
 func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
-	if err := d.enter("describe"); err != nil {
+	if err := d.Enter("describe"); err != nil {
 		return machine.ProcessDescription{}, err
 	}
 	d.mu.Lock()
@@ -50,7 +50,7 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 
 // Boot implements machine.Driver.
 func (d *Driver) Boot(_ context.Context, id machine.MachineID) error {
-	return d.enter("boot")
+	return d.Enter("boot")
 }
 
 // Shutdown implements machine.Driver.
@@ -63,7 +63,7 @@ func (d *Driver) Shutdown(_ context.Context, _ machine.MachineID, grace time.Dur
 		close(entered)
 		<-hold
 	}
-	return d.enter("shutdown")
+	return d.Enter("shutdown")
 }
 
 // HoldShutdown makes the next Shutdown wait, as a guest does for its grace
@@ -77,14 +77,14 @@ func (d *Driver) HoldShutdown() (entered <-chan struct{}, release func()) {
 }
 
 // Pause implements machine.Driver.
-func (d *Driver) Pause(_ context.Context, _ machine.MachineID) error { return d.enter("pause") }
+func (d *Driver) Pause(_ context.Context, _ machine.MachineID) error { return d.Enter("pause") }
 
 // Resume implements machine.Driver.
-func (d *Driver) Resume(_ context.Context, _ machine.MachineID) error { return d.enter("resume") }
+func (d *Driver) Resume(_ context.Context, _ machine.MachineID) error { return d.Enter("resume") }
 
 // AttachDisk implements machine.Driver.
 func (d *Driver) AttachDisk(_ context.Context, id machine.MachineID, dev machine.BlockDevice) error {
-	if err := d.enter("attach"); err != nil {
+	if err := d.Enter("attach"); err != nil {
 		return err
 	}
 	d.mu.Lock()
@@ -95,7 +95,7 @@ func (d *Driver) AttachDisk(_ context.Context, id machine.MachineID, dev machine
 
 // DetachDisk implements machine.Driver.
 func (d *Driver) DetachDisk(_ context.Context, id machine.MachineID, disk machine.DiskID) error {
-	if err := d.enter("detach"); err != nil {
+	if err := d.Enter("detach"); err != nil {
 		return err
 	}
 	d.mu.Lock()
@@ -112,7 +112,7 @@ func (d *Driver) DetachDisk(_ context.Context, id machine.MachineID, disk machin
 
 // Resize implements machine.Driver.
 func (d *Driver) Resize(_ context.Context, id machine.MachineID, target machine.Resources) error {
-	if err := d.enter("resize"); err != nil {
+	if err := d.Enter("resize"); err != nil {
 		return err
 	}
 	d.mu.Lock()

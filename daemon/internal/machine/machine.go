@@ -130,6 +130,12 @@ func (e *Error) Error() string { return e.Kind.Error() + ": " + e.Reason }
 // Unwrap returns the outcome kind.
 func (e *Error) Unwrap() error { return e.Kind }
 
+// NewError returns an outcome of the kind with its reason, for the other
+// domains of the inside that answer calls in these terms.
+func NewError(kind error, format string, args ...any) *Error {
+	return fail(kind, format, args...)
+}
+
 func fail(kind error, format string, args ...any) *Error {
 	return &Error{Kind: kind, Reason: fmt.Sprintf(format, args...)}
 }

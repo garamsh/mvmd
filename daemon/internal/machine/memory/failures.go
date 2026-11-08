@@ -48,8 +48,8 @@ func (f *Failures) Calls(step string) int {
 	return f.calls[step]
 }
 
-// enter counts a call of the step and returns the failure it was told to have.
-func (f *Failures) enter(step string) error {
+// Enter counts a call of the step and returns the failure it was told to have.
+func (f *Failures) Enter(step string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.calls == nil {

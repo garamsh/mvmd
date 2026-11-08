@@ -23,7 +23,7 @@ func NewStateStore() *StateStore {
 
 // Save implements machine.StateStore.
 func (s *StateStore) Save(_ context.Context, record machine.Record) error {
-	if err := s.enter("save"); err != nil {
+	if err := s.Enter("save"); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -34,7 +34,7 @@ func (s *StateStore) Save(_ context.Context, record machine.Record) error {
 
 // Remove implements machine.StateStore.
 func (s *StateStore) Remove(_ context.Context, id machine.MachineID) error {
-	if err := s.enter("remove"); err != nil {
+	if err := s.Enter("remove"); err != nil {
 		return err
 	}
 	s.mu.Lock()

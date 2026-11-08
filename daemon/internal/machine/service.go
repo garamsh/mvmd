@@ -17,6 +17,9 @@ type Service interface {
 	Start(ctx context.Context, id MachineID) error
 	// Stop asks the guest to stop, waits up to grace, then forces the VMM down.
 	Stop(ctx context.Context, id MachineID, grace time.Duration) error
+	// ForceStop ends the Machine's VMM at once, with no request to the guest and
+	// no grace period, as Stop does otherwise. The fencing expiry uses it.
+	ForceStop(ctx context.Context, id MachineID) error
 	Pause(ctx context.Context, id MachineID) error
 	Resume(ctx context.Context, id MachineID) error
 	Delete(ctx context.Context, id MachineID) error
