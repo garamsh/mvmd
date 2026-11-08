@@ -31,7 +31,8 @@ Candidates weighed:
 - **The contract's home.** `guest-agent/proto/mvmd/guest/v1alpha1/`. The daemon generates its own Go client from that file with the `buf` pinned in `tooling/protogen/` (ADR 0004), and reaches the guest tree only through the file. `buf lint` covers `guest-agent/proto/` too.
 - **Rust code is generated at build time**, by `tonic-prost-build` with `protox` as the compiler, and is not committed.
 - **Every call that changes state is safe to repeat.** Exec carries the client's exec ID: a repeated start with the same ID returns the same record and never runs the command twice. Write is whole old or whole new content, and patch is guarded by a base and an expected digest (`runtime-api.md` §Guest access).
-- **Exec output is kept by the agent** for the life of the agent, so a read resumes after any byte offset.
+- **Exec output is bounded.** The agent keeps the newest bytes of each command's output, up to a retention it is configured with. A read resumes after any offset still held; a read after an earlier one fails with a status naming the earliest offset held, which the exec record also carries.
+- **List and search stream.** `ListFiles` and `SearchFiles` are server-streaming, as file content is, so no result is bounded by one message.
 - **The listener is a seam.** The server takes any stream of incoming connections; the binary passes vsock, and tests pass a Unix socket in a temporary directory through the same server code.
 - **Console is not in the contract.** It is the VMM's serial device.
 
@@ -40,12 +41,12 @@ Candidates weighed:
 - The daemon's Guest Agent channel adapter is written against the `.proto` and needs no VM to be tested, since the server runs over a Unix socket.
 - A contract change is a change to one file, checked by `buf lint`; protobuf compatibility rules let the daemon and an older guest differ by a version.
 - The guest binary carries a gRPC stack, which adds to its size and to the initrd.
-- Exec output held in the agent's memory lasts as long as the agent; a Machine restored from a snapshot continues with the agent's memory as it was.
+- A client that reads exec output more slowly than a command writes it can lose the oldest output, and learns the earliest offset still held when it asks for what is gone.
 - The build needs no `protoc`, and generated Rust is never stale since it is never committed.
 
 ## Signs the decision was wrong
 
 - The gRPC stack's size or start time makes the Guest Agent's boot slower than a hand-framed protocol would measurably be.
 - A second project imports the guest's generated Rust, so the reason for not committing it no longer holds.
-- Exec output held in memory exhausts a guest's memory for long-running commands, and the output has to move to disk or be bounded.
+- Clients lose exec output they need because the retention is too small for real commands, and the output has to move to disk or the retention has to grow.
 - Old guest images cannot serve a daemon one version newer, so the compatibility rules did not carry what this decision relies on them for.
