@@ -7,8 +7,8 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// Supervision is an in-memory machine.Supervision. Its steps are "start",
-// "terminate" and "live".
+// Supervision is an in-memory machine.Supervision. Its steps are "run-dir",
+// "start", "terminate" and "live".
 type Supervision struct {
 	Failures
 
@@ -35,6 +35,14 @@ func (s *Supervision) Start(_ context.Context, id machine.MachineID, process mac
 	s.running[id] = started{process, user}
 	s.mu.Unlock()
 	return nil
+}
+
+// RunDir implements machine.Supervision: a path of its own for each Machine.
+func (s *Supervision) RunDir(id machine.MachineID) (string, error) {
+	if err := s.Enter("run-dir"); err != nil {
+		return "", err
+	}
+	return "/run/memory-supervision/" + string(id), nil
 }
 
 // Terminate implements machine.Supervision.

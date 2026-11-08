@@ -159,6 +159,9 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
 	}
 	boot := BootSpec{Resources: m.Resources}
+	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
+		return fail(ErrFailed, "name the run directory: %v", err)
+	}
 	if boot.Devices, err = s.bootDevices(ctx, m); err != nil {
 		return err
 	}

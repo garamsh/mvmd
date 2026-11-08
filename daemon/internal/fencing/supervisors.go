@@ -16,6 +16,9 @@ type Supervisor struct {
 // fencing deadline needs it. A supervisor never holds an expiry later than the
 // one it was last given, and no supervisor exists without one.
 type Supervisors interface {
+	// RunDir returns the Machine's run directory, which Start uses as the
+	// description gives it.
+	RunDir(id machine.MachineID) (string, error)
 	// Start starts a supervisor for the Machine with the process to run, the
 	// user to run it as and the
 	// expiry it counts.

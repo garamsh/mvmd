@@ -111,6 +111,11 @@ func permitted(machines Machines, st Status) error {
 	return nil
 }
 
+// RunDir returns the Machine's run directory as the supervisors name it.
+func (s *service) RunDir(id machine.MachineID) (string, error) {
+	return s.sup.RunDir(id)
+}
+
 // Start starts the Machine's supervisor with the current expiry. The check
 // and the hand-over are one step under the ordering lock, so a renewal never
 // falls between them.

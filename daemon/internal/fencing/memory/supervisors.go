@@ -40,6 +40,11 @@ func NewSupervisors(store *DeadlineStore) *Supervisors {
 	return s
 }
 
+// RunDir implements fencing.Supervisors: a path of its own for each Machine.
+func (s *Supervisors) RunDir(id machine.MachineID) (string, error) {
+	return "/run/memory-supervisors/" + string(id), nil
+}
+
 // Start implements fencing.Supervisors.
 func (s *Supervisors) Start(_ context.Context, id machine.MachineID, process machine.ProcessDescription, user machine.User, expiry fencing.BootTime) error {
 	if err := s.Enter("start"); err != nil {

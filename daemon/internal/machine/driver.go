@@ -44,6 +44,10 @@ type BootSpec struct {
 	Devices   []BlockDevice
 	Network   NetworkDevice
 	Resources Resources
+	// RunDir is the Machine's run directory, where the VMM creates its API
+	// socket and its vsock socket and mvmd connects to them by path (ADR 0015).
+	// The Supervision port names it and the supervisor is given the same.
+	RunDir string
 }
 
 // ProcessDescription is the VMM process a Driver describes for the
@@ -62,7 +66,7 @@ type ProcessDescription struct {
 	TapByDescriptor bool
 	Overhead        ProcessOverhead
 
-	// Tap and Guest are the lifecycle's, never the Driver's: For overwrites
+	// Tap, Guest and RunDir are the lifecycle's, never the Driver's: For overwrites
 	// them from the Machine, so a Driver cannot misstate what the cgroup's
 	// limits are computed from.
 	//
@@ -74,12 +78,15 @@ type ProcessDescription struct {
 	// Guest is the guest's memory and vCPUs, which with Overhead fix the
 	// VMM's cgroup limits.
 	Guest Resources
+	// RunDir is the Machine's run directory, the one its BootSpec names. The
+	// supervisor bind-mounts it read-write in the VMM's root.
+	RunDir string
 }
 
 // For returns the description with the parts of it that come from the
 // Machine's boot rather than from the Driver (ADR 0015).
 func (p ProcessDescription) For(boot BootSpec) ProcessDescription {
-	p.Tap, p.Guest = boot.Network.Tap, boot.Resources
+	p.Tap, p.Guest, p.RunDir = boot.Network.Tap, boot.Resources, boot.RunDir
 	return p
 }
 

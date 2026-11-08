@@ -109,6 +109,9 @@ func TestWired_ARealSupervisorRunsTheMachine(t *testing.T) {
 	ns := namespaceOf(supervisorOf(t, "m"))
 	requireTree(t, ns)
 
+	// The Driver was given the run directory the supervisor started in.
+	assert.Equal(t, work, d.app.Substitutes.Driver.BootSpec("m").RunDir)
+
 	// The guest's memory comes from the Machine through the lifecycle, and the
 	// overhead from the Driver's description.
 	limit, err := os.ReadFile(filepath.Join(supervision.DefaultVMMCgroup, "m", "memory.max"))
