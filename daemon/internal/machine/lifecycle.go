@@ -230,6 +230,15 @@ func (s *service) bootFailed(ctx context.Context, rec *Record, boot error) error
 }
 
 func (s *service) Stop(ctx context.Context, id MachineID, grace time.Duration) error {
+	return s.stop(ctx, id, grace, true)
+}
+
+func (s *service) ForceStop(ctx context.Context, id MachineID) error {
+	return s.stop(ctx, id, 0, false)
+}
+
+// stop ends a Machine's VMM, asking the guest first only when graceful.
+func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, graceful bool) error {
 	defer s.lock(id)()
 	rec, err := s.machine(id)
 	if err != nil {
@@ -242,7 +251,9 @@ func (s *service) Stop(ctx context.Context, id MachineID, grace time.Duration) e
 
 	// A guest cannot be trusted to stop, so its answer to the request does not
 	// decide the outcome: the VMM is ended either way.
-	_ = s.driver.Shutdown(ctx, id, grace)
+	if graceful {
+		_ = s.driver.Shutdown(ctx, id, grace)
+	}
 	if err := s.supervisor.Terminate(ctx, id); err != nil {
 		if errors.Is(err, ErrNotAttempted) {
 			return fail(ErrFailed, "the stop never began: %v", err)

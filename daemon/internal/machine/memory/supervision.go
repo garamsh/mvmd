@@ -23,7 +23,7 @@ func NewSupervision() *Supervision {
 
 // Start implements machine.Supervision.
 func (s *Supervision) Start(_ context.Context, id machine.MachineID, process machine.ProcessDescription) error {
-	if err := s.enter("start"); err != nil {
+	if err := s.Enter("start"); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -34,7 +34,7 @@ func (s *Supervision) Start(_ context.Context, id machine.MachineID, process mac
 
 // Terminate implements machine.Supervision.
 func (s *Supervision) Terminate(_ context.Context, id machine.MachineID) error {
-	if err := s.enter("terminate"); err != nil {
+	if err := s.Enter("terminate"); err != nil {
 		return err
 	}
 	s.mu.Lock()

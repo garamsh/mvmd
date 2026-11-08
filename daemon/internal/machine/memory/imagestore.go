@@ -29,7 +29,7 @@ func (s *ImageStore) Provide(image machine.ImageDigest) {
 
 // Locate implements machine.ImageStore.
 func (s *ImageStore) Locate(_ context.Context, image machine.ImageDigest) (string, error) {
-	if err := s.enter("locate"); err != nil {
+	if err := s.Enter("locate"); err != nil {
 		return "", err
 	}
 	s.mu.Lock()

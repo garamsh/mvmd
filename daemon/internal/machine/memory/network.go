@@ -30,7 +30,7 @@ func NewNetwork() *Network {
 
 // Allocate implements machine.Network.
 func (n *Network) Allocate(_ context.Context, id machine.MachineID) (machine.NetworkIdentity, error) {
-	if err := n.enter("allocate"); err != nil {
+	if err := n.Enter("allocate"); err != nil {
 		return machine.NetworkIdentity{}, err
 	}
 	n.mu.Lock()
@@ -49,7 +49,7 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID) (machine.Net
 
 // Apply implements machine.Network.
 func (n *Network) Apply(_ context.Context, id machine.MachineID, policy machine.NetworkPolicy) (string, error) {
-	if err := n.enter("apply"); err != nil {
+	if err := n.Enter("apply"); err != nil {
 		return "", err
 	}
 	n.mu.Lock()
@@ -60,7 +60,7 @@ func (n *Network) Apply(_ context.Context, id machine.MachineID, policy machine.
 
 // Withdraw implements machine.Network.
 func (n *Network) Withdraw(_ context.Context, id machine.MachineID) error {
-	if err := n.enter("withdraw"); err != nil {
+	if err := n.Enter("withdraw"); err != nil {
 		return err
 	}
 	n.mu.Lock()
@@ -71,7 +71,7 @@ func (n *Network) Withdraw(_ context.Context, id machine.MachineID) error {
 
 // Release implements machine.Network.
 func (n *Network) Release(_ context.Context, id machine.MachineID) error {
-	if err := n.enter("release"); err != nil {
+	if err := n.Enter("release"); err != nil {
 		return err
 	}
 	n.mu.Lock()
