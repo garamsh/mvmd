@@ -66,9 +66,6 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if err != nil {
 		reason := fmt.Sprintf("create root disk: %v", err)
 		s.release(append(disks, root)...)
-		s.mu.Lock()
-		s.releaseUID(id)
-		s.mu.Unlock()
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", reason)))
 	}
 	s.claim(id, root) // a root disk is new, so no one else holds it
@@ -112,7 +109,8 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 }
 
 // undoCreate releases what a failed Create made and returns the failure's
-// reason, extended by anything that could not be undone.
+// reason, extended by anything that could not be undone. It also releases the
+// UID allocated for id.
 func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, reason string) string {
 	if root != "" {
 		if err := s.disks.Remove(ctx, root); err != nil {
@@ -122,6 +120,9 @@ func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, rea
 	if err := s.network.Release(ctx, id); err != nil {
 		reason += fmt.Sprintf("; the network could not be released: %v", err)
 	}
+	s.mu.Lock()
+	s.releaseUID(id)
+	s.mu.Unlock()
 	return reason
 }
 

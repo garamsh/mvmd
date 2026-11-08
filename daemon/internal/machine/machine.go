@@ -37,6 +37,22 @@ type UIDRange struct {
 	Count uint32
 }
 
+// Validate returns an error if the range is unusable: First is root, Count is
+// empty, or the top of the range overflows uint32.
+func (r UIDRange) Validate() error {
+	switch {
+	case r.First == 0:
+		return errors.New("UID range must not include root (UID 0)")
+	case r.Count == 0:
+		return errors.New("UID range must have at least one entry")
+	}
+	// Check that First+Count-1 does not overflow MaxUint32.
+	if r.Count > 0 && r.First > ^uint32(0)-(r.Count-1) {
+		return errors.New("UID range overflows uint32")
+	}
+	return nil
+}
+
 // User is the UID and GID of a Machine's VMM user, always equal (ADR 0015).
 type User struct {
 	UID uint32

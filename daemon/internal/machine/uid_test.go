@@ -113,6 +113,57 @@ func TestUIDAllocation_MockDiskRecordsOwner(t *testing.T) {
 	assert.Equal(t, owner.UID, owner.GID, "UID equals GID")
 }
 
+// TestUIDAllocation_StoreSaveFailsLeavesUIDFree ensures that when the state
+// store fails to save the record, the UID is released so a subsequent Create
+// with a range of one succeeds.
+func TestUIDAllocation_StoreSaveFailsLeavesUIDFree(t *testing.T) {
+	ctx := context.Background()
+
+	// --- Control: range of one, create succeeds (no failure injected). ---
+	ctrl := newEnvWithRange(machine.UIDRange{First: 4000, Count: 1})
+	ctrl.created(t, "a")
+	requireKind(t, ctrl.svc.Create(ctx, "b", request("b"), baseSpec()), machine.ErrPreconditionFailed)
+
+	// --- Real: store.Save fails. The leaked UID is released, so a new
+	// Create with range of one should now succeed. ---
+	real := newEnvWithRange(machine.UIDRange{First: 4000, Count: 1})
+	real.store.FailAt("save", errBoom)
+	err := real.svc.Create(ctx, "x", request("x"), baseSpec())
+	require.Error(t, err, "save failure should abort Create")
+
+	// The UID is released, so a new Create succeeds.
+	real.store.Heal("save")
+	real.created(t, "y")
+	require.NoError(t, real.svc.Delete(ctx, "y"))
+}
+
+// TestUIDRange_Validate checks that the range refuses root, zero-count, and
+// overflow, beside valid near-misses.
+func TestUIDRange_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		r       machine.UIDRange
+		wantErr bool
+	}{
+		{"root is refused", machine.UIDRange{First: 0, Count: 1}, true},
+		{"zero count is refused", machine.UIDRange{First: 1, Count: 0}, true},
+		{"overflow is refused", machine.UIDRange{First: ^uint32(0), Count: 2}, true},
+		{"exact max does not wrap", machine.UIDRange{First: 1, Count: ^uint32(0)}, false},
+		{"smallest valid range", machine.UIDRange{First: 1, Count: 1}, false},
+		{"highest single-entry range", machine.UIDRange{First: ^uint32(0), Count: 1}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.r.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 // newEnvWithRange is like newEnv but with a custom UID range.
 func newEnvWithRange(uidRange machine.UIDRange) *env {
 	e := &env{
