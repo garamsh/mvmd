@@ -28,6 +28,13 @@ type Service interface {
 	SetResources(ctx context.Context, id MachineID, target Resources) error
 }
 
+// machineLock is one Machine's lock and the number of calls using it, which
+// mu guards.
+type machineLock struct {
+	sync.Mutex
+	users int
+}
+
 type service struct {
 	driver     Driver
 	supervisor Supervision
@@ -43,7 +50,7 @@ type service struct {
 	// one.
 	mu      sync.Mutex
 	records map[MachineID]*Record
-	locks   map[MachineID]*sync.Mutex
+	locks   map[MachineID]*machineLock
 	// held maps each disk to its one holder (ADR 0009).
 	held map[DiskID]MachineID
 }
@@ -59,24 +66,32 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		store:      store,
 		permitter:  permitter,
 		records:    make(map[MachineID]*Record),
-		locks:      make(map[MachineID]*sync.Mutex),
+		locks:      make(map[MachineID]*machineLock),
 		held:       make(map[DiskID]MachineID),
 	}
 }
 
-// lock serializes the calls on one Machine and returns the unlock. A Machine
-// the node has never seen is serialized too, so two creates of one identifier
-// do not interleave. The lock of a deleted identifier is kept.
+// lock serializes the calls on one Machine and returns the unlock. The entry
+// exists while a call holds or waits for it and is removed by the last one,
+// so the map holds only the identifiers being called now.
 func (s *service) lock(id MachineID) func() {
 	s.mu.Lock()
 	l, ok := s.locks[id]
 	if !ok {
-		l = new(sync.Mutex)
+		l = new(machineLock)
 		s.locks[id] = l
 	}
+	l.users++
 	s.mu.Unlock()
 	l.Lock()
-	return l.Unlock
+	return func() {
+		l.Unlock()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if l.users--; l.users == 0 {
+			delete(s.locks, id)
+		}
+	}
 }
 
 func (s *service) lookup(id MachineID) (*Record, bool) {

@@ -222,3 +222,36 @@ func TestService_LongStopGraceDoesNotBlockOtherMachines(t *testing.T) {
 	require.NoError(t, <-stopped)
 	e.requireState(t, "a", machine.StateStopped)
 }
+
+// The per-Machine locks exist only while a call uses them, so neither Machine
+// churn nor calls naming unknown identifiers grow them.
+func TestService_LocksReturnToEmpty(t *testing.T) {
+	e := newEnv()
+	ctx := context.Background()
+	assert.Zero(t, machine.LockCount(e.svc))
+
+	e.created(t, "m")
+	require.NoError(t, e.svc.Delete(ctx, "m"))
+	assert.Zero(t, machine.LockCount(e.svc), "after create and delete")
+
+	for i := range 50 {
+		id := machine.MachineID(fmt.Sprintf("unknown-%d", i))
+		requireKind(t, e.svc.Start(ctx, id), machine.ErrNotFound)
+		requireKind(t, e.svc.Stop(ctx, id, time.Second), machine.ErrNotFound)
+		require.NoError(t, e.svc.Delete(ctx, id))
+	}
+	assert.Zero(t, machine.LockCount(e.svc), "after calls naming unknown identifiers")
+
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id := machine.MachineID(fmt.Sprintf("c%d", i%4))
+			_ = e.svc.Create(ctx, id, request(id), baseSpec())
+			_ = e.svc.Delete(ctx, id)
+		}()
+	}
+	wg.Wait()
+	assert.Zero(t, machine.LockCount(e.svc), "after concurrent churn")
+}
