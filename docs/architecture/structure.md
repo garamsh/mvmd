@@ -17,7 +17,7 @@ Nothing here states how an adapter is built inside, or how mvmd is deployed.
 Follows the monorepo shape of garamsh/garam at the commit above: each top-level folder is one responsibility, and one unit reaches another only through what that unit publishes. A folder is created by the pull request that first adds code to it, and not before; none of the code folders below exists yet.
 
 - `daemon/` — the mvmd daemon: a Go module in the service layout of `docs/convention/stack-go.md` §1, binary at `daemon/cmd/mvmd/main.go`. It holds the inside, the driving adapter for the runtime API, and every driven adapter, including the in-process VMM Drivers.
-- `guest-agent/` — the Guest Agent as its own Cargo workspace (#2 §5, implementation language). No Rust stack convention exists in this repository; it is tracked as a separate proposal.
+- `guest-agent/` — the Guest Agent as its own Cargo workspace (#2 §5, implementation language). Its Rust code follows `docs/convention/stack-rust.md`.
 - `lib/runtimeapi/` — the runtime API contract and its client, a Go library module in the library layout of `docs/convention/stack-go.md` §1, package at the module root. It is the one module gaon imports. It is a leaf: it imports no other package of mvmd.
 - `mvmctl/` and `imageconv/` — the names reserved for a CLI and for the isolated image converter (#2 §5, image section, security), each a top-level folder if and when it ships as its own executable. Neither is committed to existing.
 - `docs/` — conventions, architecture, procedures.
