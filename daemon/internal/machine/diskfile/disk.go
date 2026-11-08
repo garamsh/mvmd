@@ -101,6 +101,17 @@ func validDiskName(name string) bool {
 	return !bytes.ContainsRune([]byte(name), '/')
 }
 
+// validDiskID checks that disk is safe to use in a path under a directory:
+// not empty, not . or .., and no /. filepath.Base(id) == id plus the
+// empty/dot checks is sufficient; the slash check is explicit for clarity.
+func validDiskID(id machine.DiskID) bool {
+	s := string(id)
+	if s == "" || s == "." || s == ".." {
+		return false
+	}
+	return !bytes.ContainsRune([]byte(s), '/')
+}
+
 // randomUUID generates a random v4 UUID, returning an error on read failure.
 func randomUUID() (string, error) {
 	var b [16]byte
@@ -124,7 +135,11 @@ func runMKFS(mkfs, path, uuid string) error {
 }
 
 // Locate returns the path of a disk the node holds, or ErrDiskAbsent.
+// Invalid DiskID is refused and never touches the filesystem.
 func (d *Disk) Locate(_ context.Context, disk machine.DiskID) (string, error) {
+	if !validDiskID(disk) {
+		return "", fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+	}
 	path := filepath.Join(d.dir, string(disk))
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -135,8 +150,12 @@ func (d *Disk) Locate(_ context.Context, disk machine.DiskID) (string, error) {
 	return path, nil
 }
 
-// Remove deletes the disk file. Removing an absent disk succeeds.
+// Remove deletes the disk file. Invalid DiskID is refused.
+// Removing an absent disk succeeds.
 func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {
+	if !validDiskID(disk) {
+		return fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+	}
 	path := filepath.Join(d.dir, string(disk))
 	err := os.Remove(path)
 	if err != nil && os.IsNotExist(err) {
