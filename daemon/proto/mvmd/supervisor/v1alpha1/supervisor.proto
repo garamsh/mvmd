@@ -1,0 +1,77 @@
+// The conversation between mvmd and one per-Machine supervisor, version
+// v1alpha1, on the supervisor's Unix socket in the Machine's state directory.
+// Its meaning is fixed by ADR 0003 and docs/architecture/runtime.md §Fencing.
+//
+// Supervisors outlive an mvmd upgrade, so mvmd speaks to a supervisor of an
+// earlier release: a field is only ever added, and a reader treats an absent
+// field as unknown.
+syntax = "proto3";
+
+package mvmd.supervisor.v1alpha1;
+
+option go_package = "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1;supervisorv1alpha1";
+
+// SupervisorService is the whole conversation. The expiry the supervisor counts
+// is given at its own start, on its command line, so no call can start a VMM
+// process under a supervisor that counts nothing.
+service SupervisorService {
+  // Start starts the VMM process under the supervisor. It fails when the
+  // supervisor's expiry has passed or a process was already started.
+  rpc Start(StartRequest) returns (StartResponse);
+  // SetExpiry replaces the expiry the supervisor counts.
+  rpc SetExpiry(SetExpiryRequest) returns (SetExpiryResponse);
+  // Inspect reports which Machine the supervisor serves and what it holds.
+  rpc Inspect(InspectRequest) returns (InspectResponse);
+}
+
+// BlockDevice is a file a VMM is given and the mode it is given in.
+message BlockDevice {
+  string disk_id = 1;
+  string path = 2;
+  bool read_only = 3;
+}
+
+// Process is the Driver's description of the VMM process, in full.
+message Process {
+  string executable = 1;
+  repeated string args = 2;
+  repeated BlockDevice boot_files = 3;
+  repeated string read_files = 4;
+  repeated string device_nodes = 5;
+  bool tap_by_descriptor = 6;
+  uint64 overhead_memory_bytes = 7;
+  uint32 overhead_tasks = 8;
+  double overhead_cpus = 9;
+}
+
+message StartRequest {
+  Process process = 1;
+  // The user and group the Machine's VMM runs as. Zero means unspecified.
+  uint32 uid = 2;
+  uint32 gid = 3;
+}
+
+message StartResponse {}
+
+message SetExpiryRequest {
+  // The absolute CLOCK_BOOTTIME value, in nanoseconds since boot.
+  int64 expiry_boottime_ns = 1;
+}
+
+message SetExpiryResponse {
+  int64 expiry_boottime_ns = 1;
+}
+
+message InspectRequest {}
+
+message InspectResponse {
+  string machine_id = 1;
+  // The absolute CLOCK_BOOTTIME value the supervisor counts, in nanoseconds
+  // since boot.
+  int64 expiry_boottime_ns = 2;
+  // True once the VMM process has been started and while it runs.
+  bool process_running = 3;
+  // The release's name of the API it speaks, such as "v1alpha1". Absent from
+  // a release that did not report it.
+  string api_version = 4;
+}

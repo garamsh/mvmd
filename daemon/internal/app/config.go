@@ -27,6 +27,9 @@ type Config struct {
 	// The first must be non-zero (root is forbidden) and Count must be
 	// positive; the range must not overflow uint32 (ADR 0015).
 	VMMUIDRange VMMUIDRangeConfig `json:"vmm_uid_range"`
+	// Supervision, when set, starts a real mvmd-supervisor per Machine in place
+	// of the in-memory substitute.
+	Supervision *SupervisionConfig `json:"supervision,omitempty"`
 }
 
 // VMMUIDRangeConfig is the JSON-marshaled form of machine.UIDRange.
@@ -38,6 +41,18 @@ type VMMUIDRangeConfig struct {
 // ToUIDRange converts to the machine.UIDRange type.
 func (c VMMUIDRangeConfig) ToUIDRange() machine.UIDRange {
 	return machine.UIDRange{First: c.First, Count: c.Count}
+}
+
+// SupervisionConfig places the per-Machine supervisors (ADR 0003).
+type SupervisionConfig struct {
+	// Binary is the absolute path of mvmd-supervisor.
+	Binary string `json:"binary"`
+	// Dir holds one state directory per Machine, with the supervisor's socket
+	// in it. Empty is "machines" under the state directory.
+	Dir string `json:"dir"`
+	// Cgroup is a cgroup v2 directory the supervisors start in, outside
+	// mvmd's cgroup. Empty leaves them in mvmd's.
+	Cgroup string `json:"cgroup"`
 }
 
 // SocketConfig is where the runtime API is served and who may reach it: the
@@ -91,6 +106,16 @@ func (c Config) check() error {
 	}
 	if err := c.VMMUIDRange.ToUIDRange().Validate(); err != nil {
 		return fmt.Errorf("vmm_uid_range: %w", err)
+	}
+	if s := c.Supervision; s != nil {
+		switch {
+		case !filepath.IsAbs(s.Binary):
+			return fmt.Errorf("supervision.binary %q is not an absolute path", s.Binary)
+		case s.Dir != "" && !filepath.IsAbs(s.Dir):
+			return fmt.Errorf("supervision.dir %q is not an absolute path", s.Dir)
+		case s.Cgroup != "" && !filepath.IsAbs(s.Cgroup):
+			return fmt.Errorf("supervision.cgroup %q is not an absolute path", s.Cgroup)
+		}
 	}
 	return nil
 }
