@@ -102,10 +102,42 @@ message ImageRef {
   string digest = 2;
 }
 
-// NetworkPolicy is a placeholder: how a policy is described is an open
-// question in runtime-api.md. An empty policy is the default, which blocks
-// all external traffic.
-message NetworkPolicy {}
+// NetworkPolicy is the Machine's network policy for its life: an order-free
+// allow-list of prefix, protocol, and port-range rules (runtime-api.md).
+// An empty policy is the default, which blocks all external traffic.
+message NetworkPolicy {
+  repeated NetworkRule egress = 1;
+  repeated NetworkRule ingress = 2;
+}
+
+// PortRange is an inclusive range of port numbers, 1 to 65535.
+message PortRange {
+  uint32 first = 1;
+  uint32 last = 2;
+}
+
+// Protocol is the IP protocol a NetworkRule matches.
+enum Protocol {
+  PROTOCOL_UNSPECIFIED = 0;
+  PROTOCOL_TCP = 1;
+  PROTOCOL_UDP = 2;
+  PROTOCOL_ICMP = 3;
+  PROTOCOL_ICMPV6 = 4;
+  PROTOCOL_ANY = 5;
+}
+
+// NetworkRule is one entry in a NetworkPolicy's egress or ingress list.
+// A packet passes if any rule of its direction matches (runtime-api.md).
+message NetworkRule {
+  // An IPv4 prefix (a.b.c.d/n) or an IPv6 prefix (x:x::/n).
+  // The prefix's family determines the rule's family.
+  string prefix = 1;
+  // TCP, UDP, ICMP (IPv4 only), ICMPv6 (IPv6 only), or any protocol.
+  Protocol protocol = 2;
+  // Destination ports for egress, the Machine's own ports for ingress.
+  // Empty means every port; only TCP and UDP rules may set it.
+  repeated PortRange ports = 3;
+}
 
 // Resources is an absolute target, never a delta.
 message Resources {
