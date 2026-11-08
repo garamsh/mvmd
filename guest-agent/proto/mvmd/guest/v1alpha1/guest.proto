@@ -14,9 +14,16 @@ service GuestService {
   // with the same description succeeds and changes nothing; a repeat after
   // a failure fails the same way.
   rpc Boot(BootRequest) returns (BootResponse);
-  // Replace the Machine's network configuration, as after a restore. The
-  // agent applies it whole: what it applied before is removed.
+  // Replace the network configuration of a running Machine. The agent
+  // applies it whole: what it applied before is removed. After a restore the
+  // client sends CatchUp, which applies the network itself, and not this.
   rpc UpdateNetwork(UpdateNetworkRequest) returns (UpdateNetworkResponse);
+  // Catch a guest up after a snapshot restore: mix the entropy into the
+  // kernel's pool and reseed it, set the wall clock to the host's time, then
+  // apply the network, in that order. The call returns once all three are
+  // done, which tells the client the agent has caught up. A repeat with the
+  // restore ID of the last call that succeeded succeeds and changes nothing.
+  rpc CatchUp(CatchUpRequest) returns (CatchUpResponse);
 
   // Start a command under the client's exec ID. A repeated start with the
   // same ID returns the same record and never runs the command twice.
@@ -101,6 +108,24 @@ message UpdateNetworkRequest {
 }
 
 message UpdateNetworkResponse {}
+
+message CatchUpRequest {
+  // Chosen by the client, unique to this restore. A call whose ID is that of
+  // the last call that succeeded is a repeat.
+  string restore_id = 1;
+  // Fresh random bytes, from 32 to 256 of them, drawn on the host. The agent
+  // mixes them into the kernel's pool and counts them as entropy, so they
+  // must come from a cryptographically secure source and never be sent for
+  // two restores.
+  bytes entropy = 2;
+  // The host's wall clock when the request was made, in nanoseconds since the
+  // Unix epoch. Must be positive.
+  int64 host_unix_nanos = 3;
+  // The Machine's network after the restore; required.
+  NetworkConfig network = 4;
+}
+
+message CatchUpResponse {}
 
 enum ExecStatus {
   EXEC_STATUS_UNSPECIFIED = 0;

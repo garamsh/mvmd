@@ -8,18 +8,19 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::boot::Boot;
-use crate::description::{BootDescription, NetworkConfig};
+use crate::description::{BootDescription, CatchUp, NetworkConfig};
 use crate::error::Error;
 use crate::exec::Execs;
 use crate::files::{self, Locks, Reader, Upload};
 use crate::v1alpha1::guest_service_server::GuestService;
 use crate::v1alpha1::{
-    BootRequest, BootResponse, ExecRequest, ExecResponse, FileEntry, HealthRequest, HealthResponse,
-    InfoRequest, InfoResponse, ListFilesRequest, ListFilesResponse, PatchFileRequest,
-    PatchFileResponse, ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest,
-    ReadFileResponse, SearchFilesRequest, SearchFilesResponse, SignalRequest, SignalResponse,
-    UpdateNetworkRequest, UpdateNetworkResponse, WriteFileRequest, WriteFileResponse,
-    read_exec_output_response, write_file_request,
+    BootRequest, BootResponse, CatchUpRequest, CatchUpResponse, ExecRequest, ExecResponse,
+    FileEntry, HealthRequest, HealthResponse, InfoRequest, InfoResponse, ListFilesRequest,
+    ListFilesResponse, PatchFileRequest, PatchFileResponse, ReadExecOutputRequest,
+    ReadExecOutputResponse, ReadFileRequest, ReadFileResponse, SearchFilesRequest,
+    SearchFilesResponse, SignalRequest, SignalResponse, UpdateNetworkRequest,
+    UpdateNetworkResponse, WriteFileRequest, WriteFileResponse, read_exec_output_response,
+    write_file_request,
 };
 
 /// The contract versions the agent serves.
@@ -91,6 +92,15 @@ impl GuestService for Guest {
         let config = NetworkConfig::try_from(network)?;
         self.boot.update_network(config).await?;
         Ok(Response::new(UpdateNetworkResponse {}))
+    }
+
+    async fn catch_up(
+        &self,
+        request: Request<CatchUpRequest>,
+    ) -> Result<Response<CatchUpResponse>, Status> {
+        let request = CatchUp::try_from(request.into_inner())?;
+        self.boot.catch_up(request).await?;
+        Ok(Response::new(CatchUpResponse {}))
     }
 
     async fn exec(&self, request: Request<ExecRequest>) -> Result<Response<ExecResponse>, Status> {

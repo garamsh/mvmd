@@ -12,6 +12,7 @@ mod init;
 mod mounts;
 mod network;
 mod reap;
+mod restore;
 mod service;
 mod system;
 mod uuid;
@@ -29,10 +30,13 @@ use tonic::transport::server::Connected;
 pub use boot::ENTRYPOINT;
 pub use description::{Addressing, NetworkConfig};
 pub use error::{BootStep, Error};
-pub use init::run;
+pub use init::{end_on_panic, fail, run};
 pub use mounts::LinuxMounts;
 pub use network::LinuxNetwork;
-pub use system::{Console, LinuxConsole, LinuxPower, Mounts, Network, Power, System};
+pub use restore::{LinuxClock, LinuxEntropy};
+pub use system::{
+    Clock, Console, Entropy, LinuxConsole, LinuxPower, Mounts, Network, Power, System,
+};
 pub use uuid::{Filesystem, Uuid};
 
 /// The generated contract: messages, the client and the server of `GuestService`.
