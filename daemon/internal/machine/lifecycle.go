@@ -336,8 +336,13 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	if err := s.network.Release(ctx, id); err != nil {
 		return fail(ErrFailed, "release the network: %v", err)
 	}
-	if err := s.disks.Remove(ctx, rec.Machine.RootDisk); err != nil {
-		return fail(ErrFailed, "remove the root disk: %v", err)
+	// A Machine restored from an unreadable record has no root disk name:
+	// the disk file is left for the operator, since naming one to remove
+	// would be a guess.
+	if rec.Machine.RootDisk != "" {
+		if err := s.disks.Remove(ctx, rec.Machine.RootDisk); err != nil {
+			return fail(ErrFailed, "remove the root disk: %v", err)
+		}
 	}
 	if err := s.store.Remove(ctx, id); err != nil {
 		return fail(ErrFailed, "remove the record: %v", err)

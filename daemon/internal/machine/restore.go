@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -20,7 +21,9 @@ const (
 // Stopped with the reason, and its network is withdrawn. A Machine whose
 // supervisor lives keeps its recorded state. If the supervisors cannot be
 // listed, the Machines that claim to run are Faulted, since mvmd cannot
-// establish their state; so is a Machine whose record cannot be decoded. The
+// establish their state; so is a Machine whose record cannot be decoded. A
+// live supervisor that no Running or Paused record claims is terminated: its
+// Start never reported success. The
 // Driver's own list of VMMs confirms a Machine in the Driver issues.
 func (s *service) Restore(ctx context.Context) error {
 	records, err := s.store.Load(ctx)
@@ -48,31 +51,73 @@ func (s *service) Restore(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
-	var claimed []*Record
-	for _, rec := range records {
-		if m := rec.Machine; rec.Unreadable == "" && m != nil && (m.State == StateRunning || m.State == StatePaused) {
-			stored, _ := s.lookup(rec.ID)
-			claimed = append(claimed, stored)
-		}
-	}
-	if len(claimed) == 0 {
-		return nil
-	}
 	live := map[MachineID]bool{}
 	ids, liveErr := s.supervisor.Live(ctx)
 	for _, id := range ids {
 		live[id] = true
 	}
-	for _, stored := range claimed {
-		switch {
-		case liveErr != nil:
-			err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr))
-		case !live[stored.ID]:
-			err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded)
+	for _, rec := range records {
+		if m := rec.Machine; rec.Unreadable == "" && m != nil && (m.State == StateRunning || m.State == StatePaused) {
+			stored, _ := s.lookup(rec.ID)
+			switch {
+			case liveErr != nil:
+				err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr))
+			case !live[rec.ID]:
+				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded)
+			}
+			if err != nil {
+				return err
+			}
 		}
-		if err != nil {
-			return err
+	}
+
+	// A supervisor no Running or Paused record claims was started by a call
+	// that never reported success, or belongs to a Machine whose record is
+	// gone: nothing promised it, and no call could reach it.
+	var errs []error
+	for _, id := range ids {
+		stored, recorded := s.lookup(id)
+		if recorded && stored.Unreadable == "" && stored.Machine != nil && (stored.Machine.State == StateRunning || stored.Machine.State == StatePaused) {
+			continue
 		}
+		if recorded && stored.Unreadable != "" {
+			// Its state is unknown and it is Faulted; Delete ends its VMM.
+			continue
+		}
+		if err := s.endUnclaimed(ctx, id, stored, recorded); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// endUnclaimed terminates the supervisor of a Machine the records do not say is
+// running and withdraws its network. A recorded Machine whose VMM cannot be
+// ended, or whose network cannot be removed, is Faulted; an unrecorded one is
+// an error.
+func (s *service) endUnclaimed(ctx context.Context, id MachineID, rec *Record, recorded bool) error {
+	failure := ""
+	var cause error
+	if err := s.supervisor.Terminate(ctx, id); err != nil {
+		cause = err
+		failure = fmt.Sprintf("a supervisor that no record claimed could not be ended: %v", err)
+	} else if recorded && rec.Machine != nil {
+		if err := s.network.Withdraw(ctx, id); err != nil {
+			cause = err
+			failure = fmt.Sprintf("a supervisor that no record claimed was ended and the network could not be removed: %v", err)
+		}
+	}
+	switch {
+	case cause == nil:
+		return nil
+	case !recorded || rec.Machine == nil:
+		return fmt.Errorf("end the unclaimed supervisor of %q: %w", id, cause)
+	}
+	next := rec.Machine.clone()
+	next.State, next.FailureReason = StateFaulted, failure
+	if err := s.commit(ctx, rec, next); err != nil {
+		s.setMachine(rec, &next)
+		return fmt.Errorf("record the restored state of %q: %w", id, err)
 	}
 	return nil
 }
