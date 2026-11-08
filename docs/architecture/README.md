@@ -6,7 +6,6 @@ Current architecture of the system and the decisions behind it. This file is the
 
 - **Responsibility documents** (one `.md` per domain or concern, e.g. `memory.md`, `gateway.md`) — the single source of truth for how the system is shaped *now*. To know the current state, read only these.
 - **`adr/`** — the record of individual decisions: direction taken, context, rejected alternatives.
-- **`structures/`** — one file per candidate architecture, read side by side at bootstrap to choose the shape the system takes. These are input to that decision and not a record of it: the choice is recorded as an ADR carrying the chosen file's `docs/architecture/structures/` §Signs the choice was wrong, that file's `docs/architecture/structures/` §Boundaries and dependency direction becomes `structure.md` (rules 6 and 7) beside `docs/architecture/README.md` §Shape rules every project carries, and bootstrap deletes this folder once both have landed, or, in a project that writes no `structure.md`, without waiting for them.
 
 ## Rules
 
@@ -19,14 +18,19 @@ Current architecture of the system and the decisions behind it. This file is the
 7. **A point the structural rules leave to the project is settled in an ADR** — the one recording the shape where the question is met at bootstrap, a later one where it is met later. Which side is taken decides what counts as a defect, so it is a decision under rule 4, and the ADR still holds the record after bootstrap. Nothing obliges a project to settle a question it has not met: until then the point waits under `structure.md`'s open questions, where it binds nothing, and moves into that document's current decisions when the project takes a side.
 8. **Structural rules yield only to what a framework imposes.** Where `structure.md` and a convention file decide the same case differently, `structure.md` governs, unless the stack-specific file that applies decides it as its framework imposes it — the alternative fails to build or run, so the project cannot restate it. A stack file's spelling of a structural rule is not that: the rule it spells is `structure.md`'s. The shape chosen at bootstrap is this project's own refinement of what a stack-neutral file states for every project. A project with no `structure.md` meets no such conflict, and this rule asks nothing of it.
 
-## Shape rules every project carries
-
-Structural rules that read the same whatever the unit is, so no candidate under `structures/` states them. Like that folder, this section is input to `structure.md` and not a record of it: a project that takes it in from the template, at bootstrap or later, copies every bullet into `structure.md` beside the chosen shape's `docs/architecture/structures/` §Boundaries and dependency direction, where they live under rule 6, and deletes this section once `structure.md` carries them. Such a project with no `structure.md` has nowhere to copy them: it copies nothing and deletes this section.
-
-- **The application has one composition site.** It is the one place that constructs concrete implementations, and it decides which implementation each declared abstraction receives.
-- **Every other unit receives what it depends on and constructs none of it**, whatever the shape makes the unit — a domain, a layer, or an adapter.
-- **The composition site stays thin.** It constructs and passes; it decides nothing else.
-
 ## Index
 
-_Populated during bootstrap._
+Responsibility documents:
+
+- [structure.md](./structure.md) — the hexagonal shape, repository layout, boundaries and dependency direction, ports
+- [runtime.md](./runtime.md) — what mvmd owns on a node, its boundary with gaon, fencing, invariants
+- [driver.md](./driver.md) — the VMM Driver contract
+- [image.md](./image.md) — image pull, MachineImage, node image cache
+- [guest.md](./guest.md) — the Guest Agent, guest boot order, guest kernel scope
+
+Decisions:
+
+- [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md) — mvmd is a containerd-like microVM runtime that does not know gaon
+- [ADR 0002](./adr/0002-mvmd-is-structured-as-a-hexagonal-application.md) — mvmd is structured as a hexagonal application
+
+The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

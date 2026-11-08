@@ -41,12 +41,7 @@ These apply only when the project uses that stack. The bootstrap process (root `
 
 | File | Extends | Governs |
 |---|---|---|
-| `stack-container.md` | — | Container images the project builds |
-| `stack-fastapi.md` | — | FastAPI and Pydantic v2 services |
 | `stack-go.md` | — | Go modules and services |
-| `stack-nestjs.md` | — | NestJS services |
-| `stack-nextjs.md` | — | Next.js App Router applications |
-| `stack-tailwind.md` | — | Tailwind CSS styling |
 
 A stack file states the concrete form of what any stack-neutral file governs — the test client and file placement behind `testing.md`, the comment syntax behind `code-comments.md` and the commands behind an entry-point name in `ci.md` among them. It states the same of a structural rule (`docs/architecture/README.md` §Rules, "Structural rules live in `structure.md`"): the package and file names the unit takes in its language. It also states a structural case its framework decides (`docs/architecture/README.md` §Rules, "Structural rules yield only to what a framework imposes"). It never restates the rule itself. These two tables and those rules are where the split is recorded — the files do not point at each other.
 
