@@ -46,7 +46,7 @@ func newEnv(caps ...machine.Capability) *env {
 		permit: memory.NewStartPermitter(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256})
 	return e
 }
 

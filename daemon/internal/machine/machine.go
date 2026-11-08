@@ -22,6 +22,49 @@ type DiskID string
 // ImageDigest names an image on the node by its digest, never by a tag.
 type ImageDigest string
 
+// DiskOwner names the Machine that owns a disk and the UID and GID of its VMM
+// user (ADR 0015).
+type DiskOwner struct {
+	ID  MachineID
+	UID uint32
+	GID uint32
+}
+
+// UIDRange names a contiguous range of UIDs (and GIDs) the node reserves
+// for its Machines (ADR 0015).
+type UIDRange struct {
+	First uint32
+	Count uint32
+}
+
+// Validate returns an error if the range is unusable: First is root, Count is
+// empty, or the top of the range overflows uint32.
+func (r UIDRange) Validate() error {
+	switch {
+	case r.First == 0:
+		return errors.New("UID range must not include root (UID 0)")
+	case r.Count == 0:
+		return errors.New("UID range must have at least one entry")
+	}
+	// Check that First+Count-1 does not overflow MaxUint32.
+	if r.Count > 0 && r.First > ^uint32(0)-(r.Count-1) {
+		return errors.New("UID range overflows uint32")
+	}
+	return nil
+}
+
+// Contains returns true if uid falls within the range [First, First+Count).
+// It uses subtraction to avoid the overflow that a direct sum would cause.
+func (r UIDRange) Contains(uid uint32) bool {
+	return uid >= r.First && uid-r.First < r.Count
+}
+
+// User is the UID and GID of a Machine's VMM user, always equal (ADR 0015).
+type User struct {
+	UID uint32
+	GID uint32
+}
+
 // State is where a Machine is in its lifecycle.
 type State int
 
@@ -84,6 +127,11 @@ type Machine struct {
 	Spec
 	// RootDisk is the disk Create Machine made for this Machine.
 	RootDisk DiskID
+	// RootDiskUUID is the ext4 filesystem UUID of the root disk, sent to
+	// the Guest Agent over the channel (ADR 0010).
+	RootDiskUUID string
+	// User is the UID and GID allocated for this Machine's VMM (ADR 0015).
+	User User
 	// Network is the identity mvmd assigned for the Machine's life.
 	Network NetworkIdentity
 	// FailureReason is the reason for the last failure, empty if none.

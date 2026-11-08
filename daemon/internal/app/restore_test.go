@@ -148,6 +148,7 @@ func TestRestore_FaultsWhatItCannotEstablish(t *testing.T) {
 		running := machine.Machine{
 			ID: "a", State: machine.StateRunning,
 			Spec: machine.Spec{Image: digest, Resources: machine.Resources{VCPUs: 1, MemoryBytes: 1 << 30}, RootDiskBytes: 1 << 30},
+			User: machine.User{UID: 1000, GID: 1000},
 		}
 		require.NoError(t, db.Machines().Save(ctx, machine.Record{ID: "a", Machine: &running, Request: machine.Request{ID: "req-a", Spec: running.Spec}}))
 		require.NoError(t, db.Close())

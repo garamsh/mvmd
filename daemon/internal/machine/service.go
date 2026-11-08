@@ -51,6 +51,7 @@ type service struct {
 	images     ImageStore
 	store      StateStore
 	permitter  StartPermitter
+	uidRange   UIDRange
 
 	// mu guards the maps below and every record's Machine pointer, and is held
 	// only for map and pointer work, never across a port call. A Machine's
@@ -60,22 +61,28 @@ type service struct {
 	records map[MachineID]*Record
 	locks   map[MachineID]*machineLock
 	// held maps each disk to its one holder (ADR 0009).
-	held map[DiskID]MachineID
+	held         map[DiskID]MachineID
+	usedUID      map[MachineID]uint32 // allocated UID per Machine
+	usedUIDByUID map[uint32]MachineID // reverse index for O(1) collision check
 }
 
-// NewService returns the lifecycle over the given ports.
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter) Service {
+// NewService returns the lifecycle over the given ports. uidRange names the
+// range of UIDs the node reserves for its Machines (ADR 0015).
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange) Service {
 	return &service{
-		driver:     driver,
-		supervisor: supervisor,
-		network:    network,
-		disks:      disks,
-		images:     images,
-		store:      store,
-		permitter:  permitter,
-		records:    make(map[MachineID]*Record),
-		locks:      make(map[MachineID]*machineLock),
-		held:       make(map[DiskID]MachineID),
+		driver:       driver,
+		supervisor:   supervisor,
+		network:      network,
+		disks:        disks,
+		images:       images,
+		store:        store,
+		permitter:    permitter,
+		uidRange:     uidRange,
+		records:      make(map[MachineID]*Record),
+		locks:        make(map[MachineID]*machineLock),
+		held:         make(map[DiskID]MachineID),
+		usedUID:      make(map[MachineID]uint32),
+		usedUIDByUID: make(map[uint32]MachineID),
 	}
 }
 
@@ -173,6 +180,30 @@ func (s *service) release(disks ...DiskID) {
 	defer s.mu.Unlock()
 	for _, d := range disks {
 		delete(s.held, d)
+	}
+}
+
+// allocateUID allocates the lowest free UID in the range for the given
+// Machine. It must be called under mu.
+func (s *service) allocateUID(id MachineID) (uint32, error) {
+	for i := uint32(0); i < s.uidRange.Count; i++ {
+		u := s.uidRange.First + i
+		if _, occupied := s.usedUIDByUID[u]; !occupied {
+			s.usedUID[id] = u
+			s.usedUIDByUID[u] = id
+			return u, nil
+		}
+	}
+	return 0, fail(ErrPreconditionFailed, "the UID range is exhausted")
+}
+
+// releaseUID returns the UID of the given Machine to the range.
+// The caller must hold mu.
+func (s *service) releaseUID(id MachineID) {
+	uid, ok := s.usedUID[id]
+	if ok {
+		delete(s.usedUID, id)
+		delete(s.usedUIDByUID, uid)
 	}
 }
 

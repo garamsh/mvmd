@@ -14,8 +14,8 @@ type Disk interface {
 	// Locate returns the path of a disk the node holds, or ErrDiskAbsent.
 	Locate(ctx context.Context, disk DiskID) (path string, err error)
 	// CreateRoot creates a Machine's root disk at the given size, formatted,
-	// and returns its identifier.
-	CreateRoot(ctx context.Context, id MachineID, sizeBytes uint64) (DiskID, error)
+	// and returns its identifier and filesystem UUID.
+	CreateRoot(ctx context.Context, owner DiskOwner, sizeBytes uint64) (DiskID, string, error)
 	// Remove deletes a disk file. Removing an absent disk succeeds.
 	Remove(ctx context.Context, disk DiskID) error
 }
