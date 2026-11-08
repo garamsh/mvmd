@@ -21,12 +21,17 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/api"
 	"github.com/garamsh/mvmd/daemon/internal/boltstore"
 	"github.com/garamsh/mvmd/daemon/internal/bootclock"
+	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
 )
+
+// eventsKept is how many events the node holds for a client that resumes.
+// runtime-api.md leaves how long events are kept open.
+const eventsKept = 1024
 
 // Substitutes are the in-memory adapters behind the ports when the
 // configuration selects the memory driver, so that what a Machine needs on the
@@ -94,15 +99,16 @@ func New(cfg Config) (*App, error) {
 		}
 		supervisors, sub.Supervisors = real, nil
 	}
-	deadline := fencing.NewService(clock, db.Deadline(), supervisors)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange())
+	log := events.NewService(eventsKept)
+	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
 		deadline:    deadline,
-		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}),
+		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}, log),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil
@@ -133,7 +139,10 @@ func (a *App) Serve(ctx context.Context) error {
 		return err
 	}
 
-	g := grpc.NewServer(grpc.UnaryInterceptor(api.Interceptor))
+	g := grpc.NewServer(
+		grpc.UnaryInterceptor(api.Interceptor),
+		grpc.StreamInterceptor(api.StreamInterceptor),
+	)
 	a.server.Register(g)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -151,6 +160,7 @@ func (a *App) Serve(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
+		a.server.Stop()
 		g.GracefulStop()
 	}()
 	close(a.ready)

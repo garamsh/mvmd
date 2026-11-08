@@ -26,6 +26,8 @@ type env struct {
 	store *memory.DeadlineStore
 	sup   *memory.Supervisors
 	svc   fencing.Service
+	// events records what the deadline reported, across restarts.
+	events *memory.Events
 
 	driver *machinememory.Driver
 	disks  *machinememory.Disk
@@ -37,13 +39,14 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	e := &env{clock: memory.NewClock("boot-1"), store: memory.NewDeadlineStore()}
 	e.sup = memory.NewSupervisors(e.store)
-	e.svc = fencing.NewService(e.clock, e.store, e.sup)
+	e.events = memory.NewEvents()
+	e.svc = fencing.NewService(e.clock, e.store, e.sup, e.events)
 
 	e.driver = machinememory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1"})
 	e.disks = machinememory.NewDisk()
 	images := machinememory.NewImageStore()
 	images.Provide(image)
-	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256})
+	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256}, machinememory.NewEvents())
 	require.NoError(t, e.svc.Reconcile(context.Background(), e.m))
 	return e
 }
@@ -52,7 +55,7 @@ func newEnv(t *testing.T) *env {
 // supervisors and clock, as an mvmd restart does, and reconciles it.
 func (e *env) restart(t *testing.T) error {
 	t.Helper()
-	e.svc = fencing.NewService(e.clock, e.store, e.sup)
+	e.svc = fencing.NewService(e.clock, e.store, e.sup, e.events)
 	return e.svc.Reconcile(context.Background(), e.m)
 }
 

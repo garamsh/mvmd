@@ -277,12 +277,6 @@ func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
 		"PullImage":       func() error { _, err := c.PullImage(ctx, pull); return err },
 	}
 	streams := map[string]func() error{
-		"WatchEvents": func() error {
-			s, err := c.WatchEvents(ctx, &v1alpha1.WatchEventsRequest{})
-			require.NoError(t, err)
-			_, err = s.Recv()
-			return err
-		},
 		"ReadExecOutput": func() error {
 			s, err := c.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: "m", ExecId: "e"})
 			require.NoError(t, err)
@@ -321,5 +315,5 @@ func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
 		}
 	}
 	assert.Len(t, unary, 6)
-	assert.Len(t, streams, 5)
+	assert.Len(t, streams, 4)
 }

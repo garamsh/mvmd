@@ -102,6 +102,8 @@ Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its l
 | Events | A stream of state changes, deadline events and Driver events, each with the Machine identifier and a sequence number that grows on this node |
 
 - **Events are resumable and not the source of truth.** The client may resume from a sequence number. If mvmd no longer holds events that far back, it says so and the client lists to resynchronise, so a missed event never leaves the client wrong (#2 §3, level-triggered reconciliation). How long events are kept is an open question.
+- **One ordered sequence.** Events held after the requested sequence, then each new event, come as one sequence with no gap or repeat between them. A sequence of zero starts at the oldest event held, and a sequence equal to the latest one waits for the next event. Mvmd answers "resync required" and ends the stream when the events after the requested sequence are no longer held, when the sequence is ahead of what this node has emitted (its log starts empty at each start), or when a client that reads too slowly falls behind what is held; a stream never skips an event.
+- **What is emitted.** Every committed change of a Machine's state, each change of the fencing deadline (armed, renewed, expired) and each event a Driver raises. Delete Machine emits nothing, since a deleted Machine has no state to name; the client lists. A stream ends cleanly when mvmd stops, and the client resumes from the last sequence it holds.
 
 ### Guest access
 

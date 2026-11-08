@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
@@ -26,13 +27,22 @@ type Server struct {
 	machines machine.Service
 	deadline fencing.Service
 	drivers  []machine.DriverInfo
+	events   events.Service
+	// stopping ends the event streams when Stop is called: a stream has no
+	// end of its own, and a graceful stop of the gRPC server waits for it.
+	stopping context.Context
+	stop     context.CancelFunc
 }
 
-// New returns the server over the lifecycle and the deadline, reporting the
-// given Drivers in runtime info.
-func New(machines machine.Service, deadline fencing.Service, drivers []machine.DriverInfo) *Server {
-	return &Server{machines: machines, deadline: deadline, drivers: drivers}
+// New returns the server over the lifecycle, the deadline and the event log,
+// reporting the given Drivers in runtime info.
+func New(machines machine.Service, deadline fencing.Service, drivers []machine.DriverInfo, log events.Service) *Server {
+	stopping, stop := context.WithCancel(context.Background())
+	return &Server{machines: machines, deadline: deadline, drivers: drivers, events: log, stopping: stopping, stop: stop}
 }
+
+// Stop ends every event stream, so the gRPC server can stop gracefully.
+func (s *Server) Stop() { s.stop() }
 
 // Register registers the server on a gRPC server.
 func (s *Server) Register(g *grpc.Server) { v1alpha1.RegisterRuntimeServiceServer(g, s) }
@@ -46,6 +56,29 @@ func Interceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler 
 		}
 	}
 	return handler(ctx, req)
+}
+
+// StreamInterceptor wraps the server stream so that every message received
+// through RecvMsg is validated; an invalid message is refused as REJECTED.
+func StreamInterceptor(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	wrapped := &validatingStream{ServerStream: ss}
+	return handler(srv, wrapped)
+}
+
+type validatingStream struct {
+	grpc.ServerStream
+}
+
+func (v *validatingStream) RecvMsg(m any) error {
+	if err := v.ServerStream.RecvMsg(m); err != nil {
+		return err
+	}
+	if val, ok := m.(interface{ Validate() error }); ok {
+		if err := val.Validate(); err != nil {
+			return v1alpha1.NewError(v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, err.Error())
+		}
+	}
+	return nil
 }
 
 func rejected(format string, args ...any) error {

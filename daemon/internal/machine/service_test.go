@@ -31,6 +31,7 @@ type env struct {
 	images *memory.ImageStore
 	store  *memory.StateStore
 	permit *memory.StartPermitter
+	events *memory.Events
 }
 
 // newEnv returns an env whose Driver supports the given capabilities and
@@ -44,9 +45,10 @@ func newEnv(caps ...machine.Capability) *env {
 		images: memory.NewImageStore(),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
+		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256})
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
 	return e
 }
 

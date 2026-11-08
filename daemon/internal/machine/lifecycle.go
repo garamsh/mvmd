@@ -70,8 +70,8 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	}
 	s.claim(id, root) // a root disk is new, so no one else holds it
 	m := Machine{ID: id, State: StateCreated, Spec: spec, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
-	rec := &Record{ID: id, Machine: &m, Request: Request{ID: request, Spec: spec}}
-	if err := s.store.Save(ctx, *rec); err != nil {
+	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec}}
+	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
 		reason := fmt.Sprintf("record the Machine: %v", err)
 		s.release(append(disks, root)...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, reason)))
@@ -79,6 +79,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	s.mu.Lock()
 	s.records[id] = rec
 	s.mu.Unlock()
+	s.setMachine(rec, &m)
 	return nil
 }
 

@@ -25,10 +25,6 @@ func (*Server) RestoreMachine(context.Context, *v1alpha1.RestoreMachineRequest) 
 	return nil, unsupported("RestoreMachine", "garamsh/mvmd#19")
 }
 
-func (*Server) WatchEvents(*v1alpha1.WatchEventsRequest, grpc.ServerStreamingServer[v1alpha1.WatchEventsResponse]) error {
-	return unsupported("WatchEvents", "garamsh/mvmd#19")
-}
-
 func (*Server) Exec(context.Context, *v1alpha1.ExecRequest) (*v1alpha1.ExecResponse, error) {
 	return nil, unsupported("Exec", "garamsh/mvmd#19")
 }

@@ -96,7 +96,7 @@ func TestRenew_NotAcknowledgedUnlessRecorded(t *testing.T) {
 
 func TestRenew_RefusedBeforeReconcile(t *testing.T) {
 	store := memory.NewDeadlineStore()
-	svc := fencing.NewService(memory.NewClock("boot-1"), store, memory.NewSupervisors(store))
+	svc := fencing.NewService(memory.NewClock("boot-1"), store, memory.NewSupervisors(store), memory.NewEvents())
 	_, err := svc.Renew(context.Background(), time.Minute, 1)
 	requireKind(t, err, machine.ErrPreconditionFailed)
 }

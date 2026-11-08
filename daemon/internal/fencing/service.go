@@ -37,6 +37,8 @@ type service struct {
 	clock Clock
 	store DeadlineStore
 	sup   Supervisors
+	// events hears of each change of the deadline, from set.
+	events Events
 
 	// order serializes starts, renewals and the stop at expiry against one
 	// another: the only node-wide ordering ADR 0003 names. Nothing under it
@@ -52,8 +54,8 @@ type service struct {
 }
 
 // NewService returns a deadline that is unarmed until Reconcile and a renewal.
-func NewService(clock Clock, store DeadlineStore, sup Supervisors) Service {
-	return &service{clock: clock, store: store, sup: sup, changed: make(chan struct{})}
+func NewService(clock Clock, store DeadlineStore, sup Supervisors, events Events) Service {
+	return &service{clock: clock, store: store, sup: sup, events: events, changed: make(chan struct{})}
 }
 
 func (s *service) current() (rec *Record, stopped bool, machines Machines) {
@@ -62,13 +64,18 @@ func (s *service) current() (rec *Record, stopped bool, machines Machines) {
 	return s.rec, s.stopped, s.machines
 }
 
-// set replaces the deadline and wakes Run.
-func (s *service) set(rec *Record, stopped bool) {
+// set replaces the deadline, the one place it changes, and wakes Run. A
+// non-zero event is reported to Events. Every caller holds the ordering lock,
+// so events come in the order the changes were made.
+func (s *service) set(rec *Record, stopped bool, event Event) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.rec, s.stopped = rec, stopped
 	close(s.changed)
 	s.changed = make(chan struct{})
+	s.mu.Unlock()
+	if event != 0 {
+		s.events.Deadline(event)
+	}
 }
 
 func status(rec *Record, stopped bool, now BootTime) Status {

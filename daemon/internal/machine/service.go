@@ -52,6 +52,7 @@ type service struct {
 	store      StateStore
 	permitter  StartPermitter
 	uidRange   UIDRange
+	events     Events
 
 	// mu guards the maps below and every record's Machine pointer, and is held
 	// only for map and pointer work, never across a port call. A Machine's
@@ -67,8 +68,10 @@ type service struct {
 }
 
 // NewService returns the lifecycle over the given ports. uidRange names the
-// range of UIDs the node reserves for its Machines (ADR 0015).
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange) Service {
+// range of UIDs the node reserves for its Machines (ADR 0015). Every state
+// change and every event the Driver raises goes to events.
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
+	driver.Observe(events.Reported)
 	return &service{
 		driver:       driver,
 		supervisor:   supervisor,
@@ -78,6 +81,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		store:        store,
 		permitter:    permitter,
 		uidRange:     uidRange,
+		events:       events,
 		records:      make(map[MachineID]*Record),
 		locks:        make(map[MachineID]*machineLock),
 		held:         make(map[DiskID]MachineID),
@@ -125,10 +129,18 @@ func (s *service) machine(id MachineID) (*Record, error) {
 	return rec, nil
 }
 
+// setMachine makes m the record's Machine, the one place a state is committed,
+// and reports a changed state, or a first one, to Events. A call holds the
+// Machine's lock here, so the events of one Machine come in the order its
+// states were committed.
 func (s *service) setMachine(rec *Record, m *Machine) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	changed := rec.Machine == nil || rec.Machine.State != m.State
 	rec.Machine = m
+	s.mu.Unlock()
+	if changed {
+		s.events.StateChanged(rec.ID, m.State)
+	}
 }
 
 // commit durably records next and, only then, makes it the Machine's state.

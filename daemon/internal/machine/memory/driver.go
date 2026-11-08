@@ -22,6 +22,25 @@ type Driver struct {
 	hold    chan struct{}
 	entered chan struct{}
 	process *machine.ProcessDescription
+	report  func(machine.DriverEvent)
+}
+
+// Observe implements machine.Driver.
+func (d *Driver) Observe(report func(machine.DriverEvent)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.report = report
+}
+
+// Raise makes the Driver report an event of its own, as a VMM that exited
+// does. It does nothing before Observe.
+func (d *Driver) Raise(name, detail string) {
+	d.mu.Lock()
+	report := d.report
+	d.mu.Unlock()
+	if report != nil {
+		report(machine.DriverEvent{Name: name, Detail: detail})
+	}
 }
 
 // UseProcess makes Describe return the process instead of the fixed one with

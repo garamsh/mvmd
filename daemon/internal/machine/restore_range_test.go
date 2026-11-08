@@ -22,9 +22,10 @@ func TestRestore_MaxRangeDoesNotWrap(t *testing.T) {
 		images: memory.NewImageStore(),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
+		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1, Count: ^uint32(0)})
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1, Count: ^uint32(0)}, e.events)
 
 	// Create a Machine that gets UID 1.
 	e.created(t, "a")
@@ -51,9 +52,10 @@ func TestRestore_UIDZeroIsRefused(t *testing.T) {
 		images: memory.NewImageStore(),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
+		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 10})
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 10}, e.events)
 
 	// Save a record with UID 0.
 	m := machine.Machine{
@@ -84,9 +86,10 @@ func TestRestore_UIDCollisionIsRefused(t *testing.T) {
 		images: memory.NewImageStore(),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
+		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 2000, Count: 100})
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 2000, Count: 100}, e.events)
 
 	// Save two records with the same UID.
 	for _, id := range []string{"a", "b"} {
@@ -111,7 +114,7 @@ func TestRestore_UIDCollisionIsRefused(t *testing.T) {
 // reopenedWithRange is like reopened but with a custom UID range.
 func (e *env) reopenedWithRange(t *testing.T, uidRange machine.UIDRange) machine.Service {
 	t.Helper()
-	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, uidRange)
+	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, uidRange, e.events)
 	require.NoError(t, svc.Restore(context.Background()))
 	return svc
 }

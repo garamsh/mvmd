@@ -112,6 +112,9 @@ type Driver interface {
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
 	// Resize needs CapabilityResize.
 	Resize(ctx context.Context, id MachineID, target Resources) error
+	// Observe sets the function the Driver calls for each event it raises on
+	// its own, from any goroutine. NewService calls it once.
+	Observe(report func(DriverEvent))
 }
 
 func (i DriverInfo) has(c Capability) bool {
