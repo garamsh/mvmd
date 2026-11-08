@@ -1,0 +1,9 @@
+version: v2
+clean: false
+plugins:
+  - local: [go, tool, -modfile=../tooling/protogen/go.mod, protoc-gen-go]
+    out: .
+    opt: module=github.com/garamsh/mvmd/daemon
+  - local: [go, tool, -modfile=../tooling/protogen/go.mod, protoc-gen-go-grpc]
+    out: .
+    opt: module=github.com/garamsh/mvmd/daemon

@@ -13,8 +13,10 @@ var ErrNotAttempted = errors.New("not attempted")
 // and confines the VMM process. The fencing expiry joins Start with the
 // fencing issue.
 type Supervision interface {
-	// Start starts the described VMM process under a new supervisor.
-	Start(ctx context.Context, id MachineID, process ProcessDescription) error
+	// Start starts the described VMM process under a new supervisor, as the
+	// Machine's user. The user comes from the lifecycle and never from the
+	// Driver's description (ADR 0015).
+	Start(ctx context.Context, id MachineID, process ProcessDescription, user User) error
 	// Terminate forces the Machine's VMM process down and returns once it has
 	// ended. It succeeds when no process exists. An error wrapping
 	// ErrNotAttempted means nothing was done.

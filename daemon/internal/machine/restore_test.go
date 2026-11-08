@@ -66,6 +66,7 @@ func TestRestore_AFailedListingLeavesMachinesThatDoNotClaimToRun(t *testing.T) {
 }
 
 var someProcess = machine.ProcessDescription{Executable: "vmm"}
+var someUser = machine.User{UID: 1000, GID: 1000}
 
 // A supervisor no Running or Paused record claims is ended; the control is the
 // supervisor of a Running record, which is kept.
@@ -76,7 +77,7 @@ func TestRestore_EndsSupervisorsNoRunningRecordClaims(t *testing.T) {
 	e.inState(t, "created", machine.StateCreated)
 	e.inState(t, "stopped", machine.StateStopped)
 	for _, id := range []machine.MachineID{"created", "stopped", "ghost"} {
-		require.NoError(t, e.sup.Start(ctx, id, someProcess))
+		require.NoError(t, e.sup.Start(ctx, id, someProcess, someUser))
 	}
 	_, err := e.net.Apply(ctx, "created", machine.NetworkPolicy{})
 	require.NoError(t, err)
@@ -106,7 +107,7 @@ func TestRestore_AnUnclaimedSupervisorThatCannotBeEndedFaultsOrFails(t *testing.
 	ctx := context.Background()
 	e := newEnv(hotplugAndResize...)
 	e.inState(t, "created", machine.StateCreated)
-	require.NoError(t, e.sup.Start(ctx, "created", someProcess))
+	require.NoError(t, e.sup.Start(ctx, "created", someProcess, someUser))
 	e.sup.FailAt("terminate", errBoom)
 
 	svc := e.reopened(t)
@@ -118,7 +119,7 @@ func TestRestore_AnUnclaimedSupervisorThatCannotBeEndedFaultsOrFails(t *testing.
 	assert.Equal(t, machine.StateFaulted, rec.Machine.State, "the finding is recorded")
 
 	// An unrecorded supervisor is an error, so the daemon does not serve.
-	require.NoError(t, e.sup.Start(ctx, "ghost", someProcess))
+	require.NoError(t, e.sup.Start(ctx, "ghost", someProcess, someUser))
 	err = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}).Restore(ctx)
 	require.ErrorIs(t, err, errBoom)
 }

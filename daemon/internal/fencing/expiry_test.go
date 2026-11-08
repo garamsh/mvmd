@@ -72,6 +72,8 @@ func TestStart_SupervisorIsStartedWithTheCurrentExpiry(t *testing.T) {
 	assert.Equal(t, rec.Expiry, expiry)
 	process, _ := e.sup.Process("a")
 	assert.Equal(t, "/usr/libexec/inmem", process.Executable, "the supervisor was given the Driver's description")
+	user, _ := e.sup.User("a")
+	assert.NotZero(t, user.UID, "and the Machine's user, never root")
 	assert.Empty(t, e.store.Violations())
 
 	e.renew(t, 2*time.Minute, 3)

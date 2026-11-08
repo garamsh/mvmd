@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 
@@ -24,11 +25,13 @@ import (
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
+	"github.com/garamsh/mvmd/daemon/internal/supervision"
 )
 
 // Substitutes are the in-memory adapters behind the ports when the
 // configuration selects the memory driver, so that what a Machine needs on the
-// node can be provided: images and disks.
+// node can be provided: images and disks. Supervisors is nil when the
+// configuration names real supervision.
 type Substitutes struct {
 	Driver      *machinememory.Driver
 	Network     *machinememory.Network
@@ -78,7 +81,20 @@ func New(cfg Config) (*App, error) {
 		Images:      machinememory.NewImageStore(),
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
-	deadline := fencing.NewService(clock, db.Deadline(), sub.Supervisors)
+	var supervisors fencing.Supervisors = sub.Supervisors
+	if s := cfg.Supervision; s != nil {
+		dir := s.Dir
+		if dir == "" {
+			dir = filepath.Join(cfg.StateDir, "machines")
+		}
+		real, err := supervision.New(supervision.Config{Binary: s.Binary, Dir: dir, Cgroup: s.Cgroup})
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		supervisors, sub.Supervisors = real, nil
+	}
+	deadline := fencing.NewService(clock, db.Deadline(), supervisors)
 	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange())
 
 	return &App{

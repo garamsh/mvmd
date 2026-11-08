@@ -122,6 +122,38 @@ func TestStart_OnSuccess(t *testing.T) {
 	assert.Equal(t, 1, e.driver.Calls("boot"))
 }
 
+// Row "Start", column Effects: the supervisor starts the VMM as the Machine's
+// allocated user and never as root (ADR 0015).
+func TestStart_RunsAsTheMachinesUser(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.created(t, "a")
+	e.created(t, "b")
+	require.NoError(t, e.svc.Start(ctx, "a"))
+	require.NoError(t, e.svc.Start(ctx, "b"))
+
+	users := map[machine.User]bool{}
+	for _, id := range []machine.MachineID{"a", "b"} {
+		m, err := e.svc.Inspect(ctx, id)
+		require.NoError(t, err)
+		user, running := e.sup.User(id)
+		require.True(t, running)
+		assert.Equal(t, m.User, user, id)
+		assert.NotZero(t, user.UID, "never root")
+		assert.NotZero(t, user.GID, "never root")
+		users[m.User] = true
+	}
+	assert.Len(t, users, 2, "each Machine has its own user")
+
+	// A restart passes the same user again.
+	m, err := e.svc.Inspect(ctx, "a")
+	require.NoError(t, err)
+	require.NoError(t, e.svc.Stop(ctx, "a", time.Second))
+	require.NoError(t, e.svc.Start(ctx, "a"))
+	user, _ := e.sup.User("a")
+	assert.Equal(t, m.User, user)
+}
+
 // Row "Start", column Repeat.
 func TestStart_Repeat(t *testing.T) {
 	e := newEnv()

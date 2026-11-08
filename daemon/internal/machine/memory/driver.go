@@ -21,6 +21,16 @@ type Driver struct {
 	sizes   map[machine.MachineID]machine.Resources
 	hold    chan struct{}
 	entered chan struct{}
+	process *machine.ProcessDescription
+}
+
+// UseProcess makes Describe return the process instead of the fixed one with
+// the Machine's boot files, for a test that starts a real process under a real
+// supervisor.
+func (d *Driver) UseProcess(p machine.ProcessDescription) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.process = &p
 }
 
 // NewDriver returns a Driver reporting the given name, version and
@@ -44,7 +54,11 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 	}
 	d.mu.Lock()
 	d.specs[id] = spec
+	p := d.process
 	d.mu.Unlock()
+	if p != nil {
+		return *p, nil
+	}
 	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: spec.Devices}, nil
 }
 
