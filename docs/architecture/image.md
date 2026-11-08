@@ -21,7 +21,7 @@ Checked against garamsh/discussions#2 as read on 2026-11-08, §5 image section (
 - **What the host does.** It fetches every blob by digest and checks its size and SHA-256, and parses only the JSON of manifests, indexes and configs. It never decompresses or applies a layer.
 - **What the converter does.** It receives the verified layers in manifest order over vsock, writes one EROFS to its output disk, and reports the image's length. Its VMM runs under an `mvmd-supervisor` whose expiry is the node's conversion time limit; vCPUs, memory, output size and time are node configuration.
 - **How layers are applied.** One `mkfs.erofs` run per layer, the first a full build and each later one incremental, with OCI whiteouts and opaque whiteouts applied against the layers below and removed from the result. `tar+gzip` is filtered by `mkfs.erofs`; `tar+zstd` is decompressed by the converter; other layer types fail the pull ([ADR 0006](./adr/0006-mkfs-erofs-converts-an-image-one-layer-at-a-time.md)).
-- **Known divergence.** A layer holding both a name and its whiteout, the whiteout after the name, loses the name, where the OCI specification keeps it (ADR 0006).
+- **A same-layer whiteout** of a name the layer also holds is rewritten by the converter before `mkfs.erofs` sees it: into an opaque marker when the layer makes the name a directory, dropped otherwise. The result matches the OCI layer specification in either order. The converter reads each layer twice, once for its names and once to convert it, with no copy kept (ADR 0006).
 - **The output is untrusted.** Only the guests of that image's Machines interpret it; the host reads it as bytes.
 
 ### Node image cache
