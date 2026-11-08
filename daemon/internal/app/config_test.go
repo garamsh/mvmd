@@ -11,15 +11,16 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/app"
 )
 
-const goodConfig = `{"socket":{"path":"/run/mvmd.sock","mode":"0660","group":"mvmd"},"state_dir":"/var/lib/mvmd","driver":"memory"}`
+const goodConfig = `{"socket":{"path":"/run/mvmd.sock","mode":"0660","group":"mvmd"},"state_dir":"/var/lib/mvmd","driver":"memory","vmm_uid_range":{"first":1000,"count":65536}}`
 
 func TestConfig_Parses(t *testing.T) {
 	cfg, err := app.ParseConfig([]byte(goodConfig))
 	require.NoError(t, err)
 	assert.Equal(t, app.Config{
-		Socket:   app.SocketConfig{Path: "/run/mvmd.sock", Mode: "0660", Group: "mvmd"},
-		StateDir: "/var/lib/mvmd",
-		Driver:   "memory",
+		Socket:      app.SocketConfig{Path: "/run/mvmd.sock", Mode: "0660", Group: "mvmd"},
+		StateDir:    "/var/lib/mvmd",
+		Driver:      "memory",
+		VMMUIDRange: app.VMMUIDRangeConfig{First: 1000, Count: 65536},
 	}, cfg)
 
 	path := filepath.Join(t.TempDir(), "mvmd.json")

@@ -79,7 +79,7 @@ func New(cfg Config) (*App, error) {
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
 	deadline := fencing.NewService(clock, db.Deadline(), sub.Supervisors)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange())
 
 	return &App{
 		cfg:         cfg,

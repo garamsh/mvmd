@@ -24,9 +24,10 @@ func config(t *testing.T) Config {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return Config{
-		Socket:   SocketConfig{Path: filepath.Join(dir, "s"), Mode: "0600"},
-		StateDir: filepath.Join(dir, "state"),
-		Driver:   DriverMemory,
+		Socket:      SocketConfig{Path: filepath.Join(dir, "s"), Mode: "0600"},
+		StateDir:    filepath.Join(dir, "state"),
+		Driver:      DriverMemory,
+		VMMUIDRange: VMMUIDRangeConfig{First: 1000, Count: 65536},
 	}
 }
 

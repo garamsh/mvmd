@@ -46,9 +46,10 @@ func testConfig(t *testing.T) app.Config {
 	t.Helper()
 	dir := shortDir(t)
 	return app.Config{
-		Socket:   app.SocketConfig{Path: filepath.Join(dir, "s"), Mode: "0600"},
-		StateDir: filepath.Join(dir, "state"),
-		Driver:   app.DriverMemory,
+		Socket:      app.SocketConfig{Path: filepath.Join(dir, "s"), Mode: "0600"},
+		StateDir:    filepath.Join(dir, "state"),
+		Driver:      app.DriverMemory,
+		VMMUIDRange: app.VMMUIDRangeConfig{First: 1000, Count: 65536},
 	}
 }
 

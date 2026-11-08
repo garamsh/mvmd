@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
 // DriverMemory selects the in-memory Driver, Supervision, Network, Disk and
@@ -21,6 +23,21 @@ type Config struct {
 	StateDir string `json:"state_dir"`
 	// Driver selects the adapters behind the ports: "memory".
 	Driver string `json:"driver"`
+	// VMMUIDRange names the range of UIDs (and GIDs) reserved for Machines.
+	// The first must be non-zero (root is forbidden) and Count must be
+	// positive; the range must not overflow uint32 (ADR 0015).
+	VMMUIDRange VMMUIDRangeConfig `json:"vmm_uid_range"`
+}
+
+// VMMUIDRangeConfig is the JSON-marshaled form of machine.UIDRange.
+type VMMUIDRangeConfig struct {
+	First uint32 `json:"first"`
+	Count uint32 `json:"count"`
+}
+
+// ToUIDRange converts to the machine.UIDRange type.
+func (c VMMUIDRangeConfig) ToUIDRange() machine.UIDRange {
+	return machine.UIDRange{First: c.First, Count: c.Count}
 }
 
 // SocketConfig is where the runtime API is served and who may reach it: the
@@ -71,6 +88,9 @@ func (c Config) check() error {
 	}
 	if _, err := c.Socket.perm(); err != nil {
 		return err
+	}
+	if err := c.VMMUIDRange.ToUIDRange().Validate(); err != nil {
+		return fmt.Errorf("vmm_uid_range: %w", err)
 	}
 	return nil
 }
