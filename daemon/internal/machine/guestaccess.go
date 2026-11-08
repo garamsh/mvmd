@@ -120,8 +120,16 @@ func (s *service) dropExecs(id MachineID) {
 func (s *service) cutShort(id MachineID, why string) {
 	s.execMu.Lock()
 	defer s.execMu.Unlock()
-	for _, e := range s.execs {
-		if e.machine == id && e.record.Status == ExecStarted {
+	for execID, e := range s.execs {
+		switch {
+		case e.machine != id:
+		case !e.answered:
+			// The guest never answered the start, so whether the command ran is
+			// not known; with its Machine gone it never will be.
+			e.record = ExecRecord{ID: execID, Status: ExecCutShort,
+				Reason: "the guest never answered the start, so whether the command ran is not known; the Machine is gone: " + why}
+			e.answered = true
+		case e.record.Status == ExecStarted:
 			e.record.Status = ExecCutShort
 			e.record.Reason = "the command ended with its Machine: " + why
 		}

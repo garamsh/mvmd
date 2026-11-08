@@ -213,6 +213,34 @@ func TestExec_AfterFailure(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecExited, kept.Status)
 	})
+	t.Run("a Machine that stops settles a start the guest never answered", func(t *testing.T) {
+		e := newEnv()
+		e.inState(t, "m", machine.StateRunning)
+		e.guest.FailAt("exec", errBoom)
+		_, err := e.svc.Exec(ctx, "m", "unanswered", "r1", echo)
+		requireKind(t, err, machine.ErrFailed)
+		e.guest.Heal("exec")
+		_, err = e.svc.Exec(ctx, "m", "answered", "r2", echo)
+		require.NoError(t, err)
+
+		require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+
+		unanswered, err := e.svc.ReadExecOutput(ctx, "m", "unanswered", 0, func(machine.OutputChunk) error { return nil })
+		require.NoError(t, err, "the record can be read once the Machine has stopped")
+		assert.Equal(t, machine.ExecCutShort, unanswered.Status)
+		assert.Contains(t, unanswered.Reason, "never answered", "and says whether the command ran is not known")
+
+		// Control: a running command that was answered is cut short the same way.
+		answered, err := e.svc.ReadExecOutput(ctx, "m", "answered", 0, func(machine.OutputChunk) error { return nil })
+		require.NoError(t, err)
+		assert.Equal(t, machine.ExecCutShort, answered.Status)
+		assert.NotContains(t, answered.Reason, "never answered")
+
+		// A repeat of the unanswered call is the settled record, not a new start.
+		repeat, err := e.svc.Exec(ctx, "m", "unanswered", "r1", echo)
+		require.NoError(t, err)
+		assert.Equal(t, unanswered, repeat)
+	})
 	t.Run("a Machine that becomes Faulted cuts it short as well", func(t *testing.T) {
 		e := newEnv()
 		e.inState(t, "m", machine.StateRunning)
