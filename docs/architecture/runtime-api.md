@@ -44,7 +44,7 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 |---|---|---|---|---|
 | Create Machine | Image already on the node, resources, root disk size, disks, network policy | Created | Same request ID: original outcome | No Machine exists |
 | Start | Created or Stopped; network policy applied; fencing deadline armed | Running | Already Running: success | Prior state; a boot that began and failed ends in Stopped with the failure reason |
-| Stop | Any state | Stopped | Already Stopped, or Created: success, no change | Running or Paused if the stop never began; Faulted if the VMM ended but the Machine's network could not be removed, and a later Stop retries it |
+| Stop | Any state | Stopped | Already Stopped, or Created: success, no change | Running or Paused if the stop never began; Faulted if it began and cannot be confirmed, or if the VMM ended but the Machine's network could not be removed, and a later Stop retries |
 | Pause | Running | Paused | Already Paused: success | Running |
 | Resume | Paused | Running | Already Running: success | Paused |
 | Snapshot | Running or Paused; Driver supports snapshot | Machine in the state it was in; snapshot exists | Same request ID: the existing snapshot | The Machine in the state it was in, and no snapshot exists; Faulted if the Machine cannot be returned to it |
@@ -65,7 +65,7 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 | Detach disk | Attached; hotplug capability if Running or Paused | Not attached | Absent: success | Still attached |
 | Set resources | Absolute target (CPU, memory); resize capability if Running or Paused | Target held | Same target: success | The prior value; inspect shows the value in effect |
 
-- **A disk has at most one holder on this node, readers included** ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)): an attach that would add a second holder is precondition failed.
+- **A disk has at most one holder on this node, readers included** ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)) (#2 §4 invariant 2): an attach that would add a second holder is precondition failed.
 - **Resize names a target, not a delta**, so a repeat is idempotent.
 
 ### Network policy
