@@ -57,6 +57,66 @@ func TestStart_RefusedUnlessArmed(t *testing.T) {
 	})
 }
 
+// holdSnapshot makes the node hold a snapshot that this node's Driver took.
+func (e *env) holdSnapshot(t *testing.T) {
+	t.Helper()
+	require.NoError(t, e.snaps.Put(context.Background(), machine.Snapshot{
+		ID: "snap", Machine: "gone", Request: "r",
+		Spec:         machine.Spec{Image: image, Resources: machine.Resources{VCPUs: 1, MemoryBytes: 1 << 20}, RootDiskBytes: 1 << 20},
+		RootDiskUUID: "uuid",
+		Compat:       machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a"},
+	}, machine.SnapshotFiles{State: []string{"/snap/mem"}, RootDisk: "/snap/root"}))
+}
+
+// Restore is gated as Start is: refused while the deadline is unarmed or
+// expired, so no supervisor and no VMM exist for it. The control is the same
+// restore under an armed deadline.
+func TestRestoreSnapshot_IsRefusedWithoutAnArmedDeadline(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	e.holdSnapshot(t)
+
+	t.Run("unarmed", func(t *testing.T) {
+		requireKind(t, e.m.RestoreSnapshot(ctx, "new", "r-1", "snap", machine.NetworkPolicy{}), machine.ErrPreconditionFailed)
+		_, alive := e.sup.Expiry("new")
+		assert.False(t, alive, "no supervisor, so no VMM, without an expiry")
+		assert.Zero(t, e.driver.Calls("restore"))
+	})
+	t.Run("armed", func(t *testing.T) {
+		e.renew(t, time.Minute, 1)
+		require.NoError(t, e.m.RestoreSnapshot(ctx, "new", "r-2", "snap", machine.NetworkPolicy{}))
+		assert.Equal(t, machine.StateRunning, e.state(t, "new"))
+	})
+	t.Run("expired", func(t *testing.T) {
+		e.clock.Advance(time.Minute)
+		requireKind(t, e.m.RestoreSnapshot(ctx, "other", "r-3", "snap", machine.NetworkPolicy{}), machine.ErrPreconditionFailed)
+		_, alive := e.sup.Expiry("other")
+		assert.False(t, alive)
+	})
+}
+
+// A restored Machine's supervisor is started with the expiry in force, in the
+// same step as the permission, and later renewals reach it.
+func TestRestoreSnapshot_SupervisorIsStartedWithTheCurrentExpiry(t *testing.T) {
+	e := newEnv(t)
+	e.holdSnapshot(t)
+	e.renew(t, time.Minute, 1)
+	e.clock.Advance(10 * time.Second)
+	e.renew(t, time.Minute, 2)
+	require.NoError(t, e.m.RestoreSnapshot(context.Background(), "new", "r", "snap", machine.NetworkPolicy{}))
+
+	rec, _ := e.store.Recorded()
+	expiry, alive := e.sup.Expiry("new")
+	require.True(t, alive)
+	assert.Equal(t, rec.Expiry, expiry)
+	process, _ := e.sup.Process("new")
+	assert.Equal(t, "/usr/libexec/inmem", process.Executable, "the supervisor was given the Driver's description")
+	assert.NotEmpty(t, process.RunDir)
+
+	e.renew(t, time.Hour, 3)
+	e.requireSupervisorsAt(t)
+}
+
 // ADR 0003: "No VMM without an expiry": Start hands the supervisor the
 // current expiry, and later renewals reach it.
 func TestStart_SupervisorIsStartedWithTheCurrentExpiry(t *testing.T) {

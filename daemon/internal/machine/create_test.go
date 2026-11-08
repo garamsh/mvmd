@@ -92,7 +92,7 @@ func TestCreate_OnSuccess(t *testing.T) {
 
 	m := e.requireState(t, "m", machine.StateCreated)
 	assert.Equal(t, spec, m.Spec)
-	assert.Equal(t, machine.DriverInfo{Name: "inmem", Version: "1"}, m.Driver)
+	assert.Equal(t, machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a"}, m.Driver)
 	assert.NotEmpty(t, m.Network.MAC)
 	assert.NotEmpty(t, m.Network.Addresses)
 	size, held := e.disks.Holds(m.RootDisk)

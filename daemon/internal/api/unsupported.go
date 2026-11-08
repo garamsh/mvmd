@@ -17,14 +17,6 @@ func unsupported(call, issue string) error {
 		call+" is not offered by this mvmd yet; it arrives with "+issue)
 }
 
-func (*Server) SnapshotMachine(context.Context, *v1alpha1.SnapshotMachineRequest) (*v1alpha1.SnapshotMachineResponse, error) {
-	return nil, unsupported("SnapshotMachine", "garamsh/mvmd#19")
-}
-
-func (*Server) RestoreMachine(context.Context, *v1alpha1.RestoreMachineRequest) (*v1alpha1.RestoreMachineResponse, error) {
-	return nil, unsupported("RestoreMachine", "garamsh/mvmd#19")
-}
-
 func (*Server) Exec(context.Context, *v1alpha1.ExecRequest) (*v1alpha1.ExecResponse, error) {
 	return nil, unsupported("Exec", "garamsh/mvmd#19")
 }

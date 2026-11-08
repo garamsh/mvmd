@@ -47,8 +47,8 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 | Stop | Any state | Stopped | Already Stopped, or Created: success, no change | Running or Paused if the stop never began; Faulted if it began and cannot be confirmed, or if the VMM ended but the Machine's network could not be removed, and a later Stop retries |
 | Pause | Running | Paused | Already Paused: success | Running |
 | Resume | Paused | Running | Already Running: success | Paused |
-| Snapshot | Running or Paused; Driver supports snapshot | Machine in the state it was in; snapshot exists | Same request ID: the existing snapshot | The Machine in the state it was in, and no snapshot exists; Faulted if the Machine cannot be returned to it |
-| Restore | A snapshot compatible with this node's Driver, version and CPU; fencing deadline armed; network policy applied | New Machine, Running | Same request ID: original outcome | No Machine exists |
+| Snapshot | Running or Paused; Driver supports snapshot; no disk attached but the root disk | Machine in the state it was in; snapshot exists | Same request ID: the existing snapshot | The Machine in the state it was in, and no snapshot exists; Faulted if the Machine cannot be returned to it |
+| Restore | A snapshot compatible with this node's Driver, version and CPU; fencing deadline armed; network policy applied | New Machine, Running | Same request ID: original outcome | No Machine exists; Faulted if its VMM cannot be ended |
 | Delete Machine | Created, Stopped or Faulted | No Machine exists | Absent: success | Prior state |
 
 - **Stop forces the guest down after a grace period the client names.** A guest cannot be trusted to stop (workloads are untrusted, #2 §5 security), so a stop always ends with the VMM terminated.

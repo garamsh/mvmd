@@ -42,6 +42,7 @@ type Substitutes struct {
 	Network     *machinememory.Network
 	Disks       *machinememory.Disk
 	Images      *machinememory.ImageStore
+	Snapshots   *machinememory.SnapshotStore
 	Supervisors *fencingmemory.Supervisors
 }
 
@@ -78,12 +79,13 @@ func New(cfg Config) (*App, error) {
 	// Only the memory driver exists; check() refused any other.
 	sub := &Substitutes{
 		Driver: machinememory.NewDriver(machine.DriverInfo{
-			Name: "memory", Version: "1",
-			Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize},
+			Name: "memory", Version: "1", CPUModel: "memory-cpu",
+			Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize, machine.CapabilitySnapshot},
 		}),
 		Network:     machinememory.NewNetwork(),
 		Disks:       machinememory.NewDisk(),
 		Images:      machinememory.NewImageStore(),
+		Snapshots:   machinememory.NewSnapshotStore(),
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
 	var supervisors fencing.Supervisors = sub.Supervisors
@@ -101,7 +103,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,

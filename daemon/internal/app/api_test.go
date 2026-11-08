@@ -263,18 +263,14 @@ func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
 	ctx := context.Background()
 	n := start(t, testConfig(t))
 	c := n.client
-	snapshot := &v1alpha1.SnapshotMachineRequest{SnapshotId: "s", RequestId: "r", MachineId: "m"}
-	restore := &v1alpha1.RestoreMachineRequest{MachineId: "m", RequestId: "r", SnapshotId: "s"}
 	exec := &v1alpha1.ExecRequest{ExecId: "e", RequestId: "r", MachineId: "m", Command: []string{"true"}}
 	pull := &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: "registry.example/app", Digest: digest}}
 
 	unary := map[string]func() error{
-		"SnapshotMachine": func() error { _, err := c.SnapshotMachine(ctx, snapshot); return err },
-		"RestoreMachine":  func() error { _, err := c.RestoreMachine(ctx, restore); return err },
-		"Exec":            func() error { _, err := c.Exec(ctx, exec); return err },
-		"PatchFile":       func() error { _, err := c.PatchFile(ctx, &v1alpha1.PatchFileRequest{MachineId: "m"}); return err },
-		"SearchFiles":     func() error { _, err := c.SearchFiles(ctx, &v1alpha1.SearchFilesRequest{MachineId: "m"}); return err },
-		"PullImage":       func() error { _, err := c.PullImage(ctx, pull); return err },
+		"Exec":        func() error { _, err := c.Exec(ctx, exec); return err },
+		"PatchFile":   func() error { _, err := c.PatchFile(ctx, &v1alpha1.PatchFileRequest{MachineId: "m"}); return err },
+		"SearchFiles": func() error { _, err := c.SearchFiles(ctx, &v1alpha1.SearchFilesRequest{MachineId: "m"}); return err },
+		"PullImage":   func() error { _, err := c.PullImage(ctx, pull); return err },
 	}
 	streams := map[string]func() error{
 		"ReadExecOutput": func() error {
@@ -314,6 +310,6 @@ func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
 			})
 		}
 	}
-	assert.Len(t, unary, 6)
+	assert.Len(t, unary, 4)
 	assert.Len(t, streams, 4)
 }

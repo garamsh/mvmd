@@ -15,13 +15,27 @@ const (
 	// CapabilityResize changes the CPU and memory of a Running or Paused
 	// Machine.
 	CapabilityResize Capability = "resize"
+	// CapabilitySnapshot snapshots a Running or Paused Machine and restores
+	// a Machine from a snapshot.
+	CapabilitySnapshot Capability = "snapshot"
 )
 
 // DriverInfo names the Driver in service and what it supports.
 type DriverInfo struct {
-	Name         string
-	Version      string
+	Name    string
+	Version string
+	// CPUModel is the host CPU model the Driver's VMM runs guests on, which a
+	// snapshot is only restored on again.
+	CPUModel     string
 	Capabilities []Capability
+}
+
+// DriverSnapshot is what a Driver made of a paused Machine: the files it
+// wrote in the run directory and the digest of the guest kernel the snapshot
+// holds. It is the Driver's own and the inside does not read the files.
+type DriverSnapshot struct {
+	Files        []string
+	KernelDigest string
 }
 
 // BlockDevice is a raw disk file handed to a VMM.
@@ -119,6 +133,18 @@ type Driver interface {
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
 	// Resize needs CapabilityResize.
 	Resize(ctx context.Context, id MachineID, target Resources) error
+	// Snapshot, DescribeRestore and Restore need CapabilitySnapshot.
+	//
+	// Snapshot writes the paused Machine's memory and device state to files
+	// in its run directory, under the same names on every Snapshot of a
+	// Machine, so the files a failed attempt left are written over by the next.
+	Snapshot(ctx context.Context, id MachineID) (DriverSnapshot, error)
+	// DescribeRestore is Describe for a Machine that boots from the files of a
+	// snapshot. The boot's network device is the new Machine's tap, not the one
+	// the snapshot recorded.
+	DescribeRestore(ctx context.Context, id MachineID, spec BootSpec, files []string) (ProcessDescription, error)
+	// Restore loads the snapshot into the started VMM and resumes the guest.
+	Restore(ctx context.Context, id MachineID) error
 	// Observe sets the function the Driver calls for each event it raises on
 	// its own, from any goroutine. NewService calls it once.
 	Observe(report func(DriverEvent))

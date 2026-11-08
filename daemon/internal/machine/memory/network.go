@@ -29,7 +29,7 @@ func NewNetwork() *Network {
 }
 
 // Allocate implements machine.Network.
-func (n *Network) Allocate(_ context.Context, id machine.MachineID) (machine.NetworkIdentity, error) {
+func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string) (machine.NetworkIdentity, error) {
 	if err := n.Enter("allocate"); err != nil {
 		return machine.NetworkIdentity{}, err
 	}
@@ -39,8 +39,11 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID) (machine.Net
 		return have, nil
 	}
 	n.next++
+	if mac == "" {
+		mac = fmt.Sprintf("02:00:00:00:00:%02x", n.next)
+	}
 	identity := machine.NetworkIdentity{
-		MAC:       fmt.Sprintf("02:00:00:00:00:%02x", n.next),
+		MAC:       mac,
 		Addresses: []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 0, byte(n.next)})},
 	}
 	n.allocated[id] = identity

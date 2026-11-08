@@ -105,6 +105,38 @@ func (s *Server) DeleteMachine(ctx context.Context, req *v1alpha1.DeleteMachineR
 	return &v1alpha1.DeleteMachineResponse{}, nil
 }
 
+func (s *Server) SnapshotMachine(ctx context.Context, req *v1alpha1.SnapshotMachineRequest) (*v1alpha1.SnapshotMachineResponse, error) {
+	id, err := target(req.GetMachineId())
+	if err != nil {
+		return nil, err
+	}
+	snapshot := machine.SnapshotID(req.GetSnapshotId())
+	if err := s.machines.Snapshot(ctx, id, snapshot, machine.RequestID(req.GetRequestId())); err != nil {
+		return nil, status(err)
+	}
+	return &v1alpha1.SnapshotMachineResponse{SnapshotId: string(snapshot)}, nil
+}
+
+func (s *Server) RestoreMachine(ctx context.Context, req *v1alpha1.RestoreMachineRequest) (*v1alpha1.RestoreMachineResponse, error) {
+	if req.GetSnapshotId() == "" {
+		return nil, rejected("snapshot_id is empty")
+	}
+	var policy machine.NetworkPolicy
+	var err error
+	if policy.Egress, err = rulesOf(req.GetNetworkPolicy().GetEgress()); err != nil {
+		return nil, rejected("%v", err)
+	}
+	if policy.Ingress, err = rulesOf(req.GetNetworkPolicy().GetIngress()); err != nil {
+		return nil, rejected("%v", err)
+	}
+	id := machine.MachineID(req.GetMachineId())
+	if err := s.machines.RestoreSnapshot(ctx, id, machine.RequestID(req.GetRequestId()), machine.SnapshotID(req.GetSnapshotId()), policy); err != nil {
+		return nil, status(err)
+	}
+	m, err := s.view(ctx, id)
+	return &v1alpha1.RestoreMachineResponse{Machine: m}, err
+}
+
 func (s *Server) AttachDisk(ctx context.Context, req *v1alpha1.AttachDiskRequest) (*v1alpha1.AttachDiskResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {

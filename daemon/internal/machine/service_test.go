@@ -29,6 +29,7 @@ type env struct {
 	net    *memory.Network
 	disks  *memory.Disk
 	images *memory.ImageStore
+	snaps  *memory.SnapshotStore
 	store  *memory.StateStore
 	permit *memory.StartPermitter
 	events *memory.Events
@@ -38,17 +39,18 @@ type env struct {
 // whose node holds the image.
 func newEnv(caps ...machine.Capability) *env {
 	e := &env{
-		driver: memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", Capabilities: caps}),
+		driver: memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: caps}),
 		sup:    memory.NewSupervision(),
 		net:    memory.NewNetwork(),
 		disks:  memory.NewDisk(),
 		images: memory.NewImageStore(),
+		snaps:  memory.NewSnapshotStore(),
 		store:  memory.NewStateStore(),
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
 	return e
 }
 

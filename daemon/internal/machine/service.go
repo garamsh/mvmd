@@ -34,6 +34,12 @@ type Service interface {
 	AttachDisk(ctx context.Context, id MachineID, attachment DiskAttachment) error
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
 	SetResources(ctx context.Context, id MachineID, target Resources) error
+	// Snapshot holds the Running or Paused Machine's guest paused while the
+	// Driver and the Snapshot Store take it, and returns it to its state.
+	Snapshot(ctx context.Context, id MachineID, snapshot SnapshotID, request RequestID) error
+	// RestoreSnapshot creates the Machine id, Running, from the snapshot, with
+	// the policy as its network policy. It is gated as Start is.
+	RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which
@@ -43,12 +49,20 @@ type machineLock struct {
 	users int
 }
 
+// snapshotLock is one snapshot's lock and the number of calls using it, which
+// mu guards. Snapshot holds it exclusively; a restore holds it shared.
+type snapshotLock struct {
+	sync.RWMutex
+	users int
+}
+
 type service struct {
 	driver     Driver
 	supervisor Supervision
 	network    Network
 	disks      Disk
 	images     ImageStore
+	snapshots  SnapshotStore
 	store      StateStore
 	permitter  StartPermitter
 	uidRange   UIDRange
@@ -61,6 +75,9 @@ type service struct {
 	mu      sync.Mutex
 	records map[MachineID]*Record
 	locks   map[MachineID]*machineLock
+	// snapLocks serializes Snapshot against the restores of the same snapshot.
+	// A call takes a Machine's lock before a snapshot's.
+	snapLocks map[SnapshotID]*snapshotLock
 	// held maps each disk to its one holder (ADR 0009).
 	held         map[DiskID]MachineID
 	usedUID      map[MachineID]uint32 // allocated UID per Machine
@@ -70,7 +87,7 @@ type service struct {
 // NewService returns the lifecycle over the given ports. uidRange names the
 // range of UIDs the node reserves for its Machines (ADR 0015). Every state
 // change and every event the Driver raises goes to events.
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
 	driver.Observe(events.Reported)
 	return &service{
 		driver:       driver,
@@ -78,12 +95,14 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		network:      network,
 		disks:        disks,
 		images:       images,
+		snapshots:    snapshots,
 		store:        store,
 		permitter:    permitter,
 		uidRange:     uidRange,
 		events:       events,
 		records:      make(map[MachineID]*Record),
 		locks:        make(map[MachineID]*machineLock),
+		snapLocks:    make(map[SnapshotID]*snapshotLock),
 		held:         make(map[DiskID]MachineID),
 		usedUID:      make(map[MachineID]uint32),
 		usedUIDByUID: make(map[uint32]MachineID),
@@ -109,6 +128,32 @@ func (s *service) lock(id MachineID) func() {
 		defer s.mu.Unlock()
 		if l.users--; l.users == 0 {
 			delete(s.locks, id)
+		}
+	}
+}
+
+// lockSnapshot takes the snapshot's lock, exclusively or shared, and returns
+// the unlock. The entry exists while a call holds or waits for it.
+func (s *service) lockSnapshot(id SnapshotID, exclusive bool) func() {
+	s.mu.Lock()
+	l, ok := s.snapLocks[id]
+	if !ok {
+		l = new(snapshotLock)
+		s.snapLocks[id] = l
+	}
+	l.users++
+	s.mu.Unlock()
+	lock, unlock := l.RLock, l.RUnlock
+	if exclusive {
+		lock, unlock = l.Lock, l.Unlock
+	}
+	lock()
+	return func() {
+		unlock()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if l.users--; l.users == 0 {
+			delete(s.snapLocks, id)
 		}
 	}
 }

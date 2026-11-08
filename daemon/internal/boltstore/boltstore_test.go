@@ -43,7 +43,7 @@ func records() []machine.Record {
 		FailureReason: "boot failed: boom",
 	}
 	return []machine.Record{
-		{ID: "m", Machine: &m, Request: machine.Request{ID: "r1", Spec: spec()}},
+		{ID: "m", Machine: &m, Request: machine.Request{ID: "r1", Snapshot: "snap-1", Spec: spec()}},
 		// A failed creating call: no Machine, and the original outcome.
 		{ID: "failed", Request: machine.Request{ID: "r2", Spec: spec(), Failure: machine.NewError(machine.ErrFailed, "create root disk: boom")}},
 	}
