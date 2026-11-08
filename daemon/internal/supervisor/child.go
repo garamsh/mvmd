@@ -26,6 +26,11 @@ const (
 	// statusFD is the pipe the child reports a failure on. It closes at
 	// execve, which is how the supervisor learns the VMM was started.
 	statusFD = 4
+
+	// statusReady is written to the status pipe as the last act before the
+	// execve, and statusFailed before the text of a failure.
+	statusReady  = 'R'
+	statusFailed = 'E'
 )
 
 // confineMain runs the confinement steps and execs the VMM. It returns only on
@@ -45,16 +50,16 @@ func confineMain(args []string) int {
 		if len(args) != 1 {
 			return errors.New("the confinement is given the directory of the root and nothing else")
 		}
-		return confine(args[0])
+		return confine(args[0], status)
 	}()
-	fmt.Fprint(status, err)
+	fmt.Fprintf(status, "%c%v", statusFailed, err)
 	return 1
 }
 
 // confine applies the steps of ADR 0015 in its order, each failing the start
 // before the VMM runs, and execs the VMM. It returns only the error of the step
 // that failed.
-func confine(newroot string) error {
+func confine(newroot string, status *os.File) error {
 	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return fmt.Errorf("read the request: %w", err)
@@ -84,6 +89,9 @@ func confine(newroot string) error {
 		return fmt.Errorf("install the seccomp baseline: %w", err)
 	}
 	argv := append([]string{p.GetExecutable()}, p.GetArgs()...)
+	if _, err := status.Write([]byte{statusReady}); err != nil {
+		return fmt.Errorf("report to the supervisor: %w", err)
+	}
 	if err := unix.Exec(p.GetExecutable(), argv, nil); err != nil {
 		return fmt.Errorf("execve %s: %w", p.GetExecutable(), err)
 	}
@@ -118,7 +126,7 @@ func openDescriptors(tap bool) error {
 // enterNamespaces completes the namespaces the supervisor created the child
 // in, and builds the root. A new network namespace holds only its loopback.
 func enterNamespaces(newroot string, req *pb.StartRequest) error {
-	if req.GetProcess().GetTapByDescriptor() {
+	if newNetworkNamespace(req) {
 		if err := bringUpLoopback(); err != nil {
 			return err
 		}

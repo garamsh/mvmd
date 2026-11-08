@@ -55,7 +55,22 @@ type rulesetAttr struct {
 }
 
 // RequireLandlockABI refuses a Landlock ABI below the one the confinement needs.
-func RequireLandlockABI(abi int) error { return nil }
+func RequireLandlockABI(abi int) error {
+	if abi < landlockABIRequired {
+		return fmt.Errorf("the kernel reports Landlock ABI %d, and the confinement needs %d", abi, landlockABIRequired)
+	}
+	return nil
+}
+
+// CheckHost refuses a host whose kernel cannot confine a VMM as ADR 0015
+// decides, so that mvmd does not start on it.
+func CheckHost() error {
+	abi, err := landlockABI()
+	if err != nil {
+		return err
+	}
+	return RequireLandlockABI(abi)
+}
 
 // landlockABI returns the ABI version the kernel reports.
 func landlockABI() (int, error) {
@@ -72,12 +87,8 @@ func landlockABI() (int, error) {
 // and the domain is scoped for abstract Unix sockets and signals. It needs
 // no_new_privs, and fails on a kernel below ABI 6 rather than doing less.
 func enforceLandlock(rules []fsRule) error {
-	abi, err := landlockABI()
-	if err != nil {
+	if err := CheckHost(); err != nil {
 		return err
-	}
-	if abi < landlockABIRequired {
-		return fmt.Errorf("the kernel reports Landlock ABI %d, and the confinement needs %d", abi, landlockABIRequired)
 	}
 	attr := rulesetAttr{
 		handledFS:  handledFS,

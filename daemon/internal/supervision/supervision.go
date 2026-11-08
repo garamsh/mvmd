@@ -24,6 +24,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 )
 
@@ -82,6 +83,9 @@ func New(cfg Config) (*Adapter, error) {
 		return nil, fmt.Errorf("supervisor cgroup %q is not an absolute path", cfg.Cgroup)
 	case cfg.VMMCgroup != "" && !filepath.IsAbs(cfg.VMMCgroup):
 		return nil, fmt.Errorf("VMM cgroup %q is not an absolute path", cfg.VMMCgroup)
+	}
+	if err := supervisor.CheckHost(); err != nil {
+		return nil, err
 	}
 	if cfg.VMMCgroup == "" {
 		cfg.VMMCgroup = DefaultVMMCgroup

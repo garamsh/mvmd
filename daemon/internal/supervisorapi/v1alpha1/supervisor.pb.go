@@ -209,8 +209,11 @@ type StartRequest struct {
 	// What mvmd, not the Driver, decides for the process (ADR 0015). The
 	// supervisor confines the process from these and the description alone.
 	//
-	// The tap to open in the host's network namespace and pass as descriptor 3,
-	// when process.tap_by_descriptor is set. Empty otherwise.
+	// The Machine's tap, empty for a process with no network device. It is opened
+	// in the host's network namespace and passed as descriptor 3 when
+	// process.tap_by_descriptor is set. A process that opens it by name (a tap
+	// and no descriptor) shares the host's network namespace; every other process
+	// gets a network namespace of its own with only its loopback.
 	Tap string `protobuf:"bytes,4,opt,name=tap,proto3" json:"tap,omitempty"`
 	// The guest's memory and vCPU count, which with the Driver's overhead fix the
 	// cgroup's memory.max and cpu.max.
