@@ -23,5 +23,13 @@ jobs:
             tooling/protogen/go.sum
       - name: Record the toolchain this run resolved
         run: go version
+      # Installs what guest-agent/rust-toolchain.toml pins and prints the versions it
+      # resolved. Caching is off, so a run reads only the pinned inputs; build-warnings is
+      # empty so CI sets no cargo flag that a local run lacks.
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          rust-src-dir: guest-agent
+          cache: false
+          build-warnings: ""
       - name: Run the whole check set
         run: make ci
