@@ -9,20 +9,25 @@ import (
 )
 
 // Driver is an in-memory machine.Driver. Its steps are "describe", "boot",
-// "shutdown", "pause", "resume", "attach", "detach" and "resize".
+// "shutdown", "pause", "resume", "attach", "detach", "resize", "snapshot",
+// "describe-restore" and "restore".
 type Driver struct {
 	Failures
 	info machine.DriverInfo
 
-	mu      sync.Mutex
-	specs   map[machine.MachineID]machine.BootSpec
-	grace   time.Duration
-	devices map[machine.MachineID][]machine.DiskID
-	sizes   map[machine.MachineID]machine.Resources
-	hold    chan struct{}
-	entered chan struct{}
-	process *machine.ProcessDescription
-	report  func(machine.DriverEvent)
+	mu       sync.Mutex
+	specs    map[machine.MachineID]machine.BootSpec
+	grace    time.Duration
+	devices  map[machine.MachineID][]machine.DiskID
+	sizes    map[machine.MachineID]machine.Resources
+	restored map[machine.MachineID][]string
+	paused   map[machine.MachineID]bool
+	// pausedAtSnapshot is what paused was when the Machine was last snapshotted.
+	pausedAtSnapshot map[machine.MachineID]bool
+	hold             chan struct{}
+	entered          chan struct{}
+	process          *machine.ProcessDescription
+	report           func(machine.DriverEvent)
 }
 
 // Observe implements machine.Driver.
@@ -56,10 +61,13 @@ func (d *Driver) UseProcess(p machine.ProcessDescription) {
 // capabilities.
 func NewDriver(info machine.DriverInfo) *Driver {
 	return &Driver{
-		info:    info,
-		specs:   make(map[machine.MachineID]machine.BootSpec),
-		devices: make(map[machine.MachineID][]machine.DiskID),
-		sizes:   make(map[machine.MachineID]machine.Resources),
+		info:             info,
+		specs:            make(map[machine.MachineID]machine.BootSpec),
+		devices:          make(map[machine.MachineID][]machine.DiskID),
+		sizes:            make(map[machine.MachineID]machine.Resources),
+		restored:         make(map[machine.MachineID][]string),
+		paused:           make(map[machine.MachineID]bool),
+		pausedAtSnapshot: make(map[machine.MachineID]bool),
 	}
 }
 
@@ -110,10 +118,44 @@ func (d *Driver) HoldShutdown() (entered <-chan struct{}, release func()) {
 }
 
 // Pause implements machine.Driver.
-func (d *Driver) Pause(_ context.Context, _ machine.MachineID) error { return d.Enter("pause") }
+func (d *Driver) Pause(_ context.Context, id machine.MachineID) error {
+	if err := d.Enter("pause"); err != nil {
+		return err
+	}
+	d.setPaused(id, true)
+	return nil
+}
 
 // Resume implements machine.Driver.
-func (d *Driver) Resume(_ context.Context, _ machine.MachineID) error { return d.Enter("resume") }
+func (d *Driver) Resume(_ context.Context, id machine.MachineID) error {
+	if err := d.Enter("resume"); err != nil {
+		return err
+	}
+	d.setPaused(id, false)
+	return nil
+}
+
+func (d *Driver) setPaused(id machine.MachineID, paused bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.paused[id] = paused
+}
+
+// Paused reports whether the Machine's guest is paused as far as the Driver
+// knows.
+func (d *Driver) Paused(id machine.MachineID) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.paused[id]
+}
+
+// PausedAtSnapshot reports whether the guest was paused when the last Snapshot
+// of the Machine was taken.
+func (d *Driver) PausedAtSnapshot(id machine.MachineID) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pausedAtSnapshot[id]
+}
 
 // AttachDisk implements machine.Driver.
 func (d *Driver) AttachDisk(_ context.Context, id machine.MachineID, dev machine.BlockDevice) error {
@@ -152,6 +194,49 @@ func (d *Driver) Resize(_ context.Context, id machine.MachineID, target machine.
 	d.sizes[id] = target
 	d.mu.Unlock()
 	return nil
+}
+
+// KernelDigest is the digest of the guest kernel the Driver reports in every
+// snapshot.
+const KernelDigest = "sha256:memory-kernel"
+
+// Snapshot implements machine.Driver: two files in the Machine's run directory.
+func (d *Driver) Snapshot(_ context.Context, id machine.MachineID) (machine.DriverSnapshot, error) {
+	if err := d.Enter("snapshot"); err != nil {
+		return machine.DriverSnapshot{}, err
+	}
+	d.mu.Lock()
+	run := d.specs[id].RunDir
+	d.pausedAtSnapshot[id] = d.paused[id]
+	d.mu.Unlock()
+	return machine.DriverSnapshot{Files: []string{run + "/snapshot.mem", run + "/snapshot.state"}, KernelDigest: KernelDigest}, nil
+}
+
+// DescribeRestore implements machine.Driver.
+func (d *Driver) DescribeRestore(_ context.Context, id machine.MachineID, spec machine.BootSpec, files []string) (machine.ProcessDescription, error) {
+	if err := d.Enter("describe-restore"); err != nil {
+		return machine.ProcessDescription{}, err
+	}
+	d.mu.Lock()
+	d.specs[id] = spec
+	d.restored[id] = append([]string(nil), files...)
+	p := d.process
+	d.mu.Unlock()
+	if p != nil {
+		return *p, nil
+	}
+	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: spec.Devices}, nil
+}
+
+// Restore implements machine.Driver.
+func (d *Driver) Restore(_ context.Context, _ machine.MachineID) error { return d.Enter("restore") }
+
+// RestoredFrom returns the snapshot files the last DescribeRestore for the
+// Machine was given.
+func (d *Driver) RestoredFrom(id machine.MachineID) []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.restored[id]...)
 }
 
 // BootSpec returns the boot description the last Describe for the Machine got.

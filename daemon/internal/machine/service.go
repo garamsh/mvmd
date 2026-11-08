@@ -34,6 +34,12 @@ type Service interface {
 	AttachDisk(ctx context.Context, id MachineID, attachment DiskAttachment) error
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
 	SetResources(ctx context.Context, id MachineID, target Resources) error
+	// Snapshot holds the Running or Paused Machine's guest paused while the
+	// Driver and the Snapshot Store take it, and returns it to its state.
+	Snapshot(ctx context.Context, id MachineID, snapshot SnapshotID, request RequestID) error
+	// RestoreSnapshot creates the Machine id, Running, from the snapshot, with
+	// the policy as its network policy. It is gated as Start is.
+	RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which
@@ -49,6 +55,7 @@ type service struct {
 	network    Network
 	disks      Disk
 	images     ImageStore
+	snapshots  SnapshotStore
 	store      StateStore
 	permitter  StartPermitter
 	uidRange   UIDRange
@@ -70,7 +77,7 @@ type service struct {
 // NewService returns the lifecycle over the given ports. uidRange names the
 // range of UIDs the node reserves for its Machines (ADR 0015). Every state
 // change and every event the Driver raises goes to events.
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
 	driver.Observe(events.Reported)
 	return &service{
 		driver:       driver,
@@ -78,6 +85,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		network:      network,
 		disks:        disks,
 		images:       images,
+		snapshots:    snapshots,
 		store:        store,
 		permitter:    permitter,
 		uidRange:     uidRange,

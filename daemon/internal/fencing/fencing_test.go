@@ -31,6 +31,7 @@ type env struct {
 
 	driver *machinememory.Driver
 	disks  *machinememory.Disk
+	snaps  *machinememory.SnapshotStore
 	m      machine.Service
 }
 
@@ -42,11 +43,12 @@ func newEnv(t *testing.T) *env {
 	e.events = memory.NewEvents()
 	e.svc = fencing.NewService(e.clock, e.store, e.sup, e.events)
 
-	e.driver = machinememory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1"})
+	e.driver = machinememory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: []machine.Capability{machine.CapabilitySnapshot}})
 	e.disks = machinememory.NewDisk()
+	e.snaps = machinememory.NewSnapshotStore()
 	images := machinememory.NewImageStore()
 	images.Provide(image)
-	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256}, machinememory.NewEvents())
+	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, e.snaps, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256}, machinememory.NewEvents())
 	require.NoError(t, e.svc.Reconcile(context.Background(), e.m))
 	return e
 }

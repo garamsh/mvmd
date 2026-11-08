@@ -142,8 +142,12 @@ type Machine struct {
 
 // Request is the record of a creating call, kept for its repeat.
 type Request struct {
-	ID   RequestID
-	Spec Spec
+	ID RequestID
+	// Snapshot is the snapshot a restoring call named, empty for Create. A
+	// restoring call's Spec holds only its network policy: the rest of the
+	// Machine comes from the snapshot.
+	Snapshot SnapshotID
+	Spec     Spec
 	// Failure is the original outcome when the call failed, nil on success.
 	Failure *Error
 }

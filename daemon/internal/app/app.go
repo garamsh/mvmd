@@ -78,8 +78,8 @@ func New(cfg Config) (*App, error) {
 	// Only the memory driver exists; check() refused any other.
 	sub := &Substitutes{
 		Driver: machinememory.NewDriver(machine.DriverInfo{
-			Name: "memory", Version: "1",
-			Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize},
+			Name: "memory", Version: "1", CPUModel: "memory-cpu",
+			Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize, machine.CapabilitySnapshot},
 		}),
 		Network:     machinememory.NewNetwork(),
 		Disks:       machinememory.NewDisk(),
@@ -101,7 +101,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, machinememory.NewSnapshotStore(), db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,

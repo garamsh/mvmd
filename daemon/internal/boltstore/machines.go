@@ -25,9 +25,10 @@ type recordJSON struct {
 }
 
 type requestJSON struct {
-	ID      machine.RequestID
-	Spec    machine.Spec
-	Failure *failureJSON
+	ID       machine.RequestID
+	Snapshot machine.SnapshotID
+	Spec     machine.Spec
+	Failure  *failureJSON
 }
 
 type failureJSON struct {
@@ -55,7 +56,7 @@ func kindName(kind error) (string, bool) {
 
 // Save implements machine.StateStore.
 func (s *MachineStore) Save(ctx context.Context, r machine.Record) error {
-	j := recordJSON{ID: r.ID, Machine: r.Machine, Request: requestJSON{ID: r.Request.ID, Spec: r.Request.Spec}}
+	j := recordJSON{ID: r.ID, Machine: r.Machine, Request: requestJSON{ID: r.Request.ID, Snapshot: r.Request.Snapshot, Spec: r.Request.Spec}}
 	if f := r.Request.Failure; f != nil {
 		name, ok := kindName(f.Kind)
 		if !ok {
@@ -104,7 +105,7 @@ func decode(raw []byte) (machine.Record, error) {
 	if err := json.Unmarshal(raw, &j); err != nil {
 		return machine.Record{}, fmt.Errorf("decode the record: %w", err)
 	}
-	r := machine.Record{ID: j.ID, Machine: j.Machine, Request: machine.Request{ID: j.Request.ID, Spec: j.Request.Spec}}
+	r := machine.Record{ID: j.ID, Machine: j.Machine, Request: machine.Request{ID: j.Request.ID, Snapshot: j.Request.Snapshot, Spec: j.Request.Spec}}
 	if f := j.Request.Failure; f != nil {
 		kind, ok := kinds[f.Kind]
 		if !ok {

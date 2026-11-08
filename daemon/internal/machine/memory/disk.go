@@ -7,19 +7,20 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// Disk is an in-memory machine.Disk. Its steps are "locate", "create-root" and
-// "remove".
+// Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
+// "create-root-from" and "remove".
 type Disk struct {
 	Failures
 
-	mu    sync.Mutex
-	disks map[machine.DiskID]uint64
-	owner map[machine.DiskID]machine.DiskOwner
+	mu     sync.Mutex
+	disks  map[machine.DiskID]uint64
+	owner  map[machine.DiskID]machine.DiskOwner
+	source map[machine.DiskID]string
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), owner: make(map[machine.DiskID]machine.DiskOwner)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -56,6 +57,28 @@ func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes 
 	return disk, "", nil
 }
 
+// CreateRootFrom implements machine.Disk.
+func (d *Disk) CreateRootFrom(_ context.Context, owner machine.DiskOwner, source string) (machine.DiskID, error) {
+	if err := d.Enter("create-root-from"); err != nil {
+		return "", err
+	}
+	disk := machine.DiskID(string(owner.ID) + "-root")
+	d.mu.Lock()
+	d.disks[disk] = 0
+	d.owner[disk] = owner
+	d.source[disk] = source
+	d.mu.Unlock()
+	return disk, nil
+}
+
+// Source returns the file a root disk made by CreateRootFrom was copied from.
+func (d *Disk) Source(disk machine.DiskID) (string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s, ok := d.source[disk]
+	return s, ok
+}
+
 // Remove implements machine.Disk.
 func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {
 	if err := d.Enter("remove"); err != nil {
@@ -64,6 +87,7 @@ func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {
 	d.mu.Lock()
 	delete(d.disks, disk)
 	delete(d.owner, disk)
+	delete(d.source, disk)
 	d.mu.Unlock()
 	return nil
 }
