@@ -14,11 +14,12 @@ type Disk struct {
 
 	mu    sync.Mutex
 	disks map[machine.DiskID]uint64
+	owner map[machine.DiskID]machine.DiskOwner
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), owner: make(map[machine.DiskID]machine.DiskOwner)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -50,6 +51,7 @@ func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes 
 	disk := machine.DiskID(string(owner.ID) + "-root")
 	d.mu.Lock()
 	d.disks[disk] = sizeBytes
+	d.owner[disk] = owner
 	d.mu.Unlock()
 	return disk, "", nil
 }
@@ -61,6 +63,7 @@ func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {
 	}
 	d.mu.Lock()
 	delete(d.disks, disk)
+	delete(d.owner, disk)
 	d.mu.Unlock()
 	return nil
 }
@@ -72,4 +75,12 @@ func (d *Disk) Holds(disk machine.DiskID) (size uint64, held bool) {
 	defer d.mu.Unlock()
 	size, held = d.disks[disk]
 	return size, held
+}
+
+// Owner reports the DiskOwner for a disk created by CreateRoot.
+func (d *Disk) Owner(disk machine.DiskID) (machine.DiskOwner, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	o, ok := d.owner[disk]
+	return o, ok
 }

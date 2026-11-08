@@ -43,7 +43,7 @@ func newEnv(t *testing.T) *env {
 	e.disks = machinememory.NewDisk()
 	images := machinememory.NewImageStore()
 	images.Provide(image)
-	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, machinememory.NewStateStore(), e.svc)
+	e.m = machine.NewService(e.driver, e.svc, machinememory.NewNetwork(), e.disks, images, machinememory.NewStateStore(), e.svc, machine.UIDRange{First: 1000, Count: 256})
 	require.NoError(t, e.svc.Reconcile(context.Background(), e.m))
 	return e
 }

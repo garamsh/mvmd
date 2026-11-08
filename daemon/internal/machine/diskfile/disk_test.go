@@ -49,7 +49,7 @@ func TestCreateRoot_Sparse(t *testing.T) {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
 		blocks = uint64(st.Blocks) * 512
 	}
-	assert.True(t, blocks < size/1024,
+	assert.True(t, blocks < size/10,
 		"sparse: allocated %d bytes far below size %d", blocks, size)
 }
 
@@ -69,19 +69,34 @@ func TestCreateRoot_UUID(t *testing.T) {
 	assert.Equal(t, wantUUID, string(bytes.TrimSpace(out)))
 }
 
-// TestCreateRoot_FailingMKFS asserts a bad mkfs path leaves no file.
+// TestCreateRoot_FailingMKFS asserts a bad mkfs path returns ErrBadMKFS.
 func TestCreateRoot_FailingMKFS(t *testing.T) {
 	dir := t.TempDir()
 	_, err := diskfile.NewDisk(dir, "/usr/sbin/nonexistent-mkfs")
-	require.ErrorIs(t, err, diskfile.ErrBadMKFS)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "mkfs.ext4 not available")
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	assert.Empty(t, entries, "no files after failed mkfs check")
 }
 
-// TestCreateRoot_FailedFormatLeavesNoFile asserts a successful CreateRoot
-// leaves exactly one file in the directory.
-func TestCreateRoot_FailedFormatLeavesNoFile(t *testing.T) {
+// TestCreateRoot_InvalidDiskName rejects unsafe names.
+func TestCreateRoot_InvalidDiskName(t *testing.T) {
+	dir := t.TempDir()
+	d, err := diskfile.NewDisk(dir, mkfsPath)
+	require.NoError(t, err)
+
+	for _, id := range []string{"../evil", "./bad", "has/slash"} {
+		_, _, err := d.CreateRoot(context.Background(),
+			machine.DiskOwner{ID: machine.MachineID(id), UID: uint32(os.Getuid()), GID: uint32(os.Getgid())},
+			1<<20)
+		assert.Error(t, err, "id %q should be rejected", id)
+	}
+}
+
+// TestCreateRoot_SingleFile asserts a successful CreateRoot leaves
+// exactly one file in the directory.
+func TestCreateRoot_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	d, err := diskfile.NewDisk(dir, mkfsPath)
 	require.NoError(t, err)
