@@ -7,6 +7,17 @@ package mvmd.guest.v1alpha1;
 
 // GuestService is the guest channel. The Guest Agent serves it over vsock.
 service GuestService {
+  // Describe the Machine to the agent, which runs as the guest's init and
+  // waits for this call before it touches a disk. The call returns once the
+  // entrypoint runs, or fails naming the boot step that failed; every other
+  // call except Health and Info is refused until it has succeeded. A repeat
+  // with the same description succeeds and changes nothing; a repeat after
+  // a failure fails the same way.
+  rpc Boot(BootRequest) returns (BootResponse);
+  // Replace the Machine's network configuration, as after a restore. The
+  // agent applies it whole: what it applied before is removed.
+  rpc UpdateNetwork(UpdateNetworkRequest) returns (UpdateNetworkResponse);
+
   // Start a command under the client's exec ID. A repeated start with the
   // same ID returns the same record and never runs the command twice.
   rpc Exec(ExecRequest) returns (ExecResponse);
@@ -38,6 +49,58 @@ service GuestService {
   // The agent version and the contract versions it serves.
   rpc Info(InfoRequest) returns (InfoResponse);
 }
+
+message BootRequest {
+  // The filesystem UUID of the MachineImage's EROFS and of the root disk's
+  // ext4, each as 32 hexadecimal digits in the 8-4-4-4-12 form. The agent
+  // mounts the block device that carries each.
+  string image_uuid = 1;
+  string root_disk_uuid = 2;
+  // The entrypoint. It runs as the exec record with the ID "entrypoint",
+  // so its output, its signals and its end are read through the exec calls.
+  RunConfig run = 3;
+  NetworkConfig network = 4;
+}
+
+message BootResponse {}
+
+message RunConfig {
+  // The program and its arguments; the first element is the program.
+  repeated string argv = 1;
+  // Environment variables. The entrypoint's environment is exactly these.
+  map<string, string> env = 2;
+  // Working directory in the booted root; empty keeps "/".
+  string working_dir = 3;
+}
+
+// What the agent configures on the Machine's one network interface. A family
+// whose message is absent is not served and gets nothing.
+message NetworkConfig {
+  Ipv4Config ipv4 = 1;
+  Ipv6Config ipv6 = 2;
+  // Resolver addresses, written to /etc/resolv.conf in this order.
+  repeated string resolvers = 3;
+}
+
+message Ipv4Config {
+  // The Machine's address with its prefix length, as "a.b.c.d/n".
+  string address = 1;
+  // The default route's next hop, as "a.b.c.d".
+  string gateway = 2;
+}
+
+message Ipv6Config {
+  // The Machine's address with its prefix length, as "x:x::x/n".
+  string address = 1;
+  // The default route's next hop, as an address.
+  string gateway = 2;
+}
+
+message UpdateNetworkRequest {
+  NetworkConfig network = 1;
+}
+
+message UpdateNetworkResponse {}
 
 enum ExecStatus {
   EXEC_STATUS_UNSPECIFIED = 0;

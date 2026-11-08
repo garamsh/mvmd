@@ -499,6 +499,7 @@ async fn two_starts_of_one_id_at_once_run_the_command_once() -> Result {
 fn retention(bytes: u64) -> guest_agent::Config {
     guest_agent::Config {
         exec_output_retention: bytes,
+        ..guest_agent::Config::default()
     }
 }
 

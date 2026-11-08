@@ -4,17 +4,20 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::os::unix::process::ExitStatusExt;
+use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use nix::sys::signal::{Signal, kill};
+use nix::sys::wait::{WaitPidFlag, waitpid};
 use nix::unistd::Pid;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::sync::watch;
 
 use crate::error::Error;
+use crate::reap::zombie_children;
 use crate::v1alpha1::{ExecRecord, ExecRequest, ExecStatus, OutputChunk, OutputStream};
 
 /// How long the output pipes may stay open after the command exited. A background process the
@@ -157,6 +160,42 @@ impl Execs {
             after,
             done: false,
         })
+    }
+
+    /// The final record of an exec, once the command has ended or failed to start.
+    pub(crate) async fn wait(&self, exec_id: &str) -> Result<ExecRecord, Error> {
+        let exec = self.find(exec_id)?;
+        let mut changed = exec.changed.subscribe();
+        loop {
+            {
+                let state = lock(&exec.state);
+                if state.record.status() != ExecStatus::Started {
+                    return Ok(state.record.clone());
+                }
+            }
+            changed.changed().await.map_err(|_| Error::Io {
+                context: format!("wait for exec {exec_id}"),
+                source: std::io::Error::other("the exec was dropped"),
+            })?;
+        }
+    }
+
+    /// Wait for every exited child of `parent` that no exec of this table owns: a process the
+    /// agent never started, which was handed to it when its own parent exited.
+    pub(crate) fn reap_orphans(&self, parent: Pid) {
+        // The table stays locked while the children are waited for. `start` holds it from before
+        // a spawn until the new process ID is recorded, so no child of an exec looks like an orphan.
+        let table = lock(&self.table);
+        let owned: Vec<u32> = table
+            .values()
+            .filter_map(|exec| lock(&exec.state).pid)
+            .collect();
+        for pid in zombie_children(Path::new("/proc"), parent) {
+            if !u32::try_from(pid.as_raw()).is_ok_and(|raw| owned.contains(&raw)) {
+                // The orphan's status goes to no one.
+                let _ = waitpid(pid, Some(WaitPidFlag::WNOHANG));
+            }
+        }
     }
 
     /// Deliver a signal to a running command.
