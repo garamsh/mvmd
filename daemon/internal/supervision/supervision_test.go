@@ -315,6 +315,24 @@ func TestRunDir_IsUnderTheMachinesStateDirectory(t *testing.T) {
 	}
 }
 
+// A description naming another run directory than the adapter's is refused
+// before anything is created or handed to the VMM's user; the control, naming
+// the adapter's, starts.
+func TestStart_RefusesARunDirectoryThatIsNotTheMachines(t *testing.T) {
+	n := newNode(t)
+	elsewhere := filepath.Join(shortDir(t), "elsewhere")
+	proc := vmmProcess(elsewhere)
+
+	err := n.a.Start(ctx, "m", proc, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour)))
+	require.Error(t, err)
+	assert.NoFileExists(t, elsewhere, "nothing is created at the path the description named")
+	assert.NoDirExists(t, filepath.Join(n.dir, "m"), "nor under the Machine's state directory")
+
+	// Control: the same description with the adapter's directory starts.
+	_, _ = n.run(t, "m", time.Hour)
+	assert.DirExists(t, runDir(n.dir, "m"))
+}
+
 func TestStart_RefusesAnIdentifierThatIsNotADirectoryName(t *testing.T) {
 	n := newNode(t)
 	for _, id := range []machine.MachineID{"", ".", "..", "a/b", "../x"} {

@@ -104,8 +104,8 @@ func (a *Adapter) machineDir(id machine.MachineID) (string, error) {
 }
 
 // RunDir implements fencing.Supervisors. It is the one place the run
-// directory is named: Start uses the description's, which the lifecycle took
-// from here.
+// directory is named: the lifecycle takes it from here, and Start refuses a
+// description that names another.
 func (a *Adapter) RunDir(id machine.MachineID) (string, error) {
 	dir, err := a.machineDir(id)
 	if err != nil {
@@ -120,6 +120,13 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	if err != nil {
 		return err
 	}
+	// The description's run directory only has to agree: the path is this
+	// adapter's, and nothing is created or handed to the VMM's user for any
+	// other.
+	runDir := filepath.Join(dir, runName)
+	if process.RunDir != runDir {
+		return fmt.Errorf("the run directory %q is not the Machine's %q", process.RunDir, runDir)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create the state directory: %w", err)
 	}
@@ -132,7 +139,6 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 	_ = os.Remove(sock)
 
-	runDir := process.RunDir
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return fmt.Errorf("create the run directory: %w", err)
 	}
