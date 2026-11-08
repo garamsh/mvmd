@@ -1,8 +1,8 @@
 //! Commands the agent runs for the daemon: start once per exec ID, keep the output for resumable
 //! reads, report how the command ended.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -27,9 +27,10 @@ const READ_SIZE: usize = 64 * 1024;
 const CUT_SHORT_REASON: &str = "the Guest Agent ended while the command was running";
 
 /// Every command the agent has been asked to run, by exec ID.
-#[derive(Default)]
 pub(crate) struct Execs {
     table: Mutex<HashMap<String, Arc<Exec>>>,
+    /// How many of the newest bytes of each command's output are kept.
+    retention: u64,
 }
 
 /// One command: its record and the output it has produced so far.
@@ -41,11 +42,20 @@ struct Exec {
 
 struct State {
     record: ExecRecord,
-    /// The running command's process ID, until the command has ended.
+    /// The running command's process ID, until the command has been reaped. Cleared the moment
+    /// `wait` returns, so no signal reaches a process ID the kernel may have reused.
     pid: Option<u32>,
-    chunks: Vec<OutputChunk>,
+    /// How the command ended, between its being reaped and the record being final.
+    ended: Option<Ended>,
+    /// The newest output, from `record.earliest_offset` to `len`.
+    chunks: VecDeque<OutputChunk>,
     /// The length of the output sequence: stdout and stderr in the order they were read.
     len: u64,
+}
+
+enum Ended {
+    Exit(ExitStatus),
+    Lost(String),
 }
 
 /// What a read of the output found.
@@ -72,6 +82,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Execs {
+    pub(crate) fn new(retention: u64) -> Self {
+        Self {
+            table: Mutex::default(),
+            retention,
+        }
+    }
+
     /// Start the command under its exec ID, or return the record of the earlier start.
     pub(crate) fn start(&self, request: ExecRequest) -> Result<ExecRecord, Error> {
         if request.exec_id.is_empty() {
@@ -102,13 +119,13 @@ impl Execs {
         match command.spawn() {
             Ok(mut child) => {
                 let streams = (child.stdout.take(), child.stderr.take());
-                {
+                let record = {
                     let mut state = lock(&exec.state);
                     state.record.status = ExecStatus::Started.into();
                     state.pid = child.id();
-                }
-                let record = lock(&exec.state).record.clone();
-                tokio::spawn(supervise(exec, child, streams));
+                    state.record.clone()
+                };
+                tokio::spawn(supervise(exec, self.retention, child, streams));
                 Ok(record)
             }
             Err(error) => {
@@ -123,11 +140,15 @@ impl Execs {
     /// Follow an exec's output from after the offset.
     pub(crate) fn follow(&self, exec_id: &str, after: u64) -> Result<Follower, Error> {
         let exec = self.find(exec_id)?;
-        let len = lock(&exec.state).len;
-        if after > len {
-            return Err(Error::Invalid(format!(
-                "after_offset {after} is beyond the {len} bytes of output"
-            )));
+        {
+            let state = lock(&exec.state);
+            if after > state.len {
+                return Err(Error::Invalid(format!(
+                    "after_offset {after} is beyond the {} bytes of output",
+                    state.len
+                )));
+            }
+            check_held(&state, after)?;
         }
         let changed = exec.changed.subscribe();
         Ok(Follower {
@@ -195,47 +216,100 @@ impl Exec {
                     ..ExecRecord::default()
                 },
                 pid: None,
-                chunks: Vec::new(),
+                ended: None,
+                chunks: VecDeque::new(),
                 len: 0,
             }),
             changed: watch::Sender::new(()),
         }
     }
 
-    fn append(&self, stream: OutputStream, data: &[u8]) {
+    /// Add output, dropping the oldest bytes beyond `retention`.
+    fn append(&self, retention: u64, stream: OutputStream, data: &[u8]) {
         let mut state = lock(&self.state);
         let offset = state.len;
         state.len += data.len() as u64;
-        state.chunks.push(OutputChunk {
+        state.chunks.push_back(OutputChunk {
             stream: stream.into(),
             offset,
             data: data.to_vec(),
         });
+        let mut excess = (state.len - state.record.earliest_offset).saturating_sub(retention);
+        while excess > 0 {
+            let Some(front) = state.chunks.front_mut() else {
+                break;
+            };
+            let held = front.data.len() as u64;
+            if held <= excess {
+                state.chunks.pop_front();
+                state.record.earliest_offset += held;
+                excess -= held;
+            } else {
+                // `excess` is below the chunk's length, which fits memory.
+                front
+                    .data
+                    .drain(..usize::try_from(excess).unwrap_or(usize::MAX));
+                front.offset += excess;
+                state.record.earliest_offset += excess;
+                excess = 0;
+            }
+        }
         drop(state);
         self.changed.send_replace(());
     }
 
-    fn finish(&self, status: &ExitStatus) {
+    /// The command has been reaped: note how, and take its process ID out of reach of a signal.
+    fn reaped(&self, ended: Ended) {
         let mut state = lock(&self.state);
-        // The record is final once it leaves Started, whether by exit or by the agent ending.
         if state.pid.take().is_some() {
-            state.record.status = ExecStatus::Exited.into();
-            state.record.exit_code = status.code().unwrap_or_default();
-            state.record.term_signal = status.signal().unwrap_or_default();
+            state.ended = Some(ended);
+        }
+    }
+
+    /// The output is drained: the record becomes final, unless the agent ending already did that.
+    fn finish(&self) {
+        let mut state = lock(&self.state);
+        if state.record.status() == ExecStatus::Started {
+            match state.ended.take() {
+                Some(Ended::Exit(status)) => {
+                    state.record.status = ExecStatus::Exited.into();
+                    state.record.exit_code = status.code().unwrap_or_default();
+                    state.record.term_signal = status.signal().unwrap_or_default();
+                }
+                Some(Ended::Lost(reason)) => {
+                    state.record.status = ExecStatus::CutShort.into();
+                    state.record.reason = reason;
+                }
+                None => {}
+            }
         }
         drop(state);
         self.changed.send_replace(());
     }
 }
 
+/// Fail a read that starts before the earliest offset still held, naming that offset.
+fn check_held(state: &State, after: u64) -> Result<(), Error> {
+    let earliest = state.record.earliest_offset;
+    if after < earliest {
+        return Err(Error::OutOfRange(format!(
+            "output before offset {earliest} is no longer held; the earliest held offset is {earliest}"
+        )));
+    }
+    Ok(())
+}
+
 impl Follower {
     /// The output not yet delivered, waiting while there is none and the command still runs.
-    pub(crate) async fn next(&mut self) -> Option<Output> {
+    ///
+    /// Fails when the retention has dropped output the follower has not yet been given.
+    pub(crate) async fn next(&mut self) -> Result<Option<Output>, Error> {
         while !self.done {
             // Mark the signals so far as seen before reading, so none that follows is missed.
             self.changed.borrow_and_update();
             let output = {
                 let state = lock(&self.exec.state);
+                check_held(&state, self.after)?;
                 let finished = state.record.status() != ExecStatus::Started;
                 let chunks = chunks_after(&state.chunks, self.after);
                 self.after = state.len;
@@ -246,16 +320,18 @@ impl Follower {
             };
             if !output.chunks.is_empty() || output.record.is_some() {
                 self.done = output.record.is_some();
-                return Some(output);
+                return Ok(Some(output));
             }
-            self.changed.changed().await.ok()?;
+            if self.changed.changed().await.is_err() {
+                return Ok(None);
+            }
         }
-        None
+        Ok(None)
     }
 }
 
 /// The part of the output sequence after `after`, cutting the chunk that straddles it.
-fn chunks_after(chunks: &[OutputChunk], after: u64) -> Vec<OutputChunk> {
+fn chunks_after(chunks: &VecDeque<OutputChunk>, after: u64) -> Vec<OutputChunk> {
     chunks
         .iter()
         .filter(|chunk| chunk.offset + chunk.data.len() as u64 > after)
@@ -273,6 +349,7 @@ fn chunks_after(chunks: &[OutputChunk], after: u64) -> Vec<OutputChunk> {
 /// Own the child until it ends: collect its output, then record how it ended.
 async fn supervise(
     exec: Arc<Exec>,
+    retention: u64,
     mut child: tokio::process::Child,
     (stdout, stderr): (
         Option<tokio::process::ChildStdout>,
@@ -281,12 +358,16 @@ async fn supervise(
 ) {
     let mut pumps = tokio::task::JoinSet::new();
     if let Some(stdout) = stdout {
-        pumps.spawn(pump(exec.clone(), OutputStream::Stdout, stdout));
+        pumps.spawn(pump(exec.clone(), retention, OutputStream::Stdout, stdout));
     }
     if let Some(stderr) = stderr {
-        pumps.spawn(pump(exec.clone(), OutputStream::Stderr, stderr));
+        pumps.spawn(pump(exec.clone(), retention, OutputStream::Stderr, stderr));
     }
-    let status = child.wait().await;
+    // The process ID is out of reach of a signal from here on, whatever the pipes still hold.
+    exec.reaped(match child.wait().await {
+        Ok(status) => Ended::Exit(status),
+        Err(error) => Ended::Lost(format!("the agent lost the command: {error}")),
+    });
     let drained = tokio::time::timeout(DRAIN_GRACE, async {
         while pumps.join_next().await.is_some() {}
     })
@@ -294,27 +375,21 @@ async fn supervise(
     if drained.is_err() {
         pumps.abort_all();
     }
-    match status {
-        Ok(status) => exec.finish(&status),
-        Err(error) => {
-            let mut state = lock(&exec.state);
-            if state.pid.take().is_some() {
-                state.record.status = ExecStatus::CutShort.into();
-                state.record.reason = format!("the agent lost the command: {error}");
-            }
-            drop(state);
-            exec.changed.send_replace(());
-        }
-    }
+    exec.finish();
 }
 
-async fn pump(exec: Arc<Exec>, stream: OutputStream, mut pipe: impl AsyncRead + Unpin) {
+async fn pump(
+    exec: Arc<Exec>,
+    retention: u64,
+    stream: OutputStream,
+    mut pipe: impl AsyncRead + Unpin,
+) {
     let mut buf = vec![0; READ_SIZE];
     // A read error ends the stream like end of file; the command's own end is still recorded.
     while let Ok(n) = pipe.read(&mut buf).await {
         if n == 0 {
             break;
         }
-        exec.append(stream, &buf[..n]);
+        exec.append(retention, stream, &buf[..n]);
     }
 }

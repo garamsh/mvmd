@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
-    EntryKind, ExecRecord, ExecRequest, ExecStatus, HealthRequest, InfoRequest, ListFilesRequest,
-    OutputChunk, OutputStream, PatchFileRequest, PatchOutcome, ReadExecOutputRequest,
-    ReadFileRequest, SearchFilesRequest, SignalRequest, WriteFileEnd, WriteFileRequest,
-    WriteFileStart, read_exec_output_response, write_file_request,
+    EntryKind, ExecRecord, ExecRequest, ExecStatus, FileEntry, HealthRequest, InfoRequest,
+    ListFilesRequest, OutputChunk, OutputStream, PatchFileRequest, PatchOutcome,
+    ReadExecOutputRequest, ReadFileRequest, SearchFilesRequest, SignalRequest, WriteFileEnd,
+    WriteFileRequest, WriteFileStart, read_exec_output_response, write_file_request,
 };
 use hyper_util::rt::TokioIo;
 use sha2::{Digest, Sha256};
@@ -36,11 +36,15 @@ struct Harness {
 
 impl Harness {
     async fn start() -> Result<Self> {
+        Self::start_with(guest_agent::Config::default()).await
+    }
+
+    async fn start_with(config: guest_agent::Config) -> Result<Self> {
         let socket_dir = tempfile::tempdir()?;
         let socket = socket_dir.path().join("agent.sock");
         let incoming = UnixListenerStream::new(UnixListener::bind(&socket)?);
         let (stop, stopped) = oneshot::channel::<()>();
-        let server = tokio::spawn(guest_agent::serve(incoming, async {
+        let server = tokio::spawn(guest_agent::serve(incoming, config, async {
             stopped.await.ok();
         }));
         let channel = Endpoint::try_from("http://agent.invalid")?
@@ -153,6 +157,46 @@ impl Harness {
             })
             .await?;
         Ok(response.into_inner().outcome())
+    }
+
+    /// The messages of a listing, each as its run of entries.
+    async fn list(
+        &mut self,
+        path: &Path,
+    ) -> std::result::Result<Vec<Vec<FileEntry>>, tonic::Status> {
+        let mut stream = self
+            .client
+            .list_files(ListFilesRequest {
+                path: path.to_str().unwrap_or_default().into(),
+            })
+            .await?
+            .into_inner();
+        let mut runs = Vec::new();
+        while let Some(message) = stream.message().await? {
+            runs.push(message.entries);
+        }
+        Ok(runs)
+    }
+
+    /// The matches of a search, flattened across the messages of its stream.
+    async fn search(
+        &mut self,
+        path: &Path,
+        pattern: &str,
+    ) -> std::result::Result<Vec<FileEntry>, tonic::Status> {
+        let mut stream = self
+            .client
+            .search_files(SearchFilesRequest {
+                path: path.to_str().unwrap_or_default().into(),
+                pattern: pattern.into(),
+            })
+            .await?
+            .into_inner();
+        let mut matches = Vec::new();
+        while let Some(message) = stream.message().await? {
+            matches.extend(message.matches);
+        }
+        Ok(matches)
     }
 }
 
@@ -378,6 +422,138 @@ async fn exec_refuses_a_request_that_names_no_command_or_no_id() -> Result {
     assert_eq!(code(&*no_command), Some(Code::InvalidArgument));
     assert_eq!(code(&*no_id), Some(Code::InvalidArgument));
     assert_eq!(unknown.code(), Code::NotFound);
+    // Control: the same ID with a command is started, and its output is then readable.
+    let accepted = h.exec("e1", &["/bin/true"]).await?;
+    assert_eq!(accepted.status(), ExecStatus::Started);
+    assert_eq!(h.output("e1", 0).await?.1.status(), ExecStatus::Exited);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_signal_after_the_command_was_reaped_does_not_reach_a_process_id() -> Result {
+    let mut h = Harness::start().await?;
+    // The shell exits at once; the background sleep holds the output pipes for the drain grace.
+    h.exec("e1", &[SH, "-c", "sleep 2 & echo started"]).await?;
+    let mut stream = h
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: "e1".into(),
+            after_offset: 0,
+        })
+        .await?
+        .into_inner();
+    let first = stream.message().await?.ok_or("no output")?;
+    assert!(matches!(
+        first.part,
+        Some(read_exec_output_response::Part::Chunk(_))
+    ));
+    // The shell is reaped by now; the record is not final, as the pipes are still open.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let late = h
+        .client
+        .signal(SignalRequest {
+            exec_id: "e1".into(),
+            signal: 15,
+        })
+        .await
+        .err()
+        .ok_or("a signal to a reaped command was sent")?;
+
+    assert_eq!(late.code(), Code::FailedPrecondition);
+    // Control: a command that is still running takes the same signal.
+    h.exec("e2", &["/bin/sleep", "30"]).await?;
+    h.client
+        .signal(SignalRequest {
+            exec_id: "e2".into(),
+            signal: 15,
+        })
+        .await?;
+    assert_eq!(h.output("e2", 0).await?.1.term_signal, 15);
+    Ok(())
+}
+
+#[tokio::test]
+async fn two_starts_of_one_id_at_once_run_the_command_once() -> Result {
+    let mut h = Harness::start().await?;
+    let log = h.path("log");
+    let script = format!("echo ran >> {}", log.display());
+    let request = || ExecRequest {
+        exec_id: "e1".into(),
+        argv: vec![SH.into(), "-c".into(), script.clone()],
+        env: HashMap::new(),
+        working_dir: String::new(),
+    };
+    let (mut a, mut b) = (h.client.clone(), h.client.clone());
+
+    let (first, second) = tokio::join!(a.exec(request()), b.exec(request()));
+
+    assert_eq!(first?.into_inner().record.ok_or("record")?.exec_id, "e1");
+    assert_eq!(second?.into_inner().record.ok_or("record")?.exec_id, "e1");
+    h.output("e1", 0).await?;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(std::fs::read_to_string(&log)?, "ran\n");
+    Ok(())
+}
+
+fn retention(bytes: u64) -> guest_agent::Config {
+    guest_agent::Config {
+        exec_output_retention: bytes,
+    }
+}
+
+#[tokio::test]
+async fn output_older_than_the_retention_is_refused_with_the_earliest_offset_held() -> Result {
+    let mut h = Harness::start_with(retention(100)).await?;
+    // 1000 bytes in one stream: only the newest 100 are held.
+    h.exec("e1", &[SH, "-c", "head -c 1000 /dev/zero | tr '\\0' x"])
+        .await?;
+    // Reading from 900 is refused as past the end until the output exists, so retry until it does.
+    let finished = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match h.output("e1", 900).await {
+                Ok((_, record)) => return Ok(record),
+                Err(e) if code(&*e) == Some(Code::InvalidArgument) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    })
+    .await??;
+    assert_eq!(finished.earliest_offset, 900);
+
+    let old = h
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: "e1".into(),
+            after_offset: 10,
+        })
+        .await
+        .err()
+        .ok_or("a read of dropped output was accepted")?;
+
+    assert_eq!(old.code(), Code::OutOfRange);
+    assert!(old.message().contains("900"), "{}", old.message());
+    // Control: a read at the earliest held offset, and one inside the held range, succeed.
+    let (chunks, record) = h.output("e1", 900).await?;
+    assert_eq!(chunks.iter().map(|c| c.data.len()).sum::<usize>(), 100);
+    assert_eq!(chunks[0].offset, 900);
+    assert_eq!(record.status(), ExecStatus::Exited);
+    let (chunks, _) = h.output("e1", 950).await?;
+    assert_eq!(chunks[0].offset, 950);
+    Ok(())
+}
+
+#[tokio::test]
+async fn output_within_the_retention_is_all_held() -> Result {
+    let mut h = Harness::start_with(retention(100)).await?;
+    h.exec("e1", &[SH, "-c", "printf 'short'"]).await?;
+
+    let (chunks, record) = h.output("e1", 0).await?;
+
+    assert_eq!(stream_bytes(&chunks, OutputStream::Stdout), b"short");
+    assert_eq!(record.earliest_offset, 0);
     Ok(())
 }
 
@@ -450,6 +626,9 @@ async fn a_write_whose_digest_does_not_match_leaves_the_old_content() -> Result 
         1,
         "no temporary file"
     );
+    // Control: the same content with its own digest is committed.
+    h.write(&file, b"new, but corrupted in transit").await?;
+    assert_eq!(std::fs::read(&file)?, b"new, but corrupted in transit");
     Ok(())
 }
 
@@ -486,30 +665,54 @@ async fn a_write_stream_that_ends_before_its_end_message_leaves_the_old_content(
     Ok(())
 }
 
+/// A numeric field of `/proc/self/status`, such as `Gid:` (real, effective, saved, fs).
+fn status_field(name: &str, radix: u32) -> Result<Vec<u32>> {
+    let status = std::fs::read_to_string("/proc/self/status")?;
+    let line = status
+        .lines()
+        .find_map(|line| line.strip_prefix(name))
+        .ok_or("no such field in /proc/self/status")?;
+    Ok(line
+        .split_whitespace()
+        .filter_map(|n| u32::from_str_radix(n, radix).ok())
+        .collect())
+}
+
 #[tokio::test]
-async fn a_write_that_fails_at_the_commit_leaves_what_was_there() -> Result {
+async fn a_replaced_file_keeps_its_mode_and_group_and_a_new_file_gets_the_default() -> Result {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let mut h = Harness::start().await?;
-    // The path names a directory, so every chunk is accepted and only the final rename fails.
-    let target = h.path("occupied");
-    std::fs::create_dir(&target)?;
-    std::fs::write(target.join("inside"), b"kept")?;
+    let file = h.path("f");
+    std::fs::write(&file, b"old")?;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640))?;
+    // A group other than the primary one, where this process may use one, so a lost group shows.
+    let (euid, egid) = (status_field("Uid:", 10)?[1], status_field("Gid:", 10)?[1]);
+    let other_gid = status_field("Groups:", 10)?
+        .into_iter()
+        .find(|gid| *gid != egid)
+        .or((euid == 0).then_some(4242));
+    if let Some(gid) = other_gid {
+        std::os::unix::fs::chown(&file, None, Some(gid))?;
+    }
+    let before = std::fs::metadata(&file)?;
+    assert_eq!(before.mode() & 0o7777, 0o640, "setup: mode");
+    assert_eq!(before.gid(), other_gid.unwrap_or(egid), "setup: group");
 
-    let error = h
-        .write(&target, b"new")
-        .await
-        .err()
-        .ok_or("a write over a directory was accepted")?;
-
-    assert!(code(&*error).is_some(), "{error}");
-    assert_eq!(std::fs::read(target.join("inside"))?, b"kept");
+    h.write(&file, BEFORE).await?;
     assert_eq!(
-        std::fs::read_dir(h.dir.path())?.count(),
-        1,
-        "no temporary file"
+        h.patch(&file, BEFORE, AFTER, DIFF).await?,
+        PatchOutcome::Applied
     );
-    // Control: the same write to a path that is free succeeds.
-    h.write(&h.path("free"), b"new").await?;
-    assert_eq!(std::fs::read(h.path("free"))?, b"new");
+
+    let after = std::fs::metadata(&file)?;
+    assert_eq!(std::fs::read(&file)?, AFTER);
+    assert_eq!(after.mode() & 0o7777, 0o640);
+    assert_eq!((after.uid(), after.gid()), (before.uid(), before.gid()));
+    // Control: a file that did not exist gets the mode a plain create would give.
+    let umask = status_field("Umask:", 8)?[0];
+    let fresh = h.path("fresh");
+    h.write(&fresh, b"new").await?;
+    assert_eq!(std::fs::metadata(&fresh)?.mode() & 0o7777, 0o666 & !umask);
     Ok(())
 }
 
@@ -583,6 +786,50 @@ async fn patch_whose_result_is_not_the_expected_digest_changes_nothing() -> Resu
 
     assert_eq!(error.code(), Code::FailedPrecondition);
     assert_eq!(std::fs::read(&file)?, BEFORE);
+    // Control: the same patch with the digest it does produce is applied.
+    assert_eq!(
+        h.patch(&file, BEFORE, AFTER, DIFF).await?,
+        PatchOutcome::Applied
+    );
+    assert_eq!(std::fs::read(&file)?, AFTER);
+    Ok(())
+}
+
+#[tokio::test]
+async fn two_patches_from_one_base_apply_once_and_the_other_is_refused() -> Result {
+    let h = Harness::start().await?;
+    let file = h.path("f");
+    let other_diff = "--- a\n+++ b\n@@ -1,3 +1,3 @@\n a\n b\n-c\n+C\n";
+    let other_after: &[u8] = b"a\nb\nC\n";
+    for round in 0..20 {
+        std::fs::write(&file, BEFORE)?;
+        let (mut first, mut second) = (h.client.clone(), h.client.clone());
+        let request = |expected: &[u8], diff: &str| PatchFileRequest {
+            path: file.to_str().unwrap_or_default().into(),
+            base_digest: digest_of(BEFORE),
+            expected_digest: digest_of(expected),
+            patch: diff.as_bytes().to_vec(),
+        };
+        let (a, b) = tokio::join!(
+            first.patch_file(request(AFTER, DIFF)),
+            second.patch_file(request(other_after, other_diff))
+        );
+        let content = std::fs::read(&file)?;
+        // Whichever applied is what the file holds, and the other was told it did not.
+        match (a, b) {
+            (Ok(_), Err(e)) => {
+                assert_eq!(e.code(), Code::FailedPrecondition, "round {round}");
+                assert_eq!(content, AFTER, "round {round}");
+            }
+            (Err(e), Ok(_)) => {
+                assert_eq!(e.code(), Code::FailedPrecondition, "round {round}");
+                assert_eq!(content, other_after, "round {round}");
+            }
+            (a, b) => {
+                return Err(format!("round {round}: {:?} and {:?}", a.is_ok(), b.is_ok()).into());
+            }
+        }
+    }
     Ok(())
 }
 
@@ -615,6 +862,110 @@ async fn read_file_refuses_a_missing_file_a_directory_and_a_relative_path() -> R
     assert_eq!(missing.code(), Code::NotFound);
     assert_eq!(directory.code(), Code::InvalidArgument);
     assert_eq!(relative.code(), Code::InvalidArgument);
+    // Control: a regular file at an absolute path is read.
+    let regular = h.path("regular");
+    std::fs::write(&regular, b"content")?;
+    assert_eq!(h.read(&regular).await?.concat(), b"content");
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_file_refuses_a_fifo_promptly_beside_a_regular_file() -> Result {
+    let mut h = Harness::start().await?;
+    let fifo = h.path("fifo");
+    let status = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    assert!(status.success(), "mkfifo");
+    let regular = h.path("regular");
+    std::fs::write(&regular, b"content")?;
+
+    let refused = tokio::time::timeout(std::time::Duration::from_secs(2), h.read(&fifo))
+        .await?
+        .err()
+        .ok_or("a FIFO was read")?;
+
+    assert_eq!(refused.code(), Code::InvalidArgument);
+    assert_eq!(h.read(&regular).await?.concat(), b"content");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_symlink_is_followed_by_read_write_and_patch_and_stays_a_link() -> Result {
+    let mut h = Harness::start().await?;
+    let real = h.path("real");
+    let link = h.path("link");
+    std::fs::write(&real, BEFORE)?;
+    std::os::unix::fs::symlink(&real, &link)?;
+
+    assert_eq!(h.read(&link).await?.concat(), BEFORE);
+    assert_eq!(
+        h.patch(&link, BEFORE, AFTER, DIFF).await?,
+        PatchOutcome::Applied
+    );
+    assert_eq!(std::fs::read(&real)?, AFTER);
+    h.write(&link, b"written through the link").await?;
+
+    assert_eq!(std::fs::read(&real)?, b"written through the link");
+    assert!(
+        std::fs::symlink_metadata(&link)?.is_symlink(),
+        "the link was replaced"
+    );
+    // Control: the same write to a path that is not a link creates a regular file.
+    let plain = h.path("plain");
+    h.write(&plain, b"plain").await?;
+    assert!(std::fs::symlink_metadata(&plain)?.is_file());
+    Ok(())
+}
+
+#[tokio::test]
+async fn write_and_patch_refuse_a_target_that_is_not_a_regular_file() -> Result {
+    let mut h = Harness::start().await?;
+    let directory = h.path("directory");
+    std::fs::create_dir(&directory)?;
+    std::fs::write(directory.join("inside"), b"kept")?;
+    let fifo = h.path("fifo");
+    let status = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    assert!(status.success(), "mkfifo");
+    let to_directory = h.path("to-directory");
+    std::os::unix::fs::symlink(&directory, &to_directory)?;
+
+    let limit = std::time::Duration::from_secs(2);
+    for target in [&directory, &fifo, &to_directory] {
+        let written = tokio::time::timeout(limit, h.write(target, b"new"))
+            .await?
+            .err()
+            .ok_or("a write was accepted")?;
+        assert_eq!(
+            code(&*written),
+            Some(Code::InvalidArgument),
+            "{}",
+            target.display()
+        );
+        let patched = tokio::time::timeout(limit, h.patch(target, BEFORE, AFTER, DIFF))
+            .await?
+            .err()
+            .ok_or("a patch was accepted")?;
+        assert_eq!(
+            patched.code(),
+            Code::InvalidArgument,
+            "{}",
+            target.display()
+        );
+    }
+
+    assert_eq!(std::fs::read(directory.join("inside"))?, b"kept");
+    assert_eq!(
+        std::fs::read_dir(&directory)?.count(),
+        1,
+        "no temporary file in the directory"
+    );
+    assert_eq!(
+        std::fs::read_dir(h.dir.path())?.count(),
+        3,
+        "no temporary file beside the targets"
+    );
+    // Control: a regular file in the same directory is written.
+    h.write(&h.path("regular"), b"new").await?;
+    assert_eq!(std::fs::read(h.path("regular"))?, b"new");
     Ok(())
 }
 
@@ -625,14 +976,8 @@ async fn list_files_names_each_entry_with_its_kind_and_size() -> Result {
     std::fs::create_dir(h.path("dir"))?;
     std::os::unix::fs::symlink("file", h.path("link"))?;
 
-    let listed = h
-        .client
-        .list_files(ListFilesRequest {
-            path: h.dir.path().to_str().ok_or("dir")?.into(),
-        })
-        .await?
-        .into_inner()
-        .entries;
+    let dir_path = h.dir.path().to_path_buf();
+    let listed = h.list(&dir_path).await?.concat();
 
     let summary: Vec<_> = listed
         .iter()
@@ -651,6 +996,72 @@ async fn list_files_names_each_entry_with_its_kind_and_size() -> Result {
 }
 
 #[tokio::test]
+async fn a_listing_and_a_search_larger_than_one_message_arrive_sorted_across_messages() -> Result {
+    let mut h = Harness::start().await?;
+    for n in 0..1100 {
+        std::fs::write(h.path(&format!("f{n:04}")), b"")?;
+    }
+    let dir = h.dir.path().to_path_buf();
+
+    let runs = h.list(&dir).await?;
+    let found = h.search(&dir, "f*").await?;
+
+    assert!(runs.len() > 1, "{} message(s)", runs.len());
+    let listed: Vec<String> = runs.concat().into_iter().map(|e| e.path).collect();
+    assert_eq!(listed.len(), 1100);
+    assert!(listed.is_sorted());
+    assert_eq!(
+        found.into_iter().map(|e| e.path).collect::<Vec<_>>(),
+        listed
+    );
+    // Control: a directory with few entries is one message.
+    let small = h.path("small");
+    std::fs::create_dir(&small)?;
+    std::fs::write(small.join("only"), b"")?;
+    assert_eq!(h.list(&small).await?.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_request_over_the_size_limit_is_refused_and_one_under_it_is_served() -> Result {
+    let mut h = Harness::start().await?;
+    let file = h.path("f");
+    std::fs::write(&file, BEFORE)?;
+    let patch_of = |size: usize| PatchFileRequest {
+        path: file.to_str().unwrap_or_default().into(),
+        base_digest: digest_of(BEFORE),
+        expected_digest: digest_of(AFTER),
+        patch: vec![b'x'; size],
+    };
+
+    let over = h
+        .client
+        .patch_file(patch_of(17 * 1024 * 1024))
+        .await
+        .err()
+        .ok_or("an oversized request was accepted")?;
+    let under = h
+        .client
+        // Above tonic's own 4 MiB default, so only the explicit limit lets it through.
+        .patch_file(patch_of(5 * 1024 * 1024))
+        .await
+        .err()
+        .ok_or("a junk patch was applied")?;
+
+    assert_eq!(over.code(), Code::OutOfRange, "{}", over.message());
+    // The smaller one reached the service, which refused the patch itself.
+    assert!(
+        matches!(
+            under.code(),
+            Code::InvalidArgument | Code::FailedPrecondition
+        ),
+        "{under:?}"
+    );
+    assert_eq!(std::fs::read(&file)?, BEFORE);
+    Ok(())
+}
+
+#[tokio::test]
 async fn search_files_matches_a_glob_against_paths_below_the_directory() -> Result {
     let mut h = Harness::start().await?;
     std::fs::create_dir_all(h.path("a/b"))?;
@@ -659,18 +1070,11 @@ async fn search_files_matches_a_glob_against_paths_below_the_directory() -> Resu
     std::fs::write(h.path("z.rs"), b"")?;
     std::fs::write(h.path("top.txt"), b"")?;
     let root: String = h.dir.path().to_str().ok_or("dir")?.into();
+    let dir = h.dir.path().to_path_buf();
 
     let mut search = async |pattern: &str| -> Result<Vec<String>> {
-        let response = h
-            .client
-            .search_files(SearchFilesRequest {
-                path: root.clone(),
-                pattern: pattern.into(),
-            })
-            .await?;
-        Ok(response
-            .into_inner()
-            .matches
+        let matches = h.search(&dir, pattern).await?;
+        Ok(matches
             .into_iter()
             .map(|m| m.path.replacen(&root, "", 1))
             .collect())

@@ -28,20 +28,42 @@ pub mod v1alpha1 {
     tonic::include_proto!("mvmd.guest.v1alpha1");
 }
 
+/// What the agent is configured with.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// How many of the newest bytes of each command's output the agent keeps.
+    pub exec_output_retention: u64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            exec_output_retention: 16 * 1024 * 1024,
+        }
+    }
+}
+
 /// Serve `GuestService` on the connections of `incoming` until `shutdown` completes.
 ///
 /// A command still running when `shutdown` completes is ended, and its record says the agent
 /// ended first.
-pub async fn serve<I, IO>(incoming: I, shutdown: impl Future<Output = ()>) -> Result<(), Error>
+pub async fn serve<I, IO>(
+    incoming: I,
+    config: Config,
+    shutdown: impl Future<Output = ()>,
+) -> Result<(), Error>
 where
     I: Stream<Item = io::Result<IO>>,
     IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
     IO::ConnectInfo: Clone + Send + Sync + 'static,
 {
-    let execs = Arc::new(exec::Execs::default());
+    let execs = Arc::new(exec::Execs::new(config.exec_output_retention));
     let service = v1alpha1::guest_service_server::GuestServiceServer::new(service::Guest {
         execs: execs.clone(),
-    });
+        locks: files::Locks::default(),
+    })
+    .max_decoding_message_size(service::MAX_REQUEST_BYTES)
+    .max_encoding_message_size(service::MAX_RESPONSE_BYTES);
     let signal = async move {
         shutdown.await;
         // Streams that follow a command end with its record, which lets the drain finish.

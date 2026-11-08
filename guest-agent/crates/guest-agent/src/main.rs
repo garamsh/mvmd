@@ -28,7 +28,11 @@ async fn run() -> Result<(), String> {
     let shutdown = async move {
         terminate.recv().await;
     };
-    guest_agent::serve(listener.incoming(), shutdown)
-        .await
-        .map_err(|e| e.to_string())
+    guest_agent::serve(
+        listener.incoming(),
+        guest_agent::Config::default(),
+        shutdown,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }

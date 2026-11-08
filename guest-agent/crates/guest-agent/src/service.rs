@@ -9,10 +9,10 @@ use tonic::{Request, Response, Status, Streaming};
 
 use crate::error::Error;
 use crate::exec::Execs;
-use crate::files::{self, Reader, Upload};
+use crate::files::{self, Locks, Reader, Upload};
 use crate::v1alpha1::guest_service_server::GuestService;
 use crate::v1alpha1::{
-    ExecRequest, ExecResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
+    ExecRequest, ExecResponse, FileEntry, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
     ListFilesRequest, ListFilesResponse, PatchFileRequest, PatchFileResponse,
     ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest, ReadFileResponse,
     SearchFilesRequest, SearchFilesResponse, SignalRequest, SignalResponse, WriteFileRequest,
@@ -25,9 +25,30 @@ const API_VERSIONS: [&str; 1] = ["v1alpha1"];
 /// Messages buffered between a producing task and its stream.
 const STREAM_DEPTH: usize = 16;
 
+/// Entries per message of a listing or a search.
+const ENTRIES_PER_MESSAGE: usize = 512;
+
+/// The largest request the service accepts, which bounds a patch's diff.
+pub(crate) const MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
+
+/// The largest response the service sends; a message of a stream is far below it.
+pub(crate) const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+/// A result sent as a stream of messages, each holding a run of entries.
+type Batches<M> = tokio_stream::Iter<std::vec::IntoIter<Result<M, Status>>>;
+
+fn batches<M>(entries: Vec<FileEntry>, message: impl Fn(Vec<FileEntry>) -> M) -> Batches<M> {
+    let messages: Vec<Result<M, Status>> = entries
+        .chunks(ENTRIES_PER_MESSAGE)
+        .map(|run| Ok(message(run.to_vec())))
+        .collect();
+    tokio_stream::iter(messages)
+}
+
 /// The guest channel's service.
 pub(crate) struct Guest {
     pub(crate) execs: Arc<Execs>,
+    pub(crate) locks: Locks,
 }
 
 impl From<Error> for Status {
@@ -35,6 +56,7 @@ impl From<Error> for Status {
         let message = error.to_string();
         match error {
             Error::Invalid(_) => Status::invalid_argument(message),
+            Error::OutOfRange(_) => Status::out_of_range(message),
             Error::NotFound(_) => Status::not_found(message),
             Error::PermissionDenied(_) => Status::permission_denied(message),
             Error::PreconditionFailed(_) => Status::failed_precondition(message),
@@ -63,7 +85,17 @@ impl GuestService for Guest {
         let mut follower = self.execs.follow(&request.exec_id, request.after_offset)?;
         let (tx, rx) = mpsc::channel(STREAM_DEPTH);
         tokio::spawn(async move {
-            while let Some(output) = follower.next().await {
+            loop {
+                let output = match follower.next().await {
+                    Ok(Some(output)) => output,
+                    Ok(None) => return,
+                    Err(error) => {
+                        // The reader fell behind the retention; it reads again from the offset
+                        // the status names.
+                        let _ = tx.send(Err(Status::from(error))).await;
+                        return;
+                    }
+                };
                 let parts = output
                     .chunks
                     .into_iter()
@@ -130,7 +162,7 @@ impl GuestService for Guest {
                 }
                 (Some(write_file_request::Part::End(end)), Some(_)) => {
                     if let Some(upload) = upload.take() {
-                        upload.finish(&end.digest).await?;
+                        upload.finish(&self.locks, &end.digest).await?;
                     }
                     return Ok(Response::new(WriteFileResponse {}));
                 }
@@ -151,6 +183,7 @@ impl GuestService for Guest {
     ) -> Result<Response<PatchFileResponse>, Status> {
         let request = request.into_inner();
         let outcome = files::patch(
+            &self.locks,
             &request.path,
             &request.base_digest,
             &request.expected_digest,
@@ -162,21 +195,29 @@ impl GuestService for Guest {
         }))
     }
 
+    type ListFilesStream = Batches<ListFilesResponse>;
+
     async fn list_files(
         &self,
         request: Request<ListFilesRequest>,
-    ) -> Result<Response<ListFilesResponse>, Status> {
+    ) -> Result<Response<Self::ListFilesStream>, Status> {
         let entries = files::list(&request.into_inner().path).await?;
-        Ok(Response::new(ListFilesResponse { entries }))
+        Ok(Response::new(batches(entries, |entries| {
+            ListFilesResponse { entries }
+        })))
     }
+
+    type SearchFilesStream = Batches<SearchFilesResponse>;
 
     async fn search_files(
         &self,
         request: Request<SearchFilesRequest>,
-    ) -> Result<Response<SearchFilesResponse>, Status> {
+    ) -> Result<Response<Self::SearchFilesStream>, Status> {
         let request = request.into_inner();
         let matches = files::search(&request.path, &request.pattern).await?;
-        Ok(Response::new(SearchFilesResponse { matches }))
+        Ok(Response::new(batches(matches, |matches| {
+            SearchFilesResponse { matches }
+        })))
     }
 
     async fn health(

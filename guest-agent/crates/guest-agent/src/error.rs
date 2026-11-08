@@ -12,6 +12,10 @@ pub enum Error {
     #[error("invalid request: {0}")]
     Invalid(String),
 
+    /// An offset names output the agent no longer holds; the message names the earliest it holds.
+    #[error("out of range: {0}")]
+    OutOfRange(String),
+
     /// The path or the exec ID names nothing.
     #[error("not found: {0}")]
     NotFound(String),

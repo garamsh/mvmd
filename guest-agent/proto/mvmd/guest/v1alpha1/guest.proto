@@ -26,10 +26,12 @@ service GuestService {
   // Patch a file, guarded by a base and an expected digest.
   rpc PatchFile(PatchFileRequest) returns (PatchFileResponse);
 
-  // List a directory.
-  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
-  // Search a directory tree by glob.
-  rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
+  // List a directory. The entries come sorted by path across the messages
+  // of the stream, so no listing is bounded by one message.
+  rpc ListFiles(ListFilesRequest) returns (stream ListFilesResponse);
+  // Search a directory tree by glob. The matches come sorted by path across
+  // the messages of the stream.
+  rpc SearchFiles(SearchFilesRequest) returns (stream SearchFilesResponse);
 
   // Whether the agent serves.
   rpc Health(HealthRequest) returns (HealthResponse);
@@ -59,6 +61,10 @@ message ExecRecord {
   int32 exit_code = 4;
   // The signal that ended the command; zero when it exited by itself.
   int32 term_signal = 5;
+  // The agent keeps only the newest bytes of a command's output. This is the
+  // offset of the earliest byte still held; a read after an earlier offset
+  // fails with OUT_OF_RANGE and names it.
+  uint64 earliest_offset = 6;
 }
 
 message ExecRequest {
@@ -188,7 +194,7 @@ message FileEntry {
 }
 
 message ListFilesResponse {
-  // The directory's entries, sorted by path.
+  // A run of the directory's entries.
   repeated FileEntry entries = 1;
 }
 
@@ -202,7 +208,7 @@ message SearchFilesRequest {
 }
 
 message SearchFilesResponse {
-  // The matches, sorted by path.
+  // A run of the matches.
   repeated FileEntry matches = 1;
 }
 
