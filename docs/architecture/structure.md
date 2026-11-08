@@ -56,7 +56,7 @@ In mvmd the composition site is in the daemon, placed as `docs/convention/stack-
 | Runtime API | driving | gaon's Node Agent, through `lib/runtimeapi/` | #2 decision-change reply; [runtime.md](./runtime.md) |
 | VMM Driver | driven | Firecracker, Cloud Hypervisor; later an in-house VMM | #2 §5, VMM Driver; [driver.md](./driver.md) |
 | Disk | driven | sparse raw files in each Machine's state directory; [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) | #2 §5, first implementation scope |
-| Network | driven | one implementation at first | #2 §5, first implementation scope |
+| Network | driven | tap devices and one nftables table on the node; [runtime.md](./runtime.md) §Network | #2 §5, first implementation scope; [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) |
 | Snapshot Store | driven | one implementation at first | #2 §5, first implementation scope |
 | Image Store | driven | the node image cache, an OCI image layout with fs-verity on the EROFS files; [image.md](./image.md) | #2 §5, first implementation scope |
 | Registry | driven | OCI distribution registries | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |

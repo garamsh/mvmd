@@ -59,6 +59,15 @@ How it is enforced ([ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-
 - **The supervisor runs outside mvmd's cgroup**, so stopping mvmd under a service manager does not stop it.
 - **Bound.** In each failure case the ADR lists, mvmd dying while it starts a Machine among them, a VM runs past the expiry for at most δ, the time the supervisor takes to wake and end its namespace. δ is not yet measured.
 
+## Network
+
+How a Machine reaches the network on its node ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md), [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)). Cross-node networking, the Gateway and the Cell Router are gaon's (#2 §3, §4).
+
+- **One routed tap per Machine.** mvmd creates it, with its link down, before the VMM starts and deletes it after the VMM has ended. No two Machines share an L2 segment; the host is each guest's only next hop.
+- **Addressing, dual stack.** The node's configuration names an IPv4 prefix, an IPv6 prefix, or both. mvmd assigns each Machine one address per configured family, at Create Machine and at Restore, and releases them at Delete Machine. The gateways are an IPv4 address and `fe80::1`, the same on every tap. The Guest Agent configures the addresses statically; no router advertisement or DHCP runs. A restored Machine gets new addresses, which the agent applies after the restore.
+- **Enforcement.** One nftables table mvmd owns. At each tap, frames not from the Machine's MAC and addresses are dropped, ARP and the ICMPv6 neighbour solicitations and advertisements it needs are admitted, and router advertisements, redirects and router solicitations from a guest are dropped. The inet chains accept only what the Machine's policy allows, plus replies and their ICMP errors; everything else is dropped. Traffic leaving the node is masqueraded to the node's address of its family, IPv6 included.
+- **Changed only by transactions**, which take effect whole or not at all (ADR 0012, at the Linux and nftables versions it names), and the table outlives an mvmd restart, which replaces it from mvmd's durable state before serving any call.
+
 ## Invariants
 
 mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node Agent enforces invariants 4 and 5 (issue garamsh/mvmd#1, Context). Invariant 3, who writes spec, binding and status, concerns gaon's resource API and is not mvmd's.
@@ -67,13 +76,14 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 |---|---|
 | 1. A Machine runs on at most one node at a time | The fencing deadline above |
 | 2. A Volume has at most one writer at a time | One holder per disk on its node, recorded durably by the inside before a Driver attaches it and released only once the holder's VMM process has ended ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)) |
-| 6. A Machine does not start until its network policy is applied | Fail-closed start: the Machine does not start until the policy is applied |
+| 6. A Machine does not start until its network policy is applied | Fail-closed start: the Machine's rules are committed in one nftables transaction before its tap's link comes up and before its VMM starts; a failed commit fails the start ([ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)) |
 
 ## Rationale
 
 - The scope and the boundary: [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md).
 - The enforcement mechanism, the candidates rejected and the bound in each failure case: [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md).
 - The disk backing and how the one-writer rule is enforced on the node: [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md).
+- The node network and its enforcement: [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md), [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md).
 - Why the boundary sits at a runtime API and not at gaon's resource API: the original requirement of swappable components behind interfaces, and a one-way dependency (#2 §3 principle 3).
 
 ## Open questions
@@ -82,7 +92,7 @@ These are #2 §6 questions inside mvmd's scope, as they apply to the runtime. Th
 
 - **Preservation default (#2 §6 item 8):** whether a Machine keeps its disk only or its memory as well by default, and whether a snapshot is a public resource of the runtime API. #2 §2 offers disk-only as a proposal, not a decision.
 - **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume. A Machine's root disk is decided, a node-local sparse raw file ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)); any other disk is not.
-- **Network enforcement (item 10):** the technology that enforces external traffic policy on the node (nftables, eBPF and others are named in #2). The fail-closed start rule above holds whichever is chosen.
+- **Confining the VMM process.** The network rules confine what a guest sends through its tap; a VMM process compromised by its guest runs in the host's network namespace ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md)). Namespaces or other confinement for the VMM are not decided.
 - **Density and restore numbers (item 13):** the fencing deadline's default, restore time and the latency right after a restore, and idle and active memory per node. None is measured; a value is set only after the single-node prototype of #2 §6 measures it.
 - **The time a supervisor takes to end its namespace at the expiry**, under load and after a suspend; measured with the prototype numbers above.
 - **How many earlier releases' supervisors mvmd must speak to**, since a supervisor outlives an mvmd upgrade until its Machine is next started.

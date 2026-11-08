@@ -32,7 +32,7 @@ Checked against garamsh/discussions#2 as read on 2026-11-08 (decision-change rep
 | Stopped | Not executing; disks retained. |
 | Faulted | mvmd cannot establish the Machine's state, for example a stop that could not be confirmed. The only calls that apply are stop, delete, inspect and reads. |
 
-Inspect reports the state, the reason for the last failure if any, the Driver and its version, and the Machine's disks and resources as mvmd holds them.
+Inspect reports the state, the reason for the last failure if any, the Driver and its version, the Machine's disks and resources as mvmd holds them, and its network addresses, one per family its node serves, and the network policy in effect.
 
 ## Operations
 
@@ -67,6 +67,30 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 
 - **One writer per disk on this node** (#2 §4 invariant 2): an attach that would add a second writer is precondition failed.
 - **Resize names a target, not a delta**, so a repeat is idempotent.
+
+### Network policy
+
+Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its life ([ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md)). mvmd enforces it on the node ([ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)) and assigns the Machine's address itself ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md)).
+
+| Message | Field | Meaning |
+|---|---|---|
+| `NetworkPolicy` | `egress` | Rules for packets the Machine sends. A packet leaves only if one matches. |
+| `NetworkPolicy` | `ingress` | Rules for packets sent to the Machine. A packet arrives only if one matches. |
+| `NetworkRule` | `prefix` | An IPv4 prefix (`a.b.c.d/n`) or an IPv6 prefix (`x:x::/n`), which sets the rule's family: the destination for egress, the source for ingress. One address is a `/32` or a `/128`. |
+| `NetworkRule` | `protocol` | TCP, UDP, ICMP (IPv4 only), ICMPv6 (IPv6 only), or any protocol of the prefix's family. |
+| `NetworkRule` | `ports` | Port ranges: destination ports for egress, the Machine's own ports for ingress. Empty means every port; only TCP and UDP rules may set it. |
+| `PortRange` | `first`, `last` | Inclusive bounds, `1` to `65535`, `first` not above `last`. |
+
+- **Empty is closed.** A policy with both lists empty, the default, blocks all traffic to and from the Machine (#2 §4, core and extensions).
+- **Allow only, order-free.** A packet passes if any rule of its direction matches; there are no deny rules, and the order of rules means nothing.
+- **Replies are implied.** Packets of a connection an accepted packet opened pass in both directions.
+- **Two Machines on one node** reach each other only when the sender's egress and the receiver's ingress both allow it.
+- **Invalid is rejected.** Any of these is rejected as invalid, and nothing changes: an unparseable prefix; ICMP with an IPv6 prefix or ICMPv6 with an IPv4 prefix; a port outside `1` to `65535`; a range with `first` above `last`; ports on an ICMP, ICMPv6 or any rule.
+- **Both families.** A Machine gets one address per family its node serves ([ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md)). A rule for a family the node does not serve is valid and matches nothing there.
+- **Neighbour discovery is not policy.** mvmd admits the ICMPv6 a Machine needs to resolve its gateway and be resolved, and drops router advertisements, redirects and router solicitations from it, whatever the policy says ([ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md)).
+- **DNS** is an address like any other: the guest's resolvers are the node's, and a policy reaching them allows their addresses on UDP and TCP port 53.
+- **A snapshot carries no policy.** Restore's policy is the new Machine's, and the restored Machine has a new address.
+- **Adding to it.** Name-based rules, a client-chosen address and an operation that replaces a policy are optional additions whose absence means what this table means, so they keep the version. A change to what an empty list means is a new version.
 
 ### Observation
 
@@ -133,6 +157,7 @@ The deadline exists so a Machine cannot run on two nodes when its client is gone
 - The deadline's recorded-before-acknowledged rule and the receipt-time rule follow the safety requirement stated in garamsh/mvmd#4 Context: the client keeps the deadline at or below its own validity, which it can do only if mvmd's expiry is what the client was told.
 - The mechanism that enforces the expiry while mvmd is not running: [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md).
 - The scope and why the API is not CRI: [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md).
+- Why the policy is an order-free allow-list of prefix, protocol and port rules, and what it leaves for later: [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md).
 
 ## Open questions
 
@@ -144,7 +169,7 @@ The deadline exists so a Machine cannot run on two nodes when its client is gone
 - **The pattern syntax of List and search.** The encoding is a path and a pattern string with no syntax fixed, and the matches are returned as paths. A change to that encoding follows the version rule under Scope and version.
 - **Authorisation of callers beyond the socket.** Authentication is the socket's filesystem permissions (ADR 0004); #2 states no finer rule.
 - **How a disk other than a root disk comes to exist on the node** (creation, class, durability, movement): depends on #2 §6 item 9 ([runtime.md](./runtime.md) §Open questions). Attach assumes the node already holds it. A root disk is created by Create Machine and deleted by Delete Machine ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)).
-- **How the network policy is described in Create Machine**: depends on the enforcement technology, #2 §6 item 10.
+- **Changing a running Machine's policy.** A policy is fixed for the Machine's life in v1alpha1; a replace operation would be an addition.
 - **Removal and retention of snapshots and images**, including garbage collection of the node cache.
 - **How long events are kept**, how long request IDs are kept after their object is deleted, and how many API versions are served at once.
 - **Whether a snapshot is a public resource** with its own list and inspect (#2 §6 item 8). Here a snapshot is created and used by identifier only.
