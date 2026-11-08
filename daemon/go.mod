@@ -6,7 +6,7 @@ require (
 	github.com/garamsh/mvmd/lib/runtimeapi v0.0.0
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
