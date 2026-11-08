@@ -53,6 +53,12 @@ func (r UIDRange) Validate() error {
 	return nil
 }
 
+// Contains returns true if uid falls within the range [First, First+Count).
+// It uses subtraction to avoid the overflow that a direct sum would cause.
+func (r UIDRange) Contains(uid uint32) bool {
+	return uid >= r.First && uid-r.First < r.Count
+}
+
 // User is the UID and GID of a Machine's VMM user, always equal (ADR 0015).
 type User struct {
 	UID uint32

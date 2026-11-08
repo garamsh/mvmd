@@ -57,19 +57,11 @@ func (s *service) Restore(ctx context.Context) error {
 			continue
 		}
 		uid := rec.Machine.User.UID
-		if uid == 0 {
-			continue
-		}
-		// Reject a UID outside the configured range.
-		if uid < s.uidRange.First || uid >= s.uidRange.First+s.uidRange.Count {
+		if !s.uidRange.Contains(uid) {
 			s.mu.Unlock()
 			return fail(ErrPreconditionFailed,
-				"restored record %q carries UID %d outside the configured range [%d, %d)",
-				rec.ID, uid, s.uidRange.First, s.uidRange.First+s.uidRange.Count)
-		}
-		// Reject a collision: two records with the same UID.
-		if _, ok := s.usedUID[rec.ID]; ok {
-			// Not possible on a fresh load, but guard anyway.
+				"restored record %q carries UID %d outside the configured range (first: %d, count: %d)",
+				rec.ID, uid, s.uidRange.First, s.uidRange.Count)
 		}
 		if _, collides := s.usedUIDByUID[uid]; collides {
 			s.mu.Unlock()
