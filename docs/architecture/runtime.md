@@ -32,7 +32,7 @@ The runtime API models a Machine, not a Pod or a container, and is not CRI (#2 �
 - Inspect, list and events.
 - Exec, a file API and a console.
 
-mvmd defines and versions it. Each operation states its idempotency and the state a Machine is left in after a failure (#2 §3 principle 5). The contract is published as `lib/runtimeapi/` and is a leaf module ([structure.md](./structure.md) §Repository layout). The API's first version is defined in a later issue; this document records its scope and owner only.
+mvmd defines and versions it. Each operation states its idempotency and the state a Machine is left in after a failure (#2 §3 principle 5). The contract is published as `lib/runtimeapi/` and is a leaf module ([structure.md](./structure.md) §Repository layout). Its operations, calling rules and version are in [runtime-api.md](./runtime-api.md).
 
 ## State and stability
 
@@ -45,7 +45,7 @@ mvmd owns the actual VM state on its node and the snapshot and image caches; the
 
 ## Fencing
 
-If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply).
+If gaon's Node Agent dies while mvmd keeps VMs running, a rescheduled Machine could run on two nodes (#2 §4 invariant 1). mvmd therefore holds a deadline its client renews; when the deadline is not renewed in time, mvmd stops every Machine under it. The client sets the length of the deadline; the mechanism is mvmd's (#2 decision-change reply). How the client sets and renews it, and what holds across an mvmd restart, is in [runtime-api.md](./runtime-api.md) §Fencing deadline.
 
 ## Invariants
 
@@ -70,5 +70,4 @@ These are #2 §6 questions inside mvmd's scope, as they apply to the runtime. Th
 - **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume.
 - **Network enforcement (item 10):** the technology that enforces external traffic policy on the node (nftables, eBPF and others are named in #2). The fail-closed start rule above holds whichever is chosen.
 - **Density and restore numbers (item 13):** the fencing deadline's default, restore time and the latency right after a restore, and idle and active memory per node. None is measured; a value is set only after the single-node prototype of #2 §6 measures it.
-- **Runtime API transport and schema:** undefined until the later issue that defines its first version.
-- **Fencing across an mvmd restart:** whether the deadline survives a restart of mvmd. #2 does not say.
+- **Runtime API wire encoding and transport, and fencing while mvmd is down:** see [runtime-api.md](./runtime-api.md) §Open questions.

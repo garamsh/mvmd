@@ -24,6 +24,7 @@ Responsibility documents:
 
 - [structure.md](./structure.md) — the hexagonal shape, repository layout, boundaries and dependency direction, ports
 - [runtime.md](./runtime.md) — what mvmd owns on a node, its boundary with gaon, fencing, invariants
+- [runtime-api.md](./runtime-api.md) — the runtime API: operations, calling rules, version v1alpha1, fencing deadline
 - [driver.md](./driver.md) — the VMM Driver contract
 - [image.md](./image.md) — image pull, MachineImage, node image cache
 - [guest.md](./guest.md) — the Guest Agent, guest boot order, guest kernel scope
