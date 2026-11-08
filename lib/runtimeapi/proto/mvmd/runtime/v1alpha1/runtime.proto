@@ -166,6 +166,10 @@ message Machine {
   repeated DiskAttachment disks = 5;
   Resources resources = 6;
   uint64 root_disk_bytes = 7;
+  // One address per family its node serves.
+  repeated string addresses = 8;
+  // The network policy in effect for this Machine.
+  NetworkPolicy network_policy = 9;
 }
 
 message CreateMachineRequest {

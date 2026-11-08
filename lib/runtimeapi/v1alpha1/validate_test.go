@@ -68,8 +68,10 @@ func TestNetworkRule_Validate(t *testing.T) {
 		{"icmp ipv4", "10.0.0.0/8", v1alpha1.Protocol_PROTOCOL_ICMP, nil, true},
 		// Valid: any protocol with IPv4.
 		{"any ipv4", "10.0.0.0/24", v1alpha1.Protocol_PROTOCOL_ANY, nil, true},
-		// Valid: unspecified protocol with IPv4.
-		{"unspecified ipv4", "10.0.0.0/24", v1alpha1.Protocol_PROTOCOL_UNSPECIFIED, nil, true},
+		// Invalid: unspecified protocol.
+		{"unspecified protocol", "10.0.0.0/24", v1alpha1.Protocol_PROTOCOL_UNSPECIFIED, nil, false},
+		// Invalid: out-of-range protocol value.
+		{"out-of-range protocol", "10.0.0.0/24", v1alpha1.Protocol(99), nil, false},
 		// Valid: single address /32.
 		{"ipv4 /32", "192.168.0.1/32", v1alpha1.Protocol_PROTOCOL_TCP, []*v1alpha1.PortRange{{First: 22, Last: 22}}, true},
 		// Valid: single address /128.
@@ -147,4 +149,48 @@ func TestNetworkPolicy_Validate(t *testing.T) {
 		Egress:  []*v1alpha1.NetworkRule{ipv4Rule, badRule},
 		Ingress: []*v1alpha1.NetworkRule{ipv4Rule},
 	}).Validate())
+}
+
+func TestCreateMachineRequest_Validate_RefusesInvalidPolicy(t *testing.T) {
+	ok := &v1alpha1.CreateMachineRequest{
+		MachineId:   "m",
+		RequestId:   "r",
+		ImageDigest: digest,
+		NetworkPolicy: &v1alpha1.NetworkPolicy{
+			Egress: []*v1alpha1.NetworkRule{{Prefix: "10.0.0.0/24", Protocol: v1alpha1.Protocol_PROTOCOL_TCP, Ports: []*v1alpha1.PortRange{{First: 80, Last: 80}}}},
+		},
+	}
+	assert.NoError(t, ok.Validate())
+
+	invalid := &v1alpha1.CreateMachineRequest{
+		MachineId:   "m",
+		RequestId:   "r",
+		ImageDigest: digest,
+		NetworkPolicy: &v1alpha1.NetworkPolicy{
+			Egress: []*v1alpha1.NetworkRule{{Prefix: "fd00::/64", Protocol: v1alpha1.Protocol_PROTOCOL_ICMP}},
+		},
+	}
+	assert.Error(t, invalid.Validate())
+}
+
+func TestRestoreMachineRequest_Validate_RefusesInvalidPolicy(t *testing.T) {
+	ok := &v1alpha1.RestoreMachineRequest{
+		MachineId:  "m",
+		RequestId:  "r",
+		SnapshotId: "snap",
+		NetworkPolicy: &v1alpha1.NetworkPolicy{
+			Ingress: []*v1alpha1.NetworkRule{{Prefix: "10.0.0.0/24", Protocol: v1alpha1.Protocol_PROTOCOL_TCP, Ports: []*v1alpha1.PortRange{{First: 80, Last: 80}}}},
+		},
+	}
+	assert.NoError(t, ok.Validate())
+
+	invalid := &v1alpha1.RestoreMachineRequest{
+		MachineId:  "m",
+		RequestId:  "r",
+		SnapshotId: "snap",
+		NetworkPolicy: &v1alpha1.NetworkPolicy{
+			Ingress: []*v1alpha1.NetworkRule{{Prefix: "10.0.0.0/24", Protocol: v1alpha1.Protocol_PROTOCOL_UNSPECIFIED}},
+		},
+	}
+	assert.Error(t, invalid.Validate())
 }
