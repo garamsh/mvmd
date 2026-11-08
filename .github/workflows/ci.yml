@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    steps:
+      # Moved by Dependabot (.github/dependabot.yml), which proposes the bump
+      # of each pinned action SHA.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            lib/runtimeapi/go.sum
+            tooling/protogen/go.sum
+      - name: Record the toolchain this run resolved
+        run: go version
+      - name: Run the whole check set
+        run: make ci

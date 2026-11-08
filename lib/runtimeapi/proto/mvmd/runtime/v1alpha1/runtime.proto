@@ -1,0 +1,472 @@
+// The mvmd runtime API, version v1alpha1. Its meaning is fixed by
+// docs/architecture/runtime-api.md; this file is the encoding.
+syntax = "proto3";
+
+package mvmd.runtime.v1alpha1;
+
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1;v1alpha1";
+
+// RuntimeService is the whole runtime API. Every call ends in an outcome kind
+// (OutcomeKind). A success is an OK status; every other kind is a non-OK
+// status whose details carry one Failure.
+service RuntimeService {
+  // Machine lifecycle.
+  rpc CreateMachine(CreateMachineRequest) returns (CreateMachineResponse);
+  rpc StartMachine(StartMachineRequest) returns (StartMachineResponse);
+  rpc StopMachine(StopMachineRequest) returns (StopMachineResponse);
+  rpc PauseMachine(PauseMachineRequest) returns (PauseMachineResponse);
+  rpc ResumeMachine(ResumeMachineRequest) returns (ResumeMachineResponse);
+  rpc SnapshotMachine(SnapshotMachineRequest) returns (SnapshotMachineResponse);
+  rpc RestoreMachine(RestoreMachineRequest) returns (RestoreMachineResponse);
+  rpc DeleteMachine(DeleteMachineRequest) returns (DeleteMachineResponse);
+
+  // Disks and resources.
+  rpc AttachDisk(AttachDiskRequest) returns (AttachDiskResponse);
+  rpc DetachDisk(DetachDiskRequest) returns (DetachDiskResponse);
+  rpc SetResources(SetResourcesRequest) returns (SetResourcesResponse);
+
+  // Observation. These change nothing and can be repeated freely.
+  rpc GetRuntimeInfo(GetRuntimeInfoRequest) returns (GetRuntimeInfoResponse);
+  rpc InspectMachine(InspectMachineRequest) returns (InspectMachineResponse);
+  rpc ListMachines(ListMachinesRequest) returns (ListMachinesResponse);
+  rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
+
+  // Guest access.
+  rpc Exec(ExecRequest) returns (ExecResponse);
+  rpc ReadExecOutput(ReadExecOutputRequest) returns (stream ReadExecOutputResponse);
+  rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
+  rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+  rpc PatchFile(PatchFileRequest) returns (PatchFileResponse);
+  rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
+  rpc Console(stream ConsoleRequest) returns (stream ConsoleResponse);
+
+  // Images.
+  rpc PullImage(PullImageRequest) returns (PullImageResponse);
+
+  // Fencing deadline.
+  rpc RenewDeadline(RenewDeadlineRequest) returns (RenewDeadlineResponse);
+  rpc InspectDeadline(InspectDeadlineRequest) returns (InspectDeadlineResponse);
+}
+
+// OutcomeKind is how a call ended (runtime-api.md, Calling rules). The
+// gRPC status code carries the kind for a caller that reads no details:
+// SUCCESS is OK, REJECTED is INVALID_ARGUMENT, NOT_FOUND is NOT_FOUND,
+// CONFLICT is ALREADY_EXISTS, PRECONDITION_FAILED is FAILED_PRECONDITION,
+// UNSUPPORTED is UNIMPLEMENTED, FAILED is INTERNAL, IN_PROGRESS is ABORTED.
+enum OutcomeKind {
+  OUTCOME_KIND_UNSPECIFIED = 0;
+  OUTCOME_KIND_SUCCESS = 1;
+  OUTCOME_KIND_REJECTED = 2;
+  OUTCOME_KIND_NOT_FOUND = 3;
+  OUTCOME_KIND_CONFLICT = 4;
+  OUTCOME_KIND_PRECONDITION_FAILED = 5;
+  OUTCOME_KIND_UNSUPPORTED = 6;
+  OUTCOME_KIND_FAILED = 7;
+  // A repeated creating call whose original is still running.
+  OUTCOME_KIND_IN_PROGRESS = 8;
+}
+
+// Failure is the status detail of every non-OK call.
+message Failure {
+  OutcomeKind kind = 1;
+  string reason = 2;
+}
+
+enum MachineState {
+  MACHINE_STATE_UNSPECIFIED = 0;
+  MACHINE_STATE_CREATED = 1;
+  MACHINE_STATE_RUNNING = 2;
+  MACHINE_STATE_PAUSED = 3;
+  MACHINE_STATE_STOPPED = 4;
+  MACHINE_STATE_FAULTED = 5;
+}
+
+// Capability is an optional operation a Driver may lack (driver.md).
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_SNAPSHOT = 1;
+  CAPABILITY_DISK_HOTPLUG = 2;
+  CAPABILITY_CPU_RESIZE = 3;
+  CAPABILITY_MEMORY_RESIZE = 4;
+}
+
+// ImageRef locates an image to pull: the repository to fetch it from and the
+// content digest to fetch, never a tag. The repository carries no tag and no
+// "@"; the digest has the form "sha256:" followed by 64 lowercase hexadecimal
+// digits. The Go package refuses any other form before a call is sent.
+message ImageRef {
+  // For example "registry.example/ns/app" or "registry:5000/app".
+  string repository = 1;
+  string digest = 2;
+}
+
+// NetworkPolicy is a placeholder: how a policy is described is an open
+// question in runtime-api.md. An empty policy is the default, which blocks
+// all external traffic.
+message NetworkPolicy {}
+
+// Resources is an absolute target, never a delta.
+message Resources {
+  uint32 cpu_count = 1;
+  uint64 memory_bytes = 2;
+}
+
+// DiskAttachment is one disk the node holds, attached to a Machine.
+// A writable attachment is the one writer the node allows per disk.
+message DiskAttachment {
+  string disk_id = 1;
+  bool read_only = 2;
+}
+
+message Driver {
+  string name = 1;
+  string version = 2;
+}
+
+message Machine {
+  string id = 1;
+  MachineState state = 2;
+  // The reason for the last failure, empty if none.
+  string last_failure_reason = 3;
+  Driver driver = 4;
+  repeated DiskAttachment disks = 5;
+  Resources resources = 6;
+  uint64 root_disk_bytes = 7;
+}
+
+message CreateMachineRequest {
+  // Chosen by the client, unique on the node.
+  string machine_id = 1;
+  string request_id = 2;
+  // The digest of an image already on the node, in the form ImageRef.digest
+  // has.
+  string image_digest = 3;
+  Resources resources = 4;
+  uint64 root_disk_bytes = 5;
+  repeated DiskAttachment disks = 6;
+  NetworkPolicy network_policy = 7;
+}
+
+message CreateMachineResponse {
+  Machine machine = 1;
+}
+
+message StartMachineRequest {
+  string machine_id = 1;
+}
+
+message StartMachineResponse {
+  Machine machine = 1;
+}
+
+message StopMachineRequest {
+  string machine_id = 1;
+  // How long the guest has to stop before the VMM is terminated.
+  google.protobuf.Duration grace_period = 2;
+}
+
+message StopMachineResponse {
+  Machine machine = 1;
+}
+
+message PauseMachineRequest {
+  string machine_id = 1;
+}
+
+message PauseMachineResponse {
+  Machine machine = 1;
+}
+
+message ResumeMachineRequest {
+  string machine_id = 1;
+}
+
+message ResumeMachineResponse {
+  Machine machine = 1;
+}
+
+message SnapshotMachineRequest {
+  string snapshot_id = 1;
+  string request_id = 2;
+  string machine_id = 3;
+}
+
+message SnapshotMachineResponse {
+  string snapshot_id = 1;
+}
+
+message RestoreMachineRequest {
+  // The new Machine's identifier, chosen by the client.
+  string machine_id = 1;
+  string request_id = 2;
+  string snapshot_id = 3;
+  NetworkPolicy network_policy = 4;
+}
+
+message RestoreMachineResponse {
+  Machine machine = 1;
+}
+
+message DeleteMachineRequest {
+  string machine_id = 1;
+}
+
+message DeleteMachineResponse {}
+
+message AttachDiskRequest {
+  string machine_id = 1;
+  DiskAttachment disk = 2;
+}
+
+message AttachDiskResponse {
+  Machine machine = 1;
+}
+
+message DetachDiskRequest {
+  string machine_id = 1;
+  string disk_id = 2;
+}
+
+message DetachDiskResponse {
+  Machine machine = 1;
+}
+
+message SetResourcesRequest {
+  string machine_id = 1;
+  Resources target = 2;
+}
+
+message SetResourcesResponse {
+  // The resources in effect, which differ from the target after a failure.
+  Resources resources = 1;
+}
+
+message GetRuntimeInfoRequest {}
+
+message DriverInfo {
+  Driver driver = 1;
+  repeated Capability capabilities = 2;
+}
+
+message GetRuntimeInfoResponse {
+  // The API versions served, as package identifiers (for example
+  // "mvmd.runtime.v1alpha1").
+  repeated string api_versions = 1;
+  repeated DriverInfo drivers = 2;
+}
+
+message InspectMachineRequest {
+  string machine_id = 1;
+}
+
+message InspectMachineResponse {
+  Machine machine = 1;
+}
+
+message ListMachinesRequest {}
+
+message ListMachinesResponse {
+  repeated Machine machines = 1;
+}
+
+message WatchEventsRequest {
+  // Resume after this sequence number. Zero starts at the oldest event held.
+  uint64 after_sequence = 1;
+}
+
+message StateChanged {
+  MachineState state = 1;
+}
+
+message DeadlineEvent {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_ARMED = 1;
+    KIND_RENEWED = 2;
+    KIND_EXPIRED = 3;
+  }
+  Kind kind = 1;
+}
+
+message DriverEvent {
+  string name = 1;
+  string detail = 2;
+}
+
+// ResyncRequired says the events after the requested sequence are no longer
+// held; the client lists to resynchronise.
+message ResyncRequired {}
+
+message WatchEventsResponse {
+  // Grows on this node. Zero on ResyncRequired.
+  uint64 sequence = 1;
+  // Empty on ResyncRequired and on a node-wide event.
+  string machine_id = 2;
+  oneof event {
+    StateChanged state_changed = 3;
+    DeadlineEvent deadline = 4;
+    DriverEvent driver = 5;
+    ResyncRequired resync_required = 6;
+  }
+}
+
+enum ExecStatus {
+  EXEC_STATUS_UNSPECIFIED = 0;
+  EXEC_STATUS_STARTED = 1;
+  EXEC_STATUS_NOT_STARTED = 2;
+  // The Machine stopped while the command ran.
+  EXEC_STATUS_CUT_SHORT = 3;
+  // The command ended; exit_code is set.
+  EXEC_STATUS_EXITED = 4;
+}
+
+message ExecRecord {
+  string exec_id = 1;
+  ExecStatus status = 2;
+  // Why the command did not start or was cut short.
+  string reason = 3;
+  // The command's exit code; meaningful only when status is EXITED.
+  int32 exit_code = 4;
+}
+
+message ExecRequest {
+  string exec_id = 1;
+  string request_id = 2;
+  string machine_id = 3;
+  repeated string command = 4;
+  map<string, string> env = 5;
+  string working_dir = 6;
+}
+
+message ExecResponse {
+  ExecRecord record = 1;
+}
+
+message ReadExecOutputRequest {
+  string machine_id = 1;
+  string exec_id = 2;
+  // Resume after this offset; zero starts at the beginning.
+  uint64 after_offset = 3;
+}
+
+enum OutputStream {
+  OUTPUT_STREAM_UNSPECIFIED = 0;
+  OUTPUT_STREAM_STDOUT = 1;
+  OUTPUT_STREAM_STDERR = 2;
+}
+
+// OutputChunk is output of the command. offset is the position of the chunk's
+// first byte in the exec's output as one sequence, stdout and stderr in the
+// order mvmd received them.
+message OutputChunk {
+  OutputStream stream = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+// ReadExecOutputResponse is a chunk of output, or the exec record that ends
+// the stream once the command has ended.
+message ReadExecOutputResponse {
+  oneof part {
+    OutputChunk chunk = 1;
+    ExecRecord record = 2;
+  }
+}
+
+message ReadFileRequest {
+  string machine_id = 1;
+  string path = 2;
+}
+
+// ReadFileResponse is one chunk of the file, in order.
+message ReadFileResponse {
+  bytes chunk = 1;
+}
+
+message WriteFileStart {
+  string machine_id = 1;
+  string path = 2;
+}
+
+// WriteFileRequest is the first message of a stream carrying start, then
+// messages carrying chunks. The new content is committed whole at a clean end
+// of the stream; a stream that breaks leaves the old content.
+message WriteFileRequest {
+  oneof part {
+    WriteFileStart start = 1;
+    bytes chunk = 2;
+  }
+}
+
+message WriteFileResponse {}
+
+message PatchFileRequest {
+  string machine_id = 1;
+  string path = 2;
+  // Content digests, "sha256:" followed by 64 lowercase hexadecimal digits.
+  string base_digest = 3;
+  string expected_digest = 4;
+  bytes patch = 5;
+}
+
+message PatchFileResponse {}
+
+message SearchFilesRequest {
+  string machine_id = 1;
+  string path = 2;
+  string pattern = 3;
+}
+
+message SearchFilesResponse {
+  repeated string matches = 1;
+}
+
+// ConsoleRequest carries the Machine in the first message of a session and
+// input bytes after it.
+message ConsoleRequest {
+  string machine_id = 1;
+  bytes input = 2;
+}
+
+message ConsoleResponse {
+  bytes output = 1;
+}
+
+message PullImageRequest {
+  ImageRef image = 1;
+}
+
+message PullImageResponse {}
+
+enum DeadlinePhase {
+  DEADLINE_PHASE_UNSPECIFIED = 0;
+  DEADLINE_PHASE_NOT_ARMED = 1;
+  DEADLINE_PHASE_ARMED = 2;
+  DEADLINE_PHASE_EXPIRED = 3;
+  // Expired and every Machine under it stopped.
+  DEADLINE_PHASE_STOPPED_EVERYTHING = 4;
+}
+
+message DeadlineStatus {
+  DeadlinePhase phase = 1;
+  google.protobuf.Duration length = 2;
+  google.protobuf.Duration remaining = 3;
+  uint64 last_renewal_number = 4;
+}
+
+message RenewDeadlineRequest {
+  google.protobuf.Duration length = 1;
+  uint64 renewal_number = 2;
+}
+
+message RenewDeadlineResponse {
+  DeadlineStatus status = 1;
+}
+
+message InspectDeadlineRequest {}
+
+message InspectDeadlineResponse {
+  DeadlineStatus status = 1;
+}

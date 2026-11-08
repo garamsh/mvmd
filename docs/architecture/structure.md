@@ -22,8 +22,9 @@ Follows the monorepo shape of garamsh/garam at the commit above: each top-level 
 - `lib/runtimeapi/` — the runtime API contract and its client, a Go library module in the library layout of `docs/convention/stack-go.md` §1, package at the module root. It is the one module gaon imports. It is a leaf: it imports no other package of mvmd.
 - `mvmctl/` and `imageconv/` — the names reserved for a CLI and for the isolated image converter (#2 §5, image section, security), each a top-level folder if and when it ships as its own executable. Neither is committed to existing.
 - `docs/` — conventions, architecture, procedures.
-- `tooling/` and `deploy/` — added later, by the first pull request that needs one.
-- `go.work` at the root, naming every Go module. The root holds no Go package.
+- `tooling/protogen/` — a Go module that holds nothing but the pins of the protobuf generator (`buf`, `protoc-gen-go`, `protoc-gen-go-grpc`) as `tool` directives, released versions only, with `protoc-gen-go` at the version of the library's `google.golang.org/protobuf`. It ships no package and is not in `go.work`, so the generator's dependencies stay out of every unit's graph.
+- `deploy/` — added later, by the first pull request that needs one.
+- `go.work` at the root, naming every Go module that ships code and carrying the one `toolchain` line every check and the pipeline use. The root holds no Go package.
 - `lib/` holds libraries linked by more than one unit and no binary. It has no `shared/`, `utils/` or `common/`; a package one unit alone imports belongs to that unit.
 - A unit reaches another only through what it publishes: Go's `internal/` encloses `daemon/` and keeps other modules out of it. The daemon's inside does not import `lib/runtimeapi/`; the driving adapter does, and converts between its types and the driving port's.
 
