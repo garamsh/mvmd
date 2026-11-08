@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -21,66 +20,115 @@ import (
 )
 
 // The tests start real supervisors, which need CAP_SYS_ADMIN (the PID
-// namespace), CAP_SYS_NICE (the real-time policy) and CAP_IPC_LOCK (mlockall).
-// A test binary that is not root runs itself again under passwordless sudo,
-// which the GitHub-hosted runner provides; where it can get neither, the run
-// fails, and no test is skipped.
+// namespace and the confinement's namespaces), CAP_SYS_NICE (the real-time
+// policy), CAP_IPC_LOCK (mlockall) and the capabilities ADR 0015 lists for the
+// confinement, and they create cgroups. A test binary that is not root runs
+// itself again under passwordless sudo, which the GitHub-hosted runner
+// provides; where it can get neither, the run fails, and no test is skipped.
+//
+// The VMM is the probe (internal/supervisor/testdata/probe), a static
+// executable, since the root a VMM runs in holds no libraries.
 
 const (
-	roleEnv       = "MVMD_TEST_ROLE"
 	supervisorEnv = "MVMD_SUPERVISOR_BIN"
+	probeEnv      = "MVMD_PROBE_BIN"
+	cgroupEnv     = "MVMD_VMM_CGROUP"
 )
 
-var supervisorBin string
+var (
+	supervisorBin, probeBin string
+	// vmmCgroup is the parent of the VMMs' cgroups in these tests, with the
+	// controllers enabled; vmmBareCgroup has none enabled.
+	vmmCgroup, vmmBareCgroup string
+)
 
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "__") {
-		helper(os.Args[1:])
+	if len(os.Args) > 1 && os.Args[1] == "__mvmd__" {
+		mvmd(os.Args[2:])
 		return
 	}
 	if os.Geteuid() != 0 {
 		os.Exit(reexecUnderSudo())
 	}
-	supervisorBin = os.Getenv(supervisorEnv)
-	if supervisorBin == "" {
-		dir, err := os.MkdirTemp("", "mvmd-supervisor-bin")
+	os.Exit(run(m))
+}
+
+func run(m *testing.M) int {
+	supervisorBin, probeBin = os.Getenv(supervisorEnv), os.Getenv(probeEnv)
+	if supervisorBin == "" || probeBin == "" {
+		dir, err := buildBinaries()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return 1
 		}
 		defer os.RemoveAll(dir)
-		supervisorBin = buildSupervisor(dir)
+		supervisorBin, probeBin = filepath.Join(dir, "mvmd-supervisor"), filepath.Join(dir, "probe")
 	}
+	vmmCgroup = filepath.Join("/sys/fs/cgroup", "mvmd-test-vmm-"+strconv.Itoa(os.Getpid()))
+	vmmBareCgroup = vmmCgroup + "-bare"
+	if err := os.Mkdir(vmmCgroup, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "create a cgroup, which needs a writable cgroup v2 mount:", err)
+		return 1
+	}
+	defer os.Remove(vmmCgroup)
+	if err := os.Mkdir(vmmBareCgroup, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer os.Remove(vmmBareCgroup)
+	if err := os.WriteFile(filepath.Join(vmmCgroup, "cgroup.subtree_control"), []byte("+cpu +memory +pids"), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "enable the controllers the VMM cgroups need:", err)
+		return 1
+	}
+	os.Setenv(supervisorEnv, supervisorBin)
+	os.Setenv(probeEnv, probeBin)
+	os.Setenv(cgroupEnv, vmmCgroup)
 	describeHost()
-	os.Exit(m.Run())
+	return m.Run()
 }
 
-func buildSupervisor(dir string) string {
-	out := filepath.Join(dir, "mvmd-supervisor")
-	cmd := exec.Command("go", "build", "-o", out, "../../cmd/mvmd-supervisor")
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "build mvmd-supervisor:", err)
-		os.Exit(1)
+// buildBinaries builds the supervisor and the probe, as the invoking user, into
+// a directory every user can enter, since the control runs of the probe are not
+// root's.
+func buildBinaries() (string, error) {
+	dir, err := os.MkdirTemp("", "mvmd-supervisor-bin")
+	if err != nil {
+		return "", err
 	}
-	return out
+	if err := os.Chmod(dir, 0o755); err != nil {
+		return "", err
+	}
+	for _, b := range []struct{ out, pkg, env string }{
+		{"mvmd-supervisor", "../../cmd/mvmd-supervisor", "GOFLAGS="},
+		{"probe", "../supervisor/testdata/probe", "CGO_ENABLED=0"},
+	} {
+		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, b.out), b.pkg)
+		cmd.Env = append(os.Environ(), b.env)
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("build %s: %w", b.out, err)
+		}
+	}
+	return dir, nil
 }
 
-// reexecUnderSudo builds the supervisor as the invoking user, then runs this
+// reexecUnderSudo builds the binaries as the invoking user, then runs this
 // test binary as root with the same arguments and returns its exit code.
 func reexecUnderSudo() int {
 	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "the supervision tests need root or passwordless sudo for CAP_SYS_ADMIN, CAP_SYS_NICE and CAP_IPC_LOCK, and this host gives neither:", err)
+		fmt.Fprintln(os.Stderr, "the supervision tests need root or passwordless sudo for the capabilities of the supervisor and the confinement, and this host gives neither:", err)
 		return 1
 	}
-	dir, err := os.MkdirTemp("", "mvmd-supervisor-bin")
+	dir, err := buildBinaries()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	defer os.RemoveAll(dir)
-	bin := buildSupervisor(dir)
-	args := append([]string{"-n", "env", supervisorEnv + "=" + bin, os.Args[0]}, os.Args[1:]...)
+	args := append([]string{"-n", "env",
+		supervisorEnv + "=" + filepath.Join(dir, "mvmd-supervisor"),
+		probeEnv + "=" + filepath.Join(dir, "probe"),
+		os.Args[0]}, os.Args[1:]...)
 	cmd := exec.Command("sudo", args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -93,60 +141,59 @@ func reexecUnderSudo() int {
 	return 0
 }
 
-// helper is the test binary acting as a VMM, a daemonizing child or mvmd.
-func helper(args []string) {
-	switch args[0] {
-	case "__vmm__":
-		// A VMM that forks: it starts a child that daemonizes and drops to
-		// another user, and then runs on.
-		dir := args[1]
-		os.WriteFile(filepath.Join(dir, "vmm.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600)
-		cmd := exec.Command(os.Args[0], "__daemonize__", dir)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		if err := cmd.Start(); err != nil {
-			os.Exit(1)
-		}
-		cmd.Wait()
-		time.Sleep(24 * time.Hour)
-	case "__daemonize__":
-		// Starts a process as another user, in its own session, and exits, so
-		// that the process is reparented to init.
-		dir := args[1]
-		sleeper := exec.Command("/bin/sleep", "1000")
-		sleeper.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: &syscall.Credential{Uid: 65534, Gid: 65534}}
-		if err := sleeper.Start(); err != nil {
-			os.Exit(1)
-		}
-		os.WriteFile(filepath.Join(dir, "ready"), nil, 0o600)
-	case "__mvmd__":
-		// mvmd's stand-in: starts a supervisor through the adapter, reports it,
-		// and waits to be killed.
-		dir, bin, id, expiry := args[1], args[2], args[3], args[4]
-		n, _ := strconv.ParseInt(expiry, 10, 64)
-		a, err := supervision.New(supervision.Config{Binary: bin, Dir: dir})
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		work := filepath.Join(dir, "work-"+id)
-		os.MkdirAll(work, 0o700)
-		if err := a.Start(context.Background(), machine.MachineID(id), vmmProcess(work), vmmUser, fencing.BootTime(n)); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		fmt.Println("started")
-		time.Sleep(24 * time.Hour)
+// mvmd is the test binary acting as mvmd: it starts a supervisor through the
+// adapter, reports it, and waits to be killed.
+func mvmd(args []string) {
+	dir, id, expiry := args[0], args[1], args[2]
+	n, _ := strconv.ParseInt(expiry, 10, 64)
+	a, err := supervision.New(supervision.Config{
+		Binary: os.Getenv(supervisorEnv), Dir: dir, VMMCgroup: os.Getenv(cgroupEnv),
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
+	proc := vmmProcessAt(os.Getenv(probeEnv), runDir(dir, id))
+	if err := a.Start(context.Background(), machine.MachineID(id), proc, vmmUser, fencing.BootTime(n)); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Println("started")
+	time.Sleep(24 * time.Hour)
 }
 
 // vmmUser is the unprivileged user the tests run the VMM as.
 var vmmUser = machine.User{UID: 65534, GID: 65534}
 
-func vmmProcess(work string) machine.ProcessDescription {
-	return machine.ProcessDescription{Executable: os.Args[0], Args: []string{"__vmm__", work}}
+// adapterConfig places the adapter's supervisors and VMM cgroups for a test.
+func adapterConfig(dir string) supervision.Config {
+	return supervision.Config{Binary: supervisorBin, Dir: dir, VMMCgroup: vmmCgroup}
 }
 
-// describeHost prints the kernel and the CPU the measured times come from.
+// runDir is where the adapter puts the run directory of a Machine.
+func runDir(dir, id string) string { return filepath.Join(dir, id, "run") }
+
+// describe is the description of the probe in the mode, running in the
+// directory: a guest of one vCPU and 256 MiB, and an overhead of 256 MiB, 256
+// tasks and one CPU.
+func describe(probe, mode, run string, args ...string) machine.ProcessDescription {
+	return machine.ProcessDescription{
+		Executable: probe,
+		Args:       append([]string{mode, run}, args...),
+		Overhead:   machine.ProcessOverhead{MemoryBytes: 256 << 20, Tasks: 256, CPUs: 1},
+		Guest:      machine.Resources{VCPUs: 1, MemoryBytes: 256 << 20},
+	}
+}
+
+// vmmProcessAt is a VMM that forks a daemonizing child and runs on.
+func vmmProcessAt(probe, run string) machine.ProcessDescription {
+	return describe(probe, "vmm", run)
+}
+
+func vmmProcess(run string) machine.ProcessDescription { return vmmProcessAt(probeBin, run) }
+
+// describeHost prints the kernel, the CPU and the Landlock ABI the results
+// come from.
 func describeHost() {
 	var u unix.Utsname
 	_ = unix.Uname(&u)
@@ -161,7 +208,12 @@ func describeHost() {
 			}
 		}
 	}
-	fmt.Printf("host: kernel %s, cpu %s\n", unix.ByteSliceToString(u.Release[:]), cpu)
+	abi, _, errno := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET, 0, 0, unix.LANDLOCK_CREATE_RULESET_VERSION)
+	landlock := strconv.Itoa(int(abi))
+	if errno != 0 {
+		landlock = "none (" + errno.Error() + ")"
+	}
+	fmt.Printf("host: kernel %s, cpu %s, landlock abi %s\n", unix.ByteSliceToString(u.Release[:]), cpu, landlock)
 }
 
 func boottime(t testing.TB) int64 {
@@ -272,11 +324,16 @@ func untilReady(t testing.TB, dir string) {
 	}
 }
 
-// shortDir returns a directory whose path leaves room for a socket name.
+// shortDir returns a directory whose path leaves room for a socket name, and
+// that every user can enter, so that what keeps a user out of a Machine's
+// directory is the directory's own mode.
 func shortDir(t testing.TB) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "sv")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
@@ -292,7 +349,7 @@ type node struct {
 func newNode(t testing.TB) *node {
 	t.Helper()
 	dir := shortDir(t)
-	a, err := supervision.New(supervision.Config{Binary: supervisorBin, Dir: dir})
+	a, err := supervision.New(adapterConfig(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,15 +368,11 @@ func newNode(t testing.TB) *node {
 // supervisor's namespace.
 func (n *node) run(t testing.TB, id string, after time.Duration) (expiry int64, ns string) {
 	t.Helper()
-	work := filepath.Join(n.dir, "work-"+id)
-	if err := os.MkdirAll(work, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	expiry = boottime(t) + int64(after)
-	if err := n.a.Start(context.Background(), machine.MachineID(id), vmmProcess(work), vmmUser, fencing.BootTime(expiry)); err != nil {
+	if err := n.a.Start(context.Background(), machine.MachineID(id), vmmProcess(runDir(n.dir, id)), vmmUser, fencing.BootTime(expiry)); err != nil {
 		t.Fatalf("start the supervisor of %q: %v", id, err)
 	}
-	untilReady(t, work)
+	untilReady(t, runDir(n.dir, id))
 	ns = namespaceOf(supervisorOf(t, id))
 	return expiry, ns
 }

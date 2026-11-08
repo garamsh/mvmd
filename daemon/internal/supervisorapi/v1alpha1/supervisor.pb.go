@@ -204,8 +204,27 @@ type StartRequest struct {
 	Process *Process               `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
 	// The user and group the Machine's VMM runs as. The supervisor refuses a
 	// start where either is zero: root is never a Machine's user.
-	Uid           uint32 `protobuf:"varint,2,opt,name=uid,proto3" json:"uid,omitempty"`
-	Gid           uint32 `protobuf:"varint,3,opt,name=gid,proto3" json:"gid,omitempty"`
+	Uid uint32 `protobuf:"varint,2,opt,name=uid,proto3" json:"uid,omitempty"`
+	Gid uint32 `protobuf:"varint,3,opt,name=gid,proto3" json:"gid,omitempty"`
+	// What mvmd, not the Driver, decides for the process (ADR 0015). The
+	// supervisor confines the process from these and the description alone.
+	//
+	// The Machine's tap, empty for a process with no network device. It is opened
+	// in the host's network namespace and passed as descriptor 3 when
+	// process.tap_by_descriptor is set. A process that opens it by name (a tap
+	// and no descriptor) shares the host's network namespace; every other process
+	// gets a network namespace of its own with only its loopback.
+	Tap string `protobuf:"bytes,4,opt,name=tap,proto3" json:"tap,omitempty"`
+	// The guest's memory and vCPU count, which with the Driver's overhead fix the
+	// cgroup's memory.max and cpu.max.
+	GuestMemoryBytes uint64 `protobuf:"varint,5,opt,name=guest_memory_bytes,json=guestMemoryBytes,proto3" json:"guest_memory_bytes,omitempty"`
+	GuestVcpus       uint32 `protobuf:"varint,6,opt,name=guest_vcpus,json=guestVcpus,proto3" json:"guest_vcpus,omitempty"`
+	// The Machine's run directory: absolute, owned by the Machine's user, and
+	// mounted read-write at its own path in the process's root.
+	RunDir string `protobuf:"bytes,7,opt,name=run_dir,json=runDir,proto3" json:"run_dir,omitempty"`
+	// The cgroup v2 directory mvmd created for this process, with the memory,
+	// pids and cpu controllers enabled for it. The process starts in it.
+	Cgroup        string `protobuf:"bytes,8,opt,name=cgroup,proto3" json:"cgroup,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -259,6 +278,41 @@ func (x *StartRequest) GetGid() uint32 {
 		return x.Gid
 	}
 	return 0
+}
+
+func (x *StartRequest) GetTap() string {
+	if x != nil {
+		return x.Tap
+	}
+	return ""
+}
+
+func (x *StartRequest) GetGuestMemoryBytes() uint64 {
+	if x != nil {
+		return x.GuestMemoryBytes
+	}
+	return 0
+}
+
+func (x *StartRequest) GetGuestVcpus() uint32 {
+	if x != nil {
+		return x.GuestVcpus
+	}
+	return 0
+}
+
+func (x *StartRequest) GetRunDir() string {
+	if x != nil {
+		return x.RunDir
+	}
+	return ""
+}
+
+func (x *StartRequest) GetCgroup() string {
+	if x != nil {
+		return x.Cgroup
+	}
+	return ""
 }
 
 type StartResponse struct {
@@ -527,11 +581,17 @@ const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\x11tap_by_descriptor\x18\x06 \x01(\bR\x0ftapByDescriptor\x122\n" +
 	"\x15overhead_memory_bytes\x18\a \x01(\x04R\x13overheadMemoryBytes\x12%\n" +
 	"\x0eoverhead_tasks\x18\b \x01(\rR\roverheadTasks\x12#\n" +
-	"\roverhead_cpus\x18\t \x01(\x01R\foverheadCpus\"o\n" +
+	"\roverhead_cpus\x18\t \x01(\x01R\foverheadCpus\"\x81\x02\n" +
 	"\fStartRequest\x12;\n" +
 	"\aprocess\x18\x01 \x01(\v2!.mvmd.supervisor.v1alpha1.ProcessR\aprocess\x12\x10\n" +
 	"\x03uid\x18\x02 \x01(\rR\x03uid\x12\x10\n" +
-	"\x03gid\x18\x03 \x01(\rR\x03gid\"\x0f\n" +
+	"\x03gid\x18\x03 \x01(\rR\x03gid\x12\x10\n" +
+	"\x03tap\x18\x04 \x01(\tR\x03tap\x12,\n" +
+	"\x12guest_memory_bytes\x18\x05 \x01(\x04R\x10guestMemoryBytes\x12\x1f\n" +
+	"\vguest_vcpus\x18\x06 \x01(\rR\n" +
+	"guestVcpus\x12\x17\n" +
+	"\arun_dir\x18\a \x01(\tR\x06runDir\x12\x16\n" +
+	"\x06cgroup\x18\b \x01(\tR\x06cgroup\"\x0f\n" +
 	"\rStartResponse\"@\n" +
 	"\x10SetExpiryRequest\x12,\n" +
 	"\x12expiry_boottime_ns\x18\x01 \x01(\x03R\x10expiryBoottimeNs\"A\n" +

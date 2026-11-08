@@ -24,17 +24,20 @@ import (
 
 var ctx = context.Background()
 
-// requireTree requires a process tree in the namespace that holds a process
-// running as another user, daemonized out of the VMM's own tree.
+// requireTree requires a process tree in the namespace that holds the VMM and
+// a process daemonized out of the VMM's own tree, both of the Machine's user,
+// beside the supervisor, which is root's.
 func requireTree(t *testing.T, ns string) {
 	t.Helper()
 	got := members(ns)
 	require.GreaterOrEqual(t, len(got), 3, "the supervisor, the VMM and the daemonized process are in the namespace: %v", got)
-	other := false
+	users := 0
 	for _, uid := range got {
-		other = other || uid == 65534
+		if uid == int(vmmUser.UID) {
+			users++
+		}
 	}
-	require.True(t, other, "a process of the tree runs as another user: %v", got)
+	require.GreaterOrEqual(t, users, 2, "the VMM and the daemonized process run as the Machine's user: %v", got)
 }
 
 func TestExpiry_EndsTheProcessTree(t *testing.T) {
@@ -57,13 +60,11 @@ func TestSupervisorKilled_EndsTheProcessTreeAtOnce(t *testing.T) {
 	requireTree(t, ns)
 	sup := supervisorOf(t, "m")
 
-	// Control: killing a process of the tree other than the supervisor leaves
-	// the supervisor and the rest of the tree running.
-	for pid, uid := range members(ns) {
-		if uid == 65534 {
-			require.NoError(t, syscall.Kill(pid, syscall.SIGKILL))
-		}
-	}
+	// Control: killing the daemonized process, which is not the supervisor and
+	// not the VMM, leaves the supervisor and the rest of the tree running.
+	sleepers := processes("sleeper", runDir(n.dir, "m"))
+	require.Len(t, sleepers, 1)
+	require.NoError(t, syscall.Kill(sleepers[0], syscall.SIGKILL))
 	time.Sleep(100 * time.Millisecond)
 	assert.NotEmpty(t, processes("--machine m "), "the supervisor outlives a process of its tree")
 
@@ -76,7 +77,7 @@ func TestSupervisorKilled_EndsTheProcessTreeAtOnce(t *testing.T) {
 func TestMvmdGone_TheSupervisorStillEndsTheTreeAtExpiry(t *testing.T) {
 	dir := shortDir(t)
 	expiry := boottime(t) + int64(2500*time.Millisecond)
-	cmd := exec.Command(os.Args[0], "__mvmd__", dir, supervisorBin, "m", strconv.FormatInt(expiry, 10))
+	cmd := exec.Command(os.Args[0], "__mvmd__", dir, "m", strconv.FormatInt(expiry, 10))
 	out, err := cmd.StdoutPipe()
 	require.NoError(t, err)
 	cmd.Stderr = os.Stderr
@@ -84,7 +85,7 @@ func TestMvmdGone_TheSupervisorStillEndsTheTreeAtExpiry(t *testing.T) {
 	buf := make([]byte, 16)
 	k, _ := out.Read(buf)
 	require.Equal(t, "started", strings.TrimSpace(string(buf[:k])))
-	untilReady(t, filepath.Join(dir, "work-m"))
+	untilReady(t, runDir(dir, "m"))
 	ns := namespaceOf(supervisorOf(t, "m"))
 	requireTree(t, ns)
 
@@ -150,7 +151,7 @@ func TestReattach_ANewAdapterFindsTheLiveSupervisors(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, live)
 
-	again, err := supervision.New(supervision.Config{Binary: supervisorBin, Dir: first.dir})
+	again, err := supervision.New(adapterConfig(first.dir))
 	require.NoError(t, err)
 	live, err = again.Live(ctx)
 	require.NoError(t, err)
@@ -224,8 +225,7 @@ func TestOlderSupervisorAPI_IsStillReached(t *testing.T) {
 
 func TestStart_RefusesAPassedExpiryAndNoExpiry(t *testing.T) {
 	n := newNode(t)
-	work := filepath.Join(n.dir, "work-m")
-	require.NoError(t, os.MkdirAll(work, 0o700))
+	work := runDir(n.dir, "m")
 
 	err := n.a.Start(ctx, "m", vmmProcess(work), vmmUser, fencing.BootTime(boottime(t)-int64(time.Second)))
 	require.Error(t, err, "a passed expiry")
@@ -262,8 +262,7 @@ func TestStart_RefusesAPassedExpiryAndNoExpiry(t *testing.T) {
 func TestStart_RefusesRootAsTheMachinesUser(t *testing.T) {
 	n := newNode(t)
 	for name, user := range map[string][2]uint32{"uid 0": {0, 65534}, "gid 0": {65534, 0}, "both 0": {0, 0}} {
-		work := filepath.Join(n.dir, "work-"+strings.ReplaceAll(name, " ", ""))
-		require.NoError(t, os.MkdirAll(work, 0o700))
+		work := runDir(n.dir, "m")
 		err := n.a.Start(ctx, "m", vmmProcess(work), machine.User{UID: user[0], GID: user[1]}, fencing.BootTime(boottime(t)+int64(time.Hour)))
 		require.Error(t, err, name)
 		assert.Contains(t, err.Error(), "root", name)
@@ -280,14 +279,14 @@ func TestStart_RefusesRootAsTheMachinesUser(t *testing.T) {
 func TestVMMPidfd_TerminateWaitsForTheVMM(t *testing.T) {
 	n := newNode(t)
 	_, ns := n.run(t, "m", time.Hour)
-	work := filepath.Join(n.dir, "work-m")
-	require.Len(t, processes("__vmm__", work), 1, "control: the VMM runs before Terminate")
+	work := runDir(n.dir, "m")
+	require.Len(t, processes("vmm", work), 1, "control: the VMM runs before Terminate")
 	require.NotEmpty(t, members(ns), "control: the namespace is occupied before Terminate")
 
-	again, err := supervision.New(supervision.Config{Binary: supervisorBin, Dir: n.dir})
+	again, err := supervision.New(adapterConfig(n.dir))
 	require.NoError(t, err)
 	require.NoError(t, again.Terminate(ctx, "m"))
-	assert.Empty(t, processes("__vmm__", work), "the VMM has ended when Terminate returns")
+	assert.Empty(t, processes("vmm", work), "the VMM has ended when Terminate returns")
 	assert.Empty(t, members(ns))
 }
 
@@ -330,11 +329,11 @@ func TestCgroup_TheSupervisorStartsOutsideMvmdsCgroup(t *testing.T) {
 	plain.run(t, "plain", time.Hour)
 	assert.Equal(t, strings.TrimSpace(string(own)), cgroupOf(supervisorOf(t, "plain")), "control: without a cgroup the supervisor is in mvmd's")
 
-	a, err := supervision.New(supervision.Config{Binary: supervisorBin, Dir: shortDir(t), Cgroup: dir})
+	cfg := adapterConfig(shortDir(t))
+	cfg.Cgroup = dir
+	a, err := supervision.New(cfg)
 	require.NoError(t, err)
-	work := filepath.Join(shortDir(t), "w")
-	require.NoError(t, os.MkdirAll(work, 0o700))
-	require.NoError(t, a.Start(ctx, "placed", vmmProcess(work), vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour))))
+	require.NoError(t, a.Start(ctx, "placed", vmmProcess(runDir(cfg.Dir, "placed")), vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour))))
 	t.Cleanup(func() { _ = a.Terminate(ctx, "placed") })
 	got := cgroupOf(supervisorOf(t, "placed"))
 	assert.Contains(t, got, "mvmd-test-")

@@ -61,9 +61,32 @@ type ProcessDescription struct {
 	// TapByDescriptor is true when the VMM takes its tap by descriptor.
 	TapByDescriptor bool
 	Overhead        ProcessOverhead
+
+	// Tap and Guest are the lifecycle's, never the Driver's: For overwrites
+	// them from the Machine, so a Driver cannot misstate what the cgroup's
+	// limits are computed from.
+	//
+	// Tap is the Machine's tap, empty for a VMM with no network device. The
+	// supervisor opens it and passes it as descriptor 3 when TapByDescriptor is
+	// set; a VMM that opens it by name shares the host's network namespace, and
+	// every other VMM gets one of its own.
+	Tap string
+	// Guest is the guest's memory and vCPUs, which with Overhead fix the
+	// VMM's cgroup limits.
+	Guest Resources
 }
 
-// ProcessOverhead is what the VMM needs beyond the guest's memory and vCPUs.
+// For returns the description with the parts of it that come from the
+// Machine's boot rather than from the Driver (ADR 0015).
+func (p ProcessDescription) For(boot BootSpec) ProcessDescription {
+	p.Tap, p.Guest = boot.Network.Tap, boot.Resources
+	return p
+}
+
+// ProcessOverhead is what the VMM's cgroup limits are set from (ADR 0015).
+// MemoryBytes and CPUs are added to the guest's memory and vCPUs. Tasks is not:
+// it is the whole task count for this Machine's vCPUs and devices, which the
+// Driver computes from the BootSpec and which becomes pids.max as it is.
 type ProcessOverhead struct {
 	MemoryBytes uint64
 	Tasks       uint32

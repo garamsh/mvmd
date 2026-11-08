@@ -24,12 +24,21 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 )
 
 const (
 	socketName = "supervisor.sock"
 	logName    = "supervisor.log"
+	// runName is the Machine's run directory under its state directory. The VMM
+	// owns it and the supervisor socket is not in it, so a VMM cannot replace
+	// the socket mvmd connects to (ADR 0015).
+	runName = "run"
+
+	// DefaultVMMCgroup is the parent of the VMMs' cgroups when Config names
+	// none: a child of the cgroup v2 root, outside mvmd's own cgroup.
+	DefaultVMMCgroup = "/sys/fs/cgroup/mvmd-vmm"
 
 	rpcTimeout   = 5 * time.Second
 	startTimeout = 10 * time.Second
@@ -47,6 +56,11 @@ type Config struct {
 	// in, so that it is outside mvmd's cgroup and a service manager stopping
 	// mvmd does not stop it (ADR 0003). Empty leaves it in mvmd's.
 	Cgroup string
+	// VMMCgroup is the cgroup v2 directory under which each VMM gets a cgroup
+	// of its own, created before its supervisor starts and removed after the
+	// VMM has ended (ADR 0015). It must be outside mvmd's cgroup. Empty means
+	// DefaultVMMCgroup.
+	VMMCgroup string
 }
 
 // Adapter is a fencing.Supervisors over mvmd-supervisor processes.
@@ -67,6 +81,14 @@ func New(cfg Config) (*Adapter, error) {
 		return nil, fmt.Errorf("supervisor directory %q is not an absolute path", cfg.Dir)
 	case cfg.Cgroup != "" && !filepath.IsAbs(cfg.Cgroup):
 		return nil, fmt.Errorf("supervisor cgroup %q is not an absolute path", cfg.Cgroup)
+	case cfg.VMMCgroup != "" && !filepath.IsAbs(cfg.VMMCgroup):
+		return nil, fmt.Errorf("VMM cgroup %q is not an absolute path", cfg.VMMCgroup)
+	}
+	if err := supervisor.CheckHost(); err != nil {
+		return nil, err
+	}
+	if cfg.VMMCgroup == "" {
+		cfg.VMMCgroup = DefaultVMMCgroup
 	}
 	return &Adapter{cfg: cfg}, nil
 }
@@ -99,8 +121,21 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 	_ = os.Remove(sock)
 
+	runDir := filepath.Join(dir, runName)
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		return fmt.Errorf("create the run directory: %w", err)
+	}
+	if err := os.Chown(runDir, int(user.UID), int(user.GID)); err != nil {
+		return fmt.Errorf("give the run directory to the Machine's user: %w", err)
+	}
+	vmmCgroup, err := a.createVMMCgroup(id)
+	if err != nil {
+		return err
+	}
+
 	logFile, err := os.OpenFile(filepath.Join(dir, logName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
+		a.removeVMMCgroup(id)
 		return fmt.Errorf("open the supervisor log: %w", err)
 	}
 	defer logFile.Close()
@@ -120,6 +155,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		cmd.SysProcAttr.UseCgroupFD, cmd.SysProcAttr.CgroupFD = true, int(fd.Fd())
 	}
 	if err := cmd.Start(); err != nil {
+		a.removeVMMCgroup(id)
 		return fmt.Errorf("start the supervisor: %w", err)
 	}
 	exited := make(chan struct{})
@@ -132,19 +168,31 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		}
 		select {
 		case <-exited:
+			a.removeVMMCgroup(id)
 			return fmt.Errorf("the supervisor ended before it was ready: %s", logTail(dir))
 		case <-deadline:
 			_ = cmd.Process.Kill()
+			a.removeVMMCgroup(id)
 			return fmt.Errorf("the supervisor was not ready within %v: %s", startTimeout, logTail(dir))
 		case <-ctx.Done():
 			_ = cmd.Process.Kill()
+			a.removeVMMCgroup(id)
 			return ctx.Err()
 		case <-time.After(2 * time.Millisecond):
 		}
 	}
 
 	err = withClient(ctx, sock, func(ctx context.Context, c pb.SupervisorServiceClient) error {
-		_, err := c.Start(ctx, &pb.StartRequest{Process: toProcess(process), Uid: user.UID, Gid: user.GID})
+		_, err := c.Start(ctx, &pb.StartRequest{
+			Process:          toProcess(process),
+			Uid:              user.UID,
+			Gid:              user.GID,
+			Tap:              process.Tap,
+			GuestMemoryBytes: process.Guest.MemoryBytes,
+			GuestVcpus:       process.Guest.VCPUs,
+			RunDir:           runDir,
+			Cgroup:           vmmCgroup,
+		})
 		return err
 	})
 	if err == nil {
@@ -191,6 +239,7 @@ func (a *Adapter) Terminate(ctx context.Context, id machine.MachineID) error {
 	h, err := attach(ctx, sock)
 	if isAbsent(err) {
 		_ = os.Remove(sock)
+		a.removeVMMCgroup(id)
 		return nil
 	}
 	if err != nil {
@@ -212,6 +261,7 @@ func (a *Adapter) Terminate(ctx context.Context, id machine.MachineID) error {
 		return fmt.Errorf("wait for the namespace of %q to empty: %w", id, err)
 	}
 	_ = os.Remove(sock)
+	a.removeVMMCgroup(id)
 	return nil
 }
 
@@ -236,6 +286,7 @@ func (a *Adapter) Live(ctx context.Context) ([]fencing.Supervisor, error) {
 		if _, err := peerPID(sock); err != nil {
 			if isAbsent(err) {
 				_ = os.Remove(sock)
+				a.removeVMMCgroup(machine.MachineID(e.Name()))
 				continue
 			}
 			return nil, fmt.Errorf("reach the supervisor in %s: %w", e.Name(), err)
