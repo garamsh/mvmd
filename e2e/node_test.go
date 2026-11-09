@@ -14,10 +14,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -38,9 +36,6 @@ type node struct {
 	registry *registry
 	client   v1alpha1.RuntimeServiceClient
 	cgroups  []string
-	// seen is the last sample of a VMM process and the network devices beside it, taken while a
-	// VMM ran, since its tap is deleted when it ends.
-	seen atomic.Value
 }
 
 // startNode brings a node up and returns it once its runtime API answers. The test's cleanup
@@ -69,8 +64,8 @@ func startNode(t *testing.T) *node {
 	converterInitrd := copyFile(t, os.Getenv(envConverterInitrd), filepath.Join(inputs, "converter-initrd.cpio"), 0o644)
 
 	// One cgroup each for the supervisors, the Machines' VMMs and the converter VMs' VMMs, named
-	// for this process so that two runs never meet.
-	base := "/sys/fs/cgroup/mvmd-e2e-" + strconv.Itoa(os.Getpid())
+	// for this node's directory so that no two nodes meet.
+	base := "/sys/fs/cgroup/" + filepath.Base(work)
 	supervisors := base + "-supervisors"
 	require.NoError(t, os.Mkdir(supervisors, 0o755))
 	n.cgroups = []string{supervisors, base, base + "-conversion"}
@@ -123,9 +118,6 @@ func startNode(t *testing.T) *node {
 	// (stop) returns at once instead of waiting for a second one.
 	go func() { exited <- cmd.Wait(); close(exited) }()
 	t.Cleanup(func() { n.stop(cmd, exited) })
-	stopSampling := make(chan struct{})
-	t.Cleanup(func() { close(stopSampling) })
-	go n.sampleVMMs(stopSampling)
 
 	n.client = n.dial(socket, exited)
 	return n
@@ -171,7 +163,6 @@ func (n *node) stop(cmd *exec.Cmd, exited <-chan error) {
 	if n.t.Failed() {
 		n.t.Log(n.log())
 		n.t.Log(n.conversionLogs())
-		n.t.Log(n.fileOwners())
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	select {
@@ -213,49 +204,6 @@ func (n *node) conversionLogs() string {
 		}
 	}
 	return b.String()
-}
-
-// sampleVMMs records, every 5ms until stop closes, the credentials of a firecracker process and
-// the owner and group of each network device while one runs. A VMM refused its tap is refused by
-// one of these, and the tap is gone by the time the test fails.
-func (n *node) sampleVMMs(stop <-chan struct{}) {
-	for {
-		select {
-		case <-stop:
-			return
-		case <-time.After(5 * time.Millisecond):
-		}
-		procs, _ := filepath.Glob("/proc/[0-9]*/comm")
-		for _, comm := range procs {
-			name, err := os.ReadFile(comm)
-			if err != nil || !strings.HasPrefix(string(name), "firecracker") {
-				continue
-			}
-			status, err := os.ReadFile(filepath.Join(filepath.Dir(comm), "status"))
-			if err != nil {
-				continue
-			}
-			var b strings.Builder
-			for _, line := range strings.Split(string(status), "\n") {
-				for _, key := range []string{"Uid:", "Gid:", "Groups:", "CapEff:", "NoNewPrivs:", "Seccomp:"} {
-					if strings.HasPrefix(line, key) {
-						b.WriteString(line + "\n")
-					}
-				}
-			}
-			devices, _ := exec.Command("sh", "-c", "for d in /sys/class/net/*; do echo $d owner=$(cat $d/owner 2>/dev/null) group=$(cat $d/group 2>/dev/null) flags=$(cat $d/tun_flags 2>/dev/null); done").CombinedOutput()
-			n.seen.Store(filepath.Dir(comm) + "\n" + b.String() + string(devices))
-		}
-	}
-}
-
-// fileOwners lists, with owner and mode, the files a Machine's VMM is lent from the state
-// directory: the cache's blobs and the root disks. A VMM that is refused a file it was lent is
-// refused by one of these.
-func (n *node) fileOwners() string {
-	out, _ := exec.Command("find", filepath.Join(n.stateDir, "images"), filepath.Join(n.stateDir, "disks"), "-ls").CombinedOutput()
-	taps, _ := exec.Command("sh", "-c", "for d in /sys/class/net/*; do echo $d owner=$(cat $d/owner 2>/dev/null) group=$(cat $d/group 2>/dev/null) flags=$(cat $d/tun_flags 2>/dev/null); done; ls -ln /dev/net/tun").CombinedOutput()
-	return "owners and modes of the cache and the disks:\n" + string(out) + "network devices and their owners:\n" + string(taps) + "last sample of a firecracker process:\n" + fmt.Sprint(n.seen.Load())
 }
 
 // remove unmounts the state directory and deletes what the node made. It runs after stop.
@@ -358,42 +306,42 @@ func removeCgroup(path string) {
 
 // pull publishes an image of the layers to the fixture registry and pulls it through the runtime
 // API, the call a client makes, and returns its reference.
-func (n *node) pull(name string, layers ...[]byte) ref {
-	n.t.Helper()
-	return n.pullWith(name, []string{"/bin/hello"}, layers...)
+func (n *node) pull(t *testing.T, name string, layers ...[]byte) ref {
+	t.Helper()
+	return n.pullWith(t, name, []string{"/bin/hello"}, layers...)
 }
 
 // pullBootable pulls an image whose entrypoint is the static program of testdata/entry, which
 // prints a line and stays running, in a layer below the given ones.
-func (n *node) pullBootable(name string, layers ...[]byte) ref {
-	n.t.Helper()
+func (n *node) pullBootable(t *testing.T, name string, layers ...[]byte) ref {
+	t.Helper()
 	program, err := entryProgram()
-	require.NoError(n.t, err)
+	require.NoError(t, err)
 	base := layer(dir("bin"), executable("bin/entry", string(program)))
-	return n.pullWith(name, []string{"/bin/entry"}, append([][]byte{base}, layers...)...)
+	return n.pullWith(t, name, []string{"/bin/entry"}, append([][]byte{base}, layers...)...)
 }
 
 // arm arms the node's fencing deadline, which Start refuses to go without.
-func (n *node) arm() {
-	n.t.Helper()
+func (n *node) arm(t *testing.T) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	_, err := n.client.RenewDeadline(ctx, &v1alpha1.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 1})
-	require.NoError(n.t, err)
+	require.NoError(t, err)
 }
 
 // entrypointOutput reads what the Machine's entrypoint has written so far, from the start of its
 // output until the first line is in.
-func (n *node) entrypointOutput(ctx context.Context, machine string) string {
-	n.t.Helper()
+func (n *node) entrypointOutput(t *testing.T, ctx context.Context, machine string) string {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	stream, err := n.client.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: machine, ExecId: "entrypoint"})
-	require.NoError(n.t, err)
+	require.NoError(t, err)
 	var out strings.Builder
 	for !strings.Contains(out.String(), "\n") {
 		part, err := stream.Recv()
-		require.NoError(n.t, err, "the entrypoint's output so far: %q", out.String())
+		require.NoError(t, err, "the entrypoint's output so far: %q", out.String())
 		out.Write(part.GetChunk().GetData())
 	}
 	return out.String()
@@ -415,21 +363,21 @@ var entryProgram = sync.OnceValues(func() ([]byte, error) {
 	return os.ReadFile(binary)
 })
 
-func (n *node) pullWith(name string, entrypoint []string, layers ...[]byte) ref {
-	n.t.Helper()
+func (n *node) pullWith(t *testing.T, name string, entrypoint []string, layers ...[]byte) ref {
+	t.Helper()
 	r := n.registry.publish(name, entrypoint, layers...)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	_, err := n.client.PullImage(ctx, &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: r.Repository, Digest: r.Digest}})
-	require.NoError(n.t, err, "pull %s@%s", r.Repository, r.Digest)
+	require.NoError(t, err, "pull %s@%s", r.Repository, r.Digest)
 	return r
 }
 
 // erofsOf returns the path of the EROFS file the cache holds for the image pulled by the digest,
 // read from the cache's OCI layout: the index entry annotated with the digest, its manifest, and
 // the manifest's one layer.
-func (n *node) erofsOf(digest string) string {
-	n.t.Helper()
+func (n *node) erofsOf(t *testing.T, digest string) string {
+	t.Helper()
 	images := filepath.Join(n.stateDir, "images")
 	var index struct {
 		Manifests []struct {
@@ -437,7 +385,7 @@ func (n *node) erofsOf(digest string) string {
 			Annotations map[string]string `json:"annotations"`
 		} `json:"manifests"`
 	}
-	readJSON(n.t, filepath.Join(images, "index.json"), &index)
+	readJSON(t, filepath.Join(images, "index.json"), &index)
 	for _, entry := range index.Manifests {
 		if entry.Annotations["io.mvmd.image.digest"] != digest {
 			continue
@@ -447,11 +395,11 @@ func (n *node) erofsOf(digest string) string {
 				Digest string `json:"digest"`
 			} `json:"layers"`
 		}
-		readJSON(n.t, blobPath(images, entry.Digest), &manifest)
-		require.Len(n.t, manifest.Layers, 1, "the cache's manifest for %s holds one layer", digest)
+		readJSON(t, blobPath(images, entry.Digest), &manifest)
+		require.Len(t, manifest.Layers, 1, "the cache's manifest for %s holds one layer", digest)
 		return blobPath(images, manifest.Layers[0].Digest)
 	}
-	n.t.Fatalf("the cache's index lists no image pulled as %s", digest)
+	t.Fatalf("the cache's index lists no image pulled as %s", digest)
 	return ""
 }
 
