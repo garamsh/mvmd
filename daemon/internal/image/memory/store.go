@@ -14,13 +14,14 @@ import (
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
-// Store is an in-memory image.Store. Its steps are "locate", "stage",
-// "put-layer", "seal", "record", "publish", "publish-sync", "discard" and
-// "sweep"; "publish-sync" fails after the index was replaced, as the final
-// sync of the adapter can. It holds
-// the protocol of ADR 0007: a call out of order is an error, an image is
-// listed only by a Publish that succeeded, and a Publish that fails has moved
-// its blobs and left them unreferenced.
+// Store is an in-memory image.Store. Its steps are "locate", "stage", "lend",
+// "reclaim", "put-layer", "seal", "record", "publish", "publish-sync",
+// "discard" and "sweep"; "publish-sync" fails after the index was replaced, as
+// the final sync of the adapter can. It holds the protocol of ADR 0007: a call
+// out of order is an error, an image is listed only by a Publish that
+// succeeded, and a Publish that fails has moved its blobs and left them
+// unreferenced. It holds that of ADR 0023 too: a Seal of an output that is
+// lent fails.
 type Store struct {
 	machinememory.Failures
 
@@ -32,10 +33,12 @@ type Store struct {
 	staging    map[string]*stage
 	publishing int
 	overlapped bool
+	onReclaim  func(image.Staging)
 }
 
 type stage struct {
 	image  machine.ImageDigest
+	lent   *machine.User
 	layers map[string][]byte
 	sealed bool
 	length uint64
@@ -88,6 +91,63 @@ func (s *Store) open(digest machine.ImageDigest) image.Staging {
 	return image.Staging{ID: id, Output: "/staging/" + id + "/output"}
 }
 
+// Lend implements image.Store.
+func (s *Store) Lend(_ context.Context, staging image.Staging, user machine.User) error {
+	if err := s.Enter("lend"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.stageOf(staging)
+	if err != nil {
+		return err
+	}
+	st.lent = &user
+	return nil
+}
+
+// Reclaim implements image.Store. It calls the function OnReclaim set, if any,
+// before the output changes hands.
+func (s *Store) Reclaim(_ context.Context, staging image.Staging) error {
+	if err := s.Enter("reclaim"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	onReclaim := s.onReclaim
+	s.mu.Unlock()
+	if onReclaim != nil {
+		onReclaim(staging)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.stageOf(staging)
+	if err != nil {
+		return err
+	}
+	st.lent = nil
+	return nil
+}
+
+// OnReclaim makes the Store call f at each Reclaim, so a test sees what the
+// world looks like when the output is taken back.
+func (s *Store) OnReclaim(f func(image.Staging)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onReclaim = f
+}
+
+// Lent returns the user the output of the staging area is lent to, and
+// whether it is lent.
+func (s *Store) Lent(staging image.Staging) (machine.User, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.staging[staging.ID]
+	if !ok || st.lent == nil {
+		return machine.User{}, false
+	}
+	return *st.lent, true
+}
+
 // PutLayer implements image.Store.
 func (s *Store) PutLayer(_ context.Context, staging image.Staging, index int, content io.Reader) (string, error) {
 	if err := s.Enter("put-layer"); err != nil {
@@ -119,6 +179,9 @@ func (s *Store) Seal(_ context.Context, staging image.Staging, length uint64) (s
 	st, err := s.stageOf(staging)
 	if err != nil {
 		return "", err
+	}
+	if st.lent != nil {
+		return "", fmt.Errorf("the output is still held by user %d", st.lent.UID)
 	}
 	st.sealed, st.length = true, length
 	st.verity = digestOf(fmt.Appendf(nil, "%s|%d", st.image, length))

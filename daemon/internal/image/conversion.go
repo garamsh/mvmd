@@ -13,11 +13,21 @@ import (
 // job, and ends the VM, whatever the conversion did. The VM is a Machine of the
 // conversion Driver and supervisor with its own user, one output disk and no
 // network device, and its identifier names the image so that two pulls never
-// share one. The user is released only once the VMM is known to have ended.
+// share one.
+//
+// The output is the converter's user's from before the VMM starts until the
+// VMM is known to have ended, and the daemon's again before this returns
+// (ADR 0023). The user is released only once both have happened: a VMM that
+// cannot be ended, or an output that cannot be taken back, keeps it held.
 func (s *service) convert(ctx context.Context, image machine.ImageDigest, staging Staging, job ConversionJob) (uint64, error) {
 	user, err := s.uids.AllocateConversion(image)
 	if err != nil {
 		return 0, fmt.Errorf("allocate the converter's user: %w", err)
+	}
+	if err := s.store.Lend(ctx, staging, user); err != nil {
+		// Nothing was started, and a Lend that fails gave nothing away.
+		s.uids.ReleaseConversion(image)
+		return 0, fmt.Errorf("give the output to the converter's user: %w", err)
 	}
 	id := conversionID(image)
 	length, err := s.runConverter(ctx, id, user, staging, job)
@@ -26,6 +36,9 @@ func (s *service) convert(ctx context.Context, image machine.ImageDigest, stagin
 	defer cancel()
 	if ended := s.supervisor.Terminate(ctx, id); ended != nil {
 		return 0, errors.Join(err, fmt.Errorf("end the converter's VMM: %w", ended))
+	}
+	if back := s.store.Reclaim(ctx, staging); back != nil {
+		return 0, errors.Join(err, fmt.Errorf("take the output back from the converter's user: %w", back))
 	}
 	s.uids.ReleaseConversion(image)
 	return length, err

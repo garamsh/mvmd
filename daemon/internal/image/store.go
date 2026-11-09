@@ -15,12 +15,22 @@ type Store interface {
 	// Stage opens the working area of a pull of the image, with its output
 	// file created sparse at outputBytes.
 	Stage(ctx context.Context, image machine.ImageDigest, outputBytes uint64) (Staging, error)
+	// Lend gives the output to the user, who holds it until Reclaim, and no
+	// other unprivileged user can open it. A Lend that fails gave nothing
+	// away. The caller lends before the converter's VMM starts (ADR 0023).
+	Lend(ctx context.Context, staging Staging, user machine.User) error
+	// Reclaim takes the output back from the user Lend gave it to, and
+	// restores the mode it was created with. The caller reclaims only once the
+	// converter's VMM has ended, since a VMM holding the file open keeps it
+	// whatever Reclaim does (ADR 0023).
+	Reclaim(ctx context.Context, staging Staging) error
 	// PutLayer stores the layer at the index by reading content to its end,
 	// and returns its path. A read error fails the call.
 	PutLayer(ctx context.Context, staging Staging, index int, content io.Reader) (path string, err error)
 	// Seal truncates the output to length, flushes and hashes it, enables
 	// fs-verity on it and measures it, and returns the digest. The converter's
-	// VMM has ended by then (ADR 0008).
+	// VMM has ended by then (ADR 0008) and the output is reclaimed: a Seal of
+	// an output still lent fails and changes nothing (ADR 0023).
 	Seal(ctx context.Context, staging Staging, length uint64) (verity string, err error)
 	// Record writes the MachineImage's config blob and manifest into staging.
 	// It follows Seal.

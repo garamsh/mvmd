@@ -53,5 +53,6 @@ Decisions:
 - [ADR 0020](./adr/0020-the-supervisor-serves-the-vmms-serial-console-on-a-socket-outside-its-root.md) — the supervisor serves the VMM's serial console on a socket outside its root
 - [ADR 0021](./adr/0021-a-root-disk-is-a-file-in-the-disks-directory-of-mvmds-state-directory.md) — a root disk is a file in the disks directory of mvmd's state directory
 - [ADR 0022](./adr/0022-the-guest-finds-a-hot-plugged-disk-by-rescan-and-releases-it-before-the-unplug.md) — the guest finds a hot-plugged disk by rescan and releases it before the unplug
+- [ADR 0023](./adr/0023-the-converters-user-holds-the-output-file-only-while-its-vmm-runs.md) — the converter's user holds the output file only while its VMM runs (adds to the steps 6 and 7 of ADR 0007's Pull image)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
