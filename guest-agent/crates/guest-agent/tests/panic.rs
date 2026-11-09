@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use guest_agent::{
-    Clock, Console, Entropy, Filesystem, Mounts, Network, NetworkConfig, Power, System, Uuid,
+    Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, Mounts, Network,
+    NetworkConfig, Power, System, Uuid,
 };
 
 type Log = Arc<Mutex<Vec<String>>>;
@@ -83,6 +84,16 @@ impl Clock for Unused {
     }
 }
 
+impl Disks for Unused {
+    fn find(&self, _: &str) -> Result<DiskDevice, DiskError> {
+        Err(DiskError::Unknown)
+    }
+
+    fn release(&self, _: &str) -> Result<(), DiskError> {
+        Err(DiskError::Unknown)
+    }
+}
+
 fn system(log: &Log) -> System {
     System {
         mounts: Arc::new(Unused),
@@ -91,6 +102,7 @@ fn system(log: &Log) -> System {
         console: Arc::new(Recorder(log.clone())),
         entropy: Arc::new(Unused),
         clock: Arc::new(Unused),
+        disks: Arc::new(Unused),
     }
 }
 

@@ -60,6 +60,21 @@ type BlockDevice struct {
 	ReadOnly bool
 }
 
+// DriveState is whether a running VMM has a drive for a disk, and how it came
+// by it.
+type DriveState int
+
+const (
+	// DriveAbsent is a disk the VMM has no drive for.
+	DriveAbsent DriveState = iota
+	// DriveAtBoot is a drive the VMM was started with, so the guest has it
+	// from its own boot and was never asked to find it.
+	DriveAtBoot
+	// DriveHotPlugged is a drive added to the running VMM, which the guest
+	// finds when it is asked (ADR 0022).
+	DriveHotPlugged
+)
+
 // NetworkDevice is a tap's name and the guest MAC; the Driver learns no
 // address and no policy.
 type NetworkDevice struct {
@@ -222,9 +237,13 @@ type Driver interface {
 	Shutdown(ctx context.Context, id MachineID, grace time.Duration) error
 	Pause(ctx context.Context, id MachineID) error
 	Resume(ctx context.Context, id MachineID) error
-	// AttachDisk and DetachDisk need CapabilityDiskHotplug.
+	// AttachDisk, DetachDisk and Drive need CapabilityDiskHotplug.
 	AttachDisk(ctx context.Context, id MachineID, dev BlockDevice) error
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
+	// Drive reports whether the running VMM of the Machine has a drive for the
+	// disk and how it came by it (ADR 0023). It reads the VMM and changes
+	// nothing.
+	Drive(ctx context.Context, id MachineID, disk DiskID) (DriveState, error)
 	// Resize needs CapabilityResize.
 	Resize(ctx context.Context, id MachineID, target Resources) error
 	// Snapshot, DescribeRestore and Restore need CapabilitySnapshot.

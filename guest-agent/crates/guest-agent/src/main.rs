@@ -49,6 +49,7 @@ fn main() {
         console: Arc::new(guest_agent::LinuxConsole),
         entropy: Arc::new(guest_agent::LinuxEntropy),
         clock: Arc::new(guest_agent::LinuxClock),
+        disks: Arc::new(guest_agent::LinuxDisks::default()),
     };
     // A panic from here on ends the Machine, the runtime failing to build included.
     guest_agent::end_on_panic(system.clone());

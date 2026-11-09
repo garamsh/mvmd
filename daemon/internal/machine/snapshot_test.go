@@ -140,7 +140,7 @@ func TestSnapshot_OnSuccess(t *testing.T) {
 		assert.Equal(t, machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a", KernelDigest: memory.KernelDigest}, got.Compat)
 		assert.Equal(t, machine.MachineID("m"), got.Machine)
 		assert.Equal(t, m.Network.MAC, got.MAC, "the MAC the guest uses")
-		assert.Equal(t, machine.Spec{Image: image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}, got.Spec,
+		assert.Equal(t, machine.SnapshotSpec{Image: image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}, got.Spec,
 			"a snapshot carries no policy and no attached disk")
 		assert.Equal(t, "/disks/m-root", files.RootDisk, "the root disk goes with the memory")
 		assert.Equal(t, e.driver.BootSpec("m").RunDir+"/snapshot.mem", files.State[0], "the Driver's files in the run directory")
@@ -354,6 +354,9 @@ func TestRestoreSnapshot_OnSuccess(t *testing.T) {
 	assert.Equal(t, narrowPolicy, got.Policy, "the policy is the request's and not the source's")
 	assert.Equal(t, image, got.Image)
 	assert.Equal(t, source.Resources, got.Resources)
+	assert.NotZero(t, source.RootDiskBytes, "control: the source has a root disk size to keep")
+	assert.Equal(t, source.RootDiskBytes, got.RootDiskBytes)
+	assert.Empty(t, got.Disks, "a snapshot carries no attached disk")
 	e.requireStored(t, "new", machine.StateRunning)
 
 	assert.Equal(t, []machine.State{machine.StateRunning}, e.events.States("new"), "the state change is reported")

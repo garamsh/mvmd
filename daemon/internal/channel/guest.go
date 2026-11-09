@@ -56,6 +56,7 @@ const (
 	opExec
 	opFile
 	opPatch
+	opDisk
 )
 
 // errCut is a stream that ended before its last message: the connection
@@ -144,6 +145,8 @@ func mapError(op operation, err error) error {
 				return fmt.Errorf("%w: %s", machine.ErrNotRegular, d.GetPath())
 			}
 			return fmt.Errorf("guest agent: %s is not a %s: %s", d.GetPath(), d.GetExpected(), msg)
+		case *guestv1alpha1.DiskInUse:
+			return fmt.Errorf("%w: %s", machine.ErrDiskInUse, d.GetDiskId())
 		case *guestv1alpha1.NotBooted:
 			notBooted = true
 		}
@@ -161,6 +164,8 @@ func mapError(op operation, err error) error {
 			return fmt.Errorf("%w: %s", machine.ErrExecAbsent, msg)
 		case opFile, opPatch:
 			return fmt.Errorf("%w: %s", machine.ErrFileAbsent, msg)
+		case opDisk:
+			return fmt.Errorf("%w: %s", machine.ErrDiskUnknown, msg)
 		}
 	case codes.FailedPrecondition:
 		if op == opPatch && !notBooted {
@@ -457,6 +462,23 @@ func (g *Guest) PatchFile(ctx context.Context, id machine.MachineID, path, baseD
 func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
 	return g.run(ctx, id, opOther, func(c guestv1alpha1.GuestServiceClient) error {
 		_, err := c.Terminate(ctx, &guestv1alpha1.TerminateRequest{})
+		return err
+	})
+}
+
+// FindDisk implements machine.Guest (ADR 0022). The device the agent found is
+// not returned: the daemon records no guest device name.
+func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
+	return g.run(ctx, id, opDisk, func(c guestv1alpha1.GuestServiceClient) error {
+		_, err := c.FindDisk(ctx, &guestv1alpha1.FindDiskRequest{DiskId: string(disk)})
+		return err
+	})
+}
+
+// ReleaseDisk implements machine.Guest (ADR 0022).
+func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
+	return g.run(ctx, id, opDisk, func(c guestv1alpha1.GuestServiceClient) error {
+		_, err := c.ReleaseDisk(ctx, &guestv1alpha1.ReleaseDiskRequest{DiskId: string(disk)})
 		return err
 	})
 }

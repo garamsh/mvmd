@@ -14,8 +14,8 @@ const recordVersion = 1
 // record is the form a snapshot's record takes on disk. It is this package's:
 // every field is named by a tag, so a change in package machine cannot change
 // what an existing record means (a renamed field stops this file compiling).
-// A snapshot carries no network policy and no attached disk
-// (machine.Snapshot), so neither is stored.
+// machine.Snapshot has no field for a network policy or an attached disk, so
+// neither is stored.
 type record struct {
 	Version       int      `json:"version"`
 	ID            string   `json:"id"`
@@ -73,7 +73,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 		ID:      machine.SnapshotID(r.ID),
 		Machine: machine.MachineID(r.Machine),
 		Request: machine.RequestID(r.Request),
-		Spec: machine.Spec{
+		Spec: machine.SnapshotSpec{
 			Image:         machine.ImageDigest(r.Image),
 			Resources:     machine.Resources{VCPUs: r.VCPUs, MemoryBytes: r.MemoryBytes},
 			RootDiskBytes: r.RootDiskBytes,

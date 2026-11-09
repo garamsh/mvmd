@@ -62,7 +62,7 @@ func (e *env) holdSnapshot(t *testing.T) {
 	t.Helper()
 	require.NoError(t, e.snaps.Put(context.Background(), machine.Snapshot{
 		ID: "snap", Machine: "gone", Request: "r",
-		Spec:         machine.Spec{Image: image, Resources: machine.Resources{VCPUs: 1, MemoryBytes: 1 << 20}, RootDiskBytes: 1 << 20},
+		Spec:         machine.SnapshotSpec{Image: image, Resources: machine.Resources{VCPUs: 1, MemoryBytes: 1 << 20}, RootDiskBytes: 1 << 20},
 		RootDiskUUID: "uuid",
 		Compat:       machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a"},
 	}, machine.SnapshotFiles{State: []string{"/snap/mem"}, RootDisk: "/snap/root"}))
