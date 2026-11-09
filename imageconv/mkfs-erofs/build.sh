@@ -127,7 +127,11 @@ prepare_erofs() {
     echo "build.sh: pkg.m4 is not in /usr/share/aclocal; install pkg-config" >&2
     exit 1
   fi
-  (cd "$src" && ACLOCAL_PATH=/usr/share/aclocal sh autogen.sh >/dev/null 2>&1)
+  # Only pkg.m4 is taken from the host: its other macros, libtool's among them, would be older
+  # than the tools built above.
+  mkdir -p "$cache/aclocal"
+  cp /usr/share/aclocal/pkg.m4 "$cache/aclocal/"
+  (cd "$src" && ACLOCAL_PATH="$cache/aclocal" sh autogen.sh >/dev/null 2>&1)
 }
 
 # build_erofs <dir> <result-dir> configures and builds out of the tree in <dir>, with every path
