@@ -152,6 +152,13 @@ func (s *service) build(ctx context.Context, ref Reference, staging Staging) *ma
 	s.publish.Lock()
 	defer s.publish.Unlock()
 	if err := s.store.Publish(ctx, staging); err != nil {
+		// Publish can fail after the swap that lists the image. A pull that
+		// failed leaves nothing visible, so Locate decides.
+		if _, lerr := s.store.Locate(ctx, ref.Digest); lerr == nil {
+			return nil
+		} else if !errors.Is(lerr, machine.ErrImageAbsent) {
+			return failed("publish the image", errors.Join(err, fmt.Errorf("locate the image after the failure: %w", lerr)))
+		}
 		return failed("publish the image", err)
 	}
 	return nil

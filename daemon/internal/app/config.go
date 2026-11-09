@@ -8,41 +8,66 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
+	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
 // DriverMemory selects the in-memory Driver, Supervision, Network, Disk and
-// Image Store. The real adapters join the choice with their own issues; the
+// Image Store, and the in-memory Registry, converter and image cache behind
+// PullImage. The real adapters join the choice with their own issues; the
 // ones that exist are selected by their own section of the configuration
 // (Supervision, Network), which replaces the substitute behind its port.
 const DriverMemory = "memory"
 
 // DriverFirecracker selects the Firecracker Driver, and the Guest Agent
-// channel adapter over it, in place of the in-memory Driver and Guest. It
-// needs the Firecracker section and real supervision.
+// channel adapter over it, in place of the in-memory Driver and Guest, and
+// with them the Image Store, the Registry and the converter channel behind
+// PullImage. It needs the Firecracker, Conversion and Supervision sections.
 const DriverFirecracker = "firecracker"
 
 // Config is mvmd's one configuration file.
 type Config struct {
 	Socket SocketConfig `json:"socket"`
-	// StateDir holds mvmd's database. It is created if absent.
+	// StateDir holds mvmd's database. It is created if absent. Under the
+	// Firecracker Driver it also holds the Image Store, in "images", on a
+	// filesystem with fs-verity enabled (image.md §Layout), and the state
+	// directories of the converter VMs' supervisors, in "conversions".
 	StateDir string `json:"state_dir"`
 	// Driver selects the adapters behind the ports: "memory" or "firecracker".
-	// "firecracker" replaces only the Driver and the Guest; Images, Disks and
-	// Snapshots stay in-memory substitutes whose paths name no file, so every
-	// Start of a Machine fails under it until a real Image Store and Disk are
-	// wired (#30's remainder, #33). Use it to start the daemon and check its
-	// inputs, not to run Machines.
+	// "firecracker" replaces the Driver, the Guest and the Image Store;
+	// Disks and Snapshots stay in-memory substitutes whose paths name no file,
+	// so every Start of a Machine fails under it until a real Disk is wired
+	// (#33). Use it to start the daemon, pull images and check its inputs, not
+	// to run Machines.
 	Driver string `json:"driver"`
 	// Firecracker names the pinned binary, kernel and initrd the Firecracker
 	// Driver boots; it is required by that Driver and refused with any other.
 	Firecracker *FirecrackerConfig `json:"firecracker,omitempty"`
-	// VMMUIDRange names the range of UIDs (and GIDs) reserved for Machines.
+	// Conversion names what the converter VM of a pull needs: its kernel and
+	// initrd, its size and its time limit. It is required by the Firecracker
+	// Driver and refused with any other. The converter VM boots with the
+	// Firecracker binary of the firecracker section and runs under a
+	// supervisor of the supervision section, in a state directory and a VMM
+	// cgroup of its own, so that it is not one of the Machines the fencing
+	// deadline renews.
+	Conversion *ConversionConfig `json:"conversion,omitempty"`
+	// Registry names how the node authenticates to registries. It is refused
+	// with the memory driver. Without it every pull is anonymous.
+	Registry *RegistryConfig `json:"registry,omitempty"`
+	// PullTimeout is how long a pull may run, as a Go duration such as "30m",
+	// whether or not its caller waits. Empty means image.DefaultPullTimeout
+	// (30m); it must be positive and at most MaxPullTimeout.
+	PullTimeout string `json:"pull_timeout,omitempty"`
+	// VMMUIDRange names the range of UIDs (and GIDs) reserved for Machines
+	// and for the converter VMs of pulls, which draw from the one range
+	// through the one allocator, so a conversion and a Machine never share a
+	// user (image.md).
 	// The first must be non-zero (root is forbidden) and Count must be
 	// positive; the range must not overflow uint32 (ADR 0015).
 	VMMUIDRange VMMUIDRangeConfig `json:"vmm_uid_range"`
@@ -70,6 +95,124 @@ const MaxBootTimeout = time.Hour
 
 // MaxCallTimeout is the longest call timeout a node can name.
 const MaxCallTimeout = 6 * time.Hour
+
+// MaxPullTimeout is the longest pull timeout a node can name.
+const MaxPullTimeout = 6 * time.Hour
+
+// MaxConversionLimit is the longest conversion time limit a node can name.
+const MaxConversionLimit = time.Hour
+
+// pullTimeout returns the configured bound, or the default when none is set.
+func (c Config) pullTimeout() (time.Duration, error) {
+	if c.PullTimeout == "" {
+		return image.DefaultPullTimeout, nil
+	}
+	d, err := time.ParseDuration(c.PullTimeout)
+	switch {
+	case err != nil:
+		return 0, fmt.Errorf("pull_timeout %q is not a duration such as \"30m\"", c.PullTimeout)
+	case d <= 0 || d > MaxPullTimeout:
+		return 0, fmt.Errorf("pull_timeout %q is outside 1ns to %s", c.PullTimeout, MaxPullTimeout)
+	}
+	return d, nil
+}
+
+// ConversionConfig is what the node says about a conversion (image.md
+// §Conversion): the converter's kernel and initrd, by absolute path, the
+// kernel also by SHA-256 in hex, which the Driver checks at start; the
+// converter's name, which every image records; and its size and time limit.
+// Nothing here has a default: a converter too small for an image fails the
+// pull, and the right size depends on the images the node pulls.
+type ConversionConfig struct {
+	Kernel       string `json:"kernel"`
+	KernelSHA256 string `json:"kernel_sha256"`
+	Initrd       string `json:"initrd"`
+	// Converter names the converter; an image records the name it was
+	// converted by.
+	Converter string `json:"converter"`
+	// VCPUs and MemoryBytes are the converter VM's. The memory has to exceed
+	// twice the file data of the largest layer of an image to convert (ADR
+	// 0017).
+	VCPUs       uint32 `json:"vcpus"`
+	MemoryBytes uint64 `json:"memory_bytes"`
+	// OutputBytes is the size of the output file, the most an image can be.
+	OutputBytes uint64 `json:"output_bytes"`
+	// NameSetBytes is the most bytes of entry names the converter holds for
+	// one layer.
+	NameSetBytes uint64 `json:"name_set_bytes"`
+	// Limit is how long a conversion may run from its VMM's start, as a Go
+	// duration such as "10m"; it must be positive and at most
+	// MaxConversionLimit. The supervisor's expiry is its end.
+	Limit string `json:"limit"`
+}
+
+func (c ConversionConfig) limit() (time.Duration, error) {
+	d, err := time.ParseDuration(c.Limit)
+	switch {
+	case err != nil:
+		return 0, fmt.Errorf("conversion.limit %q is not a duration such as \"10m\"", c.Limit)
+	case d <= 0 || d > MaxConversionLimit:
+		return 0, fmt.Errorf("conversion.limit %q is outside 1ns to %s", c.Limit, MaxConversionLimit)
+	}
+	return d, nil
+}
+
+// check refuses a section that names no absolute path, no digest or no size.
+// The converter VM boots with the Firecracker binary of the firecracker
+// section, which supplies the binary and its digest.
+func (c ConversionConfig) check(f FirecrackerConfig) error {
+	if err := (firecracker.Config{Binary: f.Binary, BinarySHA256: f.BinarySHA256, Kernel: c.Kernel, KernelSHA256: c.KernelSHA256, Initrd: c.Initrd}).Validate(); err != nil {
+		return fmt.Errorf("conversion: %w", err)
+	}
+	switch {
+	case c.Converter == "":
+		return fmt.Errorf("conversion.converter is empty")
+	case c.VCPUs == 0:
+		return fmt.Errorf("conversion.vcpus is zero")
+	case c.MemoryBytes == 0:
+		return fmt.Errorf("conversion.memory_bytes is zero")
+	case c.OutputBytes == 0:
+		return fmt.Errorf("conversion.output_bytes is zero")
+	case c.NameSetBytes == 0:
+		return fmt.Errorf("conversion.name_set_bytes is zero")
+	}
+	_, err := c.limit()
+	return err
+}
+
+// settings is the image domain's view of the section.
+func (c ConversionConfig) settings() (image.Settings, error) {
+	limit, err := c.limit()
+	if err != nil {
+		return image.Settings{}, err
+	}
+	return image.Settings{
+		Platform:     platform(),
+		Converter:    c.Converter,
+		Resources:    machine.Resources{VCPUs: c.VCPUs, MemoryBytes: c.MemoryBytes},
+		OutputBytes:  c.OutputBytes,
+		NameSetBytes: c.NameSetBytes,
+		Limit:        limit,
+	}, nil
+}
+
+// platform is the one the node selects manifests for: Linux on the CPU
+// architecture mvmd runs on, which is the guests' (the Firecracker Driver
+// boots only the host's).
+func platform() image.Platform {
+	return image.Platform{OS: "linux", Architecture: runtime.GOARCH}
+}
+
+// RegistryConfig is how the node authenticates to registries.
+type RegistryConfig struct {
+	// CredentialsFile is the absolute path of a JSON file mapping a registry,
+	// as a repository names it (host, and :port when it has one), to an
+	// object with "username" and "password". It is read once at start, and
+	// refused when it is not a regular file closed to group and others. The
+	// secrets live there and in no other field, so the configuration can be
+	// shared and logged without them.
+	CredentialsFile string `json:"credentials_file"`
+}
 
 // callTimeout returns the configured bound, or the default when none is set.
 func (c Config) callTimeout() (time.Duration, error) {
@@ -242,13 +385,30 @@ func (c Config) check() error {
 		return fmt.Errorf("driver %q needs the firecracker section", c.Driver)
 	case c.Driver == DriverFirecracker && c.Supervision == nil:
 		return fmt.Errorf("driver %q needs the supervision section: its VMM runs under a supervisor", c.Driver)
+	case c.Driver == DriverFirecracker && c.Conversion == nil:
+		return fmt.Errorf("driver %q needs the conversion section: PullImage converts in a converter VM", c.Driver)
 	case c.Driver != DriverFirecracker && c.Firecracker != nil:
 		return fmt.Errorf("the firecracker section is for driver %q, not %q", DriverFirecracker, c.Driver)
+	case c.Driver != DriverFirecracker && c.Conversion != nil:
+		return fmt.Errorf("the conversion section is for driver %q, not %q", DriverFirecracker, c.Driver)
+	case c.Driver != DriverFirecracker && c.Registry != nil:
+		return fmt.Errorf("the registry section is for driver %q, not %q", DriverFirecracker, c.Driver)
 	}
 	if f := c.Firecracker; f != nil {
 		if err := f.toDriver(nil).Validate(); err != nil {
 			return err
 		}
+	}
+	if cv := c.Conversion; cv != nil {
+		if err := cv.check(*c.Firecracker); err != nil {
+			return err
+		}
+	}
+	if r := c.Registry; r != nil && !filepath.IsAbs(r.CredentialsFile) {
+		return fmt.Errorf("registry.credentials_file %q is not an absolute path", r.CredentialsFile)
+	}
+	if _, err := c.pullTimeout(); err != nil {
+		return err
 	}
 	if _, err := c.Socket.perm(); err != nil {
 		return err
