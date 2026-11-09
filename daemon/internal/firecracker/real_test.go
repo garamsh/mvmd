@@ -19,6 +19,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/channel"
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 )
 
@@ -83,7 +84,7 @@ func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t 
 	require.NoError(t, err)
 	consoleOut, vmmOut, err := os.Pipe()
 	require.NoError(t, err)
-	l, err := net.Listen("unix", filepath.Join(dir, supervisor.ConsoleSocketName))
+	l, err := net.Listen("unix", statedir.ConsoleSocket(dir))
 	require.NoError(t, err)
 	console := supervisor.ServeConsole(l, consoleIn, consoleOut, vmmLog)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = vmmIn, vmmOut, vmmLog

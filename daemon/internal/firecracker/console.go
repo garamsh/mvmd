@@ -8,10 +8,10 @@ import (
 	"io/fs"
 	"net"
 	"os"
-	"path/filepath"
 	"syscall"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 )
 
 // Console implements machine.Driver: a connection to the console socket the
@@ -25,7 +25,7 @@ func (d *Driver) Console(ctx context.Context, id machine.MachineID) (io.ReadWrit
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(filepath.Dir(run), consoleSocketName)
+	path := statedir.ConsoleSocket(statedir.Of(run))
 	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
@@ -56,7 +56,7 @@ func (d *Driver) ConsoleLog(ctx context.Context, id machine.MachineID) (io.ReadC
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, consoleLogName)
+	path := statedir.VMMLog(dir)
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

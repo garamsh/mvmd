@@ -24,18 +24,12 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 )
 
 const (
-	socketName = "supervisor.sock"
-	logName    = "supervisor.log"
-	// runName is the Machine's run directory under its state directory. The VMM
-	// owns it and the supervisor socket is not in it, so a VMM cannot replace
-	// the socket mvmd connects to (ADR 0015).
-	runName = "run"
-
 	// DefaultVMMCgroup is the parent of the VMMs' cgroups when Config names
 	// none: a child of the cgroup v2 root, outside mvmd's own cgroup.
 	DefaultVMMCgroup = "/sys/fs/cgroup/mvmd-vmm"
@@ -111,7 +105,7 @@ func (a *Adapter) RunDir(id machine.MachineID) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, runName), nil
+	return statedir.Run(dir), nil
 }
 
 // Start implements fencing.Supervisors.
@@ -123,14 +117,14 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	// The description's run directory only has to agree: the path is this
 	// adapter's, and nothing is created or handed to the VMM's user for any
 	// other.
-	runDir := filepath.Join(dir, runName)
+	runDir := statedir.Run(dir)
 	if process.RunDir != runDir {
 		return fmt.Errorf("the run directory %q is not the Machine's %q", process.RunDir, runDir)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create the state directory: %w", err)
 	}
-	sock := filepath.Join(dir, socketName)
+	sock := statedir.SupervisorSocket(dir)
 	switch _, err := peerPID(sock); {
 	case err == nil:
 		return fmt.Errorf("Machine %q already has a supervisor", id)
@@ -150,7 +144,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		return err
 	}
 
-	logFile, err := os.OpenFile(filepath.Join(dir, logName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	logFile, err := os.OpenFile(statedir.SupervisorLog(dir), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		a.removeVMMCgroup(id)
 		return fmt.Errorf("open the supervisor log: %w", err)
@@ -239,7 +233,7 @@ func (a *Adapter) SetExpiry(ctx context.Context, id machine.MachineID, expiry fe
 	if err != nil {
 		return err
 	}
-	return withClient(ctx, filepath.Join(dir, socketName), func(ctx context.Context, c pb.SupervisorServiceClient) error {
+	return withClient(ctx, statedir.SupervisorSocket(dir), func(ctx context.Context, c pb.SupervisorServiceClient) error {
 		_, err := c.SetExpiry(ctx, &pb.SetExpiryRequest{ExpiryBoottimeNs: int64(expiry)})
 		return err
 	})
@@ -253,7 +247,7 @@ func (a *Adapter) Terminate(ctx context.Context, id machine.MachineID) error {
 	if err != nil {
 		return err
 	}
-	sock := filepath.Join(dir, socketName)
+	sock := statedir.SupervisorSocket(dir)
 	h, err := attach(ctx, sock)
 	if isAbsent(err) {
 		_ = os.Remove(sock)
@@ -300,7 +294,7 @@ func (a *Adapter) Live(ctx context.Context) ([]fencing.Supervisor, error) {
 		if !e.IsDir() {
 			continue
 		}
-		sock := filepath.Join(a.cfg.Dir, e.Name(), socketName)
+		sock := statedir.SupervisorSocket(filepath.Join(a.cfg.Dir, e.Name()))
 		if _, err := peerPID(sock); err != nil {
 			if isAbsent(err) {
 				_ = os.Remove(sock)
@@ -389,7 +383,7 @@ func toProcess(p machine.ProcessDescription) *pb.Process {
 
 // logTail returns what the supervisor wrote to its log, for an error.
 func logTail(dir string) string {
-	raw, err := os.ReadFile(filepath.Join(dir, logName))
+	raw, err := os.ReadFile(statedir.SupervisorLog(dir))
 	if err != nil {
 		return err.Error()
 	}
