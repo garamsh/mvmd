@@ -13,7 +13,13 @@ var inNamespace = nstest.Run
 // eventually polls cond for up to a second; the kernel hands a frame to the
 // reader a moment after the write returns.
 func eventually(cond func() bool) bool {
-	deadline := time.Now().Add(time.Second)
+	return eventuallyWithin(time.Second, cond)
+}
+
+// eventuallyWithin polls cond for up to d, for a condition that depends on the
+// kernel finishing work of its own, which a loaded machine delays.
+func eventuallyWithin(d time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(d)
 	for !cond() {
 		if time.Now().After(deadline) {
 			return false
