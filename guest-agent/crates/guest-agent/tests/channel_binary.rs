@@ -193,6 +193,72 @@ async fn a_handshake_for_another_port_or_none_is_closed_unanswered() -> Result {
 }
 
 #[tokio::test]
+async fn a_failed_accept_ends_the_binary_with_a_failure_and_says_why() -> Result {
+    let dir = tempfile::tempdir()?;
+    let socket = dir.path().join("agent.sock");
+    // A low descriptor limit, so a burst of connections makes accept fail with EMFILE.
+    let mut child = Command::new("sh")
+        .args(["-c", "ulimit -n 12 && exec \"$0\" \"$@\""])
+        .arg(env!("CARGO_BIN_EXE_guest-agent-channel"))
+        .arg(&socket)
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
+    for _ in 0..200 {
+        if socket.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    // Kept open, so the server's descriptors are not freed again.
+    let mut held = Vec::new();
+    for _ in 0..40 {
+        // Once the server has failed it no longer listens, and a connect is refused.
+        let Ok(stream) = UnixStream::connect(&socket).await else {
+            break;
+        };
+        held.push(stream);
+    }
+
+    let exit = tokio::time::timeout(Duration::from_secs(10), child.wait()).await??;
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_string(&mut stderr).await?;
+    }
+
+    assert!(!exit.success(), "{exit:?}");
+    assert!(stderr.contains("accept failed"), "{stderr}");
+    drop(held);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_socket_that_cannot_be_removed_is_reported_and_fails_the_exit() -> Result {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut agent = Agent::start(&[]).await?;
+    let dir = agent.socket.parent().ok_or("no directory")?.to_path_buf();
+    // Without write permission on the directory an unlink fails, for any user but root.
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500))?;
+    let pid = agent.child.id().ok_or("no process id")?;
+    let status = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()?;
+    assert!(status.success(), "kill");
+    let exit = tokio::time::timeout(Duration::from_secs(5), agent.child.wait()).await??;
+    let removable = agent.socket.exists();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+
+    // Root is not stopped by the mode, and then the socket is removed and the exit is clean.
+    assert_eq!(
+        exit.success(),
+        !removable,
+        "{exit:?}, socket left: {removable}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn the_binary_ends_on_sigterm_and_removes_its_socket() -> Result {
     let mut agent = Agent::start(&[]).await?;
     let pid = agent.child.id().ok_or("no process id")?;

@@ -78,14 +78,19 @@ async fn handshake(stream: &mut UnixStream, port: u32) -> io::Result<()> {
 async fn run(arguments: Arguments) -> io::Result<()> {
     let listener = UnixListener::bind(&arguments.socket)?;
     let (ready, incoming) = mpsc::channel(16);
-    let accept = tokio::spawn(async move {
+    // Held until the outcome is known, so the end of the accept loop is not read as an end of
+    // the connection stream before its error is.
+    let keep_open = ready.clone();
+    // The accept loop ends only with the error that stopped it, which ends the server.
+    let mut accept = tokio::spawn(async move {
         loop {
-            let Ok((mut stream, _)) = listener.accept().await else {
-                return;
+            let mut stream = match listener.accept().await {
+                Ok((stream, _)) => stream,
+                Err(error) => return error,
             };
             let Some(port) = arguments.handshake_port else {
                 if ready.send(Ok(stream)).await.is_err() {
-                    return;
+                    return io::Error::other("the server stopped");
                 }
                 continue;
             };
@@ -95,6 +100,8 @@ async fn run(arguments: Arguments) -> io::Result<()> {
                 let done =
                     tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake(&mut stream, port)).await;
                 if matches!(done, Ok(Ok(()))) {
+                    // The send fails only once the server has stopped and dropped the receiver,
+                    // when there is no one left to tell.
                     ready.send(Ok(stream)).await.ok();
                 }
             });
@@ -112,11 +119,22 @@ async fn run(arguments: Arguments) -> io::Result<()> {
         ReceiverStream::new(incoming),
         guest_agent::Config::default(),
         shutdown,
-    )
-    .await;
+    );
+    let outcome = tokio::select! {
+        served = served => served.map_err(io::Error::other),
+        stopped = &mut accept => Err(match stopped {
+            Ok(error) => io::Error::new(error.kind(), format!("accept failed: {error}")),
+            Err(joined) => io::Error::other(joined),
+        }),
+    };
+    drop(keep_open);
     accept.abort();
-    std::fs::remove_file(Path::new(&arguments.socket)).ok();
-    served.map_err(io::Error::other)
+    // A socket already gone is no failure; any other is reported, and does not hide an earlier one.
+    let removed = match std::fs::remove_file(Path::new(&arguments.socket)) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    };
+    outcome.and(removed)
 }
 
 fn main() -> ExitCode {
