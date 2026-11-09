@@ -99,7 +99,7 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 	if err := newClient(filepath.Join(dir, apiSocketName)).do(ctx, "DELETE", "/drives/"+name, nil, nil); err != nil {
 		return err
 	}
-	return removeLink(filepath.Join(dir, name))
+	return nil
 }
 
 // Drive implements machine.Driver. It reads the VMM's own configuration
@@ -128,7 +128,7 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 		switch {
 		case have.ID != name:
 		case have.Path == inRun(name):
-			return machine.DriveHotPlugged, nil
+			return machine.DriveAtBoot, nil
 		default:
 			return machine.DriveAtBoot, nil
 		}

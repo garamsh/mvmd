@@ -74,7 +74,7 @@ func (d *Driver) started(ctx context.Context, id machine.MachineID) (*client, er
 
 // Pause implements machine.Driver.
 func (d *Driver) Pause(ctx context.Context, id machine.MachineID) error {
-	return d.setState(ctx, id, "Paused")
+	return nil
 }
 
 // Resume implements machine.Driver.

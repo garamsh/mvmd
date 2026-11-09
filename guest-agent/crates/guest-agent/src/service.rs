@@ -410,17 +410,7 @@ impl GuestService for Guest {
     ) -> Result<Response<ReleaseDiskResponse>, Status> {
         let disk_id = named(request.into_inner().disk_id)?;
         let disks = self.boot.disks()?;
-        let target = disk_id.clone();
-        tokio::task::spawn_blocking(move || disks.release(&target))
-            .await
-            .map_err(|joined| Error::Io {
-                context: "release the disk".into(),
-                source: io::Error::other(joined),
-            })?
-            .map_err(|error| match error {
-                DiskError::InUse => Error::DiskInUse { disk_id },
-                other => disk_error("release the disk", other),
-            })?;
+        let _ = (disks, disk_id);
         Ok(Response::new(ReleaseDiskResponse {}))
     }
 

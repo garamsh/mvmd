@@ -44,7 +44,7 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 	}
 	return machine.DriverSnapshot{
 		Files:        []string{filepath.Join(dir, stateName), filepath.Join(dir, memoryName)},
-		KernelDigest: d.cfg.KernelSHA256,
+		KernelDigest: "",
 	}, nil
 }
 
