@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -175,6 +176,79 @@ func TestRealAgent_ExecAndItsOutput(t *testing.T) {
 		b, _ := os.ReadFile(marks)
 		return string(b) == "run\nrun\n"
 	}, 10*time.Second, 20*time.Millisecond)
+}
+
+// trackingConnector records the connections it opens, so a test can reset one
+// as a restore does.
+type trackingConnector struct {
+	socketConnector
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+func (c *trackingConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	conn, err := c.socketConnector.GuestConn(ctx, id, port)
+	if err == nil {
+		c.mu.Lock()
+		c.conns = append(c.conns, conn)
+		c.mu.Unlock()
+	}
+	return conn, err
+}
+
+func (c *trackingConnector) opened() []net.Conn {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]net.Conn(nil), c.conns...)
+}
+
+// A connection reset in the middle of an output stream is replaced, and the
+// read resumes after the last byte it passed on: the caller sees every byte
+// once.
+func TestRealAgent_OutputResumesByOffsetAfterAForcedReconnect(t *testing.T) {
+	ctx := context.Background()
+	_, socket := realAgent(t)
+	conn := &trackingConnector{socketConnector: socketConnector{socket}}
+	g := channel.NewGuest(conn)
+	_, err := g.Exec(ctx, "m", "slow", machine.ExecSpec{Command: []string{"/bin/sh", "-c", "printf aaaa; sleep 1; printf bbbb"}})
+	require.NoError(t, err)
+
+	var got []byte
+	first := make(chan struct{})
+	type result struct {
+		rec machine.ExecRecord
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		rec, err := g.ReadExecOutput(ctx, "m", "slow", 0, func(c machine.OutputChunk) error {
+			assert.Equal(t, uint64(len(got)), c.Offset, "no gap and no repeat")
+			got = append(got, c.Data...)
+			if len(got) == 4 {
+				close(first)
+			}
+			return nil
+		})
+		done <- result{rec, err}
+	}()
+	select {
+	case <-first:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first output never arrived")
+	}
+	opened := conn.opened()
+	require.Len(t, opened, 2, "the setup: one connection for the exec and one for the read")
+	require.NoError(t, opened[1].Close())
+
+	select {
+	case r := <-done:
+		require.NoError(t, r.err)
+		assert.Equal(t, machine.ExecExited, r.rec.Status)
+	case <-time.After(15 * time.Second):
+		t.Fatal("the read never ended")
+	}
+	assert.Equal(t, "aaaabbbb", string(got))
+	assert.Len(t, conn.opened(), 3, "the read was repeated on a new connection")
 }
 
 func TestRealAgent_FileCalls(t *testing.T) {
