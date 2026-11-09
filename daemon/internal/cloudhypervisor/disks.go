@@ -80,12 +80,14 @@ func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machi
 }
 
 // DetachDisk implements machine.Driver. It asks the VMM to remove the device
-// (PUT /vm.remove-device), waits until the VMM has let go of it, then removes
-// the link an attach made. The VMM drops the device from its configuration at
-// once but keeps its identifier until the guest has ejected it, and an add of
-// the same identifier before then is refused, so the wait is what lets a disk
-// be attached again at once. A disk given at boot has no link, and its path
-// stays bound in the root.
+// (PUT /vm.remove-device) unless the VMM's configuration no longer holds it,
+// waits until the VMM has let go of it, then removes the link an attach made.
+// The VMM drops the device from its configuration at once but keeps its
+// identifier until the guest has ejected it, and an add of the same identifier
+// before then is refused, so the wait is what lets a disk be attached again at
+// once. A request for a device the configuration lacks is refused, so a retry
+// of a detach whose request was accepted waits again and sends nothing. A disk
+// given at boot has no link, and its path stays bound in the root.
 func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
 	if disk == "" {
 		return errors.New("a disk to detach names no disk")
@@ -96,8 +98,14 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 	}
 	name := driveID(0, disk)
 	c := newClient(filepath.Join(dir, apiSocketName))
-	if err := c.do(ctx, "PUT", "/vm.remove-device", map[string]string{"id": name}, nil); err != nil {
+	info, err := c.info(ctx)
+	if err != nil {
 		return err
+	}
+	if info.holdsDisk(name) {
+		if err := c.do(ctx, "PUT", "/vm.remove-device", map[string]string{"id": name}, nil); err != nil {
+			return err
+		}
 	}
 	err = awaitEjected(ctx, c, name)
 	// The VMM no longer holds the file, ejected or not.
@@ -109,10 +117,8 @@ func awaitEjected(ctx context.Context, c *client, name string) error {
 	ctx, cancel := context.WithTimeout(ctx, ejectWait)
 	defer cancel()
 	for {
-		var info struct {
-			Tree map[string]json.RawMessage `json:"device_tree"`
-		}
-		if err := c.do(ctx, "GET", "/vm.info", nil, &info); err != nil {
+		info, err := c.info(ctx)
+		if err != nil {
 			return fmt.Errorf("wait for the guest to eject %s: %w", name, err)
 		}
 		if _, held := info.Tree[name]; !held {
@@ -138,15 +144,8 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 	if err != nil {
 		return machine.DriveAbsent, err
 	}
-	var info struct {
-		Config struct {
-			Disks []struct {
-				ID   string `json:"id"`
-				Path string `json:"path"`
-			} `json:"disks"`
-		} `json:"config"`
-	}
-	if err := c.do(ctx, "GET", "/vm.info", nil, &info); err != nil {
+	info, err := c.info(ctx)
+	if err != nil {
 		return machine.DriveAbsent, err
 	}
 	name := driveID(0, disk)
@@ -160,6 +159,34 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 		}
 	}
 	return machine.DriveAbsent, nil
+}
+
+// vmInfo is the part of GET /vm.info the disk calls read: the disks the VMM's
+// configuration holds, and its device tree, which keeps a removed device's
+// identifier until the guest has ejected it.
+type vmInfo struct {
+	Config struct {
+		Disks []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		} `json:"disks"`
+	} `json:"config"`
+	Tree map[string]json.RawMessage `json:"device_tree"`
+}
+
+func (c *client) info(ctx context.Context) (vmInfo, error) {
+	var info vmInfo
+	err := c.do(ctx, "GET", "/vm.info", nil, &info)
+	return info, err
+}
+
+func (i vmInfo) holdsDisk(name string) bool {
+	for _, have := range i.Config.Disks {
+		if have.ID == name {
+			return true
+		}
+	}
+	return false
 }
 
 // removeLink removes the link of an attached disk, which is absent for a disk

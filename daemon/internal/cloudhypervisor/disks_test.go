@@ -2,11 +2,12 @@ package cloudhypervisor_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,19 +181,86 @@ func TestAttachDisk_ARefusalByTheVMMLeavesNoLink(t *testing.T) {
 	assert.NoError(t, statErr)
 }
 
+// vmmHolding makes the fake answer as a VMM that holds the devices named: GET
+// /vm.info lists them in config.disks and in the device tree, and PUT
+// /vm.remove-device drops one from config.disks, refuses an id the
+// configuration lacks, and leaves the tree's entry for the guest to eject. The
+// guest ejects once eject says so, which is asked with the number of polls of
+// the tree since the removal.
+type vmmHolding struct {
+	mu      sync.Mutex
+	config  map[string]bool
+	tree    map[string]bool
+	removed bool
+	polls   int
+	eject   func(polls int) bool
+}
+
+func vmmHolds(f *fakeAPI, ids ...string) *vmmHolding {
+	v := &vmmHolding{config: map[string]bool{}, tree: map[string]bool{}, eject: func(int) bool { return true }}
+	for _, id := range ids {
+		v.config[id], v.tree[id] = true, true
+	}
+	f.answer = v.answer
+	return v
+}
+
+func (v *vmmHolding) answer(r request) (int, string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	switch {
+	case r.Method == "PUT" && r.Path == "/vm.remove-device":
+		var body struct{ ID string }
+		_ = json.Unmarshal([]byte(r.Body), &body)
+		if !v.config[body.ID] {
+			return http.StatusInternalServerError, "no such device: " + body.ID
+		}
+		delete(v.config, body.ID)
+		v.removed = true
+	case r.Method == "GET" && r.Path == "/vm.info":
+		if v.removed {
+			v.polls++
+			if v.eject(v.polls) {
+				v.tree = map[string]bool{}
+			}
+		}
+		var disks, tree []string
+		for id := range v.config {
+			disks = append(disks, `{"id":"`+id+`","path":"/run/`+id+`"}`)
+		}
+		for id := range v.tree {
+			tree = append(tree, `"`+id+`":{}`)
+		}
+		return http.StatusOK, `{"state":"Running","config":{"disks":[` + strings.Join(disks, ",") + `]},"device_tree":{` + strings.Join(tree, ",") + `}}`
+	}
+	return http.StatusNoContent, ""
+}
+
+func countOf(reqs []request, method, path string) int {
+	n := 0
+	for _, r := range reqs {
+		if r.Method == method && r.Path == path {
+			n++
+		}
+	}
+	return n
+}
+
 func TestDetachDisk_RemovesTheDeviceAndItsLink(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{}
 	n.booted(f)
 	dev := n.disk("data", false)
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", dev))
+	vmmHolds(f, dataDrive)
 	before := len(f.seen())
 
 	require.NoError(t, n.driver.DetachDisk(context.Background(), "m1", "data"))
 
 	got := since(f, before)
-	require.NotEmpty(t, got)
-	assert.Equal(t, request{Method: "PUT", Path: "/vm.remove-device", Body: `{"id":"` + dataDrive + `"}`}, got[0])
+	require.Len(t, got, 3)
+	assert.Equal(t, request{Method: "GET", Path: "/vm.info"}, got[0], "the VMM is asked what it holds first")
+	assert.Equal(t, request{Method: "PUT", Path: "/vm.remove-device", Body: `{"id":"` + dataDrive + `"}`}, got[1])
 	_, err := os.Lstat(filepath.Join(n.run, dataDrive))
 	assert.ErrorIs(t, err, os.ErrNotExist, "no link holds the file")
 	_, err = os.Stat(dev.Path)
@@ -209,23 +277,17 @@ func TestDetachDisk_WaitsForTheGuestToEjectTheDevice(t *testing.T) {
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
 	link := filepath.Join(n.run, dataDrive)
 
-	var polls atomic.Int32
-	f.answer = func(r request) (int, string) {
-		if r.Method == "GET" && r.Path == "/vm.info" {
-			if polls.Add(1) < 4 {
-				if _, err := os.Lstat(link); err != nil {
-					t.Error("the link was removed while the VMM still held the device")
-				}
-				return http.StatusOK, `{"config":{},"state":"Running","device_tree":{"` + dataDrive + `":{"id":"` + dataDrive + `"}}}`
-			}
-			return http.StatusOK, `{"config":{},"state":"Running","device_tree":{"_disk0":{}}}`
+	v := vmmHolds(f, dataDrive)
+	v.eject = func(polls int) bool {
+		if _, err := os.Lstat(link); err != nil {
+			t.Error("the link was removed while the VMM still held the device")
 		}
-		return http.StatusNoContent, ""
+		return polls >= 3
 	}
 
 	require.NoError(t, n.driver.DetachDisk(context.Background(), "m1", "data"))
 
-	assert.Equal(t, int32(4), polls.Load(), "asked again until the device was gone")
+	assert.Equal(t, 3, v.polls, "asked again until the device was gone")
 	_, err := os.Lstat(link)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
@@ -235,12 +297,8 @@ func TestDetachDisk_ReportsAGuestThatDoesNotEjectAndStillReleasesTheLink(t *test
 	f := &fakeAPI{}
 	n.booted(f)
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
-	f.answer = func(r request) (int, string) {
-		if r.Method == "GET" && r.Path == "/vm.info" {
-			return http.StatusOK, `{"config":{},"state":"Running","device_tree":{"` + dataDrive + `":{}}}`
-		}
-		return http.StatusNoContent, ""
-	}
+	v := vmmHolds(f, dataDrive)
+	v.eject = func(int) bool { return false }
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 
@@ -252,6 +310,34 @@ func TestDetachDisk_ReportsAGuestThatDoesNotEjectAndStillReleasesTheLink(t *test
 	assert.ErrorIs(t, statErr, os.ErrNotExist, "the VMM no longer holds the file, so the link goes")
 }
 
+// ADR 0022: a Detach called again converges. After a timed-out eject the VMM's
+// configuration no longer holds the device and refuses a request to remove it,
+// so the retry sends none, waits again and returns once the guest has ejected.
+func TestDetachDisk_ARetryAfterATimedOutEjectSendsNoRemoveAndConverges(t *testing.T) {
+	n := newNode(t)
+	f := &fakeAPI{}
+	n.booted(f)
+	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
+	v := vmmHolds(f, dataDrive)
+	v.eject = func(int) bool { return false }
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	before := len(f.seen())
+
+	require.ErrorContains(t, n.driver.DetachDisk(ctx, "m1", "data"), "did not eject")
+	assert.Equal(t, 1, countOf(since(f, before), "PUT", "/vm.remove-device"), "control: the first call sent the request")
+
+	v.mu.Lock()
+	v.eject = func(int) bool { return true }
+	v.mu.Unlock()
+	mid := len(f.seen())
+	require.NoError(t, n.driver.DetachDisk(context.Background(), "m1", "data"))
+
+	assert.Zero(t, countOf(since(f, mid), "PUT", "/vm.remove-device"), "the VMM no longer holds the device, so nothing is sent")
+	_, statErr := os.Lstat(filepath.Join(n.run, dataDrive))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
 func TestDetachDisk_KeepsTheLinkWhenTheVMMRefuses(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{}
@@ -259,11 +345,12 @@ func TestDetachDisk_KeepsTheLinkWhenTheVMMRefuses(t *testing.T) {
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
 	link := filepath.Join(n.run, dataDrive)
 
+	v := vmmHolds(f, dataDrive)
 	f.answer = func(r request) (int, string) {
 		if r.Path == "/vm.remove-device" {
 			return http.StatusInternalServerError, `no such device`
 		}
-		return http.StatusNoContent, ""
+		return v.answer(r)
 	}
 	err := n.driver.DetachDisk(context.Background(), "m1", "data")
 	require.Error(t, err)
@@ -271,7 +358,7 @@ func TestDetachDisk_KeepsTheLinkWhenTheVMMRefuses(t *testing.T) {
 	_, statErr := os.Lstat(link)
 	assert.NoError(t, statErr, "the VMM may still have the device, so its link stays")
 
-	f.answer = nil
+	f.answer = v.answer
 	require.NoError(t, n.driver.DetachDisk(context.Background(), "m1", "data"), "control: once the VMM agrees the link goes")
 	_, statErr = os.Lstat(link)
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
@@ -302,13 +389,14 @@ func TestDetachDisk_FindsADiskGivenAtBoot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, p.Args, "path=/disk/2,readonly=off,image_type=raw,id="+dataDrive, "control: boot named the device of the disk it was given")
 	require.NoError(t, n.driver.Boot(context.Background(), "m1", spec))
+	vmmHolds(f, dataDrive)
 	before := len(f.seen())
 
 	require.NoError(t, n.driver.DetachDisk(context.Background(), "m1", "data"))
 
 	got := since(f, before)
-	require.NotEmpty(t, got)
-	assert.Equal(t, request{Method: "PUT", Path: "/vm.remove-device", Body: `{"id":"` + dataDrive + `"}`}, got[0])
+	require.Greater(t, len(got), 1)
+	assert.Equal(t, request{Method: "PUT", Path: "/vm.remove-device", Body: `{"id":"` + dataDrive + `"}`}, got[1])
 }
 
 // infoWith makes the VMM answer GET /vm.info with the disks given as id and
