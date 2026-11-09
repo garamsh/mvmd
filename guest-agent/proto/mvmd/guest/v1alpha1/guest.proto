@@ -312,3 +312,61 @@ message InfoResponse {
   // The contract versions the agent serves, for example "v1alpha1".
   repeated string api_versions = 2;
 }
+
+// Status details. An error a client must act on carries one of these messages
+// in the details of its gRPC status (a google.rpc.Status in the
+// grpc-status-details-bin trailer, each detail packed as an Any). A client
+// branches on the detail's type and fields and never on the status message,
+// which is for people and may change. A status that carries none of them is
+// an error the client cannot act on beyond its code.
+
+// A step of the boot, in the order the agent takes them.
+enum BootStep {
+  BOOT_STEP_UNSPECIFIED = 0;
+  // Finding the image and the root disk by filesystem UUID.
+  BOOT_STEP_CHECK = 1;
+  BOOT_STEP_MOUNT_IMAGE = 2;
+  BOOT_STEP_MOUNT_ROOT_DISK = 3;
+  BOOT_STEP_OVERLAY = 4;
+  BOOT_STEP_SWITCH_ROOT = 5;
+  BOOT_STEP_NETWORK = 6;
+  BOOT_STEP_ENTRYPOINT = 7;
+}
+
+// The detail of an OUT_OF_RANGE status from ReadExecOutput: the read starts
+// before the output the agent still holds.
+message ExecOutputGone {
+  // The offset of the earliest byte still held; a read resumes from it.
+  uint64 earliest_offset = 1;
+}
+
+// The detail of an INTERNAL status from a call whose boot step failed: Boot,
+// and UpdateNetwork when its network step fails.
+message BootFailed {
+  BootStep step = 1;
+  // Why the step failed, as text for people.
+  string detail = 2;
+}
+
+// The detail of an INVALID_ARGUMENT status from a file call whose path names a
+// file of the wrong kind.
+message WrongFileKind {
+  string path = 1;
+  // The kind the call needs: FILE for read, write and patch, DIRECTORY for
+  // list and search.
+  EntryKind expected = 2;
+}
+
+enum BootState {
+  BOOT_STATE_UNSPECIFIED = 0;
+  // Boot has not been called, or its steps are still running.
+  BOOT_STATE_PENDING = 1;
+  // A boot step failed; the guest stays as it is until mvmd stops the Machine.
+  BOOT_STATE_FAILED = 2;
+}
+
+// The detail of a FAILED_PRECONDITION status from a call refused because Boot
+// has not succeeded.
+message NotBooted {
+  BootState state = 1;
+}

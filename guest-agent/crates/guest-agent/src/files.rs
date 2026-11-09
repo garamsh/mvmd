@@ -18,7 +18,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::digest::{Digest, Hasher};
-use crate::error::Error;
+use crate::error::{Error, Expected};
 use crate::v1alpha1::{EntryKind, FileEntry, PatchOutcome};
 
 const READ_SIZE: usize = 64 * 1024;
@@ -37,7 +37,10 @@ fn absolute(path: &str) -> Result<&Path, Error> {
 }
 
 fn not_regular(path: &Path) -> Error {
-    Error::Invalid(format!("{} is not a regular file", path.display()))
+    Error::WrongKind {
+        path: path.display().to_string(),
+        expected: Expected::File,
+    }
 }
 
 /// Open a regular file for reading. The open does not wait for a writer, so a FIFO is refused

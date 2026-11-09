@@ -28,5 +28,6 @@ tonic-prost-build = "0.14.9"
 
 [dev-dependencies]
 hyper-util = "0.1.21"
+protox = "0.10.0"
 tempfile = "3.27.0"
 tower = "0.5.3"
