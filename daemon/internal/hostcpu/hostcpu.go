@@ -1,4 +1,6 @@
-package firecracker
+// Package hostcpu names the model of the host's CPU: a snapshot restores only
+// on the same model (driver.md).
+package hostcpu
 
 import (
 	"bufio"
@@ -8,26 +10,27 @@ import (
 	"strings"
 )
 
-// cpuFields are the /proc/cpuinfo keys that identify a CPU model, by
-// architecture: a snapshot restores only on the same model (driver.md).
-var cpuFields = []string{
+// fields are the /proc/cpuinfo keys that identify a CPU model, by
+// architecture.
+var fields = []string{
 	// x86_64
 	"vendor_id", "cpu family", "model", "stepping",
 	// aarch64
 	"CPU implementer", "CPU architecture", "CPU variant", "CPU part", "CPU revision",
 }
 
-func hostCPUModel() (string, error) {
+// Model names the model of the host's first processor.
+func Model() (string, error) {
 	f, err := os.Open("/proc/cpuinfo")
 	if err != nil {
 		return "", fmt.Errorf("read the CPU model: %w", err)
 	}
 	defer f.Close()
-	return cpuModel(f)
+	return ModelOf(f)
 }
 
-// cpuModel names the model of the first processor in a /proc/cpuinfo.
-func cpuModel(r io.Reader) (string, error) {
+// ModelOf names the model of the first processor in a /proc/cpuinfo.
+func ModelOf(r io.Reader) (string, error) {
 	var parts []string
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
@@ -40,7 +43,7 @@ func cpuModel(r io.Reader) (string, error) {
 			continue
 		}
 		key, val = strings.TrimSpace(key), strings.TrimSpace(val)
-		for _, f := range cpuFields {
+		for _, f := range fields {
 			if key == f {
 				parts = append(parts, key+"="+val)
 			}
@@ -50,7 +53,7 @@ func cpuModel(r io.Reader) (string, error) {
 		return "", fmt.Errorf("read the CPU model: %w", err)
 	}
 	if len(parts) == 0 {
-		return "", fmt.Errorf("the CPU description names none of %q", cpuFields)
+		return "", fmt.Errorf("the CPU description names none of %q", fields)
 	}
 	return strings.Join(parts, " "), nil
 }

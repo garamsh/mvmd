@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/garamsh/mvmd/daemon/internal/hostcpu"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -79,7 +80,7 @@ func New(cfg Config) (*Driver, error) {
 	if err := verify(cfg); err != nil {
 		return nil, err
 	}
-	model, err := hostCPUModel()
+	model, err := hostcpu.Model()
 	if err != nil {
 		return nil, err
 	}
