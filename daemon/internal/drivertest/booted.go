@@ -14,7 +14,6 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
-	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect boots a Machine
@@ -39,21 +38,16 @@ func ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t *testing.
 	require.NoError(t, err)
 
 	// What the supervisor does, without its confinement: the described process
-	// runs with its standard input and output on the console the supervisor
-	// serves in the state directory (its code, supervisor.ServeConsole) and the
-	// run directory's log.
+	// runs with its standard input and output on the console terminal the
+	// supervisor opens and serves in the state directory (supervisor.OpenConsole),
+	// and the run directory's log.
 	logPath := statedir.VMMLog(run)
 	vmmLog, err := os.Create(logPath)
 	require.NoError(t, err)
 	defer vmmLog.Close()
-	vmmIn, consoleIn, err := os.Pipe()
+	console, vmmIn, vmmOut, err := supervisor.OpenConsole(state, vmmLog)
 	require.NoError(t, err)
-	consoleOut, vmmOut, err := os.Pipe()
-	require.NoError(t, err)
-	l, err := unixsock.Listen(statedir.ConsoleSocket(state))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = l.Close() })
-	console := supervisor.ServeConsole(l, consoleIn, consoleOut, vmmLog)
+	t.Cleanup(func() { _ = console.Close() })
 	proc := startVMM(t, s, p.For(spec), Streams{In: vmmIn, Out: vmmOut, Err: vmmLog}, logPath)
 	require.NoError(t, vmmIn.Close())
 	require.NoError(t, vmmOut.Close())

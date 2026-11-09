@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -297,16 +299,70 @@ func TestConvert_ACanceledContextIsCanceled(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-type failingConnector struct{ err error }
+// lateConnector refuses its first dials as a guest that is not listening yet
+// does, and then connects through the dialer. It counts the dials.
+type lateConnector struct {
+	to      *dialer
+	refused int
 
-func (c failingConnector) GuestConn(context.Context, machine.MachineID, uint32) (net.Conn, error) {
-	return nil, c.err
+	mu    sync.Mutex
+	dials int
 }
 
-func TestConvert_AnUnreachableVMIsUnreachable(t *testing.T) {
-	c := convertchannel.New(failingConnector{machine.ErrGuestUnreachable})
-	_, err := c.Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
+func (c *lateConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	c.mu.Lock()
+	c.dials++
+	n := c.dials
+	c.mu.Unlock()
+	if n <= c.refused {
+		return nil, errors.Join(machine.ErrGuestUnreachable, io.EOF)
+	}
+	return c.to.GuestConn(ctx, id, port)
+}
+
+func (c *lateConnector) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dials
+}
+
+// A converter that starts listening after the first dials were refused is
+// reached, and the control, a converter that never listens, ends at the
+// context's end as an unreachable one.
+func TestConvert_WaitsForAConverterThatListensAfterTheFirstDials(t *testing.T) {
+	const refused = 3
+	f := &fakeConverter{}
+	f.answer = f.readAll(55)
+	_, d := serve(t, f)
+	late := &lateConnector{to: d, refused: refused}
+	c := convertchannel.New(late)
+
+	length, err := c.Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(55), length)
+	// The setup did refuse the first dials, and the conversion went through
+	// the one after them.
+	assert.Equal(t, refused+1, late.count())
+
+	never := &lateConnector{to: d, refused: 1 << 30}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	_, err = convertchannel.New(never).Convert(ctx, "m", jobOf(layerFile(t, tarType, []byte("a"))))
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+	assert.ErrorContains(t, err, "did not listen before the conversion's time ended")
+	assert.Greater(t, never.count(), 1, "it tried again before the context ended")
+}
+
+// A context canceled while the converter is not listening ends the wait as a
+// cancellation and not as an unreachable converter.
+func TestConvert_ACanceledWaitIsCanceled(t *testing.T) {
+	never := &lateConnector{refused: 1 << 30}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(150*time.Millisecond, cancel)
+
+	_, err := convertchannel.New(never).Convert(ctx, "m", jobOf(layerFile(t, tarType, []byte("a"))))
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
 }
 
 func TestConvert_AMissingLayerFileIsAReadFailureAndNotAStatus(t *testing.T) {

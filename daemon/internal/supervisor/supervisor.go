@@ -2,7 +2,8 @@
 // namespace that counts one Machine's fencing expiry, starts the Machine's VMM
 // inside the namespace and ends the namespace at the expiry or when the VMM
 // ends (ADR 0003). It holds nothing of the inside but the VMM's serial bytes in
-// transit, which it serves as a console and interprets none of (ADR 0020).
+// transit, which it serves as a console and interprets none of (ADR 0020, ADR
+// 0025).
 package supervisor
 
 import (
@@ -135,7 +136,7 @@ func (s *server) reap(ctx context.Context) {
 			console := s.console
 			s.mu.Unlock()
 			if ended {
-				// What the VMM wrote before it ended is still in the pipe: the
+				// What the VMM wrote before it ended is still in the terminal: the
 				// log is complete once the console has read it to its end.
 				console.Wait()
 				os.Exit(0)

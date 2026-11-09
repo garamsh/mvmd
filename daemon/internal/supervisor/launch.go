@@ -138,41 +138,34 @@ func ended(p *os.Process) (bool, error) {
 // network namespaces, directly in the cgroup. It returns once the child has
 // confined itself and exec'd the VMM, or reports the step that failed.
 //
-// The VMM's standard input and output are pipes that the returned console
-// serves on the console socket, in the state directory beside the supervisor's
-// socket (ADR 0020), and its standard error is the log, which the console also
-// writes the output to.
+// The VMM's standard input and output are the subordinate side of a
+// pseudo-terminal that the returned console serves on the console socket, in the
+// state directory beside the supervisor's socket (ADR 0025), and its standard
+// error is the log, which the console also writes the output to.
 func launch(socket string, req *pb.StartRequest, lim limits) (int, *Console, error) {
 	vmmLog, err := openVMMLog(req.GetRunDir(), req.GetUid(), req.GetGid())
 	if err != nil {
 		return 0, nil, fmt.Errorf("make the VMM's log: %w", err)
 	}
-	pipes, err := newConsolePipes()
+	console, in, out, err := OpenConsole(filepath.Dir(socket), vmmLog)
 	if err != nil {
 		vmmLog.Close()
-		return 0, nil, fmt.Errorf("make the VMM's console pipes: %w", err)
+		return 0, nil, fmt.Errorf("make the VMM's console: %w", err)
 	}
-	l, err := listenConsole(statedir.ConsoleSocket(filepath.Dir(socket)))
+	pid, err := start(socket, req, lim, vmmLog, in, out)
+	in.Close()
+	out.Close()
 	if err != nil {
 		vmmLog.Close()
-		pipes.closeVMM()
-		pipes.closeConsole()
-		return 0, nil, fmt.Errorf("listen on the console socket: %w", err)
-	}
-	pid, err := start(socket, req, lim, vmmLog, pipes)
-	pipes.closeVMM()
-	if err != nil {
-		vmmLog.Close()
-		pipes.closeConsole()
-		l.Close()
+		console.Close()
 		return 0, nil, err
 	}
-	return pid, ServeConsole(l, pipes.consoleIn, pipes.consoleOut, vmmLog), nil
+	return pid, console, nil
 }
 
 // start is launch up to the console: it starts the confining child with the
-// VMM's end of the console pipes as descriptors 5 and 6.
-func start(socket string, req *pb.StartRequest, lim limits, vmmLog *os.File, pipes *consolePipes) (int, error) {
+// VMM's standard input and output as descriptors 5 and 6.
+func start(socket string, req *pb.StartRequest, lim limits, vmmLog, in, out *os.File) (int, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return 0, fmt.Errorf("find the supervisor's own executable: %w", err)
@@ -212,7 +205,7 @@ func start(socket string, req *pb.StartRequest, lim limits, vmmLog *os.File, pip
 	cmd := exec.Command(self, confineCommand, filepath.Join(filepath.Dir(socket), "root"))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = requestR, vmmLog, vmmLog
 	// Descriptors 3 (tapFD), 4 (statusFD), 5 (inputFD) and 6 (outputFD).
-	cmd.ExtraFiles = []*os.File{tap, statusW, pipes.vmmIn, pipes.vmmOut}
+	cmd.ExtraFiles = []*os.File{tap, statusW, in, out}
 	flags := uintptr(syscall.CLONE_NEWNS)
 	if newNetworkNamespace(req) {
 		flags |= syscall.CLONE_NEWNET
