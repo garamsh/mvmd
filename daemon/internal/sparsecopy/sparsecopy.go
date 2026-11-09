@@ -1,4 +1,6 @@
-package snapshotstore
+// Package sparsecopy copies a file and keeps the copy as sparse as the source.
+// It imports nothing of mvmd, so the adapters that copy a disk file share it.
+package sparsecopy
 
 import (
 	"errors"
@@ -16,13 +18,13 @@ const (
 	chunk = 1 << 20
 )
 
-// copySparse copies src to dst, which must be new and empty, and keeps dst as
+// Copy copies src to dst, which must be new and empty, and keeps dst as
 // sparse as src is: dst is cut to src's size first, and only the data extents
 // src reports (SEEK_DATA and SEEK_HOLE) are read, with each block that is all
 // zeros skipped. Where the file system reports no holes, it reports the whole
 // file as one extent, and the skipping alone keeps the copy sparse. Where dst's
 // file system cannot hold holes, the copy is whole and still correct.
-func copySparse(dst, src *os.File) error {
+func Copy(dst, src *os.File) error {
 	info, err := src.Stat()
 	if err != nil {
 		return err

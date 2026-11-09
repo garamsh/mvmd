@@ -13,7 +13,10 @@ import (
 	"path/filepath"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/sparsecopy"
 )
+
+var _ machine.Disk = (*Disk)(nil)
 
 // ErrBadMKFS is returned when mkfs.ext4 is not available or fails its
 // version check.
@@ -91,6 +94,70 @@ func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes 
 	}
 
 	return machine.DiskID(name), uuid, nil
+}
+
+// CreateRootFrom creates a root disk that is a sparse copy of the regular file
+// at source, chowns it to the owner and returns the disk ID. The copy is made
+// under a temporary name, synced, and published by rename; on any failure
+// nothing is left in the directory.
+func (d *Disk) CreateRootFrom(ctx context.Context, owner machine.DiskOwner, source string) (machine.DiskID, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	name := string(owner.ID) + "-root"
+	if !validDiskName(name) {
+		return "", fmt.Errorf("invalid disk name %q: must not contain / and must not be . or ..", name)
+	}
+	src, err := os.Open(source)
+	if err != nil {
+		return "", fmt.Errorf("open source: %w", err)
+	}
+	defer src.Close()
+	info, err := src.Stat()
+	if err != nil {
+		return "", fmt.Errorf("stat source: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("source %s is not a regular file", source)
+	}
+	tmp, err := os.CreateTemp(d.dir, "tmp-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	fail := func(what string, err error) (machine.DiskID, error) {
+		return "", errors.Join(fmt.Errorf("%s: %w", what, err), tmp.Close(), os.Remove(tmpName))
+	}
+
+	if err := sparsecopy.Copy(tmp, src); err != nil {
+		return fail("copy", err)
+	}
+	if err := tmp.Chown(int(owner.UID), int(owner.GID)); err != nil {
+		return fail("chown", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fail("sync", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", errors.Join(fmt.Errorf("close temp: %w", err), os.Remove(tmpName))
+	}
+	final := filepath.Join(d.dir, name)
+	if err := os.Rename(tmpName, final); err != nil {
+		return "", errors.Join(fmt.Errorf("rename: %w", err), os.Remove(tmpName))
+	}
+	if err := syncDir(d.dir); err != nil {
+		return "", errors.Join(fmt.Errorf("sync directory: %w", err), os.Remove(final))
+	}
+	return machine.DiskID(name), nil
+}
+
+// syncDir fsyncs the directory at path, making a rename in it durable.
+func syncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(dir.Sync(), dir.Close())
 }
 
 // validDiskName checks that name is safe as a path element: no /, not . or ..
