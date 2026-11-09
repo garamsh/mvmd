@@ -39,4 +39,14 @@ type Network interface {
 	// Release removes the tap if present and frees the addresses. Releasing a
 	// Machine that holds nothing succeeds.
 	Release(ctx context.Context, id MachineID) error
+	// Reconcile is called once, when the lifecycle has its records back after
+	// a restart and has settled the Machines that were running. It is given
+	// every Machine. The node's network outlives mvmd, so it brings what the
+	// node holds to what the records describe: it takes the addresses the
+	// Machines hold, replaces the enforcement in one step with the policies of
+	// the Machines that may still have a VMM, and removes what belongs to none.
+	// It returns the Running or Paused Machines whose network it could not
+	// restore, which the lifecycle Faults; an error means the node's network
+	// could not be brought to the records at all.
+	Reconcile(ctx context.Context, machines []Machine) (lost []MachineID, err error)
 }

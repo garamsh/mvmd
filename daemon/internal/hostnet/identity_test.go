@@ -39,6 +39,23 @@ func TestConfig_RefusesWhatNoNodeCanServe(t *testing.T) {
 		{"an IPv4 prefix with no room for a Machine", func(c *Config) {
 			c.IPv4Prefix, c.IPv4Gateway = netip.MustParsePrefix("10.77.0.0/30"), netip.MustParseAddr("10.77.0.1")
 		}, false},
+		{"a gateway that is the network address", func(c *Config) { c.IPv4Gateway = netip.MustParseAddr("10.77.0.0") }, false},
+		{"a gateway that is the broadcast address", func(c *Config) { c.IPv4Gateway = netip.MustParseAddr("10.77.0.7") }, false},
+		{"an IPv4 prefix that holds every address", func(c *Config) {
+			c.IPv4Prefix, c.IPv4Gateway = netip.MustParsePrefix("0.0.0.0/0"), netip.MustParseAddr("10.0.0.1")
+		}, false},
+		{"an IPv6 prefix that holds every address", func(c *Config) { c.IPv6Prefix = netip.MustParsePrefix("::/0") }, false},
+		{"an IPv4 loopback prefix", func(c *Config) {
+			c.IPv4Prefix, c.IPv4Gateway = netip.MustParsePrefix("127.0.0.0/24"), netip.MustParseAddr("127.0.0.1")
+		}, false},
+		{"an IPv4 link-local prefix", func(c *Config) {
+			c.IPv4Prefix, c.IPv4Gateway = netip.MustParsePrefix("169.254.0.0/24"), netip.MustParseAddr("169.254.0.1")
+		}, false},
+		{"an IPv4 multicast prefix", func(c *Config) {
+			c.IPv4Prefix, c.IPv4Gateway = netip.MustParsePrefix("224.0.0.0/24"), netip.MustParseAddr("224.0.0.1")
+		}, false},
+		{"an IPv6 link-local prefix", func(c *Config) { c.IPv6Prefix = netip.MustParsePrefix("fe80::/64") }, false},
+		{"an IPv6 multicast prefix", func(c *Config) { c.IPv6Prefix = netip.MustParsePrefix("ff02::/64") }, false},
 		{"an invalid resolver", func(c *Config) { c.Resolvers = []netip.Addr{{}} }, false},
 		{"a VMM range that includes root", func(c *Config) { c.VMMUIDRange = machine.UIDRange{First: 0, Count: 10} }, false},
 	}

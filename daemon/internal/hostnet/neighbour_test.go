@@ -56,7 +56,14 @@ func TestGuest_ARouterAdvertisementIsDropped(t *testing.T) {
 		require.True(t, eventually(func() bool { return defaultRouterVia(t, bareLink.Attrs().Index, bareLL) }),
 			"control: the host takes a default route from an advertisement that nothing filters")
 
+		// The kernel handles the frames of one tap in the order they arrive, so
+		// once the answer to a solicitation sent after the advertisement is back,
+		// the advertisement has been handled, and its absence is no timing.
+		g.port.drain()
 		g.port.send(routerAdvert(g.mac, g.ll6))
+		g.port.send(neighbourSolicit(g.mac, g.ll6, netip.MustParseAddr("fe80::1"), 255))
+		require.True(t, g.port.receives(func(s seen) bool { return s.icmpType == typeNeighbourAdvert && s.dst == g.ll6 }),
+			"the host answers a solicitation sent after the advertisement")
 		assert.False(t, defaultRouterVia(t, g.linkIndex, g.ll6), "an advertisement from the Machine's tap is dropped")
 	})
 }

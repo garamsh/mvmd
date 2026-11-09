@@ -215,7 +215,7 @@ func newLab(t *testing.T, cfg hostnet.Config) *lab {
 	l := &lab{t: t, net: n, cfg: cfg, outside: packetPort(t, "up1"), upMAC: up0.Attrs().HardwareAddr, outsideMAC: up1.Attrs().HardwareAddr}
 	t.Cleanup(func() {
 		// What the test leaves goes, so the next one starts from nothing.
-		_ = n.Reconcile(context.Background(), nil)
+		_, _ = n.Reconcile(context.Background(), nil)
 	})
 	return l
 }

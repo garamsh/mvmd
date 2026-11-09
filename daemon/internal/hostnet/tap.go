@@ -90,11 +90,22 @@ func ours() (map[string]netlink.Link, error) {
 	}
 	taps := make(map[string]netlink.Link)
 	for _, l := range links {
-		if l.Type() == "tuntap" && strings.HasPrefix(l.Attrs().Name, tapPrefix) {
+		if l.Type() == "tuntap" && isTapName(l.Attrs().Name) {
 			taps[l.Attrs().Name] = l
 		}
 	}
 	return taps, nil
+}
+
+// isTapName reports whether the name has the exact form tapName makes: the
+// prefix and 11 lowercase hexadecimal characters. A device of any other name,
+// "mvmd0" among them, is the operator's.
+func isTapName(name string) bool {
+	rest, ok := strings.CutPrefix(name, tapPrefix)
+	if !ok || len(rest) != tapHexLen {
+		return false
+	}
+	return strings.Trim(rest, "0123456789abcdef") == ""
 }
 
 // deleteTap takes the link down and deletes it.

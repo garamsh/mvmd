@@ -183,18 +183,26 @@ func removeRules(tap string) error {
 	return nil
 }
 
-// Reconcile is run once at start, before any call is served. It takes the
-// identities of every Machine the inside holds, replaces mvmd's tables in one
-// transaction with the rules their records describe, and deletes every tap that
-// belongs to no Machine that may still have a VMM.
+// Reconcile implements machine.Network: it takes the identities of every
+// Machine the inside holds, replaces mvmd's tables in one transaction with the
+// rules their records describe, and deletes every tap that belongs to no
+// Machine that may still have a VMM.
 //
 // A Machine that is Running or Paused is kept, and so is a Faulted one whose tap
-// exists, since its VMM may still run; the tap of any other is stale. A Running
-// or Paused Machine whose tap is gone is an error, returned after the rest is
-// done, since no rules can protect a device that does not exist.
-func (n *Network) Reconcile(_ context.Context, machines []machine.Machine) error {
+// exists, since its VMM may still run; the tap of any other is stale. Any other
+// state has no VMM: the lifecycle terminated the supervisors no record claimed
+// before it called this, so a Created record's tap and rules go too. A Running
+// or Paused Machine whose tap is gone is returned as lost, since no rules can
+// protect a device that does not exist.
+func (n *Network) Reconcile(_ context.Context, machines []machine.Machine) ([]machine.MachineID, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	var lost []machine.MachineID
+	err := n.reconcile(machines, &lost)
+	return lost, err
+}
+
+func (n *Network) reconcile(machines []machine.Machine, lost *[]machine.MachineID) error {
 
 	held := make(map[machine.MachineID]machine.NetworkIdentity)
 	for _, m := range machines {
@@ -222,7 +230,7 @@ func (n *Network) Reconcile(_ context.Context, machines []machine.Machine) error
 		case !running && !(m.State == machine.StateFaulted && exists):
 			continue
 		case !exists:
-			errs = append(errs, fmt.Errorf("Machine %q is %s and its tap %s does not exist", m.ID, m.State, tap))
+			*lost = append(*lost, m.ID)
 			continue
 		}
 		mn, err := n.machineNet(m.ID, m.Network, m.User, m.Policy)

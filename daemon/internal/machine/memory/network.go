@@ -14,10 +14,12 @@ import (
 type Network struct {
 	Failures
 
-	mu        sync.Mutex
-	next      int
-	allocated map[machine.MachineID]machine.NetworkIdentity
-	applied   map[machine.MachineID]machine.NetworkPolicy
+	mu         sync.Mutex
+	next       int
+	allocated  map[machine.MachineID]machine.NetworkIdentity
+	applied    map[machine.MachineID]machine.NetworkPolicy
+	lose       map[machine.MachineID]bool
+	reconciled []machine.MachineID
 }
 
 // NewNetwork returns a Network that has assigned nothing.
@@ -25,6 +27,7 @@ func NewNetwork() *Network {
 	return &Network{
 		allocated: make(map[machine.MachineID]machine.NetworkIdentity),
 		applied:   make(map[machine.MachineID]machine.NetworkPolicy),
+		lose:      make(map[machine.MachineID]bool),
 	}
 }
 
@@ -84,6 +87,46 @@ func (n *Network) Release(_ context.Context, id machine.MachineID) error {
 	delete(n.applied, id)
 	n.mu.Unlock()
 	return nil
+}
+
+// Reconcile implements machine.Network. It takes the identities the Machines
+// hold, and reports as lost the Machines LoseAtReconcile named that are Running
+// or Paused. Its step is "reconcile".
+func (n *Network) Reconcile(_ context.Context, machines []machine.Machine) ([]machine.MachineID, error) {
+	if err := n.Enter("reconcile"); err != nil {
+		return nil, err
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.reconciled = n.reconciled[:0]
+	var lost []machine.MachineID
+	for _, m := range machines {
+		n.reconciled = append(n.reconciled, m.ID)
+		if m.Network.MAC != "" {
+			if _, ok := n.allocated[m.ID]; !ok {
+				n.allocated[m.ID] = m.Network
+			}
+		}
+		if (m.State == machine.StateRunning || m.State == machine.StatePaused) && n.lose[m.ID] {
+			lost = append(lost, m.ID)
+		}
+	}
+	return lost, nil
+}
+
+// LoseAtReconcile makes Reconcile report the Machine as lost if it is Running
+// or Paused, as the real adapter does when its tap is gone.
+func (n *Network) LoseAtReconcile(id machine.MachineID) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.lose[id] = true
+}
+
+// Reconciled lists the Machines the last Reconcile was given.
+func (n *Network) Reconciled() []machine.MachineID {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]machine.MachineID(nil), n.reconciled...)
 }
 
 // Allocated reports whether the Machine holds addresses.

@@ -56,12 +56,9 @@ type Substitutes struct {
 
 // App is the wired daemon.
 type App struct {
-	cfg      Config
-	db       *boltstore.DB
-	machines machine.Service
-	// network is the real Network adapter, nil when the configuration keeps
-	// the in-memory one.
-	network     *hostnet.Network
+	cfg         Config
+	db          *boltstore.DB
+	machines    machine.Service
 	deadline    fencing.Service
 	server      *api.Server
 	Substitutes *Substitutes
@@ -101,17 +98,16 @@ func New(cfg Config) (*App, error) {
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
 	var network machine.Network = sub.Network
-	var hostNetwork *hostnet.Network
 	if n := cfg.Network; n != nil {
 		hc, err := n.toHostnet(cfg.VMMUIDRange)
 		if err == nil {
-			hostNetwork, err = hostnet.New(hc)
+			network, err = hostnet.New(hc)
 		}
 		if err != nil {
 			_ = db.Close()
 			return nil, err
 		}
-		network, sub.Network = hostNetwork, nil
+		sub.Network = nil
 	}
 	var supervisors fencing.Supervisors = sub.Supervisors
 	if s := cfg.Supervision; s != nil {
@@ -134,7 +130,6 @@ func New(cfg Config) (*App, error) {
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
-		network:     hostNetwork,
 		deadline:    deadline,
 		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}, log),
 		Substitutes: sub,
@@ -158,16 +153,6 @@ func (a *App) Serve(ctx context.Context) error {
 	}
 	if err := a.machines.Restore(ctx); err != nil {
 		return fmt.Errorf("restore the Machines: %w", err)
-	}
-	if a.network != nil {
-		// The tables outlive the daemon; the records say what they must hold now.
-		held, err := a.machines.List(ctx)
-		if err != nil {
-			return fmt.Errorf("list the Machines for the network: %w", err)
-		}
-		if err := a.network.Reconcile(ctx, held); err != nil {
-			return fmt.Errorf("reconcile the network: %w", err)
-		}
 	}
 	if err := a.deadline.Reconcile(ctx, a.machines); err != nil {
 		return fmt.Errorf("reconcile the fencing deadline: %w", err)

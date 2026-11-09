@@ -240,12 +240,11 @@ func TestPlan_NamesTheMachinesOwnAddressesAtItsTap(t *testing.T) {
 		tap = append(tap, r.raw...)
 	}
 	for name, want := range map[string][]byte{
-		"MAC":                m.mac,
-		"IPv4 address":       m.ip4.AsSlice(),
-		"IPv4 gateway":       m.gw4.AsSlice(),
-		"IPv6 address":       m.ip6.AsSlice(),
-		"EUI-64 link-local":  m.ll6.AsSlice(),
-		"hop limit 255 of a": {255},
+		"MAC":               m.mac,
+		"IPv4 address":      m.ip4.AsSlice(),
+		"IPv4 gateway":      m.gw4.AsSlice(),
+		"IPv6 address":      m.ip6.AsSlice(),
+		"EUI-64 link-local": m.ll6.AsSlice(),
 	} {
 		assert.True(t, bytes.Contains(tap, want), "the tap's rules name the Machine's %s", name)
 	}

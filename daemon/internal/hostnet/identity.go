@@ -14,13 +14,17 @@ import (
 
 // tapPrefix starts the name of every tap the adapter makes, so that
 // reconciliation can tell them from other devices. A name is at most 15 bytes.
-const tapPrefix = "mvmd"
+const (
+	tapPrefix = "mvmd"
+	// tapHexLen is how many hexadecimal characters of the digest follow it.
+	tapHexLen = 11
+)
 
 // tapName is the Machine's tap, derived from its identifier so that it is found
 // again without any record.
 func tapName(id machine.MachineID) string {
 	sum := sha256.Sum256([]byte(id))
-	return tapPrefix + hex.EncodeToString(sum[:])[:11]
+	return tapPrefix + hex.EncodeToString(sum[:])[:tapHexLen]
 }
 
 // linkLocalGateway is the host's only IPv6 address on a tap (ADR 0011).

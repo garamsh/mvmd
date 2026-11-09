@@ -73,12 +73,40 @@ func (c Config) Validate() error {
 	case v6 && c.IPv6Prefix.Bits() > 120:
 		return fmt.Errorf("IPv6 prefix %s is too small to hold Machines", c.IPv6Prefix)
 	}
+	for _, p := range []netip.Prefix{c.IPv4Prefix, c.IPv6Prefix} {
+		if err := usablePrefix(p); err != nil {
+			return err
+		}
+	}
+	if v4 {
+		p := c.IPv4Prefix.Masked()
+		if c.IPv4Gateway == p.Addr() || !p.Contains(c.IPv4Gateway.Next()) {
+			return fmt.Errorf("IPv4 gateway %s is the network or broadcast address of %s", c.IPv4Gateway, c.IPv4Prefix)
+		}
+	}
 	for _, r := range c.Resolvers {
 		if !r.IsValid() {
 			return errors.New("a resolver address is invalid")
 		}
 	}
 	return c.VMMUIDRange.Validate()
+}
+
+// usablePrefix refuses a prefix Machines cannot be addressed from: all
+// addresses (nothing is outside it, so nothing is masqueraded), or loopback,
+// link-local or multicast space. An invalid prefix is a family not served.
+func usablePrefix(p netip.Prefix) error {
+	if !p.IsValid() {
+		return nil
+	}
+	a := p.Masked().Addr()
+	switch {
+	case p.Bits() == 0:
+		return fmt.Errorf("prefix %s holds every address", p)
+	case a.IsLoopback(), a.IsLinkLocalUnicast(), a.IsMulticast(), a.IsUnspecified():
+		return fmt.Errorf("prefix %s is loopback, link-local, multicast or unspecified space", p)
+	}
+	return nil
 }
 
 // Allocate implements machine.Network. It chooses the MAC and one address per

@@ -65,20 +65,28 @@ func TestReconcile_ReplacesTheTableFromTheRecordsAndRemovesTheStale(t *testing.T
 				running := l.start("running", policy)
 				stopped := l.start("stopped", policy)
 				tc.damage(t)
-				staleTap(t, "mvmdstale00000")
+				staleTap(t, "mvmd0123456789a")
+				// Devices that are the operator's, with names that start as
+				// the adapter's do, are not the adapter's to delete.
+				staleTap(t, "mvmd0")
+				staleTap(t, "mvmdABCDEF01234")
 
 				n := restarted(t, l)
-				require.NoError(t, n.Reconcile(context.Background(), []machine.Machine{
+				lost, err := n.Reconcile(context.Background(), []machine.Machine{
 					record(running, machine.StateRunning, policy),
 					record(stopped, machine.StateStopped, policy),
-				}))
+				})
+				require.NoError(t, err)
+				assert.Empty(t, lost)
+				assert.NotNil(t, linkNamed(t, "mvmd0"), "a tap named mvmd0 is not the adapter's")
+				assert.NotNil(t, linkNamed(t, "mvmdABCDEF01234"), "nor is one whose name is not in the adapter's form")
 
 				netdev, inet := chainsOf(t)
 				assert.ElementsMatch(t, []string{running.tap}, netdev, "one tap chain, the Running Machine's")
 				assert.ElementsMatch(t, []string{"forward", "input", "output", "postrouting", "eg_" + running.tap, "in_" + running.tap}, inet)
 				assert.NotNil(t, linkNamed(t, running.tap), "the Running Machine's tap stays")
 				assert.Nil(t, linkNamed(t, stopped.tap), "a Stopped Machine's tap is stale")
-				assert.Nil(t, linkNamed(t, "mvmdstale00000"), "so is one that belongs to no Machine")
+				assert.Nil(t, linkNamed(t, "mvmd0123456789a"), "so is one that belongs to no Machine")
 
 				// The Machine is filtered by the new table as it was by the old.
 				assert.True(t, running.reaches(t, running.to4(outside4, 5000), outside4, 5000), "control: what the policy allows passes")
@@ -96,29 +104,29 @@ func TestReconcile_ReplacesTheTableFromTheRecordsAndRemovesTheStale(t *testing.T
 	}
 }
 
-func TestReconcile_KeepsWhatMayStillHaveAVMMAndNamesWhatIsMissing(t *testing.T) {
+func TestReconcile_KeepsWhatMayStillHaveAVMMAndReportsWhatIsLost(t *testing.T) {
 	inNamespace(t, func(t *testing.T) {
 		l := newLab(t, dualStack())
 		policy := egressTo(5000)
 		paused := l.start("paused", policy)
 		faulted := l.start("faulted", policy)
 		created := l.start("created", policy)
-		lost, err := l.net.Allocate(context.Background(), "lost", "")
+		gone, err := l.net.Allocate(context.Background(), "gone", "")
 		require.NoError(t, err)
-		lostRecord := machine.Machine{ID: "lost", State: machine.StateRunning, Spec: machine.Spec{Policy: policy}, User: vmmUser, Network: lost}
+		goneRecord := machine.Machine{ID: "gone", State: machine.StateRunning, Spec: machine.Spec{Policy: policy}, User: vmmUser, Network: gone}
 		noTap, err := l.net.Allocate(context.Background(), "faulted-no-tap", "")
 		require.NoError(t, err)
 
 		n := restarted(t, l)
-		err = n.Reconcile(context.Background(), []machine.Machine{
+		lost, err := n.Reconcile(context.Background(), []machine.Machine{
 			record(paused, machine.StatePaused, policy),
 			record(faulted, machine.StateFaulted, policy),
 			record(created, machine.StateCreated, policy),
-			lostRecord,
+			goneRecord,
 			{ID: "faulted-no-tap", State: machine.StateFaulted, Spec: machine.Spec{Policy: policy}, User: vmmUser, Network: noTap},
 		})
-		require.ErrorContains(t, err, `Machine "lost"`, "a Running Machine whose tap is gone is named")
-		assert.NotContains(t, err.Error(), "faulted-no-tap", "control: a Faulted Machine with no tap is nothing to protect")
+		require.NoError(t, err)
+		assert.Equal(t, []machine.MachineID{"gone"}, lost, "a Running Machine whose tap is gone is reported, and a Faulted one with no tap, which is nothing to protect, is not")
 
 		assert.NotNil(t, linkNamed(t, paused.tap), "a Paused Machine is kept")
 		assert.NotNil(t, linkNamed(t, faulted.tap), "a Faulted Machine whose tap exists is kept, since its VMM may run")

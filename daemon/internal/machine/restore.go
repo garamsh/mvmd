@@ -9,6 +9,9 @@ import (
 const (
 	// reasonVMMEnded is the reason of a Machine found without a supervisor.
 	reasonVMMEnded = "the VMM ended while mvmd was not running"
+	// reasonNetworkLost is the reason of a Machine whose network the node no
+	// longer holds.
+	reasonNetworkLost = "the Machine's network could not be restored after mvmd restarted"
 )
 
 // Restore rebuilds the lifecycle from the State Store after a restart: the
@@ -109,6 +112,41 @@ func (s *service) Restore(ctx context.Context) error {
 		}
 		if err := s.endUnclaimed(ctx, id, stored, recorded); err != nil {
 			errs = append(errs, err)
+		}
+	}
+	return errors.Join(append(errs, s.reconcileNetwork(ctx))...)
+}
+
+// reconcileNetwork brings the node's network, which outlives mvmd, to what the
+// records now say. It runs after the supervisors are settled, so a Machine
+// with no VMM is no longer Running or Paused and holds no tap. A Running or
+// Paused Machine whose network the port could not restore cannot be vouched
+// for, so it is Faulted, and the daemon goes on to serve the rest.
+func (s *service) reconcileNetwork(ctx context.Context) error {
+	s.mu.Lock()
+	var machines []Machine
+	for _, rec := range s.records {
+		if rec.Machine != nil && rec.Unreadable == "" {
+			machines = append(machines, rec.Machine.clone())
+		}
+	}
+	s.mu.Unlock()
+
+	lost, err := s.network.Reconcile(ctx, machines)
+	if err != nil {
+		return fmt.Errorf("reconcile the network: %w", err)
+	}
+	var errs []error
+	for _, id := range lost {
+		rec, ok := s.lookup(id)
+		if !ok || rec.Machine == nil || (rec.Machine.State != StateRunning && rec.Machine.State != StatePaused) {
+			continue
+		}
+		next := rec.Machine.clone()
+		next.State, next.FailureReason = StateFaulted, reasonNetworkLost
+		if err := s.commit(ctx, rec, next); err != nil {
+			s.setMachine(rec, &next)
+			errs = append(errs, fmt.Errorf("record the restored state of %q: %w", id, err))
 		}
 	}
 	return errors.Join(errs...)

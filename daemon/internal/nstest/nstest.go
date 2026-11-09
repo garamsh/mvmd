@@ -16,10 +16,13 @@ package nstest
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -37,12 +40,31 @@ func Run(t *testing.T, body func(t *testing.T)) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"-test.run", "^" + t.Name() + "$", "-test.v", "-test.timeout", "5m"}
+	out, err := rerun(self, t.Name())
+	if err != nil {
+		t.Fatalf("the test needs privilege and a network namespace of its own, and did not pass in one: %v\n%s", err, out)
+	}
+	t.Logf("passed in a network namespace:\n%s", tail(out, 12))
+}
+
+// rerun runs the named test again in a fresh namespace and returns what it
+// printed. A child that exits 0 has not passed unless it says the test did: a
+// pattern that matches no test also exits 0. The name is matched literally, one
+// anchored element for each level of subtest.
+func rerun(self, name string) (string, error) {
+	levels := strings.Split(name, "/")
+	for i, l := range levels {
+		levels[i] = "^" + regexp.QuoteMeta(l) + "$"
+	}
+	args := []string{"-test.run", strings.Join(levels, "/"), "-test.v", "-test.timeout", "5m"}
 	var out bytes.Buffer
 	if err := reexec(self, args, &out); err != nil {
-		t.Fatalf("the test needs privilege and a network namespace of its own, and could not get them: %v\n%s", err, out.String())
+		return out.String(), err
 	}
-	t.Logf("passed in a network namespace:\n%s", tail(out.String(), 12))
+	if !strings.Contains(out.String(), "--- PASS: "+name+" (") {
+		return out.String(), fmt.Errorf("the child exited 0 without reporting that %q passed", name)
+	}
+	return out.String(), nil
 }
 
 func reexec(self string, args []string, out io.Writer) error {
