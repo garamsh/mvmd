@@ -15,9 +15,6 @@ import (
 
 const (
 	mib = 1 << 20
-	// maxSocketPath is the longest path a Unix socket address holds: sun_path
-	// is 108 bytes with its terminating NUL.
-	maxSocketPath = 107
 	// maxVCPUs is the most vCPUs v1.17.0 accepts (swagger MachineConfiguration).
 	maxVCPUs = 32
 	// overheadMemory is added to the guest's memory for the VMM's cgroup. An
@@ -99,15 +96,6 @@ func (d *Driver) process(spec machine.BootSpec, files []machine.File) (machine.P
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
-	// mvmd connects to the sockets at their host paths and the VMM creates them
-	// at their paths in its root; both are under the 107 bytes a Unix socket
-	// address holds.
-	for _, p := range []string{filepath.Join(spec.RunDir, apiSocketName), filepath.Join(spec.RunDir, vsockSocketName)} {
-		if len(p) > maxSocketPath {
-			return machine.ProcessDescription{}, fmt.Errorf("the socket path %q is %d bytes, over the %d a Unix socket holds", p, len(p), maxSocketPath)
-		}
-	}
-
 	nodes := []string{"/dev/kvm"}
 	if spec.Network.Tap != "" {
 		nodes = append(nodes, "/dev/net/tun")

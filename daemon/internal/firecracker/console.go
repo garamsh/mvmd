@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"os"
 	"syscall"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/statedir"
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // Console implements machine.Driver: a connection to the console socket the
@@ -26,7 +26,7 @@ func (d *Driver) Console(ctx context.Context, id machine.MachineID) (io.ReadWrit
 		return nil, err
 	}
 	path := statedir.ConsoleSocket(statedir.Of(run))
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
+	conn, err := unixsock.DialContext(ctx, path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
 			return nil, fmt.Errorf("%w: %v", machine.ErrConsoleUnavailable, err)

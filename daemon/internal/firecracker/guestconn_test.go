@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"net"
 	"testing"
 	"time"
 
@@ -19,8 +18,7 @@ import (
 // request line it read.
 func fakeVsock(t *testing.T, path, reply, behind string) <-chan string {
 	t.Helper()
-	ln, err := net.Listen("unix", path)
-	require.NoError(t, err)
+	ln := listenUnix(t, path)
 	t.Cleanup(func() { _ = ln.Close() })
 	got := make(chan string, 1)
 	go func() {
@@ -71,8 +69,7 @@ func TestGuestConn_IsUnreachableWhenTheHostSideDoesNotAcknowledge(t *testing.T) 
 			_ = conn.Close()
 
 			n = newNode(t)
-			ln, err := net.Listen("unix", n.vsockSocket())
-			require.NoError(t, err)
+			ln := listenUnix(t, n.vsockSocket())
 			defer ln.Close()
 			go func() {
 				c, err := ln.Accept()
@@ -97,8 +94,7 @@ func TestGuestConn_IsUnreachableWhenNoVMMListens(t *testing.T) {
 
 func TestGuestConn_StopsWaitingForAnAnswerWhenTheContextEnds(t *testing.T) {
 	n := newNode(t)
-	ln, err := net.Listen("unix", n.vsockSocket())
-	require.NoError(t, err)
+	ln := listenUnix(t, n.vsockSocket())
 	defer ln.Close()
 	go func() {
 		c, err := ln.Accept()
@@ -112,15 +108,14 @@ func TestGuestConn_StopsWaitingForAnAnswerWhenTheContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
 	start := time.Now()
-	_, err = n.driver.GuestConn(ctx, "m1", 1024)
+	_, err := n.driver.GuestConn(ctx, "m1", 1024)
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 	assert.Less(t, time.Since(start), 3*time.Second)
 }
 
 func TestGuestConn_LeavesNoDeadlineOnTheStreamItReturns(t *testing.T) {
 	n := newNode(t)
-	ln, err := net.Listen("unix", n.vsockSocket())
-	require.NoError(t, err)
+	ln := listenUnix(t, n.vsockSocket())
 	defer ln.Close()
 	go func() {
 		c, err := ln.Accept()

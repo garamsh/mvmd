@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // Boot implements machine.Driver: it configures the started VMM from the boot
@@ -111,7 +111,7 @@ func (d *Driver) Shutdown(ctx context.Context, id machine.MachineID, grace time.
 	ctx, cancel := context.WithTimeout(ctx, grace)
 	defer cancel()
 	for {
-		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", sock)
+		conn, err := unixsock.DialContext(ctx, sock)
 		if err != nil {
 			switch {
 			case ctx.Err() != nil:

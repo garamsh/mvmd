@@ -6,6 +6,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 const (
@@ -185,7 +187,7 @@ func (p *consolePipes) closeConsole() {
 // is another, cannot replace it.
 func listenConsole(path string) (net.Listener, error) {
 	_ = os.Remove(path)
-	l, err := net.Listen("unix", path)
+	l, err := unixsock.Listen(path)
 	if err != nil {
 		return nil, err
 	}

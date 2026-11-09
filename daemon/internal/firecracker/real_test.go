@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,10 +40,10 @@ func input(t *testing.T, name string) string {
 }
 
 func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t *testing.T) {
-	// The Unix socket paths bound the length of this directory.
-	dir, err := os.MkdirTemp("", "fcreal")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	// The directory's path is over what a Unix socket address holds: the VMM
+	// binds its sockets at short paths in its root, and the Driver reaches them
+	// through a descriptor of the run directory.
+	dir := longTempDir(t, "fcreal")
 	run := filepath.Join(dir, "run")
 	require.NoError(t, os.Mkdir(run, 0o700))
 
@@ -84,8 +83,7 @@ func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t 
 	require.NoError(t, err)
 	consoleOut, vmmOut, err := os.Pipe()
 	require.NoError(t, err)
-	l, err := net.Listen("unix", statedir.ConsoleSocket(dir))
-	require.NoError(t, err)
+	l := listenUnix(t, statedir.ConsoleSocket(dir))
 	console := supervisor.ServeConsole(l, consoleIn, consoleOut, vmmLog)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = vmmIn, vmmOut, vmmLog
 	require.NoError(t, cmd.Start())

@@ -11,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/signal"
 	"sync"
@@ -23,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // APIVersion is the supervisor API this release speaks.
@@ -99,7 +99,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	_ = os.Remove(cfg.Socket)
-	l, err := net.Listen("unix", cfg.Socket)
+	l, err := unixsock.Listen(cfg.Socket)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", cfg.Socket, err)
 	}
