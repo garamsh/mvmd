@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 // Driver is an in-memory machine.Driver. Its steps are "describe", "boot",
 // "guest-conn", "console", "console-log",
-// "shutdown", "pause", "resume", "attach", "detach", "resize", "snapshot",
+// "shutdown", "pause", "resume", "attach", "detach", "drive", "resize", "snapshot",
 // "describe-restore" and "restore".
 type Driver struct {
 	Failures
@@ -322,6 +323,25 @@ func (d *Driver) DetachDisk(_ context.Context, id machine.MachineID, disk machin
 	}
 	d.devices[id] = kept
 	return nil
+}
+
+// Drive implements machine.Driver. Its step is "drive". The Machine's boot
+// description gives its drives at boot, and AttachDisk the ones it has since.
+func (d *Driver) Drive(_ context.Context, id machine.MachineID, disk machine.DiskID) (machine.DriveState, error) {
+	if err := d.Enter("drive"); err != nil {
+		return machine.DriveAbsent, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if slices.Contains(d.devices[id], disk) {
+		return machine.DriveHotPlugged, nil
+	}
+	for _, dev := range d.booted[id].Devices {
+		if dev.Disk == disk {
+			return machine.DriveAtBoot, nil
+		}
+	}
+	return machine.DriveAbsent, nil
 }
 
 // Resize implements machine.Driver.

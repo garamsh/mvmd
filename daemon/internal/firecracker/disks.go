@@ -102,6 +102,40 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 	return removeLink(filepath.Join(dir, name))
 }
 
+// Drive implements machine.Driver. It reads the VMM's own configuration
+// (GET /vm/config) and finds the drive of the disk by its name: a drive at its
+// link in the run directory was added to the running VMM, and any other path
+// is a device the boot gave it.
+func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.DiskID) (machine.DriveState, error) {
+	if disk == "" {
+		return machine.DriveAbsent, errors.New("a disk to look for names no disk")
+	}
+	c, err := d.api(id)
+	if err != nil {
+		return machine.DriveAbsent, err
+	}
+	var config struct {
+		Drives []struct {
+			ID   string `json:"drive_id"`
+			Path string `json:"path_on_host"`
+		} `json:"drives"`
+	}
+	if err := c.do(ctx, "GET", "/vm/config", nil, &config); err != nil {
+		return machine.DriveAbsent, err
+	}
+	name := driveID(0, disk)
+	for _, have := range config.Drives {
+		switch {
+		case have.ID != name:
+		case have.Path == inRun(name):
+			return machine.DriveHotPlugged, nil
+		default:
+			return machine.DriveAtBoot, nil
+		}
+	}
+	return machine.DriveAbsent, nil
+}
+
 // removeLink removes the link of an attached disk, which is absent for a disk
 // given at boot.
 func removeLink(link string) error {

@@ -130,6 +130,15 @@ func TestReal_ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T) {
 	assert.True(t, os.SameFile(hotFile, hotLink))
 	assert.True(t, answers(), "the guest still answers with the disks attached")
 
+	// Drive reads the same configuration: a boot's drive and an added one.
+	for disk, want := range map[machine.DiskID]machine.DriveState{
+		"given": machine.DriveAtBoot, "hot": machine.DriveHotPlugged, "hotro": machine.DriveHotPlugged, "none": machine.DriveAbsent,
+	} {
+		got, err := d.Drive(ctx, "m1", disk)
+		require.NoError(t, err, disk)
+		assert.Equal(t, want, got, disk)
+	}
+
 	// Control: Firecracker opens the file at the path it is given, and a path
 	// the root does not hold is refused, which is why the link exists.
 	status, raw := vmmRequest(t, sock, "PUT", "/drives/stray",
