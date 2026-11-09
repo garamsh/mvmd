@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 const (
@@ -28,6 +29,10 @@ const (
 // live supervisor that no Running or Paused record claims is terminated: its
 // Start never reported success. The
 // Driver's own list of VMMs confirms a Machine in the Driver issues.
+//
+// A disk a Running Machine's record lists is checked against the VMM and the
+// guest, since the call that recorded it may have died before either had it
+// (ADR 0023): reconcileDisks.
 func (s *service) Restore(ctx context.Context) error {
 	records, err := s.store.Load(ctx)
 	if err != nil {
@@ -109,7 +114,80 @@ func (s *service) Restore(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	return errors.Join(append(errs, s.reconcileNetwork(ctx))...)
+	return errors.Join(append(errs, s.reconcileDisks(ctx), s.reconcileNetwork(ctx))...)
+}
+
+// reconcileDisks brings each Running Machine's record of its disks into
+// agreement with its VMM and its guest, or Faults the Machine with a reason
+// naming the disk. A disk the VMM has no drive for was never attached, or was
+// unplugged before the record caught up, so the record drops it. A drive added
+// since boot is found by the guest again, which is repeatable. Nothing is
+// unplugged: the guest may be using the disk, and only its release makes that
+// safe. A Driver without disk hot-plug has had no disk added to a running VMM.
+func (s *service) reconcileDisks(ctx context.Context) error {
+	if !s.driver.Info().has(CapabilityDiskHotplug) {
+		return nil
+	}
+	s.mu.Lock()
+	var running []*Record
+	for _, rec := range s.records {
+		if m := rec.Machine; m != nil && rec.Unreadable == "" && m.State == StateRunning {
+			running = append(running, rec)
+		}
+	}
+	s.mu.Unlock()
+
+	var errs []error
+	for _, rec := range running {
+		for _, a := range slices.Clone(rec.Machine.Disks) {
+			if rec.Machine.State != StateRunning {
+				break
+			}
+			if err := s.settleDisk(ctx, rec, a.Disk); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// settleDisk checks one disk of a Running Machine's record against its VMM and
+// its guest.
+func (s *service) settleDisk(ctx context.Context, rec *Record, disk DiskID) error {
+	state, err := s.driver.Drive(ctx, rec.ID, disk)
+	if err != nil {
+		return s.faultRestored(ctx, rec, "disk %q: the drives of the VMM could not be read after mvmd restarted: %v", disk, err)
+	}
+	switch state {
+	case DriveHotPlugged:
+		if err := s.guest.FindDisk(ctx, rec.ID, disk); err != nil {
+			return s.faultRestored(ctx, rec, "disk %q is on the VMM and the guest could not find it after mvmd restarted: %v", disk, err)
+		}
+	case DriveAbsent:
+		next := rec.Machine.clone()
+		next.Disks = slices.DeleteFunc(next.Disks, func(a DiskAttachment) bool { return a.Disk == disk })
+		err := s.commit(ctx, rec, next)
+		if err != nil {
+			// The record could not be updated: hold the finding in memory.
+			s.setMachine(rec, &next)
+		}
+		s.release(disk)
+		if err != nil {
+			return fmt.Errorf("record the restored disks of %q: %w", rec.ID, err)
+		}
+	}
+	return nil
+}
+
+// faultRestored records a Running Machine as Faulted with the reason.
+func (s *service) faultRestored(ctx context.Context, rec *Record, format string, args ...any) error {
+	next := rec.Machine.clone()
+	next.State, next.FailureReason = StateFaulted, fmt.Sprintf(format, args...)
+	if err := s.commit(ctx, rec, next); err != nil {
+		s.setMachine(rec, &next)
+		return fmt.Errorf("record the restored state of %q: %w", rec.ID, err)
+	}
+	return nil
 }
 
 // reconcileNetwork brings the node's network, which outlives mvmd, to what the

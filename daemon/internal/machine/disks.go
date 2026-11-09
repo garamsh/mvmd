@@ -24,17 +24,14 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		return err
 	}
 	if have, attached := m.attachment(a.Disk); attached {
-		if have == a {
-			return nil
+		if have != a {
+			return fail(ErrConflict, "disk %q is attached to Machine %q with other parameters", a.Disk, id)
 		}
-		return fail(ErrConflict, "disk %q is attached to Machine %q with other parameters", a.Disk, id)
+		return s.converge(ctx, rec, a)
 	}
-	path, err := s.disks.Locate(ctx, a.Disk)
+	path, err := s.locate(ctx, a.Disk)
 	if err != nil {
-		if errors.Is(err, ErrDiskAbsent) {
-			return fail(ErrNotFound, "disk %q is not held by the node", a.Disk)
-		}
-		return fail(ErrFailed, "locate disk %q: %v", a.Disk, err)
+		return err
 	}
 	if m.State == StatePaused {
 		return fail(ErrPreconditionFailed, "Machine %q is Paused and its guest cannot find a disk; resume it first", id)
@@ -56,33 +53,87 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		return fail(ErrFailed, "record the holder of disk %q: %v", a.Disk, err)
 	}
 	if hot(m) {
-		dev := BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}
-		if err := s.driver.AttachDisk(ctx, id, dev); err != nil {
-			ctx, cancel := s.compensating(ctx)
-			defer cancel()
-			if cerr := s.commit(ctx, rec, m); cerr != nil {
-				return s.unrecorded(rec, cerr)
-			}
-			s.release(a.Disk)
-			return fail(ErrFailed, "attach disk %q: %v", a.Disk, err)
-		}
-		// The guest finds the device it is not told of (ADR 0022). A guest
-		// that cannot leaves the disk on the VMM and not in the guest, so it
-		// is taken off again and the attach has not happened.
-		if err := s.guest.FindDisk(ctx, id, a.Disk); err != nil {
-			ctx, cancel := s.compensating(ctx)
-			defer cancel()
-			if derr := s.driver.DetachDisk(ctx, id, a.Disk); derr != nil {
-				return s.diverged(rec, "disk %q is on the VMM, the guest could not find it (%v) and the Driver could not detach it: %v", a.Disk, err, derr)
-			}
-			if cerr := s.commit(ctx, rec, m); cerr != nil {
-				return s.unrecorded(rec, cerr)
-			}
-			s.release(a.Disk)
-			return fail(ErrFailed, "the guest could not find disk %q: %v", a.Disk, err)
-		}
+		return s.plug(ctx, rec, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, m)
 	}
 	return nil
+}
+
+// locate returns the path of the disk the node holds, as the outcome a call
+// answers with when it cannot.
+func (s *service) locate(ctx context.Context, disk DiskID) (string, error) {
+	path, err := s.disks.Locate(ctx, disk)
+	switch {
+	case errors.Is(err, ErrDiskAbsent):
+		return "", fail(ErrNotFound, "disk %q is not held by the node", disk)
+	case err != nil:
+		return "", fail(ErrFailed, "locate disk %q: %v", disk, err)
+	}
+	return path, nil
+}
+
+// plug puts a disk the record already lists on the running VMM and has the
+// guest find it. A step that fails is undone, and the record is set back to
+// without, the Machine as it was with no such disk, so the attach has not
+// happened.
+func (s *service) plug(ctx context.Context, rec *Record, dev BlockDevice, without Machine) error {
+	id, disk := rec.ID, dev.Disk
+	if err := s.driver.AttachDisk(ctx, id, dev); err != nil {
+		ctx, cancel := s.compensating(ctx)
+		defer cancel()
+		if cerr := s.commit(ctx, rec, without); cerr != nil {
+			return s.unrecorded(rec, cerr)
+		}
+		s.release(disk)
+		return fail(ErrFailed, "attach disk %q: %v", disk, err)
+	}
+	// The guest finds the device it is not told of (ADR 0022). A guest
+	// that cannot leaves the disk on the VMM and not in the guest, so it
+	// is taken off again and the attach has not happened.
+	if err := s.guest.FindDisk(ctx, id, disk); err != nil {
+		ctx, cancel := s.compensating(ctx)
+		defer cancel()
+		if derr := s.driver.DetachDisk(ctx, id, disk); derr != nil {
+			return s.diverged(rec, "disk %q is on the VMM, the guest could not find it (%v) and the Driver could not detach it: %v", disk, err, derr)
+		}
+		if cerr := s.commit(ctx, rec, without); cerr != nil {
+			return s.unrecorded(rec, cerr)
+		}
+		s.release(disk)
+		return fail(ErrFailed, "the guest could not find disk %q: %v", disk, err)
+	}
+	return nil
+}
+
+// converge answers an attach of a disk the record already lists. On a Running
+// Machine the record is not proof that the attach that wrote it finished
+// (ADR 0023), so the VMM is asked: a drive it has had since boot is the
+// guest's own, one added since is found by the guest again, and where there is
+// none the disk is attached now, as the original call would have.
+func (s *service) converge(ctx context.Context, rec *Record, a DiskAttachment) error {
+	m := *rec.Machine
+	if m.State != StateRunning || !s.driver.Info().has(CapabilityDiskHotplug) {
+		return nil
+	}
+	state, err := s.driver.Drive(ctx, m.ID, a.Disk)
+	if err != nil {
+		return fail(ErrFailed, "read the drive of disk %q from the VMM of Machine %q: %v", a.Disk, m.ID, err)
+	}
+	switch state {
+	case DriveAtBoot:
+		return nil
+	case DriveHotPlugged:
+		if err := s.guest.FindDisk(ctx, m.ID, a.Disk); err != nil {
+			return fail(ErrFailed, "the guest of Machine %q could not find disk %q, which the VMM has: %v", m.ID, a.Disk, err)
+		}
+		return nil
+	}
+	path, err := s.locate(ctx, a.Disk)
+	if err != nil {
+		return err
+	}
+	without := m.clone()
+	without.Disks = slices.DeleteFunc(without.Disks, func(have DiskAttachment) bool { return have.Disk == a.Disk })
+	return s.plug(ctx, rec, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, without)
 }
 
 // diverged marks the Machine Faulted when the VMM and the guest disagree about
