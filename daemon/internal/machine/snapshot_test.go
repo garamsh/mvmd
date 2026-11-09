@@ -354,6 +354,9 @@ func TestRestoreSnapshot_OnSuccess(t *testing.T) {
 	assert.Equal(t, narrowPolicy, got.Policy, "the policy is the request's and not the source's")
 	assert.Equal(t, image, got.Image)
 	assert.Equal(t, source.Resources, got.Resources)
+	assert.NotZero(t, source.RootDiskBytes, "control: the source has a root disk size to keep")
+	assert.Equal(t, source.RootDiskBytes, got.RootDiskBytes)
+	assert.Empty(t, got.Disks, "a snapshot carries no attached disk")
 	e.requireStored(t, "new", machine.StateRunning)
 
 	assert.Equal(t, []machine.State{machine.StateRunning}, e.events.States("new"), "the state change is reported")
