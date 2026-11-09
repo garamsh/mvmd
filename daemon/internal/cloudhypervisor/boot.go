@@ -33,7 +33,8 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, _ machine.BootS
 	if err := c.do(ctx, "GET", "/vmm.ping", nil, &ping); err != nil {
 		return err
 	}
-	if strings.TrimPrefix(ping.Version, "v") != Version {
+	// v54.0 reports "54.0.0": the release with its patch number.
+	if v := strings.TrimPrefix(ping.Version, "v"); v != Version && !strings.HasPrefix(v, Version+".") {
 		return fmt.Errorf("the VMM is Cloud Hypervisor %s, not %s", ping.Version, Version)
 	}
 	for wait := time.Millisecond; ; wait = min(2*wait, 50*time.Millisecond) {

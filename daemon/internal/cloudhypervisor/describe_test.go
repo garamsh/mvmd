@@ -41,7 +41,7 @@ func TestDescribe_StatesTheProcessAndWhatItNeedsOpen(t *testing.T) {
 	assert.NotContains(t, strings.Join(p.Args, " "), n.run, "no argument names a host path")
 	assert.NotContains(t, p.Args, "--seccomp", "the VMM's own filter stays on (driver.md)")
 	assert.True(t, p.TapByDescriptor, "the tap is the VMM's descriptor 3")
-	assert.Equal(t, []string{"/dev/kvm"}, p.DeviceNodes, "the tap is a descriptor, so no /dev/net/tun")
+	assert.Equal(t, []string{"/dev/kvm", "/dev/urandom"}, p.DeviceNodes, "kvm and the rng source; the tap is a descriptor, so no /dev/net/tun")
 	// The kernel and the initrd are read-only, then the Machine's devices as
 	// given, each at its fixed path. The kernel carries its pin.
 	assert.Equal(t, []machine.File{

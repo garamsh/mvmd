@@ -90,7 +90,7 @@ func TestBoot_AcceptsTheVersionWithOrWithoutItsPrefixAndRefusesAnother(t *testin
 	for _, tt := range []struct {
 		version string
 		ok      bool
-	}{{"v54.0", true}, {"54.0", true}, {"v53.0", false}, {"v54.1", false}, {"", false}} {
+	}{{"v54.0", true}, {"54.0", true}, {"54.0.0", true}, {"v54.0.1", true}, {"54.01", false}, {"v54.10.0", false}, {"v53.0", false}, {"v54.1", false}, {"", false}} {
 		t.Run(tt.version, func(t *testing.T) {
 			n := newNode(t)
 			f := &fakeAPI{answer: func(r request) (int, string) {

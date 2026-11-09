@@ -96,8 +96,10 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		Args:             args(spec, runtime.GOARCH),
 		BootFiles:        append(boot, machine.DeviceFiles(spec.Devices)...),
 		ReadFiles:        cpuReadFiles(runtime.GOARCH),
-		DeviceNodes:      []string{"/dev/kvm"},
-		TapByDescriptor:  spec.Network.Tap != "",
+		// /dev/urandom is the source of the virtio-rng device Cloud Hypervisor
+		// adds by default; without it the VM does not boot.
+		DeviceNodes:     []string{"/dev/kvm", "/dev/urandom"},
+		TapByDescriptor: spec.Network.Tap != "",
 		Overhead: machine.ProcessOverhead{
 			MemoryBytes: overheadMemory,
 			Tasks:       spec.Resources.VCPUs + overheadTasks + uint32(len(spec.Devices)),
