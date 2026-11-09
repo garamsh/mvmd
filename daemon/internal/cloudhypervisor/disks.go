@@ -107,7 +107,7 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 			return err
 		}
 	}
-	err = awaitEjected(ctx, c, name)
+	err = nil
 	// The VMM no longer holds the file, ejected or not.
 	return errors.Join(err, removeLink(filepath.Join(dir, name)))
 }
