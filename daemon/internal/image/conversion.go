@@ -15,7 +15,7 @@ import (
 // network device, and its identifier names the image so that two pulls never
 // share one. The user is released only once the VMM is known to have ended.
 func (s *service) convert(ctx context.Context, image machine.ImageDigest, staging Staging, job ConversionJob) (uint64, error) {
-	user, err := s.users.Allocate(ctx)
+	user, err := s.uids.AllocateConversion(image)
 	if err != nil {
 		return 0, fmt.Errorf("allocate the converter's user: %w", err)
 	}
@@ -27,7 +27,7 @@ func (s *service) convert(ctx context.Context, image machine.ImageDigest, stagin
 	if ended := s.supervisor.Terminate(ctx, id); ended != nil {
 		return 0, errors.Join(err, fmt.Errorf("end the converter's VMM: %w", ended))
 	}
-	s.users.Release(user)
+	s.uids.ReleaseConversion(image)
 	return length, err
 }
 

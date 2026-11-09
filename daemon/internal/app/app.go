@@ -148,7 +148,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
+	machines := machine.NewService(driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, guest, wallClock{}, db.Machines(), deadline, machine.NewUIDs(cfg.VMMUIDRange.ToUIDRange()), log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
 
 	return &App{
 		cfg:         cfg,

@@ -40,7 +40,7 @@ func (e *env) elsewhere(info machine.DriverInfo) *env {
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
-	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.guest, o.clock, o.store, o.permit, machine.UIDRange{First: 1000, Count: 256}, o.events)
+	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.guest, o.clock, o.store, o.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), o.events)
 	return o
 }
 

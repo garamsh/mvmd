@@ -14,7 +14,7 @@ import (
 // pullSteps are the calls of a successful pull in the order it reaches them.
 // Each is the point ADR 0007's table has a failure at, with the ports' own
 // calls the table folds into a step.
-var pullSteps = []string{"locate", "stage", "manifest", "config", "layer", "put-layer", "allocate", "describe", "start", "boot", "convert", "terminate", "seal", "record", "publish"}
+var pullSteps = []string{"locate", "stage", "manifest", "config", "layer", "put-layer", "describe", "start", "boot", "convert", "terminate", "seal", "record", "publish"}
 
 // A failure at any step leaves nothing visible in the cache, and no step
 // after it runs. The control of each is the same pull succeeding once the
@@ -65,7 +65,7 @@ func TestPull_FailureAtAStepLeavesNothingVisible(t *testing.T) {
 // ended and its user released; one that cannot be ended leaves both, because a
 // VMM may still run as that user.
 func TestPull_ConverterVMEndsWhateverHappened(t *testing.T) {
-	for _, step := range []string{"allocate", "describe", "start", "boot", "convert", "seal", "record", "publish"} {
+	for _, step := range []string{"describe", "start", "boot", "convert", "seal", "record", "publish"} {
 		t.Run("a failed "+step+" ends it", func(t *testing.T) {
 			r := newRig(t)
 			ref := r.add("one")
@@ -74,9 +74,7 @@ func TestPull_ConverterVMEndsWhateverHappened(t *testing.T) {
 			require.Error(t, r.pull(ref))
 
 			r.requireNothingVisible(t, ref)
-			if step != "allocate" {
-				assert.Equal(t, 1, r.calls("terminate"), "the converter's VMM was not ended")
-			}
+			assert.Equal(t, 1, r.calls("terminate"), "the converter's VMM was not ended")
 		})
 	}
 
@@ -89,14 +87,14 @@ func TestPull_ConverterVMEndsWhateverHappened(t *testing.T) {
 
 		assert.Contains(t, err.Reason, "end the converter's VMM")
 		assert.Zero(t, r.calls("seal"), "the output was used while the VMM may still run")
-		assert.Equal(t, 1, r.users.Held(), "the user was released with a VMM that may still run")
+		assert.Equal(t, 1, r.uids.Held(), "the user was released with a VMM that may still run")
 		assert.Empty(t, r.store.Listed())
 		assert.Zero(t, r.store.Staging())
 
 		// The control: where the VMM ends, the user is released.
 		r.heal("terminate")
 		require.NoError(t, r.pull(ref))
-		assert.Equal(t, 1, r.users.Held(), "only the first attempt's user is held")
+		assert.Equal(t, 1, r.uids.Held(), "only the first attempt's user is held")
 	})
 }
 

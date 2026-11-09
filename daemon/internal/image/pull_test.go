@@ -36,7 +36,7 @@ func TestPull_PublishesTheConvertedImage(t *testing.T) {
 	assert.Equal(t, "amd64", record.Architecture)
 	assert.NotEmpty(t, record.Verity, "the digest Seal measured reaches the record")
 	assert.Zero(t, r.store.Staging(), "the staging area is removed after the publish")
-	assert.Zero(t, r.users.Held())
+	assert.Zero(t, r.uids.Held())
 }
 
 func TestPull_HandsTheConverterTheVerifiedLayersInOrder(t *testing.T) {
@@ -60,7 +60,7 @@ func TestPull_RepeatOfAPresentImageChangesNothing(t *testing.T) {
 	r := newRig(t)
 	ref := r.add("one")
 	require.NoError(t, r.pull(ref))
-	steps := []string{"stage", "manifest", "config", "layer", "put-layer", "allocate", "describe", "start", "boot", "convert", "terminate", "seal", "record", "publish", "discard"}
+	steps := []string{"stage", "manifest", "config", "layer", "put-layer", "describe", "start", "boot", "convert", "terminate", "seal", "record", "publish", "discard"}
 	before := map[string]int{}
 	for _, s := range steps {
 		before[s] = r.calls(s)

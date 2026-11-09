@@ -95,7 +95,7 @@ type service struct {
 	clock      WallClock
 	store      StateStore
 	permitter  StartPermitter
-	uidRange   UIDRange
+	uids       *UIDs
 	events     Events
 	// bootTimeout bounds the wait for the guest's boot in Start.
 	bootTimeout time.Duration
@@ -125,9 +125,7 @@ type service struct {
 	// A call takes a Machine's lock before a snapshot's.
 	snapLocks map[SnapshotID]*snapshotLock
 	// held maps each disk to its one holder (ADR 0009).
-	held         map[DiskID]MachineID
-	usedUID      map[MachineID]uint32 // allocated UID per Machine
-	usedUIDByUID map[uint32]MachineID // reverse index for O(1) collision check
+	held map[DiskID]MachineID
 }
 
 // DefaultBootTimeout is how long Start waits for the guest's boot when the
@@ -192,35 +190,34 @@ func WithBootTimeout(d time.Duration) Option {
 	}
 }
 
-// NewService returns the lifecycle over the given ports. uidRange names the
-// range of UIDs the node reserves for its Machines (ADR 0015). Every state
+// NewService returns the lifecycle over the given ports. uids is the node's
+// allocator of VMM users (ADR 0015), shared with every other holder of one;
+// Restore fills it from the stored records. Every state
 // change and every event the Driver raises goes to events.
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, clock WallClock, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events, options ...Option) Service {
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, clock WallClock, store StateStore, permitter StartPermitter, uids *UIDs, events Events, options ...Option) Service {
 	driver.Observe(events.Reported)
 	s := &service{
-		bootTimeout:  DefaultBootTimeout,
-		callTimeout:  DefaultCallTimeout,
-		callContext:  detached,
-		compensate:   detached,
-		driver:       driver,
-		supervisor:   supervisor,
-		network:      network,
-		disks:        disks,
-		images:       images,
-		snapshots:    snapshots,
-		guest:        guest,
-		clock:        clock,
-		execs:        make(map[ExecID]*ExecEntry),
-		store:        store,
-		permitter:    permitter,
-		uidRange:     uidRange,
-		events:       events,
-		records:      make(map[MachineID]*Record),
-		locks:        make(map[MachineID]*machineLock),
-		snapLocks:    make(map[SnapshotID]*snapshotLock),
-		held:         make(map[DiskID]MachineID),
-		usedUID:      make(map[MachineID]uint32),
-		usedUIDByUID: make(map[uint32]MachineID),
+		bootTimeout: DefaultBootTimeout,
+		callTimeout: DefaultCallTimeout,
+		callContext: detached,
+		compensate:  detached,
+		driver:      driver,
+		supervisor:  supervisor,
+		network:     network,
+		disks:       disks,
+		images:      images,
+		snapshots:   snapshots,
+		guest:       guest,
+		clock:       clock,
+		execs:       make(map[ExecID]*ExecEntry),
+		store:       store,
+		permitter:   permitter,
+		uids:        uids,
+		events:      events,
+		records:     make(map[MachineID]*Record),
+		locks:       make(map[MachineID]*machineLock),
+		snapLocks:   make(map[SnapshotID]*snapshotLock),
+		held:        make(map[DiskID]MachineID),
 	}
 	for _, o := range options {
 		o(s)
@@ -377,30 +374,6 @@ func (s *service) release(disks ...DiskID) {
 	defer s.mu.Unlock()
 	for _, d := range disks {
 		delete(s.held, d)
-	}
-}
-
-// allocateUID allocates the lowest free UID in the range for the given
-// Machine. It must be called under mu.
-func (s *service) allocateUID(id MachineID) (uint32, error) {
-	for i := uint32(0); i < s.uidRange.Count; i++ {
-		u := s.uidRange.First + i
-		if _, occupied := s.usedUIDByUID[u]; !occupied {
-			s.usedUID[id] = u
-			s.usedUIDByUID[u] = id
-			return u, nil
-		}
-	}
-	return 0, fail(ErrPreconditionFailed, "the UID range is exhausted")
-}
-
-// releaseUID returns the UID of the given Machine to the range.
-// The caller must hold mu.
-func (s *service) releaseUID(id MachineID) {
-	uid, ok := s.usedUID[id]
-	if ok {
-		delete(s.usedUID, id)
-		delete(s.usedUIDByUID, uid)
 	}
 }
 

@@ -34,7 +34,7 @@ func TestPull_ConverterVMIsBootedConfinedAndEndedThroughThePorts(t *testing.T) {
 		during.process, during.running = r.sup.Running(id)
 		during.user, _ = r.sup.User(id)
 		during.boot = r.driver.BootedWith(id)
-		during.held = r.users.Held()
+		during.held = r.uids.Held()
 		for _, l := range job.Layers {
 			content, _ := r.store.Layer(l.Path)
 			during.layers = append(during.layers, content)
@@ -45,7 +45,7 @@ func TestPull_ConverterVMIsBootedConfinedAndEndedThroughThePorts(t *testing.T) {
 	require.NoError(t, r.pull(ref))
 
 	require.True(t, during.running, "the VMM was not under the supervisor while the converter ran")
-	assert.Equal(t, machine.User{UID: memory.FirstUID, GID: memory.FirstUID}, during.user)
+	assert.Equal(t, machine.User{UID: firstUID, GID: firstUID}, during.user)
 	assert.Equal(t, 1, during.held)
 	require.Len(t, during.boot.Devices, 1, "the converter's only device is its output disk")
 	assert.False(t, during.boot.Devices[0].ReadOnly)
@@ -61,7 +61,47 @@ func TestPull_ConverterVMIsBootedConfinedAndEndedThroughThePorts(t *testing.T) {
 
 	_, running := r.sup.Running(id)
 	assert.False(t, running, "the VMM outlived the conversion")
-	assert.Zero(t, r.users.Held())
+	assert.Zero(t, r.uids.Held())
+}
+
+// A conversion draws its user from the range the Machines draw theirs from, so
+// it never gets one a Machine holds; with the range full the pull fails before
+// any VMM is described, and succeeds once a Machine's user is released.
+func TestPull_ConversionUserComesFromTheRangeTheMachinesShare(t *testing.T) {
+	r := newRig(t)
+	r.uids = machine.NewUIDs(machine.UIDRange{First: firstUID, Count: 2})
+	r.start()
+	ref := r.add("one")
+	held, err := r.uids.AllocateMachine("m")
+	require.NoError(t, err)
+	var user machine.User
+	r.conv.Serve(func(_ context.Context, id machine.MachineID, _ image.ConversionJob) (uint64, error) {
+		user, _ = r.sup.User(id)
+		return memory.DefaultLength, nil
+	})
+
+	require.NoError(t, r.pull(ref))
+
+	assert.NotEqual(t, held, user.UID, "the conversion ran as a Machine's user")
+	assert.Equal(t, 1, r.uids.Held(), "only the Machine's user is held")
+
+	// Full range: a second Machine holds the other UID.
+	_, err = r.uids.AllocateMachine("n")
+	require.NoError(t, err)
+	other := r.add("two")
+	described := r.calls("describe")
+
+	err = r.pull(other)
+
+	e := requireKind(t, err, machine.ErrFailed)
+	assert.Contains(t, e.Reason, "the UID range is exhausted")
+	assert.Equal(t, described, r.calls("describe"), "a VMM was described without a user")
+	assert.Zero(t, r.store.Staging(), "a staging area is left")
+
+	// The control: the same pull succeeds once a Machine's user is released.
+	r.uids.ReleaseMachine("n")
+	require.NoError(t, r.pull(other))
+	r.requireListed(t, other)
 }
 
 // Two conversions at once are two VMs, each with a user of its own.
@@ -98,7 +138,7 @@ func TestPull_ConcurrentConversionsOfDifferentImagesHaveDifferentUsers(t *testin
 	assert.NotEqual(t, userA, userB)
 	assert.NotZero(t, userA.UID)
 	assert.NotZero(t, userB.UID)
-	assert.Zero(t, r.users.Held())
+	assert.Zero(t, r.uids.Held())
 }
 
 // A conversion that outlasts the node's limit fails the pull and the VMM is

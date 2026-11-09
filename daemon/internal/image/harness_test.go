@@ -19,6 +19,7 @@ const (
 	layerTar  = "application/vnd.oci.image.layer.v1.tar"
 	layerGzip = "application/vnd.oci.image.layer.v1.tar+gzip"
 	outputMax = 1 << 20
+	firstUID  = 200000
 )
 
 var platform = image.Platform{OS: "linux", Architecture: "amd64"}
@@ -28,7 +29,7 @@ type rig struct {
 	registry *memory.Registry
 	conv     *memory.Converter
 	store    *memory.Store
-	users    *memory.Users
+	uids     *machine.UIDs
 	driver   *machinememory.Driver
 	sup      *machinememory.Supervision
 	settings image.Settings
@@ -42,7 +43,7 @@ func newRig(t *testing.T, options ...image.Option) *rig {
 		registry: memory.NewRegistry(),
 		conv:     memory.NewConverter(),
 		store:    memory.NewStore(),
-		users:    memory.NewUsers(),
+		uids:     machine.NewUIDs(machine.UIDRange{First: firstUID, Count: 8}),
 		driver:   machinememory.NewDriver(machine.DriverInfo{Name: "memory"}),
 		sup:      machinememory.NewSupervision(),
 		joined:   make(chan struct{}, 64),
@@ -62,7 +63,7 @@ func newRig(t *testing.T, options ...image.Option) *rig {
 // start builds the service from the rig's current settings.
 func (r *rig) start(options ...image.Option) {
 	options = append(options, image.WhenJoined(func() { r.joined <- struct{}{} }))
-	r.svc = image.NewService(r.registry, r.conv, r.store, r.users, r.driver, r.sup, r.settings, options...)
+	r.svc = image.NewService(r.registry, r.conv, r.store, r.uids, r.driver, r.sup, r.settings, options...)
 }
 
 // awaitJoined waits until n callers have joined a pull already running.
@@ -107,8 +108,6 @@ func (r *rig) calls(step string) int {
 		return r.store.Calls(step)
 	case "manifest", "config", "layer":
 		return r.registry.Calls(step)
-	case "allocate":
-		return r.users.Calls(step)
 	case "describe", "boot":
 		return r.driver.Calls(step)
 	case "start", "terminate":
@@ -129,8 +128,6 @@ func (r *rig) failures(step string) *machinememory.Failures {
 		return &r.store.Failures
 	case "manifest", "config", "layer":
 		return &r.registry.Failures
-	case "allocate":
-		return &r.users.Failures
 	case "describe", "boot":
 		return &r.driver.Failures
 	case "start", "terminate":
@@ -164,7 +161,7 @@ func (r *rig) requireNothingVisible(t *testing.T, ref image.Reference) {
 	assert.Zero(t, r.store.Staging(), "a staging area is left")
 	_, running := r.sup.Running(conversionID(ref))
 	assert.False(t, running, "the converter's VMM is left")
-	assert.Zero(t, r.users.Held(), "a converter user is left held")
+	assert.Zero(t, r.uids.Held(), "a converter user is left held")
 }
 
 func requireKind(t *testing.T, err, kind error) *machine.Error {

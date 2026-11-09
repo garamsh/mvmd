@@ -68,7 +68,7 @@ type service struct {
 	registry   Registry
 	converter  Converter
 	store      Store
-	users      Users
+	uids       *machine.UIDs
 	driver     machine.Driver
 	supervisor machine.Supervision
 	settings   Settings
@@ -89,12 +89,14 @@ type service struct {
 // supervisor are the ones the node's configuration names for conversion: the
 // supervisor's expiry for a VMM is the end of the conversion limit, and the
 // driver boots the converter's initrd. The caller sets the driver's Observe.
-func NewService(registry Registry, converter Converter, store Store, users Users, driver machine.Driver, supervisor machine.Supervision, settings Settings, options ...Option) Service {
+// uids is the node's one allocator of VMM users, the one the lifecycle draws
+// its Machines' users from.
+func NewService(registry Registry, converter Converter, store Store, uids *machine.UIDs, driver machine.Driver, supervisor machine.Supervision, settings Settings, options ...Option) Service {
 	s := &service{
 		registry:    registry,
 		converter:   converter,
 		store:       store,
-		users:       users,
+		uids:        uids,
 		driver:      driver,
 		supervisor:  supervisor,
 		settings:    settings,
