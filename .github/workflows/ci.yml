@@ -103,3 +103,26 @@ jobs:
           test -r /dev/kvm -a -w /dev/kvm
       - name: Boot the pinned Firecracker on the pinned kernel
         run: make test-firecracker
+
+  # The Guest Agent's claim on a block device is shown on a real one, a loop device over a file, so
+  # it needs root for losetup and mount, which the runner's passwordless sudo gives. The tests fail,
+  # and do not skip, where it cannot.
+  guest-claim:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          rust-src-dir: guest-agent
+          cache: false
+          build-warnings: ""
+      - name: Record what the runner has
+        run: |
+          echo "runner image: $ImageOS $ImageVersion"
+          uname -r
+          sudo -n true
+          sudo losetup --find
+      - name: Claim a real block device
+        run: make test-guest-claim

@@ -132,6 +132,20 @@ test-firecracker: guest-initrd
 	echo "$@: $$n test(s) passed, selected by -run '^TestReal_' under the firecracker_real tag"; \
 	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
 
+# test-guest-claim shows the Guest Agent's exclusive claim on a real block device, a loop device over
+# a file. It needs root or passwordless sudo for losetup and mount, which each test asks for itself;
+# a host with neither fails the tests and does not skip them. make test runs them too, as it does
+# the daemon's root-only tests; this target names them and fails when none ran.
+.PHONY: test-guest-claim
+test-guest-claim:
+	@set -e; \
+	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
+	if ! (cd guest-agent && $(CARGO) test --locked -p guest-agent --lib -- disks::tests::real_device) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
+	cat "$$log"; \
+	n=$$(grep -c '^test disks::tests::real_device::.* ok$$' "$$log" || true); \
+	echo "$@: $$n test(s) passed, selected by the filter disks::tests::real_device"; \
+	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
+
 build: rebuild-erofs-utils
 	$(call each_module, $(count_packages); (cd "$$dir" && go build ./...))
 	$(call each_rust, $(count_members); $(CARGO) build --workspace --locked; \
