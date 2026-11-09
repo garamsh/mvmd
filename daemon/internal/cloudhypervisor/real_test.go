@@ -4,7 +4,6 @@ package cloudhypervisor_test
 
 import (
 	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,15 +33,6 @@ func input(t *testing.T, name string) string {
 	return v
 }
 
-// process is the VMM started in its root.
-type process struct {
-	cmd    *exec.Cmd
-	exited chan struct{}
-}
-
-func (p process) Kill() error             { return p.cmd.Process.Kill() }
-func (p process) Exited() <-chan struct{} { return p.exited }
-
 // subject is Cloud Hypervisor as drivertest runs a Driver.
 func subject(t *testing.T) drivertest.Subject {
 	t.Helper()
@@ -59,18 +49,10 @@ func subject(t *testing.T) drivertest.Subject {
 		},
 		Guest: func(d machine.Driver) machine.Guest { return guestchannel.NewGuest(d) },
 		// What the supervisor does, without its confinement: run the described
-		// process in a root holding the files at their fixed paths.
+		// process in a root holding the files at their fixed paths, with its event
+		// pipe.
 		Start: func(t *testing.T, p machine.ProcessDescription, s drivertest.Streams) drivertest.Process {
-			cmd, err := drivertest.InRoot(p)
-			require.NoError(t, err)
-			if s.In != nil {
-				cmd.Stdin = s.In
-			}
-			cmd.Stdout, cmd.Stderr = s.Out, s.Err
-			require.NoError(t, cmd.Start())
-			exited := make(chan struct{})
-			go func() { _ = cmd.Wait(); close(exited) }()
-			return process{cmd, exited}
+			return drivertest.StartInRoot(t, p, s)
 		},
 		KernelDigest: input(t, "MVMD_KERNEL_SHA256"),
 	}

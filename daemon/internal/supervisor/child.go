@@ -75,7 +75,7 @@ func confine(newroot string, status *os.File) error {
 	}
 	p := req.GetProcess()
 
-	if err := openDescriptors(p.GetTapByDescriptor()); err != nil {
+	if err := openDescriptors(p.GetTapByDescriptor(), p.GetEndOn()); err != nil {
 		return fmt.Errorf("open the descriptors: %w", err)
 	}
 	if err := enterNamespaces(newroot, &req); err != nil {
@@ -104,18 +104,19 @@ func confine(newroot string, status *os.File) error {
 }
 
 // openDescriptors makes the descriptors the VMM is passed ready: the tap, which
-// the supervisor opened in the host's namespace, is checked to be there and
-// stays open across the exec, and the VMM's standard input and output are the
+// the supervisor opened in the host's namespace, and the event pipe's write end
+// (ADR 0026) are checked to be there and to stay open across the exec, and the VMM's standard input and output are the
 // console terminal (ADR 0025), which replace descriptors 0 and 1 and are closed
 // where they were passed.
-func openDescriptors(tap bool) error {
+func openDescriptors(tap bool, events *pb.EndOn) error {
 	if tap {
-		flags, err := unix.FcntlInt(tapFD, unix.F_GETFD, 0)
-		if err != nil {
-			return errNoDescriptor
+		if err := checkInherited(tapFD, "tap"); err != nil {
+			return err
 		}
-		if flags&unix.FD_CLOEXEC != 0 {
-			return errors.New("the tap descriptor would close at the exec")
+	}
+	if events != nil {
+		if err := checkInherited(int(events.GetFd()), "event pipe"); err != nil {
+			return err
 		}
 	}
 	for _, d := range []struct{ from, to int }{{inputFD, 0}, {outputFD, 1}} {
@@ -161,4 +162,15 @@ func landlockRules(req *pb.StartRequest) []fsRule {
 	return rules
 }
 
-var errNoDescriptor = errors.New("the tap descriptor 3 is not open")
+// checkInherited verifies that the descriptor is open and stays open across the
+// exec.
+func checkInherited(fd int, what string) error {
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	if err != nil {
+		return fmt.Errorf("the %s descriptor %d is not open", what, fd)
+	}
+	if flags&unix.FD_CLOEXEC != 0 {
+		return fmt.Errorf("the %s descriptor %d would close at the exec", what, fd)
+	}
+	return nil
+}

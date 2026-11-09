@@ -6,6 +6,7 @@
 //	probe report <dir> <try>...   write <dir>/report.json, then run on
 //	probe check <dir> <try>...    write <dir>/report.json and exit
 //	probe pids <dir> <n>          start up to n processes, write <dir>/pids.json, run on
+//	probe events <dir> <fd> <text>  write text to descriptor fd in two pieces, write <dir>/written, run on
 //
 // A try is one of: open:PATH, opendir:PATH, openw:PATH (open for writing, never
 // creating), write:PATH, sha256:PATH (the SHA-256 in hex of what PATH holds),
@@ -50,6 +51,9 @@ func main() {
 		if os.Args[1] == "report" {
 			sleep()
 		}
+	case "events":
+		events(args[0], args[1], args[2])
+		sleep()
 	case "pids":
 		n, _ := strconv.Atoi(args[1])
 		pids(args[0], n)
@@ -60,6 +64,18 @@ func main() {
 }
 
 func sleep() { time.Sleep(24 * time.Hour) }
+
+// events writes text to the descriptor in two pieces with a pause between, and
+// then marks in dir that it has written.
+func events(dir, fd, text string) {
+	n, _ := strconv.Atoi(fd)
+	f := os.NewFile(uintptr(n), "events")
+	half := len(text) / 2
+	_, _ = f.WriteString(text[:half])
+	time.Sleep(100 * time.Millisecond)
+	_, _ = f.WriteString(text[half:])
+	_ = os.WriteFile(filepath.Join(dir, "written"), nil, 0o600)
+}
 
 // vmm writes its pid, starts a child that daemonizes and exits, and runs on.
 func vmm(dir string) {

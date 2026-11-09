@@ -597,6 +597,35 @@ func TestConfinement_TheConsoleSocketReachesTheVMMsStandardInputAndOutput(t *tes
 	}, 5*time.Second, 10*time.Millisecond, "the log holds what the session saw")
 }
 
+// A VMM that outlives its guest's reset is ended by the supervisor when the
+// event pipe the description names carries the match (ADR 0026). The probe
+// writes the match to descriptor 7 in two pieces; the control writes other
+// bytes the same way and its VMM runs on.
+func TestConfinement_TheSupervisorEndsAVMMThatWritesItsMatchToTheEventPipe(t *testing.T) {
+	n := newNode(t)
+	start := func(id, text string) {
+		run := runDir(n.dir, id)
+		proc := describe(probeBin, "events", run, "7", text)
+		proc.EndOn = machine.PipeTrigger{FD: 7, Match: []byte(`"event": "rebooting"`)}
+		require.NoError(t, n.a.Start(ctx, machine.MachineID(id), proc, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour))))
+		require.Eventually(t, func() bool {
+			_, err := os.Stat(filepath.Join(run, "written"))
+			return err == nil
+		}, 10*time.Second, 10*time.Millisecond, "the probe wrote to the pipe")
+	}
+	start("stays", `{"source": "vm", "event": "booted"}`)
+	start("ends", `{"source": "vm", "event": "rebooting"}`)
+
+	require.Eventually(t, func() bool { return len(inCgroup("ends", "events")) == 0 },
+		10*time.Second, 10*time.Millisecond, "the VMM that wrote the match is ended")
+	log, err := os.ReadFile(filepath.Join(n.dir, "ends", "supervisor.log"))
+	require.NoError(t, err)
+	assert.Contains(t, string(log), "ending the VMM", "the supervisor records why")
+
+	time.Sleep(500 * time.Millisecond)
+	assert.Len(t, inCgroup("stays", "events"), 1, "control: a VMM that wrote other bytes to its pipe runs on")
+}
+
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])

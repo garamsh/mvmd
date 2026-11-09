@@ -146,6 +146,14 @@ func DeviceFiles(devices []BlockDevice) []File {
 	return files
 }
 
+// PipeTrigger is a pipe the supervisor creates and passes the write end of to
+// the VMM as descriptor FD, and the bytes it ends the VMM on when it finds them
+// in what the VMM writes. The zero value, with no Match, is no pipe.
+type PipeTrigger struct {
+	FD    int
+	Match []byte
+}
+
 // ProcessDescription is the VMM process a Driver describes for the
 // supervisor to start and confine. It grants no capability, chooses no user
 // and skips no step (ADR 0015).
@@ -165,7 +173,10 @@ type ProcessDescription struct {
 	DeviceNodes []string
 	// TapByDescriptor is true when the VMM takes its tap by descriptor.
 	TapByDescriptor bool
-	Overhead        ProcessOverhead
+	// EndOn is a pipe the supervisor ends the VMM on (ADR 0026), for a VMM that
+	// outlives a guest reset. The zero value is no pipe.
+	EndOn    PipeTrigger
+	Overhead ProcessOverhead
 
 	// Tap, Guest and RunDir are the lifecycle's, never the Driver's: For overwrites
 	// them from the Machine, so a Driver cannot misstate what the cgroup's
