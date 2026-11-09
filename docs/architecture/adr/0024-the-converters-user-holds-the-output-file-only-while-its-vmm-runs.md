@@ -1,4 +1,4 @@
-# ADR 0023: The converter's user holds the output file only while its VMM runs
+# ADR 0024: The converter's user holds the output file only while its VMM runs
 
 > Status: accepted
 > Date: 2026-11-09

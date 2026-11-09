@@ -20,7 +20,7 @@ import (
 // the final sync of the adapter can. It holds the protocol of ADR 0007: a call
 // out of order is an error, an image is listed only by a Publish that
 // succeeded, and a Publish that fails has moved its blobs and left them
-// unreferenced. It holds that of ADR 0023 too: a Seal of an output that is
+// unreferenced. It holds that of ADR 0024 too: a Seal of an output that is
 // lent fails.
 type Store struct {
 	machinememory.Failures

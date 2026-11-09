@@ -62,7 +62,7 @@ func createSparse(path string, size uint64) error {
 }
 
 // outputMode is the mode the output is created with and Reclaim restores: the
-// owner's alone, whoever the owner is (ADR 0023).
+// owner's alone, whoever the owner is (ADR 0024).
 const outputMode = 0o600
 
 // Lend implements image.Store. The output keeps its mode; only its owner
