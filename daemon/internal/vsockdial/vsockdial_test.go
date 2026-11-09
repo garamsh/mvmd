@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -106,6 +107,40 @@ func TestDial_IsUnreachableWhenNoVMMListens(t *testing.T) {
 	sock := socketPath(t)
 	_, err := vsockdial.Dial(context.Background(), sock, 1024)
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+	require.ErrorIs(t, err, machine.ErrVMMEnded)
+}
+
+func TestDial_IsUnreachableWhenSocketRefused(t *testing.T) {
+	sock := socketPath(t)
+	// Create a regular file at the socket path. A connect to a regular file
+	// (not a Unix socket) returns an error that indicates the VMM has ended.
+	f, err := os.Create(sock)
+	require.NoError(t, err)
+	_ = f.Close()
+	defer os.Remove(sock)
+
+	_, err = vsockdial.Dial(context.Background(), sock, 1024)
+	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+	require.ErrorIs(t, err, machine.ErrVMMEnded)
+}
+
+func TestDial_IsNotVMMEndedWhenTheVMMAnswersButNotOK(t *testing.T) {
+	sock := socketPath(t)
+	ln := listen(t, sock)
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		// Close without answering OK: the VMM is running but the guest
+		// does not listen on the port.
+		_ = c.Close()
+	}()
+
+	_, err := vsockdial.Dial(context.Background(), sock, 1024)
+	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+	assert.NotErrorIs(t, err, machine.ErrVMMEnded)
 }
 
 func TestDial_StopsWaitingForAnAnswerWhenTheContextEnds(t *testing.T) {

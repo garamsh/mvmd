@@ -11,6 +11,8 @@ import (
 	"net"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
@@ -37,11 +39,12 @@ func acknowledged(line []byte) bool {
 
 // Dial connects to the vsock socket at the path, asks for the guest's port and
 // reads the VMM's answer before any byte of the stream behind it. Every
-// failure wraps machine.ErrGuestUnreachable.
+// failure wraps machine.ErrGuestUnreachable. When the socket is absent or
+// refused, the VMM has ended, and the error also matches machine.ErrVMMEnded.
 func Dial(ctx context.Context, socket string, port uint32) (net.Conn, error) {
 	conn, err := unixsock.DialContext(ctx, socket)
 	if err != nil {
-		return nil, errors.Join(machine.ErrGuestUnreachable, err)
+		return nil, connectErr(err)
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(dl)
@@ -77,4 +80,24 @@ func Dial(ctx context.Context, socket string, port uint32) (net.Conn, error) {
 	}
 	_ = conn.SetDeadline(time.Time{})
 	return conn, nil
+}
+
+// connectErr reports whether the dial error indicates the VMM has ended:
+// the socket file is absent (ENOENT) or a socket file exists but nobody
+// listens on it (ECONNREFUSED). In those cases the error matches both
+// ErrVMMEnded and ErrGuestUnreachable; otherwise only ErrGuestUnreachable.
+func connectErr(err error) error {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		var opErr *net.OpError
+		if errors.As(err, &opErr) {
+			var errno unix.Errno
+			if errors.As(opErr.Unwrap(), &errno) {
+				if errno == unix.ENOENT || errno == unix.ECONNREFUSED {
+					return errors.Join(machine.ErrGuestUnreachable, machine.ErrVMMEnded, err)
+				}
+			}
+		}
+	}
+	return errors.Join(machine.ErrGuestUnreachable, err)
 }

@@ -377,3 +377,56 @@ func TestConvert_AMissingLayerFileIsAReadFailureAndNotAStatus(t *testing.T) {
 	var failure *image.ConversionFailure
 	assert.False(t, errors.As(err, &failure))
 }
+
+// vmmEndedConnector always returns ErrVMMEnded, as a connector whose VMM
+// has ended does. It counts the dials to prove the converter fails at once
+// and does not wait for backoff.
+type vmmEndedConnector struct {
+	to    *dialer
+	ended bool
+	mu    sync.Mutex
+	dials int
+}
+
+func (c *vmmEndedConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	c.mu.Lock()
+	c.dials++
+	c.mu.Unlock()
+	if !c.ended {
+		return c.to.GuestConn(ctx, id, port)
+	}
+	return nil, machine.ErrVMMEnded
+}
+
+func (c *vmmEndedConnector) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dials
+}
+
+// A conversion whose connector returns ErrVMMEnded fails at once, without
+// waiting for the backoff that the converter normally uses when the
+// converter has not yet started. The error names the ended VMM.
+func TestConvert_FailsAtOnceWhenTheConnectorReturnsErrVMMEnded(t *testing.T) {
+	f := &fakeConverter{}
+	f.answer = f.readAll(99)
+	_, d := serve(t, f)
+	v := &vmmEndedConnector{to: d, ended: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+
+	_, err := convertchannel.New(v).Convert(ctx, "m", jobOf(layerFile(t, tarType, []byte("a"))))
+	require.ErrorIs(t, err, machine.ErrVMMEnded)
+	assert.ErrorContains(t, err, "the converter VMM has ended")
+	// The connector was called only once: no backoff wait.
+	assert.Equal(t, 1, v.count())
+	// It returned well before the conversion limit.
+	assert.Less(t, time.Since(start), 200*time.Millisecond)
+
+	// Control: a connector that refuses initially but then connects is waited for.
+	v.ended = false
+	length, err := convertchannel.New(v).Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(99), length)
+}

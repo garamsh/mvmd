@@ -13,6 +13,10 @@ import (
 // open.
 var ErrConsoleUnavailable = errors.New("the console is not available")
 
+// ErrVMMEnded is a VMM that has ended, so the guest port it would have
+// answered on no longer exists.
+var ErrVMMEnded = errors.New("the VMM has ended")
+
 // GuestAgentPort is the port the Guest Agent listens on in every guest
 // (guest.md), the one a caller of Driver.GuestConn names for it.
 const GuestAgentPort uint32 = 1024
@@ -222,8 +226,9 @@ type Driver interface {
 	// before the first byte reaches the guest (a connect request to its vsock
 	// socket in the run directory, for one) is the Driver's, and is finished
 	// before this returns. The caller closes the stream and opens another
-	// after a break. A Machine whose VMM is not running, or a guest that
-	// refuses the port, is ErrGuestUnreachable.
+	// after a break. A Machine whose VMM has ended is ErrVMMEnded joined
+	// with ErrGuestUnreachable; a guest that refuses the port is
+	// ErrGuestUnreachable.
 	GuestConn(ctx context.Context, id MachineID, port uint32) (net.Conn, error)
 	// Console opens a new session to the console of the Machine and returns it:
 	// what the guest writes to its console is read from it, and what is written

@@ -104,18 +104,19 @@ type guestPort struct {
 	port uint32
 }
 
-// GuestConn implements machine.Driver. Its step is "guest-conn". A Machine and
-// port nothing serves is machine.ErrGuestUnreachable, and so is an injected
-// failure, unless it is told another error.
+// GuestConn implements machine.Driver. Its step is "guest-conn". A Machine
+// and port nothing serves is machine.ErrVMMEnded joined with
+// machine.ErrGuestUnreachable, and so is an injected failure, unless it is
+// told another error.
 func (d *Driver) GuestConn(_ context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
 	if err := d.Enter("guest-conn"); err != nil {
-		return nil, errors.Join(machine.ErrGuestUnreachable, err)
+		return nil, errors.Join(machine.ErrVMMEnded, machine.ErrGuestUnreachable, err)
 	}
 	d.mu.Lock()
 	serve, ok := d.guests[guestPort{id, port}]
 	d.mu.Unlock()
 	if !ok {
-		return nil, machine.ErrGuestUnreachable
+		return nil, errors.Join(machine.ErrVMMEnded, machine.ErrGuestUnreachable)
 	}
 	host, guest := net.Pipe()
 	go serve(guest)

@@ -98,7 +98,14 @@ func (c *Converter) Convert(ctx context.Context, id machine.MachineID, job image
 	cc, err := grpc.NewClient("passthrough:///converter",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(dial context.Context, _ string) (net.Conn, error) {
-			return c.conn.GuestConn(dial, id, image.ConverterPort)
+			conn, dialErr := c.conn.GuestConn(dial, id, image.ConverterPort)
+			if dialErr != nil && errors.Is(dialErr, machine.ErrVMMEnded) {
+				// Return a gRPC status error with a non-retryable code so
+				// grpc's retry mechanism stops immediately rather than
+				// waiting for the backoff until the context ends.
+				return nil, status.Error(codes.Internal, "vmm ended")
+			}
+			return conn, dialErr
 		}),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: reconnect}))
 	if err != nil {
@@ -219,10 +226,25 @@ func mapError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
+	// The context dialer returns ErrVMMEnded as a gRPC Internal status
+	// error so grpc's retry stops immediately.  grpc.NewClient wraps that
+	// in a *url.Error; converse wraps it in notListeningError.  We must
+	// look through the chain before the generic errors.Is check below,
+	// because ErrVMMEnded itself is also in that chain (inside the
+	// *url.Error).
+	var notListening *notListeningError
+	if errors.As(err, &notListening) {
+		st, ok := status.FromError(notListening)
+		if ok && st.Code() == codes.Internal {
+			return fmt.Errorf("%w: the converter VMM has ended", machine.ErrVMMEnded)
+		}
+	}
+	if errors.Is(err, machine.ErrVMMEnded) {
+		return fmt.Errorf("%w: the converter VMM has ended", machine.ErrVMMEnded)
+	}
 	var failure *image.ConversionFailure
 	var unknown *unknownStepError
 	var read *readError
-	var notListening *notListeningError
 	if errors.As(err, &notListening) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf("%w: the converter did not listen before the conversion's time ended: %w",
 			machine.ErrGuestUnreachable, ctx.Err())
