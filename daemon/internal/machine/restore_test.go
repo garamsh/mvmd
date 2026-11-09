@@ -79,7 +79,7 @@ func TestRestore_EndsSupervisorsNoRunningRecordClaims(t *testing.T) {
 	for _, id := range []machine.MachineID{"created", "stopped", "ghost"} {
 		require.NoError(t, e.sup.Start(ctx, id, someProcess, someUser))
 	}
-	_, err := e.net.Apply(ctx, "created", machine.NetworkPolicy{})
+	_, err := e.net.Apply(ctx, "created", someUser, machine.NetworkPolicy{})
 	require.NoError(t, err)
 
 	svc := e.reopened(t)

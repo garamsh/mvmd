@@ -53,7 +53,7 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string) 
 }
 
 // Apply implements machine.Network.
-func (n *Network) Apply(_ context.Context, id machine.MachineID, policy machine.NetworkPolicy) (string, error) {
+func (n *Network) Apply(_ context.Context, id machine.MachineID, _ machine.User, policy machine.NetworkPolicy) (string, error) {
 	if err := n.Enter("apply"); err != nil {
 		return "", err
 	}

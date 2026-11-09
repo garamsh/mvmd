@@ -25,6 +25,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
+	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
@@ -55,9 +56,12 @@ type Substitutes struct {
 
 // App is the wired daemon.
 type App struct {
-	cfg         Config
-	db          *boltstore.DB
-	machines    machine.Service
+	cfg      Config
+	db       *boltstore.DB
+	machines machine.Service
+	// network is the real Network adapter, nil when the configuration keeps
+	// the in-memory one.
+	network     *hostnet.Network
 	deadline    fencing.Service
 	server      *api.Server
 	Substitutes *Substitutes
@@ -96,6 +100,19 @@ func New(cfg Config) (*App, error) {
 		Guest:       machinememory.NewGuest(0),
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
+	var network machine.Network = sub.Network
+	var hostNetwork *hostnet.Network
+	if n := cfg.Network; n != nil {
+		hc, err := n.toHostnet(cfg.VMMUIDRange)
+		if err == nil {
+			hostNetwork, err = hostnet.New(hc)
+		}
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		network, sub.Network = hostNetwork, nil
+	}
 	var supervisors fencing.Supervisors = sub.Supervisors
 	if s := cfg.Supervision; s != nil {
 		dir := s.Dir
@@ -111,12 +128,13 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
+	machines := machine.NewService(sub.Driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
+		network:     hostNetwork,
 		deadline:    deadline,
 		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}, log),
 		Substitutes: sub,
@@ -140,6 +158,16 @@ func (a *App) Serve(ctx context.Context) error {
 	}
 	if err := a.machines.Restore(ctx); err != nil {
 		return fmt.Errorf("restore the Machines: %w", err)
+	}
+	if a.network != nil {
+		// The tables outlive the daemon; the records say what they must hold now.
+		held, err := a.machines.List(ctx)
+		if err != nil {
+			return fmt.Errorf("list the Machines for the network: %w", err)
+		}
+		if err := a.network.Reconcile(ctx, held); err != nil {
+			return fmt.Errorf("reconcile the network: %w", err)
+		}
 	}
 	if err := a.deadline.Reconcile(ctx, a.machines); err != nil {
 		return fmt.Errorf("reconcile the fencing deadline: %w", err)

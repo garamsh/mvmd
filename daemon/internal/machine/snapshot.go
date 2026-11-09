@@ -232,7 +232,7 @@ func (s *service) bringUp(ctx context.Context, m Machine, request RequestID, fil
 		}
 		return fail(ErrFailed, "%v", err), false
 	}
-	tap, err := s.network.Apply(ctx, id, m.Policy)
+	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
 	if err != nil {
 		return fail(ErrPreconditionFailed, "the network policy was not applied: %v", err), false
 	}
