@@ -110,7 +110,7 @@ Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its l
 | Operation | Needs | On success | Repeat | After failure |
 |---|---|---|---|---|
 | Exec | Running; Guest Agent reachable; the command, and optionally an environment and a working directory | Command started under the exec identifier | Same request ID: the same exec record, never a second run | Machine unaffected; the exec record says it did not start |
-| Read exec output | An exec record; an offset to resume after | The output chunks after the offset, each with its offset, then the final exec record once the command has ended | Always safe; resumes from any offset still held | Machine unaffected; an offset no longer held is answered with the earliest offset held |
+| Read exec output | An exec record; an offset to resume after; Running, unless the record is already final, which is answered from the record | The output chunks after the offset, each with its offset, then the final exec record once the command has ended | Always safe; resumes from any offset still held | Machine unaffected; an offset no longer held is answered with the earliest offset held |
 | Read file | Running | Content, in chunks | Always safe | Machine unaffected |
 | Write file | Running | Whole new content or whole old content, never part (#2 §2, atomic write) | Same content: success | The old content |
 | Patch file | Running; the base content digest and the digest expected afterwards | Content with the patch applied | File already at the expected digest: success | The old content |

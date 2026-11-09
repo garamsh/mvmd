@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -33,6 +34,11 @@ import (
 // runtime-api.md leaves how long events are kept open.
 const eventsKept = 1024
 
+// wallClock is the host's wall clock, which a restored guest is set to.
+type wallClock struct{}
+
+func (wallClock) Now() time.Time { return time.Now() }
+
 // Substitutes are the in-memory adapters behind the ports when the
 // configuration selects the memory driver, so that what a Machine needs on the
 // node can be provided: images and disks. Supervisors is nil when the
@@ -43,6 +49,7 @@ type Substitutes struct {
 	Disks       *machinememory.Disk
 	Images      *machinememory.ImageStore
 	Snapshots   *machinememory.SnapshotStore
+	Guest       *machinememory.Guest
 	Supervisors *fencingmemory.Supervisors
 }
 
@@ -86,6 +93,7 @@ func New(cfg Config) (*App, error) {
 		Disks:       machinememory.NewDisk(),
 		Images:      machinememory.NewImageStore(),
 		Snapshots:   machinememory.NewSnapshotStore(),
+		Guest:       machinememory.NewGuest(0),
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
 	var supervisors fencing.Supervisors = sub.Supervisors
@@ -103,7 +111,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
+	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
 
 	return &App{
 		cfg:         cfg,

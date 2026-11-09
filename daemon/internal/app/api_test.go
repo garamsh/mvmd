@@ -263,35 +263,12 @@ func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
 	ctx := context.Background()
 	n := start(t, testConfig(t))
 	c := n.client
-	exec := &v1alpha1.ExecRequest{ExecId: "e", RequestId: "r", MachineId: "m", Command: []string{"true"}}
 	pull := &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: "registry.example/app", Digest: digest}}
 
 	unary := map[string]func() error{
-		"Exec":        func() error { _, err := c.Exec(ctx, exec); return err },
-		"PatchFile":   func() error { _, err := c.PatchFile(ctx, &v1alpha1.PatchFileRequest{MachineId: "m"}); return err },
-		"SearchFiles": func() error { _, err := c.SearchFiles(ctx, &v1alpha1.SearchFilesRequest{MachineId: "m"}); return err },
-		"PullImage":   func() error { _, err := c.PullImage(ctx, pull); return err },
+		"PullImage": func() error { _, err := c.PullImage(ctx, pull); return err },
 	}
 	streams := map[string]func() error{
-		"ReadExecOutput": func() error {
-			s, err := c.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: "m", ExecId: "e"})
-			require.NoError(t, err)
-			_, err = s.Recv()
-			return err
-		},
-		"ReadFile": func() error {
-			s, err := c.ReadFile(ctx, &v1alpha1.ReadFileRequest{MachineId: "m", Path: "/x"})
-			require.NoError(t, err)
-			_, err = s.Recv()
-			return err
-		},
-		"WriteFile": func() error {
-			s, err := c.WriteFile(ctx)
-			require.NoError(t, err)
-			_ = s.Send(&v1alpha1.WriteFileRequest{Part: &v1alpha1.WriteFileRequest_Start{Start: &v1alpha1.WriteFileStart{MachineId: "m", Path: "/x"}}})
-			_, err = s.CloseAndRecv()
-			return err
-		},
 		"Console": func() error {
 			s, err := c.Console(ctx)
 			require.NoError(t, err)
@@ -310,6 +287,6 @@ func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
 			})
 		}
 	}
-	assert.Len(t, unary, 4)
-	assert.Len(t, streams, 4)
+	assert.Len(t, unary, 1)
+	assert.Len(t, streams, 1)
 }

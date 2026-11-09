@@ -372,6 +372,7 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	}
 	s.releaseUID(id)
 	s.mu.Unlock()
+	s.dropExecs(id)
 	// The Machine's lock is still held, so this follows every event of its
 	// states, and a watcher that sees it finds the Machine gone from List.
 	s.events.Deleted(id)

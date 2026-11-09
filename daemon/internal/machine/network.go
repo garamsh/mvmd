@@ -10,6 +10,14 @@ import (
 type NetworkIdentity struct {
 	MAC       string
 	Addresses []netip.Addr
+	// Gateways and Resolvers are what the guest is told besides its addresses.
+	Gateways  []netip.Addr
+	Resolvers []netip.Addr
+}
+
+// guestNetwork is what a guest holding this identity is told.
+func (n NetworkIdentity) guestNetwork() GuestNetwork {
+	return GuestNetwork{Addresses: n.Addresses, Gateways: n.Gateways, Resolvers: n.Resolvers}
 }
 
 // Network is the conversation with the node's network: addresses, a tap per

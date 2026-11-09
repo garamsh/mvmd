@@ -92,6 +92,10 @@ func status(err error) error {
 	}
 	kind := v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED
 	reason := err.Error()
+	var gone *machine.OutputGoneError
+	if errors.As(err, &gone) {
+		return v1alpha1.NewOutputGone(gone.Error(), gone.Earliest)
+	}
 	var outcome *machine.Error
 	if errors.As(err, &outcome) {
 		reason = outcome.Reason

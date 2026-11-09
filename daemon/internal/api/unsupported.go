@@ -17,32 +17,8 @@ func unsupported(call, issue string) error {
 		call+" is not offered by this mvmd yet; it arrives with "+issue)
 }
 
-func (*Server) Exec(context.Context, *v1alpha1.ExecRequest) (*v1alpha1.ExecResponse, error) {
-	return nil, unsupported("Exec", "garamsh/mvmd#19")
-}
-
-func (*Server) ReadExecOutput(*v1alpha1.ReadExecOutputRequest, grpc.ServerStreamingServer[v1alpha1.ReadExecOutputResponse]) error {
-	return unsupported("ReadExecOutput", "garamsh/mvmd#19")
-}
-
-func (*Server) ReadFile(*v1alpha1.ReadFileRequest, grpc.ServerStreamingServer[v1alpha1.ReadFileResponse]) error {
-	return unsupported("ReadFile", "garamsh/mvmd#19")
-}
-
-func (*Server) WriteFile(grpc.ClientStreamingServer[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]) error {
-	return unsupported("WriteFile", "garamsh/mvmd#19")
-}
-
-func (*Server) PatchFile(context.Context, *v1alpha1.PatchFileRequest) (*v1alpha1.PatchFileResponse, error) {
-	return nil, unsupported("PatchFile", "garamsh/mvmd#19")
-}
-
-func (*Server) SearchFiles(context.Context, *v1alpha1.SearchFilesRequest) (*v1alpha1.SearchFilesResponse, error) {
-	return nil, unsupported("SearchFiles", "garamsh/mvmd#19")
-}
-
 func (*Server) Console(grpc.BidiStreamingServer[v1alpha1.ConsoleRequest, v1alpha1.ConsoleResponse]) error {
-	return unsupported("Console", "garamsh/mvmd#19")
+	return unsupported("Console", "garamsh/mvmd#60")
 }
 
 func (*Server) PullImage(context.Context, *v1alpha1.PullImageRequest) (*v1alpha1.PullImageResponse, error) {

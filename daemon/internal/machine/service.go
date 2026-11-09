@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"io"
 	"slices"
 	"sync"
 	"time"
@@ -34,6 +35,23 @@ type Service interface {
 	AttachDisk(ctx context.Context, id MachineID, attachment DiskAttachment) error
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
 	SetResources(ctx context.Context, id MachineID, target Resources) error
+
+	// The guest access calls need the Machine Running and fail with
+	// ErrPreconditionFailed otherwise.
+	//
+	// Exec starts a command under the exec identifier, at most once per request
+	// ID, and returns its record.
+	Exec(ctx context.Context, id MachineID, exec ExecID, request RequestID, spec ExecSpec) (ExecRecord, error)
+	// ReadExecOutput sends the output after the offset, and returns the exec's
+	// record, whose Status is ExecStarted while the command runs. An offset the
+	// guest no longer holds is an *OutputGoneError.
+	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error)
+	ReadFile(ctx context.Context, id MachineID, path string, send func(chunk []byte) error) error
+	// WriteFile commits the whole content or leaves the old.
+	WriteFile(ctx context.Context, id MachineID, path string, content io.Reader) error
+	PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) error
+	SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error)
+
 	// Snapshot holds the Running or Paused Machine's guest paused while the
 	// Driver and the Snapshot Store take it, and returns it to its state.
 	Snapshot(ctx context.Context, id MachineID, snapshot SnapshotID, request RequestID) error
@@ -63,6 +81,8 @@ type service struct {
 	disks      Disk
 	images     ImageStore
 	snapshots  SnapshotStore
+	guest      Guest
+	clock      WallClock
 	store      StateStore
 	permitter  StartPermitter
 	uidRange   UIDRange
@@ -75,6 +95,11 @@ type service struct {
 	mu      sync.Mutex
 	records map[MachineID]*Record
 	locks   map[MachineID]*machineLock
+	// execs are the exec records mvmd keeps, by identifier. They are in memory
+	// only: the guest holds the output, and a record of a Machine that stopped
+	// is not kept across a restart of mvmd.
+	execMu sync.Mutex
+	execs  map[ExecID]*execEntry
 	// snapLocks serializes Snapshot against the restores of the same snapshot.
 	// A call takes a Machine's lock before a snapshot's.
 	snapLocks map[SnapshotID]*snapshotLock
@@ -87,7 +112,7 @@ type service struct {
 // NewService returns the lifecycle over the given ports. uidRange names the
 // range of UIDs the node reserves for its Machines (ADR 0015). Every state
 // change and every event the Driver raises goes to events.
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, clock WallClock, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
 	driver.Observe(events.Reported)
 	return &service{
 		driver:       driver,
@@ -96,6 +121,9 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		disks:        disks,
 		images:       images,
 		snapshots:    snapshots,
+		guest:        guest,
+		clock:        clock,
+		execs:        make(map[ExecID]*execEntry),
 		store:        store,
 		permitter:    permitter,
 		uidRange:     uidRange,
@@ -184,6 +212,10 @@ func (s *service) setMachine(rec *Record, m *Machine) {
 	rec.Machine = m
 	s.mu.Unlock()
 	if changed {
+		if m.State == StateStopped || m.State == StateFaulted {
+			// The VMM has ended or cannot be vouched for: what ran in it is cut short.
+			s.cutShort(rec.ID, "the Machine is "+m.State.String())
+		}
 		s.events.StateChanged(rec.ID, m.State)
 	}
 }
