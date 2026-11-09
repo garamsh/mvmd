@@ -34,6 +34,13 @@ func (s *Store) Publish(ctx context.Context, staging image.Staging) error {
 		fault = noFault
 	}
 
+	// The image gets its mode while the daemon owns the output, which Seal
+	// checked, and before the rename that makes it a blob, so no blob of the
+	// layout is an image with another mode.
+	if err := s.setImageMode(ctx, staging); err != nil {
+		return fmt.Errorf("set the mode of the image: %w", err)
+	}
+
 	blobs := []struct{ from, hex string }{
 		{"output", st.sealed.hex},
 		{"config", st.record.configHex},
@@ -81,6 +88,15 @@ func (s *Store) Publish(ctx context.Context, staging image.Staging) error {
 		return err
 	}
 	return syncDir(s.dir)
+}
+
+// setImageMode gives the staged output the mode of a published image.
+func (s *Store) setImageMode(ctx context.Context, staging image.Staging) error {
+	f, err := s.openOutput(ctx, staging)
+	if err != nil {
+		return err
+	}
+	return errors.Join(f.Chmod(imageMode), f.Close())
 }
 
 // moveBlob renames the staged file to the blob's name, and keeps the blob
