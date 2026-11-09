@@ -382,6 +382,9 @@ func toProcess(p machine.ProcessDescription) *pb.Process {
 		OverheadCpus:        p.Overhead.CPUs,
 		ExecutableSha256:    p.ExecutableSHA256,
 	}
+	if p.EndOn.FD != 0 || len(p.EndOn.Match) > 0 {
+		out.EndOn = &pb.EndOn{Fd: uint32(p.EndOn.FD), Match: p.EndOn.Match}
+	}
 	for _, f := range p.BootFiles {
 		out.BootFiles = append(out.BootFiles, &pb.BlockDevice{Path: f.Host, InPath: f.In, ReadOnly: f.ReadOnly, Sha256: f.SHA256})
 	}

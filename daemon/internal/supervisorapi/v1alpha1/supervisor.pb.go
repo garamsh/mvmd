@@ -130,8 +130,10 @@ type Process struct {
 	// The executable's SHA-256, in hex, or empty when it is not pinned. Checked
 	// as BlockDevice.sha256 is. The executable is at its host path in the root.
 	ExecutableSha256 string `protobuf:"bytes,10,opt,name=executable_sha256,json=executableSha256,proto3" json:"executable_sha256,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// A pipe the supervisor ends the process on (ADR 0026). Unset, there is none.
+	EndOn         *EndOn `protobuf:"bytes,11,opt,name=end_on,json=endOn,proto3" json:"end_on,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Process) Reset() {
@@ -234,6 +236,71 @@ func (x *Process) GetExecutableSha256() string {
 	return ""
 }
 
+func (x *Process) GetEndOn() *EndOn {
+	if x != nil {
+		return x.EndOn
+	}
+	return nil
+}
+
+// EndOn is a pipe the supervisor creates and passes its write end of as
+// descriptor fd. It reads the pipe and, when what the process wrote contains
+// match, ends the process and records why in its own log. A match that spans
+// two reads is found.
+type EndOn struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The descriptor number, above those the supervisor passes itself (3 to 6).
+	Fd uint32 `protobuf:"varint,1,opt,name=fd,proto3" json:"fd,omitempty"`
+	// The bytes to find, not empty.
+	Match         []byte `protobuf:"bytes,2,opt,name=match,proto3" json:"match,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EndOn) Reset() {
+	*x = EndOn{}
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndOn) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndOn) ProtoMessage() {}
+
+func (x *EndOn) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndOn.ProtoReflect.Descriptor instead.
+func (*EndOn) Descriptor() ([]byte, []int) {
+	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *EndOn) GetFd() uint32 {
+	if x != nil {
+		return x.Fd
+	}
+	return 0
+}
+
+func (x *EndOn) GetMatch() []byte {
+	if x != nil {
+		return x.Match
+	}
+	return nil
+}
+
 type StartRequest struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Process *Process               `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
@@ -269,7 +336,7 @@ type StartRequest struct {
 
 func (x *StartRequest) Reset() {
 	*x = StartRequest{}
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[2]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -281,7 +348,7 @@ func (x *StartRequest) String() string {
 func (*StartRequest) ProtoMessage() {}
 
 func (x *StartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[2]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -294,7 +361,7 @@ func (x *StartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRequest.ProtoReflect.Descriptor instead.
 func (*StartRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{2}
+	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *StartRequest) GetProcess() *Process {
@@ -368,7 +435,7 @@ type StartResponse struct {
 
 func (x *StartResponse) Reset() {
 	*x = StartResponse{}
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[3]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -380,7 +447,7 @@ func (x *StartResponse) String() string {
 func (*StartResponse) ProtoMessage() {}
 
 func (x *StartResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[3]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -393,7 +460,7 @@ func (x *StartResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartResponse.ProtoReflect.Descriptor instead.
 func (*StartResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{3}
+	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{4}
 }
 
 type SetExpiryRequest struct {
@@ -406,7 +473,7 @@ type SetExpiryRequest struct {
 
 func (x *SetExpiryRequest) Reset() {
 	*x = SetExpiryRequest{}
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[4]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -418,7 +485,7 @@ func (x *SetExpiryRequest) String() string {
 func (*SetExpiryRequest) ProtoMessage() {}
 
 func (x *SetExpiryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[4]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -431,7 +498,7 @@ func (x *SetExpiryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetExpiryRequest.ProtoReflect.Descriptor instead.
 func (*SetExpiryRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{4}
+	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SetExpiryRequest) GetExpiryBoottimeNs() int64 {
@@ -450,7 +517,7 @@ type SetExpiryResponse struct {
 
 func (x *SetExpiryResponse) Reset() {
 	*x = SetExpiryResponse{}
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[5]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -462,7 +529,7 @@ func (x *SetExpiryResponse) String() string {
 func (*SetExpiryResponse) ProtoMessage() {}
 
 func (x *SetExpiryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[5]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -475,7 +542,7 @@ func (x *SetExpiryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetExpiryResponse.ProtoReflect.Descriptor instead.
 func (*SetExpiryResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{5}
+	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SetExpiryResponse) GetExpiryBoottimeNs() int64 {
@@ -493,7 +560,7 @@ type InspectRequest struct {
 
 func (x *InspectRequest) Reset() {
 	*x = InspectRequest{}
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[6]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -505,7 +572,7 @@ func (x *InspectRequest) String() string {
 func (*InspectRequest) ProtoMessage() {}
 
 func (x *InspectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[6]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -518,7 +585,7 @@ func (x *InspectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectRequest.ProtoReflect.Descriptor instead.
 func (*InspectRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{6}
+	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{7}
 }
 
 type InspectResponse struct {
@@ -541,7 +608,7 @@ type InspectResponse struct {
 
 func (x *InspectResponse) Reset() {
 	*x = InspectResponse{}
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[7]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -553,7 +620,7 @@ func (x *InspectResponse) String() string {
 func (*InspectResponse) ProtoMessage() {}
 
 func (x *InspectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[7]
+	mi := &file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -566,7 +633,7 @@ func (x *InspectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectResponse.ProtoReflect.Descriptor instead.
 func (*InspectResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{7}
+	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *InspectResponse) GetMachineId() string {
@@ -614,7 +681,7 @@ const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1b\n" +
 	"\tread_only\x18\x03 \x01(\bR\breadOnly\x12\x17\n" +
 	"\ain_path\x18\x04 \x01(\tR\x06inPath\x12\x16\n" +
-	"\x06sha256\x18\x05 \x01(\tR\x06sha256\"\x9e\x03\n" +
+	"\x06sha256\x18\x05 \x01(\tR\x06sha256\"\xd6\x03\n" +
 	"\aProcess\x12\x1e\n" +
 	"\n" +
 	"executable\x18\x01 \x01(\tR\n" +
@@ -630,7 +697,11 @@ const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\x0eoverhead_tasks\x18\b \x01(\rR\roverheadTasks\x12#\n" +
 	"\roverhead_cpus\x18\t \x01(\x01R\foverheadCpus\x12+\n" +
 	"\x11executable_sha256\x18\n" +
-	" \x01(\tR\x10executableSha256\"\xa8\x02\n" +
+	" \x01(\tR\x10executableSha256\x126\n" +
+	"\x06end_on\x18\v \x01(\v2\x1f.mvmd.supervisor.v1alpha1.EndOnR\x05endOn\"-\n" +
+	"\x05EndOn\x12\x0e\n" +
+	"\x02fd\x18\x01 \x01(\rR\x02fd\x12\x14\n" +
+	"\x05match\x18\x02 \x01(\fR\x05match\"\xa8\x02\n" +
 	"\fStartRequest\x12;\n" +
 	"\aprocess\x18\x01 \x01(\v2!.mvmd.supervisor.v1alpha1.ProcessR\aprocess\x12\x10\n" +
 	"\x03uid\x18\x02 \x01(\rR\x03uid\x12\x10\n" +
@@ -674,31 +745,33 @@ func file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescGZIP() []byte {
 	return file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescData
 }
 
-var file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_mvmd_supervisor_v1alpha1_supervisor_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_mvmd_supervisor_v1alpha1_supervisor_proto_goTypes = []any{
 	(*BlockDevice)(nil),       // 0: mvmd.supervisor.v1alpha1.BlockDevice
 	(*Process)(nil),           // 1: mvmd.supervisor.v1alpha1.Process
-	(*StartRequest)(nil),      // 2: mvmd.supervisor.v1alpha1.StartRequest
-	(*StartResponse)(nil),     // 3: mvmd.supervisor.v1alpha1.StartResponse
-	(*SetExpiryRequest)(nil),  // 4: mvmd.supervisor.v1alpha1.SetExpiryRequest
-	(*SetExpiryResponse)(nil), // 5: mvmd.supervisor.v1alpha1.SetExpiryResponse
-	(*InspectRequest)(nil),    // 6: mvmd.supervisor.v1alpha1.InspectRequest
-	(*InspectResponse)(nil),   // 7: mvmd.supervisor.v1alpha1.InspectResponse
+	(*EndOn)(nil),             // 2: mvmd.supervisor.v1alpha1.EndOn
+	(*StartRequest)(nil),      // 3: mvmd.supervisor.v1alpha1.StartRequest
+	(*StartResponse)(nil),     // 4: mvmd.supervisor.v1alpha1.StartResponse
+	(*SetExpiryRequest)(nil),  // 5: mvmd.supervisor.v1alpha1.SetExpiryRequest
+	(*SetExpiryResponse)(nil), // 6: mvmd.supervisor.v1alpha1.SetExpiryResponse
+	(*InspectRequest)(nil),    // 7: mvmd.supervisor.v1alpha1.InspectRequest
+	(*InspectResponse)(nil),   // 8: mvmd.supervisor.v1alpha1.InspectResponse
 }
 var file_mvmd_supervisor_v1alpha1_supervisor_proto_depIdxs = []int32{
 	0, // 0: mvmd.supervisor.v1alpha1.Process.boot_files:type_name -> mvmd.supervisor.v1alpha1.BlockDevice
-	1, // 1: mvmd.supervisor.v1alpha1.StartRequest.process:type_name -> mvmd.supervisor.v1alpha1.Process
-	2, // 2: mvmd.supervisor.v1alpha1.SupervisorService.Start:input_type -> mvmd.supervisor.v1alpha1.StartRequest
-	4, // 3: mvmd.supervisor.v1alpha1.SupervisorService.SetExpiry:input_type -> mvmd.supervisor.v1alpha1.SetExpiryRequest
-	6, // 4: mvmd.supervisor.v1alpha1.SupervisorService.Inspect:input_type -> mvmd.supervisor.v1alpha1.InspectRequest
-	3, // 5: mvmd.supervisor.v1alpha1.SupervisorService.Start:output_type -> mvmd.supervisor.v1alpha1.StartResponse
-	5, // 6: mvmd.supervisor.v1alpha1.SupervisorService.SetExpiry:output_type -> mvmd.supervisor.v1alpha1.SetExpiryResponse
-	7, // 7: mvmd.supervisor.v1alpha1.SupervisorService.Inspect:output_type -> mvmd.supervisor.v1alpha1.InspectResponse
-	5, // [5:8] is the sub-list for method output_type
-	2, // [2:5] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2, // 1: mvmd.supervisor.v1alpha1.Process.end_on:type_name -> mvmd.supervisor.v1alpha1.EndOn
+	1, // 2: mvmd.supervisor.v1alpha1.StartRequest.process:type_name -> mvmd.supervisor.v1alpha1.Process
+	3, // 3: mvmd.supervisor.v1alpha1.SupervisorService.Start:input_type -> mvmd.supervisor.v1alpha1.StartRequest
+	5, // 4: mvmd.supervisor.v1alpha1.SupervisorService.SetExpiry:input_type -> mvmd.supervisor.v1alpha1.SetExpiryRequest
+	7, // 5: mvmd.supervisor.v1alpha1.SupervisorService.Inspect:input_type -> mvmd.supervisor.v1alpha1.InspectRequest
+	4, // 6: mvmd.supervisor.v1alpha1.SupervisorService.Start:output_type -> mvmd.supervisor.v1alpha1.StartResponse
+	6, // 7: mvmd.supervisor.v1alpha1.SupervisorService.SetExpiry:output_type -> mvmd.supervisor.v1alpha1.SetExpiryResponse
+	8, // 8: mvmd.supervisor.v1alpha1.SupervisorService.Inspect:output_type -> mvmd.supervisor.v1alpha1.InspectResponse
+	6, // [6:9] is the sub-list for method output_type
+	3, // [3:6] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_mvmd_supervisor_v1alpha1_supervisor_proto_init() }
@@ -712,7 +785,7 @@ func file_mvmd_supervisor_v1alpha1_supervisor_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc), len(file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

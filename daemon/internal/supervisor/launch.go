@@ -73,6 +73,11 @@ func checkRequest(req *pb.StartRequest) error {
 	if p.GetTapByDescriptor() && req.GetTap() == "" {
 		return errors.New("the process takes its tap by descriptor and no tap was named")
 	}
+	if e := p.GetEndOn(); e != nil {
+		if err := checkEndOn(e.GetFd(), e.GetMatch()); err != nil {
+			return err
+		}
+	}
 	// The root's layout is refused here, before anything is made for the start.
 	_, err := mountsFor(req)
 	return err
@@ -204,14 +209,20 @@ func start(socket string, req *pb.StartRequest, lim limits, vmmLog, in, out *os.
 
 	cmd := exec.Command(self, confineCommand, filepath.Join(filepath.Dir(socket), "root"))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = requestR, vmmLog, vmmLog
-	// Descriptors 3 (tapFD), 4 (statusFD), 5 (inputFD) and 6 (outputFD).
 	cmd.ExtraFiles = []*os.File{tap, statusW, in, out}
+	pipeStarted, err := placeEndOn(cmd, req.GetProcess().GetEndOn(), os.Stderr)
+	if err != nil {
+		requestR.Close()
+		statusW.Close()
+		return 0, err
+	}
 	flags := uintptr(syscall.CLONE_NEWNS)
 	if newNetworkNamespace(req) {
 		flags |= syscall.CLONE_NEWNET
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: flags, UseCgroupFD: true, CgroupFD: int(cgroup.Fd())}
 	err = cmd.Start()
+	pipeStarted(err)
 	requestR.Close()
 	statusW.Close()
 	if err != nil {

@@ -3,6 +3,7 @@ package cloudhypervisor_test
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,11 +20,12 @@ var wantArgs = []string{
 	"--log-file", "/run/cloud-hypervisor.log",
 	"--kernel", "/boot/kernel",
 	"--initramfs", "/boot/initrd",
-	"--cmdline", "console=ttyS0",
+	"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd",
 	"--cpus", "boot=2",
 	"--memory", "size=256M",
 	"--serial", "tty",
 	"--console", "off",
+	"--event-monitor", "fd=7",
 	"--vsock", "cid=3,socket=/run/vsock.sock",
 	"--disk", "path=/disk/0,readonly=on,image_type=raw,id=disk0", "path=/disk/1,readonly=off,image_type=raw,id=disk1",
 	"--net", "fd=[3],mac=02:00:00:00:00:01",
@@ -125,13 +127,23 @@ func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T)
 func TestArgs_DifferOnAarch64ByTheSerialPortOnly(t *testing.T) {
 	n := newNode(t)
 	want := append([]string(nil), wantArgs...)
-	want[9] = "console=ttyAMA0"
+	want[9] = "console=ttyAMA0 reboot=k panic=1"
 	assert.Equal(t, want, cloudhypervisor.Args(n.spec(), "arm64"))
 }
 
 func TestCmdline_NamesTheSerialPortOfTheArchitecture(t *testing.T) {
-	assert.Equal(t, "console=ttyS0", cloudhypervisor.Cmdline("amd64"))
-	assert.Equal(t, "console=ttyAMA0", cloudhypervisor.Cmdline("arm64"))
+	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd", cloudhypervisor.Cmdline("amd64"))
+	assert.Equal(t, "console=ttyAMA0 reboot=k panic=1", cloudhypervisor.Cmdline("arm64"))
+}
+
+func TestDescribe_TheSupervisorEndsTheVMMWhenTheEventMonitorSaysTheGuestReset(t *testing.T) {
+	n := newNode(t)
+	p, err := n.driver.Describe(context.Background(), "m1", n.spec())
+	require.NoError(t, err)
+	assert.Equal(t, machine.PipeTrigger{FD: 7, Match: []byte(`"event": "rebooting"`)}, p.EndOn)
+	i := slices.Index(p.Args, "--event-monitor")
+	require.NotEqual(t, -1, i)
+	assert.Equal(t, "fd=7", p.Args[i+1], "the monitor writes to the descriptor the pipe is passed as")
 }
 
 func TestCPUReadFiles_AreNamedOnAarch64Only(t *testing.T) {

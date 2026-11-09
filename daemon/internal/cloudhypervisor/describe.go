@@ -28,16 +28,27 @@ const (
 	overheadCPUs = 1.0
 	// tapDescriptor is the descriptor the supervisor passes the tap as.
 	tapDescriptor = 3
+	// eventDescriptor is the descriptor the supervisor passes the write end of
+	// the VMM's event pipe as: the one above the console's (ADR 0026).
+	eventDescriptor = 7
 )
 
-// cmdline is the kernel command line: the serial console the VMM carries to
-// the run directory's log. x86_64's serial port is ttyS0 and aarch64's PL011 is
-// ttyAMA0 (docs/device_model.md).
+// rebootingEvent is what the VMM's event monitor writes when the guest has
+// reset, however it did: v54.0 writes each event as indented JSON, and the
+// event of a reset is {"source": "vm", "event": "rebooting"}. The supervisor
+// ends the VMM when it reads this (ADR 0026).
+var rebootingEvent = []byte(`"event": "rebooting"`)
+
+// cmdline is the kernel command line: the serial console the VMM carries to the
+// run directory's log, and the guest parameters that make a panic reset the
+// guest through the keyboard controller (ADR 0026). x86_64's serial port is
+// ttyS0 and aarch64's PL011 is ttyAMA0 (docs/device_model.md). The i8042
+// parameters, x86_64's, are the Firecracker Driver's.
 func cmdline(goarch string) string {
 	if goarch == "arm64" {
-		return "console=ttyAMA0"
+		return "console=ttyAMA0 reboot=k panic=1"
 	}
-	return "console=ttyS0"
+	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 }
 
 // verify refuses a binary or a kernel that is not the one the node pinned. It
@@ -80,6 +91,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		// adds by default; without it the VM does not boot.
 		DeviceNodes:     []string{"/dev/kvm", "/dev/urandom"},
 		TapByDescriptor: spec.Network.Tap != "",
+		EndOn:           machine.PipeTrigger{FD: eventDescriptor, Match: rebootingEvent},
 		Overhead: machine.ProcessOverhead{
 			MemoryBytes: overheadMemory,
 			Tasks:       spec.Resources.VCPUs + overheadTasks + uint32(len(spec.Devices)),
@@ -90,7 +102,8 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 
 // args is the command line that configures the VM. Paths are those in the VMM's
 // root, and the guest's serial console is the VMM's standard output and input
-// with no virtio console beside it. The network device is the tap the
+// with no virtio console beside it. The event monitor writes to the pipe the
+// supervisor passes as a descriptor. The network device is the tap the
 // supervisor passes as a descriptor: the API takes it by name only.
 func args(spec machine.BootSpec, goarch string) []string {
 	a := []string{
@@ -103,6 +116,7 @@ func args(spec machine.BootSpec, goarch string) []string {
 		"--memory", "size=" + strconv.FormatUint(spec.Resources.MemoryBytes/mib, 10) + "M",
 		"--serial", "tty",
 		"--console", "off",
+		"--event-monitor", fmt.Sprintf("fd=%d", eventDescriptor),
 		"--vsock", fmt.Sprintf("cid=%d,socket=%s", guestCID, inRun(vsockSocketName)),
 		"--disk",
 	}

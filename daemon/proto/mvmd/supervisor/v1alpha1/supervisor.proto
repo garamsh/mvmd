@@ -56,6 +56,19 @@ message Process {
   // The executable's SHA-256, in hex, or empty when it is not pinned. Checked
   // as BlockDevice.sha256 is. The executable is at its host path in the root.
   string executable_sha256 = 10;
+  // A pipe the supervisor ends the process on (ADR 0026). Unset, there is none.
+  EndOn end_on = 11;
+}
+
+// EndOn is a pipe the supervisor creates and passes its write end of as
+// descriptor fd. It reads the pipe and, when what the process wrote contains
+// match, ends the process and records why in its own log. A match that spans
+// two reads is found.
+message EndOn {
+  // The descriptor number, above those the supervisor passes itself (3 to 6).
+  uint32 fd = 1;
+  // The bytes to find, not empty.
+  bytes match = 2;
 }
 
 message StartRequest {

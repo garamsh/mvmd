@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 )
 
 // The VMM of a real test sees the files of its description at the fixed
@@ -120,6 +123,44 @@ func InRoot(p machine.ProcessDescription) (*exec.Cmd, error) {
 	cmd.Env = append(os.Environ(), rootEnv+"="+string(raw))
 	cmd.SysProcAttr = namespaces()
 	return cmd, nil
+}
+
+// rootProcess is the VMM started in its root.
+type rootProcess struct {
+	cmd    *exec.Cmd
+	exited chan struct{}
+}
+
+func (p rootProcess) Kill() error             { return p.cmd.Process.Kill() }
+func (p rootProcess) Exited() <-chan struct{} { return p.exited }
+
+// StartInRoot runs the described process in its root with the streams, as the
+// supervisor would, which includes the event pipe of its description, placed
+// and watched by the function the supervisor calls (supervisor.EndOnPipe). A
+// description with no pipe is started with none.
+func StartInRoot(t *testing.T, p machine.ProcessDescription, s Streams) Process {
+	t.Helper()
+	cmd, err := InRoot(p)
+	require.NoError(t, err)
+	if s.In != nil {
+		cmd.Stdin = s.In
+	}
+	cmd.Stdout, cmd.Stderr = s.Out, s.Err
+	pipeStarted := func(error) {}
+	if len(p.EndOn.Match) > 0 {
+		var log io.Writer = os.Stderr
+		if s.Err != nil {
+			log = s.Err
+		}
+		pipeStarted, err = supervisor.EndOnPipe(cmd, p.EndOn.FD, p.EndOn.Match, log)
+		require.NoError(t, err)
+	}
+	startErr := cmd.Start()
+	pipeStarted(startErr)
+	require.NoError(t, startErr)
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	return rootProcess{cmd, exited}
 }
 
 // enterRoot builds the root in this process, pivots into it and execs the

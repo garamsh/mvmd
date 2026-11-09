@@ -56,5 +56,6 @@ Decisions:
 - [ADR 0023](./adr/0023-a-restart-settles-a-running-machines-disks-against-the-vmms-drives.md) — a restart settles a Running Machine's disks against the VMM's drives
 - [ADR 0024](./adr/0024-the-converters-user-holds-the-output-file-only-while-its-vmm-runs.md) — the converter's user holds the output file only while its VMM runs (adds to the steps 6 and 7 of ADR 0007's Pull image)
 - [ADR 0025](./adr/0025-the-supervisor-gives-the-vmm-a-raw-mode-pseudo-terminal-as-its-console.md) — the supervisor gives the VMM a raw-mode pseudo-terminal as its console (supersedes ADR 0020's pipes)
+- [ADR 0026](./adr/0026-the-supervisor-ends-a-vmm-whose-event-pipe-reports-a-guest-reset.md) — the supervisor ends a VMM whose event pipe reports a guest reset (extends what ADR 0015's description carries)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
