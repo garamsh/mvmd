@@ -48,6 +48,5 @@ Decisions:
 - [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) — the supervisor confines every VMM process the same way
 - [ADR 0016](./adr/0016-a-restored-guest-reseeds-from-host-entropy-and-takes-its-time-from-the-host.md) — a restored guest reseeds from host entropy and takes its time from the host
 - [ADR 0017](./adr/0017-the-converter-serves-a-grpc-contract-it-owns-and-carries-mkfs-erofs-in-its-initrd.md) — the converter serves a gRPC contract it owns and carries mkfs.erofs in its initrd
-- [ADR 0018](./adr/0018-a-graceful-stop-goes-through-the-guest-agent-and-the-vmm-request-is-the-fallback.md) — a graceful stop goes through the Guest Agent, and the VMM request is the fallback
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
