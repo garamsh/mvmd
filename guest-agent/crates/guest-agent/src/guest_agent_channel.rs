@@ -134,7 +134,13 @@ async fn run(arguments: Arguments) -> io::Result<()> {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
     };
-    outcome.and(removed)
+    match (outcome, removed) {
+        (Err(earlier), Err(error)) => {
+            eprintln!("guest-agent-channel: remove the socket: {error}");
+            Err(earlier)
+        }
+        (outcome, removed) => outcome.and(removed),
+    }
 }
 
 fn main() -> ExitCode {
