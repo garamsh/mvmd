@@ -23,7 +23,8 @@ func realStorage(cfg Config) (machine.Disk, machine.SnapshotStore, error) {
 	if err := os.MkdirAll(disks, 0o755); err != nil {
 		return nil, nil, fmt.Errorf("the disk directory: %w", err)
 	}
-	disk, _ := diskfile.NewDisk(disks, cfg.Disk.MKFS); var err error
+	disk, _ := diskfile.NewDisk(disks, cfg.Disk.MKFS)
+	var err error
 	if err != nil {
 		return nil, nil, fmt.Errorf("the Disk: %w", err)
 	}
