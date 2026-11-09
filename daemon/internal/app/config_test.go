@@ -87,7 +87,7 @@ func TestConfig_Refuses(t *testing.T) {
 		{"a mode that is not octal", `{"socket":{"path":"/s","mode":"rw"},"state_dir":"/v","driver":"memory"}`, "socket.mode"},
 		{"a mode above 0777", `{"socket":{"path":"/s","mode":"1777"},"state_dir":"/v","driver":"memory"}`, "socket.mode"},
 		{"no mode", `{"socket":{"path":"/s"},"state_dir":"/v","driver":"memory"}`, "socket.mode"},
-		{"an unknown driver", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"firecracker"}`, "driver"},
+		{"an unknown driver", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"cloud-hypervisor"}`, "is not one of"},
 		{"a relative supervisor binary", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"mvmd-supervisor"}}`, "supervision.binary"},
 		{"a relative supervisor directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"d"}}`, "supervision.dir"},
 		{"a relative supervisor cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","cgroup":"c"}}`, "supervision.cgroup"},

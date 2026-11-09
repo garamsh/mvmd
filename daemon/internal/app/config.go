@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -21,13 +22,21 @@ import (
 // (Supervision, Network), which replaces the substitute behind its port.
 const DriverMemory = "memory"
 
+// DriverFirecracker selects the Firecracker Driver, and the Guest Agent
+// channel adapter over it, in place of the in-memory Driver and Guest. It
+// needs the Firecracker section and real supervision.
+const DriverFirecracker = "firecracker"
+
 // Config is mvmd's one configuration file.
 type Config struct {
 	Socket SocketConfig `json:"socket"`
 	// StateDir holds mvmd's database. It is created if absent.
 	StateDir string `json:"state_dir"`
-	// Driver selects the adapters behind the ports: "memory".
+	// Driver selects the adapters behind the ports: "memory" or "firecracker".
 	Driver string `json:"driver"`
+	// Firecracker names the pinned binary, kernel and initrd the Firecracker
+	// Driver boots; it is required by that Driver and refused with any other.
+	Firecracker *FirecrackerConfig `json:"firecracker,omitempty"`
 	// VMMUIDRange names the range of UIDs (and GIDs) reserved for Machines.
 	// The first must be non-zero (root is forbidden) and Count must be
 	// positive; the range must not overflow uint32 (ADR 0015).
@@ -86,6 +95,26 @@ func (c Config) bootTimeout() (time.Duration, error) {
 		return 0, fmt.Errorf("boot_timeout %q is outside 1ns to %s", c.BootTimeout, MaxBootTimeout)
 	}
 	return d, nil
+}
+
+// FirecrackerConfig is what the node says about Firecracker and the guest it
+// boots (ADR 0010): each file by absolute path, the binary and the kernel also
+// by SHA-256 in hex, which the Driver checks before every boot.
+type FirecrackerConfig struct {
+	Binary       string `json:"binary"`
+	BinarySHA256 string `json:"binary_sha256"`
+	Kernel       string `json:"kernel"`
+	KernelSHA256 string `json:"kernel_sha256"`
+	Initrd       string `json:"initrd"`
+}
+
+// toDriver names the Driver's files; it adds the run directories.
+func (c FirecrackerConfig) toDriver(dirs firecracker.RunDirs) firecracker.Config {
+	return firecracker.Config{
+		Binary: c.Binary, BinarySHA256: c.BinarySHA256,
+		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
+		Initrd: c.Initrd, Dirs: dirs,
+	}
 }
 
 // NetworkConfig is what the node says about its network (ADR 0011). A node
@@ -202,8 +231,19 @@ func (c Config) check() error {
 		return fmt.Errorf("socket.path %q is not an absolute path", c.Socket.Path)
 	case !filepath.IsAbs(c.StateDir):
 		return fmt.Errorf("state_dir %q is not an absolute path", c.StateDir)
-	case c.Driver != DriverMemory:
-		return fmt.Errorf("driver %q is not one of %q", c.Driver, DriverMemory)
+	case c.Driver != DriverMemory && c.Driver != DriverFirecracker:
+		return fmt.Errorf("driver %q is not one of %q", c.Driver, []string{DriverMemory, DriverFirecracker})
+	case c.Driver == DriverFirecracker && c.Firecracker == nil:
+		return fmt.Errorf("driver %q needs the firecracker section", c.Driver)
+	case c.Driver == DriverFirecracker && c.Supervision == nil:
+		return fmt.Errorf("driver %q needs the supervision section: its VMM runs under a supervisor", c.Driver)
+	case c.Driver != DriverFirecracker && c.Firecracker != nil:
+		return fmt.Errorf("the firecracker section is for driver %q, not %q", DriverFirecracker, c.Driver)
+	}
+	if f := c.Firecracker; f != nil {
+		if err := f.toDriver(nil).Validate(); err != nil {
+			return err
+		}
 	}
 	if _, err := c.Socket.perm(); err != nil {
 		return err

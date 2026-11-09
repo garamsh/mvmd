@@ -52,3 +52,36 @@ jobs:
       # Dependabot cargo pull request carries it.
       - name: Audit the Rust dependencies
         run: make audit
+
+  # The Firecracker Driver's tests boot a guest, so they need KVM, which make ci does not. The
+  # job fails, and does not skip, when /dev/kvm cannot be used.
+  firecracker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            lib/runtimeapi/go.sum
+            tooling/protogen/go.sum
+      - name: Record the toolchain this run resolved
+        run: go version
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          rust-src-dir: guest-agent
+          cache: false
+          build-warnings: ""
+      # Gives every user access to /dev/kvm, the udev rule the runner images' KVM support documents,
+      # then records what the runner has.
+      - name: Make /dev/kvm usable
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+          test -r /dev/kvm -a -w /dev/kvm
+      - name: Boot the pinned Firecracker on the pinned kernel
+        run: make test-firecracker
