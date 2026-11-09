@@ -30,6 +30,8 @@ LIBTOOL_SHA256=2ef1067c16c97db930fd740cc9bc3d3ba9a583804ae5ac42cc3e8719e49e191e
 PKGCONF=https://distfiles.ariadne.space/pkgconf/pkgconf-3.0.10.tar.xz
 PKGCONF_SHA256=9371b2f6372da574d4c6dc96fe9b1463037bcf6afcb6671c1555afde7b17e2de
 ZLIB=https://github.com/madler/zlib/releases/download/v1.4/zlib-1.4.tar.xz
+# zlib.net serves the same file; its content was checked against the digest below on 2026-11-09.
+ZLIB_MIRROR=https://zlib.net/zlib-1.4.tar.xz
 ZLIB_SHA256=4f11c512053d7bab8d9e9b89bde3575add3e4c50a383b42ef6cb837035fc5a7c
 # erofs-utils v1.9.4, named by the commit the tag points to, so the URL cannot come to mean another tree.
 EROFS=https://github.com/erofs/erofs-utils/archive/f36cadb5c563995ab3aa8572a60ed6b721b9557d.tar.gz
@@ -71,20 +73,52 @@ export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH=0
 export PATH="$prefix/bin:$PATH"
 export ZIG_GLOBAL_CACHE_DIR="$cache/zig-cache" ZIG_LOCAL_CACHE_DIR="$cache/zig-cache/local"
 
-# fetch <url> <sha256> prints the path of the verified download.
+# fetch <sha256> <url>... takes the file the pinned digest names from the cache, or else from the
+# first of the URLs, tried in order, that gives a file with that digest. The digest decides, not
+# the host: a URL that fails, or answers with other content, is reported and the next is tried.
+# The file is checked against the digest whether it was just downloaded or came from the cache.
+# All URLs name one file, so the cache path is the last component of the first. $fetched is set
+# to the path. fetch is called as a command of its own and never inside a command substitution,
+# whose subshell would swallow its exit and let the build carry on with an empty path.
+#
+# A download that fails is reported with its URL, curl's own error on the line above, and the
+# build stops once every URL has failed. Each URL is tried with at most 4 retries after the first
+# attempt, curl waiting 1, 2, 4 and 8 seconds between them (its default doubling), so at most 5
+# attempts and 15 seconds of waiting per URL; --retry-all-errors includes an HTTP 5xx under
+# --fail.
+fetched=
 fetch() {
-  local file="$cache/dl/${1##*/}"
+  local sha256=$1
+  shift
+  local file="$cache/dl/${1##*/}" url status
   mkdir -p "$cache/dl"
-  if [ ! -f "$file" ]; then
-    curl --fail --silent --show-error --location --output "$file.part" "$1"
-    mv "$file.part" "$file"
+  if [ -f "$file" ]; then
+    if ! echo "$sha256  $file" | sha256sum --check --quiet >&2; then
+      echo "build.sh: $file does not match its pinned SHA-256 $sha256" >&2
+      rm -f "$file"
+      exit 1
+    fi
+    fetched=$file
+    return
   fi
-  echo "$2  $file" | sha256sum --check --quiet >&2 || {
-    echo "build.sh: $file does not match its pinned SHA-256 $2" >&2
-    rm -f "$file"
-    exit 1
-  }
-  echo "$file"
+  for url in "$@"; do
+    status=0
+    curl --fail --silent --show-error --location --connect-timeout 30 \
+      --retry 4 --retry-all-errors --output "$file.part" "$url" || status=$?
+    if [ "$status" -ne 0 ]; then
+      rm -f "$file.part"
+      echo "build.sh: downloading $url failed (curl exit status $status)" >&2
+    elif echo "$sha256  $file.part" | sha256sum --check --quiet >&2; then
+      mv "$file.part" "$file"
+      fetched=$file
+      return
+    else
+      rm -f "$file.part"
+      echo "build.sh: $url does not match its pinned SHA-256 $sha256" >&2
+    fi
+  done
+  echo "build.sh: no URL for ${file##*/} gave a file with the pinned SHA-256 $sha256" >&2
+  exit 1
 }
 
 # unpack <tarball> <dir> extracts into a fresh <dir>, dropping the tarball's top directory.
@@ -108,7 +142,8 @@ stage() {
 
 # The compiler wrappers: `cc` builds for musl, `hostcc` for the machine the build runs on.
 install_zig() {
-  unpack "$(fetch "$zig_url" "$zig_sha256")" "$cache/zig"
+  fetch "$zig_sha256" "$zig_url"
+  unpack "$fetched" "$cache/zig"
   mkdir -p "$prefix/bin" "$cache/wrap"
   local zig="$cache/zig/zig"
   printf '#!/bin/sh\nexec "%s" cc -target %s "$@"\n' "$zig" "$triple" >"$cache/wrap/cc"
@@ -120,14 +155,17 @@ install_zig() {
 
 gnu_tool() {
   local src="$cache/src/$1"
-  unpack "$(fetch "$2" "$3")" "$src"
+  # ftpmirror.gnu.org redirects to a nearby mirror of ftp.gnu.org's files.
+  fetch "$3" "$2" "https://ftpmirror.gnu.org/gnu/${2#https://ftp.gnu.org/gnu/}"
+  unpack "$fetched" "$src"
   (cd "$src" && CC="$cache/wrap/hostcc" ./configure --prefix="$prefix" >/dev/null \
     && make -j"$jobs" >/dev/null && make install >/dev/null)
 }
 
 build_zlib() {
   local src="$cache/src/zlib"
-  unpack "$(fetch "$ZLIB" "$ZLIB_SHA256")" "$src"
+  fetch "$ZLIB_SHA256" "$ZLIB" "$ZLIB_MIRROR"
+  unpack "$fetched" "$src"
   (cd "$src" && CC="$cache/wrap/cc" AR="$cache/wrap/ar" RANLIB="$cache/wrap/ranlib" \
     ./configure --prefix="$prefix/zlib" --static >/dev/null \
     && make -j"$jobs" libz.a >/dev/null && make install >/dev/null)
@@ -137,8 +175,10 @@ build_zlib() {
 # one file below. No directory of the host is searched.
 prepare_erofs() {
   local src="$cache/src/erofs-utils" pkgconf="$cache/src/pkgconf"
-  unpack "$(fetch "$EROFS" "$EROFS_SHA256")" "$src"
-  unpack "$(fetch "$PKGCONF" "$PKGCONF_SHA256")" "$pkgconf"
+  fetch "$EROFS_SHA256" "$EROFS"
+  unpack "$fetched" "$src"
+  fetch "$PKGCONF_SHA256" "$PKGCONF"
+  unpack "$fetched" "$pkgconf"
   rm -rf "$cache/aclocal"
   mkdir -p "$cache/aclocal"
   cp "$pkgconf/pkg.m4" "$cache/aclocal/"

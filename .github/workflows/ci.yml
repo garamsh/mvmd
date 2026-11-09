@@ -36,6 +36,16 @@ jobs:
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-deny@0.20.2
+      # The verified downloads of imageconv/mkfs-erofs/build.sh, keyed on the digests it pins, so
+      # a run with the pins unchanged downloads nothing and a changed pin finds no entry.
+      # build.sh checks every file against its digest on each use, a cache hit included.
+      - name: Key the pinned downloads
+        id: pins
+        run: echo "key=$(grep -E '^[A-Z0-9_]+_SHA256=' imageconv/mkfs-erofs/build.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: imageconv/target/erofs-utils-build/dl
+          key: build-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
       - name: Run the whole check set
         run: make ci
       # Not part of make ci: it fetches the advisory database. Its output is on every run, so a
