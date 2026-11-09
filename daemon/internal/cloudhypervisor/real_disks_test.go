@@ -112,5 +112,14 @@ func checkVMM(t *testing.T, at drivertest.Checkpoint, m drivertest.Machine) {
 			_, err := os.Lstat(filepath.Join(m.RunDir, deviceOf[disk]))
 			assert.ErrorIs(t, err, os.ErrNotExist, "the link of %s is gone", disk)
 		}
+		// The detach returns once the guest has ejected, so the device tree
+		// holds none of the disks detached, the one given at boot ("given")
+		// included.
+		const given = "disk_5b729e0f619797fd61108a4bb177273222ad9ac5538299c8386f061e29046e60"
+		status, raw := vmmRequest(t, sock, "GET", "/vm.info", "")
+		require.Equal(t, http.StatusOK, status, string(raw))
+		for _, name := range []string{deviceOf["hot"], deviceOf["hotro"], given} {
+			assert.NotContains(t, string(raw), `"`+name+`":`, "a detached device is still in the VMM's device tree")
+		}
 	}
 }
