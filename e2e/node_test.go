@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -37,6 +38,9 @@ type node struct {
 	registry *registry
 	client   v1alpha1.RuntimeServiceClient
 	cgroups  []string
+	// seen is the last sample of a VMM process and the network devices beside it, taken while a
+	// VMM ran, since its tap is deleted when it ends.
+	seen atomic.Value
 }
 
 // startNode brings a node up and returns it once its runtime API answers. The test's cleanup
@@ -114,6 +118,9 @@ func startNode(t *testing.T) *node {
 	// (stop) returns at once instead of waiting for a second one.
 	go func() { exited <- cmd.Wait(); close(exited) }()
 	t.Cleanup(func() { n.stop(cmd, exited) })
+	stopSampling := make(chan struct{})
+	t.Cleanup(func() { close(stopSampling) })
+	go n.sampleVMMs(stopSampling)
 
 	n.client = n.dial(socket, exited)
 	return n
@@ -203,13 +210,47 @@ func (n *node) conversionLogs() string {
 	return b.String()
 }
 
+// sampleVMMs records, every 5ms until stop closes, the credentials of a firecracker process and
+// the owner and group of each network device while one runs. A VMM refused its tap is refused by
+// one of these, and the tap is gone by the time the test fails.
+func (n *node) sampleVMMs(stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case <-time.After(5 * time.Millisecond):
+		}
+		procs, _ := filepath.Glob("/proc/[0-9]*/comm")
+		for _, comm := range procs {
+			name, err := os.ReadFile(comm)
+			if err != nil || !strings.HasPrefix(string(name), "firecracker") {
+				continue
+			}
+			status, err := os.ReadFile(filepath.Join(filepath.Dir(comm), "status"))
+			if err != nil {
+				continue
+			}
+			var b strings.Builder
+			for _, line := range strings.Split(string(status), "\n") {
+				for _, key := range []string{"Uid:", "Gid:", "Groups:", "CapEff:", "NoNewPrivs:", "Seccomp:"} {
+					if strings.HasPrefix(line, key) {
+						b.WriteString(line + "\n")
+					}
+				}
+			}
+			devices, _ := exec.Command("sh", "-c", "for d in /sys/class/net/*; do echo $d owner=$(cat $d/owner 2>/dev/null) group=$(cat $d/group 2>/dev/null) flags=$(cat $d/tun_flags 2>/dev/null); done").CombinedOutput()
+			n.seen.Store(filepath.Dir(comm) + "\n" + b.String() + string(devices))
+		}
+	}
+}
+
 // fileOwners lists, with owner and mode, the files a Machine's VMM is lent from the state
 // directory: the cache's blobs and the root disks. A VMM that is refused a file it was lent is
 // refused by one of these.
 func (n *node) fileOwners() string {
 	out, _ := exec.Command("find", filepath.Join(n.stateDir, "images"), filepath.Join(n.stateDir, "disks"), "-ls").CombinedOutput()
 	taps, _ := exec.Command("sh", "-c", "for d in /sys/class/net/*; do echo $d owner=$(cat $d/owner 2>/dev/null) group=$(cat $d/group 2>/dev/null) flags=$(cat $d/tun_flags 2>/dev/null); done; ls -ln /dev/net/tun").CombinedOutput()
-	return "owners and modes of the cache and the disks:\n" + string(out) + "network devices and their owners:\n" + string(taps)
+	return "owners and modes of the cache and the disks:\n" + string(out) + "network devices and their owners:\n" + string(taps) + "last sample of a firecracker process:\n" + fmt.Sprint(n.seen.Load())
 }
 
 // remove unmounts the state directory and deletes what the node made. It runs after stop.
