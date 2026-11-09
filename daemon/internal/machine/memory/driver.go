@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"errors"
+	"net"
 	"sync"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 )
 
 // Driver is an in-memory machine.Driver. Its steps are "describe", "boot",
+// "guest-conn",
 // "shutdown", "pause", "resume", "attach", "detach", "resize", "snapshot",
 // "describe-restore" and "restore".
 type Driver struct {
@@ -28,6 +31,7 @@ type Driver struct {
 	entered          chan struct{}
 	process          *machine.ProcessDescription
 	report           func(machine.DriverEvent)
+	guests           map[guestPort]func(net.Conn)
 }
 
 // Observe implements machine.Driver.
@@ -69,6 +73,42 @@ func NewDriver(info machine.DriverInfo) *Driver {
 		paused:           make(map[machine.MachineID]bool),
 		pausedAtSnapshot: make(map[machine.MachineID]bool),
 	}
+}
+
+// ServeGuest makes the guest of the Machine answer on the port with serve: each
+// GuestConn to it runs serve on its own goroutine, with the guest's end of a
+// new in-process stream, which serve owns and closes. It stands in for a guest
+// whose Guest Agent listens on the port.
+func (d *Driver) ServeGuest(id machine.MachineID, port uint32, serve func(net.Conn)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.guests == nil {
+		d.guests = make(map[guestPort]func(net.Conn))
+	}
+	d.guests[guestPort{id, port}] = serve
+}
+
+type guestPort struct {
+	id   machine.MachineID
+	port uint32
+}
+
+// GuestConn implements machine.Driver. Its step is "guest-conn". A Machine and
+// port nothing serves is machine.ErrGuestUnreachable, and so is an injected
+// failure, unless it is told another error.
+func (d *Driver) GuestConn(_ context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	if err := d.Enter("guest-conn"); err != nil {
+		return nil, errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	d.mu.Lock()
+	serve, ok := d.guests[guestPort{id, port}]
+	d.mu.Unlock()
+	if !ok {
+		return nil, machine.ErrGuestUnreachable
+	}
+	host, guest := net.Pipe()
+	go serve(guest)
+	return host, nil
 }
 
 // Info implements machine.Driver.

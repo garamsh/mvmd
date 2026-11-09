@@ -1,8 +1,10 @@
-package channel
+package channel_test
 
 import (
 	"context"
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -14,451 +16,842 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/garamsh/mvmd/daemon/internal/channel"
 	guestv1alpha1 "github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
-// fakeServer is an in-process gRPC server that implements the Guest service
-// protocol. It stores state that the guest_test functions exercise.
-type fakeServer struct {
-	guestv1alpha1.UnimplementedGuestServiceServer
+var errBoom = errors.New("injected failure")
 
-	mu     sync.Mutex
-	err    error
-	health bool
+// state is what one Machine's fake Guest Agent holds and was sent. Its
+// connections are numbered from one, in the order the adapter opened them.
+type state struct {
+	mu      sync.Mutex
+	conns   []net.Conn
+	servers []*grpc.Server
 
-	// Exec state.
-	execRecord machine.ExecRecord
+	// dropOnConnect closes connection n before the agent answers on it.
+	dropOnConnect func(n int) bool
+	// fail is the status a method answers with, by method name.
+	fail map[string]error
 
-	// ReadExecOutput state.
-	execData []machine.OutputChunk
-	execDone bool
+	boot       *guestv1alpha1.BootRequest
+	catchUp    *guestv1alpha1.CatchUpRequest
+	exec       *guestv1alpha1.ExecRequest
+	execStatus guestv1alpha1.ExecStatus
+	outStream  guestv1alpha1.OutputStream
+	outAfter   []uint64
+	patchOut   guestv1alpha1.PatchOutcome
+	patch      *guestv1alpha1.PatchFileRequest
+	paths      []string
 
-	// ReadFile state.
-	fileContent []byte
-	fileErr     error
+	// output is the exec's bytes, sent in chunks of 100 bytes, and the
+	// connection numbered 1 stops after holdAfter chunks until it is closed.
+	output    []byte
+	holdAfter int
 
-	// WriteFile state.
-	writtenContent []byte
-	writeErr       error
+	// file is the file's content, sent in chunks of fileChunk(n) bytes on
+	// connection n; connection 1 stops after holdAfter chunks.
+	file      []byte
+	fileChunk func(n int) int
 
-	// PatchFile state.
-	patchOutcome machine.PatchOutcome
-	patchErr     error
-
-	// SearchFiles state.
-	searchPaths []string
-	searchErr   error
-
-	// Boot / CatchUp state.
-	bootReq    *guestv1alpha1.BootRequest
-	catchUpReq *guestv1alpha1.CatchUpRequest
-	bootErr    error
-	catchUpErr error
+	// written is what WriteFile received, and the digest it came with.
+	written []byte
+	digest  string
+	// writeGate holds a WriteFile of connection 1 after its first chunk.
+	holdWrite bool
 }
 
-var _ guestv1alpha1.GuestServiceServer = (*fakeServer)(nil)
-
-func (s *fakeServer) Health(_ context.Context, _ *guestv1alpha1.HealthRequest) (*guestv1alpha1.HealthResponse, error) {
+func (s *state) failure(method string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.health = true
-	if s.err != nil {
-		return nil, s.err
-	}
-	return &guestv1alpha1.HealthResponse{}, nil
+	return s.fail[method]
 }
 
-func (s *fakeServer) Boot(_ context.Context, req *guestv1alpha1.BootRequest) (*guestv1alpha1.BootResponse, error) {
+func (s *state) closeConn(n int) {
 	s.mu.Lock()
-	s.bootReq = req
-	err := s.bootErr
+	c := s.conns[n-1]
 	s.mu.Unlock()
-	if err != nil {
+	_ = c.Close()
+}
+
+func (s *state) connections() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.conns)
+}
+
+// serve is what a guest does with a stream of its port: it serves the Guest
+// Agent's contract on it.
+func (s *state) serve(c net.Conn) {
+	s.mu.Lock()
+	s.conns = append(s.conns, c)
+	n := len(s.conns)
+	drop := s.dropOnConnect != nil && s.dropOnConnect(n)
+	s.mu.Unlock()
+	if drop {
+		_ = c.Close()
+		return
+	}
+	srv := grpc.NewServer()
+	guestv1alpha1.RegisterGuestServiceServer(srv, &agent{state: s, n: n})
+	s.mu.Lock()
+	s.servers = append(s.servers, srv)
+	s.mu.Unlock()
+	_ = srv.Serve(&oneConn{conn: c, done: make(chan struct{})})
+}
+
+// oneConn is a listener that yields one connection.
+type oneConn struct {
+	conn net.Conn
+	once sync.Once
+	done chan struct{}
+}
+
+func (l *oneConn) Accept() (net.Conn, error) {
+	var c net.Conn
+	l.once.Do(func() { c = l.conn })
+	if c != nil {
+		return c, nil
+	}
+	<-l.done
+	return nil, net.ErrClosed
+}
+
+func (l *oneConn) Close() error {
+	select {
+	case <-l.done:
+	default:
+		close(l.done)
+	}
+	return nil
+}
+
+func (l *oneConn) Addr() net.Addr { return pipeAddr{} }
+
+type pipeAddr struct{}
+
+func (pipeAddr) Network() string { return "pipe" }
+func (pipeAddr) String() string  { return "pipe" }
+
+type agent struct {
+	guestv1alpha1.UnimplementedGuestServiceServer
+	*state
+	n int
+}
+
+func (a *agent) Health(context.Context, *guestv1alpha1.HealthRequest) (*guestv1alpha1.HealthResponse, error) {
+	return &guestv1alpha1.HealthResponse{}, a.failure("Health")
+}
+
+func (a *agent) Boot(_ context.Context, r *guestv1alpha1.BootRequest) (*guestv1alpha1.BootResponse, error) {
+	a.mu.Lock()
+	a.boot = r
+	a.mu.Unlock()
+	if err := a.failure("Boot"); err != nil {
 		return nil, err
 	}
 	return &guestv1alpha1.BootResponse{}, nil
 }
 
-func (s *fakeServer) CatchUp(_ context.Context, req *guestv1alpha1.CatchUpRequest) (*guestv1alpha1.CatchUpResponse, error) {
-	s.mu.Lock()
-	s.catchUpReq = req
-	err := s.catchUpErr
-	s.mu.Unlock()
-	if err != nil {
+func (a *agent) CatchUp(_ context.Context, r *guestv1alpha1.CatchUpRequest) (*guestv1alpha1.CatchUpResponse, error) {
+	a.mu.Lock()
+	a.catchUp = r
+	a.mu.Unlock()
+	if err := a.failure("CatchUp"); err != nil {
 		return nil, err
 	}
 	return &guestv1alpha1.CatchUpResponse{}, nil
 }
 
-func (s *fakeServer) Exec(_ context.Context, req *guestv1alpha1.ExecRequest) (*guestv1alpha1.ExecResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.err != nil {
-		return nil, s.err
+func (a *agent) Exec(_ context.Context, r *guestv1alpha1.ExecRequest) (*guestv1alpha1.ExecResponse, error) {
+	a.mu.Lock()
+	a.exec = r
+	st := a.execStatus
+	a.mu.Unlock()
+	if err := a.failure("Exec"); err != nil {
+		return nil, err
 	}
-	r := machine.ExecRecord{
-		ID:       machine.ExecID(req.GetExecId()),
-		Status:   machine.ExecStarted,
-		ExitCode: 0,
-	}
-	s.execRecord = r
-	return &guestv1alpha1.ExecResponse{
-		Record: &guestv1alpha1.ExecRecord{
-			ExecId:   string(r.ID),
-			Status:   guestv1alpha1.ExecStatus(r.Status),
-			ExitCode: r.ExitCode,
-		},
-	}, nil
+	return &guestv1alpha1.ExecResponse{Record: &guestv1alpha1.ExecRecord{ExecId: r.GetExecId(), Status: st, Reason: "why", ExitCode: 3, TermSignal: 9}}, nil
 }
 
-func (s *fakeServer) ReadExecOutput(req *guestv1alpha1.ReadExecOutputRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ReadExecOutputResponse]) error {
-	s.mu.Lock()
-	data := make([]machine.OutputChunk, len(s.execData))
-	copy(data, s.execData)
-	done := s.execDone
-	rec := s.execRecord
-	s.mu.Unlock()
-	for _, chunk := range data {
-		if chunk.Offset < req.GetAfterOffset() {
-			continue
-		}
-		if err := srv.Send(&guestv1alpha1.ReadExecOutputResponse{
-			Part: &guestv1alpha1.ReadExecOutputResponse_Chunk{
-				Chunk: &guestv1alpha1.OutputChunk{
-					Stream: guestv1alpha1.OutputStream(chunk.Stream),
-					Offset: chunk.Offset,
-					Data:   chunk.Data,
-				},
-			},
-		}); err != nil {
-			return err
-		}
-	}
-	if done {
-		return srv.Send(&guestv1alpha1.ReadExecOutputResponse{
-			Part: &guestv1alpha1.ReadExecOutputResponse_Record{
-				Record: &guestv1alpha1.ExecRecord{
-					ExecId:   string(rec.ID),
-					Status:   guestv1alpha1.ExecStatus(rec.Status),
-					Reason:   rec.Reason,
-					ExitCode: rec.ExitCode,
-				},
-			},
-		})
-	}
-	return nil
-}
-
-func (s *fakeServer) ReadFile(req *guestv1alpha1.ReadFileRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ReadFileResponse]) error {
-	s.mu.Lock()
-	content := s.fileContent
-	err := s.fileErr
-	s.mu.Unlock()
-	if err != nil {
+func (a *agent) ReadExecOutput(r *guestv1alpha1.ReadExecOutputRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ReadExecOutputResponse]) error {
+	a.mu.Lock()
+	a.outAfter = append(a.outAfter, r.GetAfterOffset())
+	output, hold, stream := a.output, a.holdAfter, a.outStream
+	a.mu.Unlock()
+	if err := a.failure("ReadExecOutput"); err != nil {
 		return err
 	}
-	chunkSize := 512
-	for len(content) > 0 {
-		b := content
-		if len(b) > chunkSize {
-			b = b[:chunkSize]
+	sent := 0
+	for off := r.GetAfterOffset(); off < uint64(len(output)); off += 100 {
+		if a.n == 1 && hold > 0 && sent == hold {
+			<-srv.Context().Done()
+			return srv.Context().Err()
 		}
-		content = content[len(b):]
-		if err := srv.Send(&guestv1alpha1.ReadFileResponse{Chunk: b}); err != nil {
+		end := min(off+100, uint64(len(output)))
+		if err := srv.Send(&guestv1alpha1.ReadExecOutputResponse{Part: &guestv1alpha1.ReadExecOutputResponse_Chunk{
+			Chunk: &guestv1alpha1.OutputChunk{Stream: stream, Offset: off, Data: output[off:end]},
+		}}); err != nil {
 			return err
 		}
+		sent++
+	}
+	return srv.Send(&guestv1alpha1.ReadExecOutputResponse{Part: &guestv1alpha1.ReadExecOutputResponse_Record{
+		Record: &guestv1alpha1.ExecRecord{ExecId: r.GetExecId(), Status: guestv1alpha1.ExecStatus_EXEC_STATUS_EXITED, ExitCode: 7},
+	}})
+}
+
+func (a *agent) ReadFile(_ *guestv1alpha1.ReadFileRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ReadFileResponse]) error {
+	a.mu.Lock()
+	file, hold, size := a.file, a.holdAfter, 100
+	if a.fileChunk != nil {
+		size = a.fileChunk(a.n)
+	}
+	a.mu.Unlock()
+	if err := a.failure("ReadFile"); err != nil {
+		return err
+	}
+	sent := 0
+	for off := 0; off < len(file); off += size {
+		if a.n == 1 && hold > 0 && sent == hold {
+			<-srv.Context().Done()
+			return srv.Context().Err()
+		}
+		if err := srv.Send(&guestv1alpha1.ReadFileResponse{Chunk: file[off:min(off+size, len(file))]}); err != nil {
+			return err
+		}
+		sent++
 	}
 	return nil
 }
 
-func (s *fakeServer) WriteFile(srv grpc.ClientStreamingServer[guestv1alpha1.WriteFileRequest, guestv1alpha1.WriteFileResponse]) error {
-	s.mu.Lock()
-	s.writtenContent = nil
-	s.writeErr = nil
-	s.mu.Unlock()
+func (a *agent) WriteFile(srv grpc.ClientStreamingServer[guestv1alpha1.WriteFileRequest, guestv1alpha1.WriteFileResponse]) error {
+	var got []byte
+	var digest string
 	for {
-		req, err := srv.Recv()
+		m, err := srv.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			s.mu.Lock()
-			s.writeErr = err
-			s.mu.Unlock()
 			return err
 		}
-		if chunk := req.GetChunk(); chunk != nil {
-			s.mu.Lock()
-			s.writtenContent = append(s.writtenContent, chunk...)
-			s.mu.Unlock()
+		if c := m.GetChunk(); c != nil {
+			got = append(got, c...)
+			if a.n == 1 && a.holdWrite {
+				<-srv.Context().Done()
+				return srv.Context().Err()
+			}
+		}
+		if e := m.GetEnd(); e != nil {
+			digest = e.GetDigest()
 		}
 	}
-	if s.writeErr != nil {
-		return s.writeErr
+	if err := a.failure("WriteFile"); err != nil {
+		return err
 	}
+	a.mu.Lock()
+	a.written, a.digest = got, digest
+	a.mu.Unlock()
 	return srv.SendAndClose(&guestv1alpha1.WriteFileResponse{})
 }
 
-func (s *fakeServer) PatchFile(_ context.Context, req *guestv1alpha1.PatchFileRequest) (*guestv1alpha1.PatchFileResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.patchErr != nil {
-		return nil, s.patchErr
+func (a *agent) PatchFile(_ context.Context, r *guestv1alpha1.PatchFileRequest) (*guestv1alpha1.PatchFileResponse, error) {
+	a.mu.Lock()
+	a.patch = r
+	out := a.patchOut
+	a.mu.Unlock()
+	if err := a.failure("PatchFile"); err != nil {
+		return nil, err
 	}
-	s.patchOutcome = machine.PatchApplied
-	return &guestv1alpha1.PatchFileResponse{
-		Outcome: guestv1alpha1.PatchOutcome(s.patchOutcome),
-	}, nil
+	return &guestv1alpha1.PatchFileResponse{Outcome: out}, nil
 }
 
-func (s *fakeServer) SearchFiles(req *guestv1alpha1.SearchFilesRequest, srv grpc.ServerStreamingServer[guestv1alpha1.SearchFilesResponse]) error {
-	s.mu.Lock()
-	paths := s.searchPaths
-	err := s.searchErr
-	s.mu.Unlock()
-	if err != nil {
+func (a *agent) SearchFiles(_ *guestv1alpha1.SearchFilesRequest, srv grpc.ServerStreamingServer[guestv1alpha1.SearchFilesResponse]) error {
+	a.mu.Lock()
+	paths := a.paths
+	a.mu.Unlock()
+	if err := a.failure("SearchFiles"); err != nil {
 		return err
 	}
 	for _, p := range paths {
-		if err := srv.Send(&guestv1alpha1.SearchFilesResponse{
-			Matches: []*guestv1alpha1.FileEntry{{Path: p}},
-		}); err != nil {
+		if err := srv.Send(&guestv1alpha1.SearchFilesResponse{Matches: []*guestv1alpha1.FileEntry{{Path: p}}}); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *fakeServer) UpdateNetwork(_ context.Context, _ *guestv1alpha1.UpdateNetworkRequest) (*guestv1alpha1.UpdateNetworkResponse, error) {
-	return &guestv1alpha1.UpdateNetworkResponse{}, nil
+// harness is a Driver whose Machines have a fake Guest Agent each, and the
+// adapter over it.
+type harness struct {
+	driver *memory.Driver
+	guest  *channel.Guest
 }
 
-func (s *fakeServer) Signal(_ context.Context, _ *guestv1alpha1.SignalRequest) (*guestv1alpha1.SignalResponse, error) {
-	return &guestv1alpha1.SignalResponse{}, nil
-}
-
-func (s *fakeServer) ListFiles(_ *guestv1alpha1.ListFilesRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ListFilesResponse]) error {
-	return srv.Send(&guestv1alpha1.ListFilesResponse{
-		Entries: []*guestv1alpha1.FileEntry{},
-	})
-}
-
-func (s *fakeServer) Info(_ context.Context, _ *guestv1alpha1.InfoRequest) (*guestv1alpha1.InfoResponse, error) {
-	return &guestv1alpha1.InfoResponse{}, nil
-}
-
-// startFakeGRPC starts a gRPC server on a new Unix socket and returns the
-// socket path to use as the dial target.
-func startFakeGRPC(t *testing.T) (sockPath string, cleanup func()) {
+func newHarness(t *testing.T) *harness {
 	t.Helper()
-	tmpDir := t.TempDir()
-	path := fmt.Sprintf("%s/guest.sock", tmpDir)
-
-	lis, err := net.Listen("unix", path)
-	require.NoError(t, err)
-
-	s := grpc.NewServer()
-	guestv1alpha1.RegisterGuestServiceServer(s, &fakeServer{})
-	go func() {
-		_ = s.Serve(lis)
-	}()
-
-	return path, func() {
-		s.Stop()
-		lis.Close()
-	}
+	d := memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1"})
+	return &harness{driver: d, guest: channel.NewGuest(d)}
 }
 
-// newDialer returns a Dialer that creates a gRPC client connected to a Unix
-// socket at the given path.
-func newDialer(sockPath string) Dialer {
-	return func(conn net.Conn) (guestv1alpha1.GuestServiceClient, error) {
-		cc, err := grpc.NewClient(
-			"unix://"+sockPath,
-			grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) {
-				return net.Dial("unix", sockPath)
-			}),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		if err != nil {
-			return nil, err
+// agentOf gives the Machine a fake agent on the Guest Agent's port.
+func (h *harness) agentOf(t *testing.T, id machine.MachineID) *state {
+	t.Helper()
+	st := &state{fail: map[string]error{}, execStatus: guestv1alpha1.ExecStatus_EXEC_STATUS_STARTED}
+	h.driver.ServeGuest(id, machine.GuestAgentPort, st.serve)
+	t.Cleanup(func() {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		for _, s := range st.servers {
+			s.Stop()
 		}
-		return guestv1alpha1.NewGuestServiceClient(cc), nil
-	}
-}
-
-// newTestGuest creates a Guest wired to the Unix socket at sockPath.
-// It sets the dialConn to a Unix socket dialer and uses the provided dialer.
-func newTestGuest(sockPath string, d Dialer) *Guest {
-	return &Guest{
-		dialer:   d,
-		dialConn: func() (net.Conn, error) { return net.Dial("unix", sockPath) },
-	}
-}
-
-// TestGuest_Health verifies that Health reaches the agent and returns nil
-// when it answers.
-func TestGuest_Health(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
-
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	err := guest.Health(context.Background(), "m1")
-	require.NoError(t, err)
-}
-
-// TestGuest_Health_FailsWhenUnreachable verifies that Health returns
-// ErrGuestUnreachable when the connection cannot be opened.
-func TestGuest_Health_FailsWhenUnreachable(t *testing.T) {
-	guest := NewGuest(func(conn net.Conn) (guestv1alpha1.GuestServiceClient, error) {
-		return nil, fmt.Errorf("dial failed")
 	})
-	err := guest.Health(context.Background(), "m1")
-	assert.Equal(t, machine.ErrGuestUnreachable, err)
+	return st
 }
 
-// TestGuest_Boot sends a boot request and verifies the fields are mapped
-// correctly into the proto request.
-func TestGuest_Boot(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
+// distinct returns n bytes in which no run repeats at a shift under n, so a
+// stream that repeats or skips a run does not read the same.
+func distinct(n int) string {
+	b := make([]byte, n)
+	x := uint32(1)
+	for i := range b {
+		x = x*1664525 + 1013904223
+		b[i] = byte(x >> 24)
+	}
+	return string(b)
+}
 
-	guest := newTestGuest(sockPath, newDialer(sockPath))
+func within[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out")
+		panic("unreachable")
+	}
+}
+
+var (
+	addr4 = netip.MustParseAddr("10.0.0.5")
+	addr6 = netip.MustParseAddr("fd00::5")
+	gw4   = netip.MustParseAddr("10.0.255.254")
+	gw6   = netip.MustParseAddr("fe80::1")
+	res4  = netip.MustParseAddr("10.0.255.253")
+	res6  = netip.MustParseAddr("fd00::53")
+)
+
+// Boot carries the whole boot description, the Machine's network with it, and
+// goes to the Machine it names.
+func TestBoot_SendsTheWholeDescriptionToTheMachineNamed(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.agentOf(t, "a"), h.agentOf(t, "b")
 	boot := machine.GuestBoot{
-		ImageUUID:    "img-1",
-		RootDiskUUID: "disk-1",
-		Run: machine.ExecSpec{
-			Command:    []string{"/init"},
-			Env:        map[string]string{"PATH": "/bin"},
-			WorkingDir: "/app",
-		},
-		Network: machine.GuestNetwork{
-			Resolvers: []netip.Addr{netip.MustParseAddr("10.0.0.53")},
-		},
+		ImageUUID:    "11111111-1111-1111-1111-111111111111",
+		RootDiskUUID: "22222222-2222-2222-2222-222222222222",
+		Run:          machine.ExecSpec{Command: []string{"/bin/app", "--x"}, Env: map[string]string{"K": "V"}, WorkingDir: "/srv"},
+		Network:      machine.GuestNetwork{Addresses: []netip.Addr{addr4, addr6}, Gateways: []netip.Addr{gw4, gw6}, Resolvers: []netip.Addr{res4, res6}},
 	}
 
-	err := guest.Boot(context.Background(), "m1", boot)
-	require.NoError(t, err)
+	require.NoError(t, h.guest.Boot(context.Background(), "a", boot))
+
+	req := a.boot
+	require.NotNil(t, req)
+	assert.Equal(t, boot.ImageUUID, req.GetImageUuid())
+	assert.Equal(t, boot.RootDiskUUID, req.GetRootDiskUuid())
+	assert.Equal(t, boot.Run.Command, req.GetRun().GetArgv())
+	assert.Equal(t, boot.Run.Env, req.GetRun().GetEnv())
+	assert.Equal(t, "/srv", req.GetRun().GetWorkingDir())
+	assert.Equal(t, "10.0.0.5/32", req.GetNetwork().GetIpv4().GetAddress(), "the address with its prefix length")
+	assert.Equal(t, "10.0.255.254", req.GetNetwork().GetIpv4().GetGateway())
+	assert.Equal(t, "fd00::5/128", req.GetNetwork().GetIpv6().GetAddress())
+	assert.Equal(t, "fe80::1", req.GetNetwork().GetIpv6().GetGateway())
+	assert.Equal(t, []string{"10.0.255.253", "fd00::53"}, req.GetNetwork().GetResolvers())
+	assert.Nil(t, b.boot, "the other Machine was not told")
+
+	// Control: a node that serves one family tells the guest of that one.
+	boot.Network = machine.GuestNetwork{Addresses: []netip.Addr{addr4}, Gateways: []netip.Addr{gw4}, Resolvers: []netip.Addr{res4}}
+	require.NoError(t, h.guest.Boot(context.Background(), "b", boot))
+	assert.Equal(t, "10.0.0.5/32", b.boot.GetNetwork().GetIpv4().GetAddress())
+	assert.Nil(t, b.boot.GetNetwork().GetIpv6(), "a family not served gets nothing")
 }
 
-// TestGuest_CatchUp sends a CatchUp request with entropy and time.
-func TestGuest_CatchUp(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
+// CatchUp carries the restore, the entropy, the host's time and the whole
+// network: an empty one would remove the Machine's addresses.
+func TestCatchUp_SendsTheWholeRequest(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "a")
+	when := time.Unix(1_700_000_000, 123)
+	err := h.guest.CatchUp(context.Background(), "a", machine.CatchUp{
+		RestoreID: "r-1",
+		Entropy:   []byte("0123456789abcdef0123456789abcdef"),
+		HostTime:  when,
+		Network:   machine.GuestNetwork{Addresses: []netip.Addr{addr4, addr6}, Gateways: []netip.Addr{gw4, gw6}, Resolvers: []netip.Addr{res4}},
+	})
+	require.NoError(t, err)
 
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	catchUp := machine.CatchUp{
-		RestoreID: machine.RequestID("r1"),
-		Entropy:   []byte{0x01, 0x02},
-		HostTime:  time.Unix(1700000000, 0),
-		Network:   machine.GuestNetwork{},
+	req := a.catchUp
+	require.NotNil(t, req)
+	assert.Equal(t, "r-1", req.GetRestoreId())
+	assert.Equal(t, []byte("0123456789abcdef0123456789abcdef"), req.GetEntropy())
+	assert.Equal(t, when.UnixNano(), req.GetHostUnixNanos())
+	assert.Equal(t, "10.0.0.5/32", req.GetNetwork().GetIpv4().GetAddress())
+	assert.Equal(t, "10.0.255.254", req.GetNetwork().GetIpv4().GetGateway())
+	assert.Equal(t, "fd00::5/128", req.GetNetwork().GetIpv6().GetAddress())
+	assert.Equal(t, "fe80::1", req.GetNetwork().GetIpv6().GetGateway())
+	assert.Equal(t, []string{"10.0.255.253"}, req.GetNetwork().GetResolvers())
+}
+
+// Each status the agent sends is its own record status; a status the daemon
+// does not know is an error and not a guess.
+func TestExec_MapsEachStatus(t *testing.T) {
+	tests := []struct {
+		sent guestv1alpha1.ExecStatus
+		want machine.ExecStatus
+		bad  bool
+	}{
+		{guestv1alpha1.ExecStatus_EXEC_STATUS_NOT_STARTED, machine.ExecNotStarted, false},
+		{guestv1alpha1.ExecStatus_EXEC_STATUS_STARTED, machine.ExecStarted, false},
+		{guestv1alpha1.ExecStatus_EXEC_STATUS_EXITED, machine.ExecExited, false},
+		{guestv1alpha1.ExecStatus_EXEC_STATUS_CUT_SHORT, machine.ExecCutShort, false},
+		{guestv1alpha1.ExecStatus_EXEC_STATUS_UNSPECIFIED, 0, true},
+		{guestv1alpha1.ExecStatus(99), 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.sent.String(), func(t *testing.T) {
+			h := newHarness(t)
+			a := h.agentOf(t, "m")
+			a.execStatus = tt.sent
+			rec, err := h.guest.Exec(context.Background(), "m", "x", machine.ExecSpec{Command: []string{"ls", "-l"}, Env: map[string]string{"A": "b"}, WorkingDir: "/w"})
+			if tt.bad {
+				require.Error(t, err)
+				assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, machine.ExecRecord{ID: "x", Status: tt.want, Reason: "why", ExitCode: 3, TermSignal: 9}, rec)
+			assert.Equal(t, "x", a.exec.GetExecId())
+			assert.Equal(t, []string{"ls", "-l"}, a.exec.GetArgv())
+			assert.Equal(t, map[string]string{"A": "b"}, a.exec.GetEnv())
+			assert.Equal(t, "/w", a.exec.GetWorkingDir())
+		})
+	}
+}
+
+// Output chunks keep their stream and offset, and the stream ends with the
+// record.
+func TestReadExecOutput_MapsStreamsAndTheRecord(t *testing.T) {
+	for _, tt := range []struct {
+		sent guestv1alpha1.OutputStream
+		want machine.OutputStream
+		bad  bool
+	}{
+		{guestv1alpha1.OutputStream_OUTPUT_STREAM_STDOUT, machine.OutputStdout, false},
+		{guestv1alpha1.OutputStream_OUTPUT_STREAM_STDERR, machine.OutputStderr, false},
+		{guestv1alpha1.OutputStream_OUTPUT_STREAM_UNSPECIFIED, 0, true},
+	} {
+		t.Run(tt.sent.String(), func(t *testing.T) {
+			h := newHarness(t)
+			a := h.agentOf(t, "m")
+			a.output, a.outStream = []byte(strings.Repeat("x", 150)), tt.sent
+			var got []machine.OutputChunk
+			rec, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 100, func(c machine.OutputChunk) error {
+				got = append(got, c)
+				return nil
+			})
+			if tt.bad {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []machine.OutputChunk{{Stream: tt.want, Offset: 100, Data: []byte(strings.Repeat("x", 50))}}, got)
+			assert.Equal(t, machine.ExecRecord{ID: "x", Status: machine.ExecExited, ExitCode: 7}, rec)
+			assert.Equal(t, []uint64{100}, a.outAfter)
+		})
+	}
+}
+
+func TestPatchFile_MapsEachOutcome(t *testing.T) {
+	for _, tt := range []struct {
+		sent guestv1alpha1.PatchOutcome
+		want machine.PatchOutcome
+		bad  bool
+	}{
+		{guestv1alpha1.PatchOutcome_PATCH_OUTCOME_APPLIED, machine.PatchApplied, false},
+		{guestv1alpha1.PatchOutcome_PATCH_OUTCOME_ALREADY_APPLIED, machine.PatchAlreadyApplied, false},
+		{guestv1alpha1.PatchOutcome_PATCH_OUTCOME_UNSPECIFIED, 0, true},
+	} {
+		t.Run(tt.sent.String(), func(t *testing.T) {
+			h := newHarness(t)
+			a := h.agentOf(t, "m")
+			a.patchOut = tt.sent
+			got, err := h.guest.PatchFile(context.Background(), "m", "/f", "sha256:b", "sha256:e", []byte("p"))
+			if tt.bad {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, "/f", a.patch.GetPath())
+			assert.Equal(t, "sha256:b", a.patch.GetBaseDigest())
+			assert.Equal(t, "sha256:e", a.patch.GetExpectedDigest())
+			assert.Equal(t, []byte("p"), a.patch.GetPatch())
+		})
+	}
+}
+
+// Each status of the agent becomes the error the port promises, by what the
+// call was doing. The rows whose want is nil are controls: a status that must
+// not become that sentinel.
+func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
+	ctx := context.Background()
+	st := func(c codes.Code, msg string) error { return status.Error(c, msg) }
+	calls := map[string]func(h *harness) error{
+		"Health": func(h *harness) error { return h.guest.Health(ctx, "m") },
+		"Boot": func(h *harness) error {
+			return h.guest.Boot(ctx, "m", machine.GuestBoot{})
+		},
+		"CatchUp": func(h *harness) error { return h.guest.CatchUp(ctx, "m", machine.CatchUp{}) },
+		"Exec": func(h *harness) error {
+			_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{})
+			return err
+		},
+		"ReadExecOutput": func(h *harness) error {
+			_, err := h.guest.ReadExecOutput(ctx, "m", "x", 0, func(machine.OutputChunk) error { return nil })
+			return err
+		},
+		"ReadFile": func(h *harness) error {
+			return h.guest.ReadFile(ctx, "m", "/f", func([]byte) error { return nil })
+		},
+		"WriteFile": func(h *harness) error { return h.guest.WriteFile(ctx, "m", "/f", strings.NewReader("c")) },
+		"PatchFile": func(h *harness) error {
+			_, err := h.guest.PatchFile(ctx, "m", "/f", "b", "e", nil)
+			return err
+		},
+		"SearchFiles": func(h *harness) error {
+			_, err := h.guest.SearchFiles(ctx, "m", "/", "*")
+			return err
+		},
+	}
+	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable}
+	tests := []struct {
+		name   string
+		call   string
+		answer error
+		want   error // a sentinel, or nil when none may match
+		check  func(t *testing.T, err error)
+	}{
+		{name: "an exec that is not held", call: "Exec", answer: st(codes.NotFound, "not found: exec x"), want: machine.ErrExecAbsent},
+		{name: "output of an exec that is not held", call: "ReadExecOutput", answer: st(codes.NotFound, "not found: exec x"), want: machine.ErrExecAbsent},
+		{name: "a path that names nothing, read", call: "ReadFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
+		{name: "a path that names nothing, patched", call: "PatchFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
+		{name: "a path that names nothing, searched", call: "SearchFiles", answer: st(codes.NotFound, "not found: /"), want: machine.ErrFileAbsent},
+		{name: "a file that is not a regular file, read", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: /f is not a regular file"), want: machine.ErrNotRegular},
+		{name: "a file that is not a regular file, written", call: "WriteFile", answer: st(codes.InvalidArgument, "invalid request: /f is not a regular file"), want: machine.ErrNotRegular},
+		{name: "a directory", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: /d is the wrong kind of file"), want: machine.ErrNotRegular},
+		{name: "a patch whose file is at neither digest", call: "PatchFile", answer: st(codes.FailedPrecondition, "precondition failed: /f is at sha256:1, neither the base sha256:2 nor the expected sha256:3"), want: machine.ErrPatchPrecondition},
+		{name: "a patch to a guest that has not booted", call: "PatchFile", answer: st(codes.FailedPrecondition, "precondition failed: the guest has not booted: Boot has not succeeded")},
+		{name: "a patch to a guest that failed to boot", call: "PatchFile", answer: st(codes.FailedPrecondition, "precondition failed: the guest did not boot: boot step switch root: x")},
+		{name: "invalid input is not a missing file", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: path f is not absolute")},
+		{name: "a missing exec is not a missing file", call: "Exec", answer: st(codes.FailedPrecondition, "precondition failed: the guest has not booted")},
+		{name: "a connection the agent lost", call: "Health", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
+		{
+			name: "output the agent no longer holds", call: "ReadExecOutput",
+			answer: st(codes.OutOfRange, "out of range: output before offset 4096 is no longer held; the earliest held offset is 4096"),
+			check: func(t *testing.T, err error) {
+				var gone *machine.OutputGoneError
+				require.ErrorAs(t, err, &gone)
+				assert.Equal(t, uint64(4096), gone.Earliest)
+			},
+		},
+		{
+			name: "a failed boot step", call: "Boot",
+			answer: st(codes.Internal, "boot step mount the image: no device carries the UUID"),
+			check: func(t *testing.T, err error) {
+				var step *machine.BootStepError
+				require.ErrorAs(t, err, &step)
+				assert.Equal(t, "mount the image", step.Step)
+				assert.Equal(t, "no device carries the UUID", step.Detail)
+			},
+		},
+		{
+			name: "a repeat of a boot that failed", call: "Boot",
+			answer: st(codes.FailedPrecondition, "precondition failed: the guest did not boot: boot step overlay the root disk: busy"),
+			check: func(t *testing.T, err error) {
+				var step *machine.BootStepError
+				require.ErrorAs(t, err, &step)
+				assert.Equal(t, "overlay the root disk", step.Step)
+			},
+		},
+		{name: "another internal failure of a boot is not a step", call: "Boot", answer: st(codes.Internal, "io failed")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			a := h.agentOf(t, "m")
+			a.fail[tt.call] = tt.answer
+			err := calls[tt.call](h)
+			require.Error(t, err)
+			if tt.check != nil {
+				tt.check(t, err)
+				return
+			}
+			for _, s := range sentinels {
+				if s == tt.want {
+					assert.ErrorIs(t, err, s)
+				} else {
+					assert.NotErrorIs(t, err, s)
+				}
+			}
+			var step *machine.BootStepError
+			assert.False(t, errors.As(err, &step), "no boot step is named")
+			var gone *machine.OutputGoneError
+			assert.False(t, errors.As(err, &gone))
+		})
 	}
 
-	err := guest.CatchUp(context.Background(), "m1", catchUp)
-	require.NoError(t, err)
-}
-
-// TestGuest_Exec verifies that Exec returns a record with the correct ID and
-// status.
-func TestGuest_Exec(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
-
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	rec, err := guest.Exec(context.Background(), "m1", "x1", machine.ExecSpec{
-		Command: []string{"echo", "hello"},
+	t.Run("control: with nothing failing every call succeeds", func(t *testing.T) {
+		for name, call := range calls {
+			h := newHarness(t)
+			a := h.agentOf(t, "m")
+			a.patchOut = guestv1alpha1.PatchOutcome_PATCH_OUTCOME_APPLIED
+			a.execStatus = guestv1alpha1.ExecStatus_EXEC_STATUS_STARTED
+			assert.NoError(t, call(h), name)
+		}
 	})
-	require.NoError(t, err)
-	assert.Equal(t, machine.ExecID("x1"), rec.ID)
-	assert.Equal(t, machine.ExecStarted, rec.Status)
 }
 
-// TestGuest_ReadExecOutput verifies that the stream of output chunks and the
-// final record are received correctly.
-func TestGuest_ReadExecOutput(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
+// A Machine nothing serves, or whose connection cannot be opened, is a guest
+// that is not reachable, for every call.
+func TestUnreachable_WhenTheDriverCannotOpenAStream(t *testing.T) {
+	ctx := context.Background()
 
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	var chunks []machine.OutputChunk
-	rec, err := guest.ReadExecOutput(context.Background(), "m1", "x1", 0, func(chunk machine.OutputChunk) error {
-		chunks = append(chunks, chunk)
-		return nil
+	t.Run("a Machine whose guest port nothing serves", func(t *testing.T) {
+		h := newHarness(t)
+		h.driver.ServeGuest("m", machine.GuestAgentPort+1, func(c net.Conn) { _ = c.Close() })
+		require.ErrorIs(t, h.guest.Health(ctx, "m"), machine.ErrGuestUnreachable)
+		require.ErrorIs(t, h.guest.Boot(ctx, "m", machine.GuestBoot{}), machine.ErrGuestUnreachable)
+		_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{})
+		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+		assert.Equal(t, 6, h.driver.Calls("guest-conn"), "the Driver was asked, and once more for each call's repeat")
 	})
-	require.NoError(t, err)
-	assert.NotNil(t, rec)
-	assert.Empty(t, chunks)
-}
 
-// TestGuest_ReadFile verifies that a file is read in chunks via the callback.
-func TestGuest_ReadFile(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
+	t.Run("a failure of the Driver", func(t *testing.T) {
+		h := newHarness(t)
+		h.agentOf(t, "m")
+		h.driver.FailAt("guest-conn", errBoom)
+		require.ErrorIs(t, h.guest.Health(ctx, "m"), machine.ErrGuestUnreachable)
 
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	var chunks [][]byte
-	err := guest.ReadFile(context.Background(), "m1", "/etc/motd", func(chunk []byte) error {
-		chunks = append(chunks, chunk)
-		return nil
+		// Control: the same call reaches the agent once the Driver heals.
+		h.driver.Heal("guest-conn")
+		require.NoError(t, h.guest.Health(ctx, "m"))
 	})
-	require.NoError(t, err)
-	assert.Empty(t, chunks)
 }
 
-// TestGuest_WriteFile verifies that WriteFile streams content correctly.
-func TestGuest_WriteFile(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
+// Every call goes to the Machine it names, on the Guest Agent's port.
+func TestCalls_GoToTheMachineNamed(t *testing.T) {
+	h := newHarness(t)
+	a, b := h.agentOf(t, "a"), h.agentOf(t, "b")
 
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	content := strings.NewReader("hello world")
-	err := guest.WriteFile(context.Background(), "m1", "/tmp/test", content)
+	_, err := h.guest.Exec(context.Background(), "a", "only-a", machine.ExecSpec{Command: []string{"x"}})
 	require.NoError(t, err)
+	assert.Equal(t, "only-a", a.exec.GetExecId())
+	assert.Nil(t, b.exec)
+	_, err = h.guest.Exec(context.Background(), "b", "only-b", machine.ExecSpec{Command: []string{"x"}})
+	require.NoError(t, err)
+	assert.Equal(t, "only-b", b.exec.GetExecId())
+	assert.Equal(t, "only-a", a.exec.GetExecId())
 }
 
-// TestGuest_PatchFile verifies that PatchFile returns the outcome.
-func TestGuest_PatchFile(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
+// A connection that breaks before the call is answered is replaced by another,
+// and the call repeats once.
+func TestCalls_RepeatOnANewConnectionAfterAReset(t *testing.T) {
+	ctx := context.Background()
 
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	outcome, err := guest.PatchFile(context.Background(), "m1", "/tmp/f", "sha256:base", "sha256:expect", []byte("patch"))
-	require.NoError(t, err)
-	assert.Equal(t, machine.PatchApplied, outcome)
-}
+	t.Run("the first connection is reset", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		a.dropOnConnect = func(n int) bool { return n == 1 }
 
-// TestGuest_SearchFiles verifies that SearchFiles returns the matching paths.
-func TestGuest_SearchFiles(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
-
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	paths, err := guest.SearchFiles(context.Background(), "m1", "/etc/", "mot")
-	require.NoError(t, err)
-	assert.Empty(t, paths)
-}
-
-// TestGuest_ContextCancellation verifies that the caller's context is
-// propagated through to the gRPC call and that a cancelled context causes the
-// call to fail.
-func TestGuest_ContextCancellation(t *testing.T) {
-	sockPath, cleanup := startFakeGRPC(t)
-	defer cleanup()
-
-	guest := newTestGuest(sockPath, newDialer(sockPath))
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-
-	err := guest.Boot(ctx, "m1", machine.GuestBoot{
-		ImageUUID:    "img-1",
-		RootDiskUUID: "disk-1",
-		Run: machine.ExecSpec{
-			Command: []string{"/init"},
-		},
-		Network: machine.GuestNetwork{},
+		_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{Command: []string{"x"}})
+		require.NoError(t, err)
+		assert.Equal(t, "x", a.exec.GetExecId(), "the repeat reached the agent")
+		assert.Equal(t, 2, a.connections())
+		assert.Equal(t, 2, h.driver.Calls("guest-conn"))
 	})
-	assert.Error(t, err)
+
+	t.Run("control: with no reset one connection serves the call", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{Command: []string{"x"}})
+		require.NoError(t, err)
+		assert.Equal(t, 1, a.connections())
+	})
+
+	t.Run("a guest that keeps resetting is not retried for ever", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		a.dropOnConnect = func(int) bool { return true }
+
+		require.ErrorIs(t, h.guest.Health(ctx, "m"), machine.ErrGuestUnreachable)
+		assert.Equal(t, 2, a.connections(), "one repeat")
+	})
+
+	t.Run("a refusal is not a reset and is not repeated", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		a.fail["Exec"] = status.Error(codes.InvalidArgument, "invalid request: argv is empty")
+		_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{})
+		require.Error(t, err)
+		assert.Equal(t, 1, a.connections())
+	})
+}
+
+// A stream cut by a reset resumes after the last byte passed on, so the caller
+// sees every byte once.
+func TestReadExecOutput_ResumesAfterTheLastByteAfterAReset(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	want := distinct(1000)
+	a.output, a.outStream, a.holdAfter = []byte(want), guestv1alpha1.OutputStream_OUTPUT_STREAM_STDOUT, 4
+
+	var got []byte
+	half := make(chan struct{})
+	type result struct {
+		rec machine.ExecRecord
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		rec, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 0, func(c machine.OutputChunk) error {
+			assert.Equal(t, uint64(len(got)), c.Offset, "no gap and no repeat")
+			got = append(got, c.Data...)
+			if len(got) == 400 {
+				close(half)
+			}
+			return nil
+		})
+		done <- result{rec, err}
+	}()
+	within(t, half)
+	a.closeConn(1)
+
+	r := within(t, done)
+	require.NoError(t, r.err)
+	assert.Equal(t, want, string(got))
+	assert.Equal(t, machine.ExecExited, r.rec.Status)
+	assert.Equal(t, []uint64{0, 400}, a.outAfter, "the second read began where the first was cut")
+}
+
+// A file read cut by a reset is read again and the bytes already passed on
+// are skipped, whatever size the chunks of the new connection are.
+func TestReadFile_ResumesAfterAReset(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	content := distinct(1000)
+	a.file, a.holdAfter = []byte(content), 4
+	a.fileChunk = func(n int) int {
+		if n == 1 {
+			return 100
+		}
+		return 150 // 400 falls inside the third chunk of the new connection
+	}
+
+	var got []byte
+	half := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- h.guest.ReadFile(context.Background(), "m", "/f", func(c []byte) error {
+			got = append(got, c...)
+			if len(got) == 400 {
+				close(half)
+			}
+			return nil
+		})
+	}()
+	within(t, half)
+	a.closeConn(1)
+
+	require.NoError(t, within(t, done))
+	assert.Equal(t, content, string(got), "every byte once, in order")
+	assert.Equal(t, 2, a.connections())
+}
+
+// A write sends the digest of what it sent, and a reset after its content was
+// read is not repeated, since the reader cannot be read again.
+func TestWriteFile_SendsTheDigestAndIsNotRepeatedOnceRead(t *testing.T) {
+	ctx := context.Background()
+	content := strings.Repeat("0123456789", 5000)
+	sum := sha256.Sum256([]byte(content))
+
+	t.Run("the digest of the whole content", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		require.NoError(t, h.guest.WriteFile(ctx, "m", "/f", strings.NewReader(content)))
+		assert.Equal(t, content, string(a.written))
+		assert.Equal(t, "sha256:"+hex.EncodeToString(sum[:]), a.digest)
+	})
+
+	t.Run("a reset before any content is read is repeated", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		a.dropOnConnect = func(n int) bool { return n == 1 }
+		require.NoError(t, h.guest.WriteFile(ctx, "m", "/f", strings.NewReader(content)))
+		assert.Equal(t, content, string(a.written))
+	})
+
+	t.Run("a reset after content was read is reported, not repeated", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		a.holdWrite = true
+		done := make(chan error, 1)
+		go func() { done <- h.guest.WriteFile(ctx, "m", "/f", strings.NewReader(content)) }()
+		require.Eventually(t, func() bool { return a.connections() == 1 }, 5*time.Second, time.Millisecond)
+		time.Sleep(50 * time.Millisecond) // the agent has the first chunk and holds
+		a.closeConn(1)
+
+		require.ErrorIs(t, within(t, done), machine.ErrGuestUnreachable)
+		assert.Equal(t, 1, h.driver.Calls("guest-conn"), "the content was not sent again")
+		assert.Empty(t, a.written, "the agent kept the old file")
+	})
+}
+
+func TestSearchFiles_ReturnsThePaths(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	a.paths = []string{"/a/x", "/b/x"}
+	got, err := h.guest.SearchFiles(context.Background(), "m", "/", "**/x")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/a/x", "/b/x"}, got)
+}
+
+// The adapter's own time limit would cut a Boot the lifecycle bounds, so the
+// only bound on a call is the caller's context.
+func TestCalls_AreBoundedOnlyByTheCallersContext(t *testing.T) {
+	t.Run("a slow answer is waited for", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		a.fail["Boot"] = nil
+		h.driver.ServeGuest("m", machine.GuestAgentPort, func(c net.Conn) {
+			time.Sleep(300 * time.Millisecond)
+			a.serve(c)
+		})
+		require.NoError(t, h.guest.Boot(context.Background(), "m", machine.GuestBoot{}))
+	})
+
+	t.Run("the caller's deadline ends the call", func(t *testing.T) {
+		h := newHarness(t)
+		h.driver.ServeGuest("m", machine.GuestAgentPort, func(c net.Conn) { <-time.After(5 * time.Second); _ = c.Close() })
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		err := h.guest.Boot(ctx, "m", machine.GuestBoot{})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
+	})
 }

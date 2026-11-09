@@ -1,124 +1,270 @@
-// Package channel is a machine.Guest over a vsock-backed gRPC connection to a
-// Guest Agent. It opens the connection on each call, so repeated invocations
-// are repeat-safe by construction.
+// Package channel is the machine.Guest adapter: a client of the Guest Agent's
+// gRPC contract, reaching the agent of a given Machine over the byte stream
+// the Driver opens to its guest (guest.md, ADR 0014).
 package channel
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
-	"time"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	guestv1alpha1 "github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// Dialer creates a gRPC client from a vsock connection. The machine.Guest
-// interface is the public contract; the dialer is the Driver's way of
-// creating one.
-type Dialer func(conn net.Conn) (guestv1alpha1.GuestServiceClient, error)
+// Connector opens a byte stream to a Machine's guest port. machine.Driver is
+// one: whatever the VMM needs before the first byte is the Driver's.
+type Connector interface {
+	GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error)
+}
 
-// dialConn opens a transport connection to the Guest Agent.
-type dialConn func() (net.Conn, error)
-
-// Guest is the machine.Guest implemented over a vsock gRPC connection to the
-// Guest Agent. It opens the connection on each call, so repeated invocations
-// are safe and the agent always sees a fresh start.
+// Guest is a machine.Guest over the Guest Agent's gRPC contract. It holds no
+// connection: each call opens one through the Connector, for the Machine the
+// call names, and closes it. A vsock connection resets when the guest is
+// restored, so a call whose connection breaks before it is answered opens
+// another and repeats once, which is safe because every call the agent serves
+// is repeat-safe (guest.md). A stream that broke resumes where it was.
+//
+// The adapter puts no time limit of its own on a call: the lifecycle bounds a
+// Boot, and a long output or file stream is the caller's to cut.
 type Guest struct {
-	dialer   Dialer
-	dialConn dialConn
+	conn Connector
 }
 
 var _ machine.Guest = (*Guest)(nil)
 
-// NewGuest returns a Guest that opens a fresh vsock connection on each call
-// using the provided dialer, so the agent is always reached anew.
-func NewGuest(dialer Dialer) *Guest {
-	return &Guest{
-		dialer:   dialer,
-		dialConn: func() (net.Conn, error) { return net.Dial("vsock", "auto:5") },
+// NewGuest returns a Guest that reaches each Machine's agent through conn.
+func NewGuest(conn Connector) *Guest { return &Guest{conn: conn} }
+
+// operation is what a call does, which decides what a status of the agent
+// means: the same NOT_FOUND is an exec for one and a path for another.
+type operation int
+
+const (
+	opOther operation = iota
+	opBoot
+	opExec
+	opFile
+	opPatch
+)
+
+// errCut is a stream that ended before its last message: the connection
+// broke between messages. A repeat is safe.
+var errCut = errors.New("the stream ended before its last message")
+
+// run calls f with a client of the Machine's agent, and repeats it once, on a
+// connection of its own, when the first connection broke before the call was
+// answered. f is called again from the same variables, so a stream resumes
+// from what it has already passed on.
+func (g *Guest) run(ctx context.Context, id machine.MachineID, op operation, f func(guestv1alpha1.GuestServiceClient) error) error {
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		err = g.once(ctx, id, f)
+		if err == nil || ctx.Err() != nil || !reset(err) {
+			break
+		}
 	}
+	return mapError(op, err)
 }
 
-// dial opens a transport connection and returns a gRPC client, or an error if
-// the connection could not be opened. The caller owns the underlying net.Conn
-// and must close it when done.
-func (g *Guest) dial() (net.Conn, guestv1alpha1.GuestServiceClient, error) {
-	conn, err := g.dialConn()
+func (g *Guest) once(ctx context.Context, id machine.MachineID, f func(guestv1alpha1.GuestServiceClient) error) error {
+	cc, err := grpc.NewClient("passthrough:///guest",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(dial context.Context, _ string) (net.Conn, error) {
+			return g.conn.GuestConn(dial, id, machine.GuestAgentPort)
+		}))
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	client, err := g.dialer(conn)
-	if err != nil {
-		conn.Close()
-		return nil, nil, err
-	}
-	return conn, client, nil
+	defer func() { _ = cc.Close() }()
+	return f(guestv1alpha1.NewGuestServiceClient(cc))
 }
 
-func (g *Guest) call(ctx context.Context, f func(guestv1alpha1.GuestServiceClient) error) error {
-	conn, client, err := g.dial()
-	if err != nil {
-		return machine.ErrGuestUnreachable
+// reset reports whether the error is a connection that broke or never opened.
+func reset(err error) bool {
+	if errors.Is(err, errCut) {
+		return true
 	}
-	defer conn.Close()
+	st, ok := status.FromError(err)
+	return ok && st.Code() == codes.Unavailable
+}
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+var (
+	earliestHeld = regexp.MustCompile(`the earliest held offset is (\d+)`)
+	bootStep     = regexp.MustCompile(`boot step ([^:]+): (.*)$`)
+)
 
-	return f(client)
+// mapError turns what the agent or the connection answered into the errors the
+// Guest port promises. The agent's statuses carry no structured detail, so
+// where the port needs more than the code (the earliest offset held, the step
+// of a failed boot) it is read from the message the agent writes (guest.md);
+// an error that matches nothing is returned as itself, naming the code.
+func mapError(op operation, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, errCut) {
+		return fmt.Errorf("%w: %v", machine.ErrGuestUnreachable, err)
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return err // from the caller's own callback or reader
+	}
+	msg := st.Message()
+	if op == opBoot && (st.Code() == codes.Internal || st.Code() == codes.FailedPrecondition) {
+		if m := bootStep.FindStringSubmatch(msg); m != nil {
+			return &machine.BootStepError{Step: m[1], Detail: m[2]}
+		}
+	}
+	switch st.Code() {
+	case codes.Unavailable:
+		return fmt.Errorf("%w: %s", machine.ErrGuestUnreachable, msg)
+	case codes.Canceled:
+		return fmt.Errorf("%w: %s", context.Canceled, msg)
+	case codes.DeadlineExceeded:
+		return fmt.Errorf("%w: %s", context.DeadlineExceeded, msg)
+	case codes.NotFound:
+		switch op {
+		case opExec:
+			return fmt.Errorf("%w: %s", machine.ErrExecAbsent, msg)
+		case opFile, opPatch:
+			return fmt.Errorf("%w: %s", machine.ErrFileAbsent, msg)
+		}
+	case codes.OutOfRange:
+		if m := earliestHeld.FindStringSubmatch(msg); m != nil {
+			if earliest, perr := strconv.ParseUint(m[1], 10, 64); perr == nil {
+				return &machine.OutputGoneError{Earliest: earliest}
+			}
+		}
+	case codes.InvalidArgument:
+		if (op == opFile || op == opPatch) && (strings.Contains(msg, "is not a regular file") || strings.Contains(msg, "is the wrong kind of file")) {
+			return fmt.Errorf("%w: %s", machine.ErrNotRegular, msg)
+		}
+	case codes.FailedPrecondition:
+		notBooted := strings.Contains(msg, "the guest has not booted") || strings.Contains(msg, "the guest did not boot")
+		if op == opPatch && !notBooted {
+			return fmt.Errorf("%w: %s", machine.ErrPatchPrecondition, msg)
+		}
+	}
+	return fmt.Errorf("guest agent answered %s: %s", st.Code(), msg)
+}
+
+// networkConfig is the Machine's whole network as the agent takes it: each
+// family served gets its address with a prefix length and its gateway. A
+// Machine holds one host address per family (ADR 0011), so the prefix is the
+// whole address, /32 and /128.
+func networkConfig(n machine.GuestNetwork) *guestv1alpha1.NetworkConfig {
+	out := &guestv1alpha1.NetworkConfig{}
+	for _, a := range n.Addresses {
+		a = a.Unmap()
+		cfg := netip.PrefixFrom(a, a.BitLen()).String()
+		switch {
+		case a.Is4() && out.Ipv4 == nil:
+			out.Ipv4 = &guestv1alpha1.Ipv4Config{Address: cfg, Gateway: gateway(n.Gateways, true)}
+		case a.Is6() && out.Ipv6 == nil:
+			out.Ipv6 = &guestv1alpha1.Ipv6Config{Address: cfg, Gateway: gateway(n.Gateways, false)}
+		}
+	}
+	for _, r := range n.Resolvers {
+		out.Resolvers = append(out.Resolvers, r.String())
+	}
+	return out
+}
+
+// gateway is the first gateway of the family, or empty.
+func gateway(gateways []netip.Addr, v4 bool) string {
+	for _, g := range gateways {
+		if g.Unmap().Is4() == v4 {
+			return g.Unmap().String()
+		}
+	}
+	return ""
+}
+
+// execRecord converts the agent's record, refusing a status this daemon does
+// not know instead of guessing one.
+func execRecord(r *guestv1alpha1.ExecRecord) (machine.ExecRecord, error) {
+	var s machine.ExecStatus
+	switch r.GetStatus() {
+	case guestv1alpha1.ExecStatus_EXEC_STATUS_NOT_STARTED:
+		s = machine.ExecNotStarted
+	case guestv1alpha1.ExecStatus_EXEC_STATUS_STARTED:
+		s = machine.ExecStarted
+	case guestv1alpha1.ExecStatus_EXEC_STATUS_EXITED:
+		s = machine.ExecExited
+	case guestv1alpha1.ExecStatus_EXEC_STATUS_CUT_SHORT:
+		s = machine.ExecCutShort
+	default:
+		return machine.ExecRecord{}, fmt.Errorf("the guest agent sent exec status %v, which this daemon does not know", r.GetStatus())
+	}
+	return machine.ExecRecord{
+		ID:         machine.ExecID(r.GetExecId()),
+		Status:     s,
+		Reason:     r.GetReason(),
+		ExitCode:   r.GetExitCode(),
+		TermSignal: r.GetTermSignal(),
+	}, nil
 }
 
 // Health implements machine.Guest.
-func (g *Guest) Health(ctx context.Context, _ machine.MachineID) error {
-	return g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		_, err := client.Health(ctx, &guestv1alpha1.HealthRequest{})
+func (g *Guest) Health(ctx context.Context, id machine.MachineID) error {
+	return g.run(ctx, id, opOther, func(c guestv1alpha1.GuestServiceClient) error {
+		_, err := c.Health(ctx, &guestv1alpha1.HealthRequest{})
 		return err
 	})
 }
 
-// Boot implements machine.Guest.
-func (g *Guest) Boot(ctx context.Context, _ machine.MachineID, boot machine.GuestBoot) error {
-	resolvers := make([]string, len(boot.Network.Resolvers))
-	for i, r := range boot.Network.Resolvers {
-		resolvers[i] = netip.Addr(r).String()
+// Boot implements machine.Guest. A boot step that failed is a
+// *machine.BootStepError.
+func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.GuestBoot) error {
+	req := &guestv1alpha1.BootRequest{
+		ImageUuid:    boot.ImageUUID,
+		RootDiskUuid: boot.RootDiskUUID,
+		Run: &guestv1alpha1.RunConfig{
+			Argv:       boot.Run.Command,
+			Env:        boot.Run.Env,
+			WorkingDir: boot.Run.WorkingDir,
+		},
+		Network: networkConfig(boot.Network),
 	}
-	return g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		_, err := client.Boot(ctx, &guestv1alpha1.BootRequest{
-			ImageUuid:    boot.ImageUUID,
-			RootDiskUuid: boot.RootDiskUUID,
-			Run: &guestv1alpha1.RunConfig{
-				Argv:       boot.Run.Command,
-				Env:        boot.Run.Env,
-				WorkingDir: boot.Run.WorkingDir,
-			},
-			Network: &guestv1alpha1.NetworkConfig{
-				Resolvers: resolvers,
-			},
-		})
+	return g.run(ctx, id, opBoot, func(c guestv1alpha1.GuestServiceClient) error {
+		_, err := c.Boot(ctx, req)
 		return err
 	})
 }
 
 // CatchUp implements machine.Guest.
-func (g *Guest) CatchUp(ctx context.Context, _ machine.MachineID, catchUp machine.CatchUp) error {
-	return g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		_, err := client.CatchUp(ctx, &guestv1alpha1.CatchUpRequest{
-			RestoreId:     string(catchUp.RestoreID),
-			Entropy:       catchUp.Entropy,
-			HostUnixNanos: catchUp.HostTime.UnixNano(),
-			Network:       &guestv1alpha1.NetworkConfig{},
-		})
+func (g *Guest) CatchUp(ctx context.Context, id machine.MachineID, catchUp machine.CatchUp) error {
+	req := &guestv1alpha1.CatchUpRequest{
+		RestoreId:     string(catchUp.RestoreID),
+		Entropy:       catchUp.Entropy,
+		HostUnixNanos: catchUp.HostTime.UnixNano(),
+		Network:       networkConfig(catchUp.Network),
+	}
+	return g.run(ctx, id, opOther, func(c guestv1alpha1.GuestServiceClient) error {
+		_, err := c.CatchUp(ctx, req)
 		return err
 	})
 }
 
 // Exec implements machine.Guest.
-func (g *Guest) Exec(ctx context.Context, _ machine.MachineID, exec machine.ExecID, spec machine.ExecSpec) (machine.ExecRecord, error) {
+func (g *Guest) Exec(ctx context.Context, id machine.MachineID, exec machine.ExecID, spec machine.ExecSpec) (machine.ExecRecord, error) {
 	var rec machine.ExecRecord
-	err := g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		resp, err := client.Exec(ctx, &guestv1alpha1.ExecRequest{
+	err := g.run(ctx, id, opExec, func(c guestv1alpha1.GuestServiceClient) error {
+		resp, err := c.Exec(ctx, &guestv1alpha1.ExecRequest{
 			ExecId:     string(exec),
 			Argv:       spec.Command,
 			Env:        spec.Env,
@@ -127,73 +273,64 @@ func (g *Guest) Exec(ctx context.Context, _ machine.MachineID, exec machine.Exec
 		if err != nil {
 			return err
 		}
-		r := resp.GetRecord()
-		rec = machine.ExecRecord{
-			ID:         machine.ExecID(r.GetExecId()),
-			Status:     machine.ExecStatus(r.GetStatus()),
-			Reason:     r.GetReason(),
-			ExitCode:   r.GetExitCode(),
-			TermSignal: r.GetTermSignal(),
-		}
-		return nil
+		rec, err = execRecord(resp.GetRecord())
+		return err
 	})
 	return rec, err
 }
 
-// ReadExecOutput implements machine.Guest.
-func (g *Guest) ReadExecOutput(ctx context.Context, _ machine.MachineID, exec machine.ExecID, after uint64, send func(machine.OutputChunk) error) (machine.ExecRecord, error) {
+// ReadExecOutput implements machine.Guest. A stream that breaks is resumed
+// after the last byte passed on.
+func (g *Guest) ReadExecOutput(ctx context.Context, id machine.MachineID, exec machine.ExecID, after uint64, send func(machine.OutputChunk) error) (machine.ExecRecord, error) {
 	var record machine.ExecRecord
-	err := g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		stream, err := client.ReadExecOutput(ctx, &guestv1alpha1.ReadExecOutputRequest{
-			ExecId:      string(exec),
-			AfterOffset: after,
-		})
+	next := after
+	err := g.run(ctx, id, opExec, func(c guestv1alpha1.GuestServiceClient) error {
+		stream, err := c.ReadExecOutput(ctx, &guestv1alpha1.ReadExecOutputRequest{ExecId: string(exec), AfterOffset: next})
 		if err != nil {
 			return err
 		}
 		for {
 			msg, err := stream.Recv()
 			if err == io.EOF {
-				return nil
+				return errCut
 			}
 			if err != nil {
 				return err
 			}
 			switch p := msg.GetPart().(type) {
 			case *guestv1alpha1.ReadExecOutputResponse_Chunk:
-				c := p.Chunk
-				if err := send(machine.OutputChunk{
-					Stream: machine.OutputStream(c.GetStream()),
-					Offset: c.GetOffset(),
-					Data:   c.GetData(),
-				}); err != nil {
+				var s machine.OutputStream
+				switch p.Chunk.GetStream() {
+				case guestv1alpha1.OutputStream_OUTPUT_STREAM_STDOUT:
+					s = machine.OutputStdout
+				case guestv1alpha1.OutputStream_OUTPUT_STREAM_STDERR:
+					s = machine.OutputStderr
+				default:
+					return fmt.Errorf("the guest agent sent output stream %v, which this daemon does not know", p.Chunk.GetStream())
+				}
+				if err := send(machine.OutputChunk{Stream: s, Offset: p.Chunk.GetOffset(), Data: p.Chunk.GetData()}); err != nil {
 					return err
 				}
+				next = p.Chunk.GetOffset() + uint64(len(p.Chunk.GetData()))
 			case *guestv1alpha1.ReadExecOutputResponse_Record:
-				r := p.Record
-				record = machine.ExecRecord{
-					ID:         machine.ExecID(r.GetExecId()),
-					Status:     machine.ExecStatus(r.GetStatus()),
-					Reason:     r.GetReason(),
-					ExitCode:   r.GetExitCode(),
-					TermSignal: r.GetTermSignal(),
-				}
-				return nil
+				record, err = execRecord(p.Record)
+				return err
 			}
 		}
 	})
 	return record, err
 }
 
-// ReadFile implements machine.Guest.
-func (g *Guest) ReadFile(ctx context.Context, _ machine.MachineID, path string, send func(chunk []byte) error) error {
-	return g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		stream, err := client.ReadFile(ctx, &guestv1alpha1.ReadFileRequest{
-			Path: path,
-		})
+// ReadFile implements machine.Guest. A stream that breaks is read again and
+// the bytes already passed on are skipped.
+func (g *Guest) ReadFile(ctx context.Context, id machine.MachineID, path string, send func(chunk []byte) error) error {
+	var sent uint64
+	return g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
+		stream, err := c.ReadFile(ctx, &guestv1alpha1.ReadFileRequest{Path: path})
 		if err != nil {
 			return err
 		}
+		var seen uint64
 		for {
 			msg, err := stream.Recv()
 			if err == io.EOF {
@@ -202,59 +339,91 @@ func (g *Guest) ReadFile(ctx context.Context, _ machine.MachineID, path string, 
 			if err != nil {
 				return err
 			}
-			if err := send(msg.GetChunk()); err != nil {
+			chunk := msg.GetChunk()
+			start := seen
+			seen += uint64(len(chunk))
+			if seen <= sent {
+				continue // all of it was passed on before the break
+			}
+			if start < sent {
+				chunk = chunk[sent-start:]
+			}
+			if err := send(chunk); err != nil {
 				return err
 			}
+			sent += uint64(len(chunk))
 		}
 	})
 }
 
-// WriteFile implements machine.Guest.
-func (g *Guest) WriteFile(ctx context.Context, _ machine.MachineID, path string, content io.Reader) error {
-	return g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		stream, err := client.WriteFile(ctx)
+// WriteFile implements machine.Guest. The content is sent with its digest, so
+// the agent keeps the old file unless every byte arrived. A reader is
+// consumed once: a connection that breaks after the first read is not
+// repeated, and the caller, who holds the content, repeats the call.
+func (g *Guest) WriteFile(ctx context.Context, id machine.MachineID, path string, content io.Reader) error {
+	consumed := false
+	err := g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
+		if consumed {
+			return errNotRepeatable
+		}
+		stream, err := c.WriteFile(ctx)
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(&guestv1alpha1.WriteFileRequest{
-			Part: &guestv1alpha1.WriteFileRequest_Start{
-				Start: &guestv1alpha1.WriteFileStart{Path: path},
-			},
-		}); err != nil {
-			return err
+		if err := stream.Send(&guestv1alpha1.WriteFileRequest{Part: &guestv1alpha1.WriteFileRequest_Start{Start: &guestv1alpha1.WriteFileStart{Path: path}}}); err != nil {
+			return sendFailure(stream, err)
 		}
-		buf := make([]byte, 4096)
+		hash := sha256.New()
+		buf := make([]byte, 32<<10)
 		for {
+			consumed = true
 			n, readErr := content.Read(buf)
 			if n > 0 {
-				if err := stream.Send(&guestv1alpha1.WriteFileRequest{
-					Part: &guestv1alpha1.WriteFileRequest_Chunk{
-						Chunk: buf[:n],
-					},
-				}); err != nil {
-					return err
+				hash.Write(buf[:n])
+				if err := stream.Send(&guestv1alpha1.WriteFileRequest{Part: &guestv1alpha1.WriteFileRequest_Chunk{Chunk: buf[:n]}}); err != nil {
+					return sendFailure(stream, err)
 				}
 			}
 			if readErr == io.EOF {
 				break
 			}
 			if readErr != nil {
-				return readErr
+				// Dropping the stream without its end leaves the old file whole.
+				return fmt.Errorf("read the content: %w", readErr)
 			}
 		}
-		return stream.Send(&guestv1alpha1.WriteFileRequest{
-			Part: &guestv1alpha1.WriteFileRequest_End{
-				End: &guestv1alpha1.WriteFileEnd{},
-			},
-		})
+		end := &guestv1alpha1.WriteFileEnd{Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil))}
+		if err := stream.Send(&guestv1alpha1.WriteFileRequest{Part: &guestv1alpha1.WriteFileRequest_End{End: end}}); err != nil {
+			return sendFailure(stream, err)
+		}
+		_, err = stream.CloseAndRecv()
+		return err
 	})
+	if errors.Is(err, errNotRepeatable) {
+		return machine.ErrGuestUnreachable
+	}
+	return err
+}
+
+// errNotRepeatable stops a WriteFile whose reader has been read.
+var errNotRepeatable = errors.New("the content was already read")
+
+// sendFailure returns the status that ended the stream: Send reports only EOF
+// when the server has answered, and the answer is on CloseAndRecv.
+func sendFailure(stream grpc.ClientStreamingClient[guestv1alpha1.WriteFileRequest, guestv1alpha1.WriteFileResponse], err error) error {
+	if errors.Is(err, io.EOF) {
+		if _, recvErr := stream.CloseAndRecv(); recvErr != nil {
+			return recvErr
+		}
+	}
+	return err
 }
 
 // PatchFile implements machine.Guest.
-func (g *Guest) PatchFile(ctx context.Context, _ machine.MachineID, path, baseDigest, expectedDigest string, patch []byte) (machine.PatchOutcome, error) {
+func (g *Guest) PatchFile(ctx context.Context, id machine.MachineID, path, baseDigest, expectedDigest string, patch []byte) (machine.PatchOutcome, error) {
 	var outcome machine.PatchOutcome
-	err := g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		resp, err := client.PatchFile(ctx, &guestv1alpha1.PatchFileRequest{
+	err := g.run(ctx, id, opPatch, func(c guestv1alpha1.GuestServiceClient) error {
+		resp, err := c.PatchFile(ctx, &guestv1alpha1.PatchFileRequest{
 			Path:           path,
 			BaseDigest:     baseDigest,
 			ExpectedDigest: expectedDigest,
@@ -263,20 +432,25 @@ func (g *Guest) PatchFile(ctx context.Context, _ machine.MachineID, path, baseDi
 		if err != nil {
 			return err
 		}
-		outcome = machine.PatchOutcome(resp.GetOutcome())
+		switch resp.GetOutcome() {
+		case guestv1alpha1.PatchOutcome_PATCH_OUTCOME_APPLIED:
+			outcome = machine.PatchApplied
+		case guestv1alpha1.PatchOutcome_PATCH_OUTCOME_ALREADY_APPLIED:
+			outcome = machine.PatchAlreadyApplied
+		default:
+			return fmt.Errorf("the guest agent sent patch outcome %v, which this daemon does not know", resp.GetOutcome())
+		}
 		return nil
 	})
 	return outcome, err
 }
 
 // SearchFiles implements machine.Guest.
-func (g *Guest) SearchFiles(ctx context.Context, _ machine.MachineID, path, pattern string) ([]string, error) {
+func (g *Guest) SearchFiles(ctx context.Context, id machine.MachineID, path, pattern string) ([]string, error) {
 	var paths []string
-	err := g.call(ctx, func(client guestv1alpha1.GuestServiceClient) error {
-		stream, err := client.SearchFiles(ctx, &guestv1alpha1.SearchFilesRequest{
-			Path:    path,
-			Pattern: pattern,
-		})
+	err := g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
+		paths = nil // a repeat lists again from the start
+		stream, err := c.SearchFiles(ctx, &guestv1alpha1.SearchFilesRequest{Path: path, Pattern: pattern})
 		if err != nil {
 			return err
 		}
