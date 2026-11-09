@@ -98,8 +98,12 @@ rebuild-erofs-utils:
 # The converter's tests convert with the pinned mkfs.erofs and read the result with fsck.erofs.
 test: export MKFS_EROFS := $(CURDIR)/$(EROFS_UTILS)/mkfs.erofs
 test: export FSCK_EROFS := $(CURDIR)/$(EROFS_UTILS)/fsck.erofs
+# The daemon's channel tests run the host-side Guest Agent binary, which the line below builds for
+# the host and names to them.
+test: export GUEST_AGENT_CHANNEL := $(CURDIR)/guest-agent/target/debug/guest-agent-channel
 test: erofs-utils
 	$(call each_rust, $(count_members); $(CARGO) test --workspace --locked)
+	cd guest-agent && $(CARGO) build --locked -p guest-agent --bin guest-agent-channel
 	$(call each_module, $(count_packages); (cd "$$dir" && go test -v ./...))
 
 build: rebuild-erofs-utils

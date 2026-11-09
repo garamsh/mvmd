@@ -1,5 +1,11 @@
 version: v2
 clean: false
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      path: guest/v1alpha1/guest.proto
+      value: github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1;guestv1alpha1
 plugins:
   - local: [go, tool, -modfile=../tooling/protogen/go.mod, protoc-gen-go]
     out: .
@@ -7,3 +13,5 @@ plugins:
   - local: [go, tool, -modfile=../tooling/protogen/go.mod, protoc-gen-go-grpc]
     out: .
     opt: module=github.com/garamsh/mvmd/daemon
+inputs:
+  - directory: ../guest-agent/proto

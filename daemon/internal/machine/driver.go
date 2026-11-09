@@ -2,8 +2,13 @@ package machine
 
 import (
 	"context"
+	"net"
 	"time"
 )
+
+// GuestAgentPort is the port the Guest Agent listens on in every guest
+// (guest.md), the one a caller of Driver.GuestConn names for it.
+const GuestAgentPort uint32 = 1024
 
 // Capability is an optional operation a Driver may support.
 type Capability string
@@ -124,6 +129,14 @@ type Driver interface {
 	Describe(ctx context.Context, id MachineID, spec BootSpec) (ProcessDescription, error)
 	// Boot configures the started VMM and boots the guest.
 	Boot(ctx context.Context, id MachineID) error
+	// GuestConn opens a new byte stream to the guest's port of the Machine and
+	// returns it, ready for the Guest Agent's protocol: whatever the VMM needs
+	// before the first byte reaches the guest (a connect request to its vsock
+	// socket in the run directory, for one) is the Driver's, and is finished
+	// before this returns. The caller closes the stream and opens another
+	// after a break. A Machine whose VMM is not running, or a guest that
+	// refuses the port, is ErrGuestUnreachable.
+	GuestConn(ctx context.Context, id MachineID, port uint32) (net.Conn, error)
 	// Shutdown asks the guest to stop and waits up to grace for it to do so.
 	Shutdown(ctx context.Context, id MachineID, grace time.Duration) error
 	Pause(ctx context.Context, id MachineID) error
