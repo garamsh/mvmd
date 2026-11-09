@@ -2,9 +2,12 @@ package supervisor
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -58,14 +61,14 @@ func TestWatch_TheReadIsBoundedAndTheStreamIsReadToItsEnd(t *testing.T) {
 	found := 0
 	watch(r, rebooting, func() { found++ }, io.Discard)
 	assert.Zero(t, r.left, "the stream is read to its end, so the VMM never blocks on the pipe")
-	assert.LessOrEqual(t, r.biggest, pipeReadSize)
+	assert.LessOrEqual(t, r.biggest, 4096)
 	assert.Zero(t, found)
 
 	m := &matcher{match: rebooting}
 	for range 100 {
-		m.feed(bytes.Repeat([]byte("e"), pipeReadSize))
+		m.feed(bytes.Repeat([]byte("e"), 4096))
 	}
-	assert.Len(t, m.tail, len(rebooting)-1)
+	assert.Len(t, m.buf, len(rebooting)-1)
 }
 
 // Reading goes on after a match, and the end runs once however many times the
@@ -78,55 +81,82 @@ func TestWatch_TheEndRunsOnceAndTheReadContinues(t *testing.T) {
 	assert.Zero(t, r.Len())
 }
 
-// An EventPipe is read through a real pipe: the VMM's two writes, the match
-// split between them, end it.
-func TestEventPipe_AMatchWrittenInTwoPiecesEndsTheVMM(t *testing.T) {
-	p, err := OpenEventPipe(rebooting)
+// The pipe ends with the process: once the last write end is closed the reader
+// ends and closes the read end. The control is the pipe while the process still
+// holds a write end, which is still being read.
+func TestEventPipe_TheReaderEndsWhenTheProcessClosesItsWriteEnd(t *testing.T) {
+	r, w, err := os.Pipe()
 	require.NoError(t, err)
-	// The VMM's descriptor is a duplicate, since Watch closes the supervisor's
-	// own copy of the write end.
-	fd, err := unix.Dup(int(p.File().Fd()))
+	fd, err := unix.Dup(int(w.Fd()))
 	require.NoError(t, err)
 	vmm := os.NewFile(uintptr(fd), "vmm")
 	defer vmm.Close()
 
-	ended := make(chan struct{})
-	var log bytes.Buffer
-	p.Watch(func() { close(ended) }, &log)
+	e := &eventPipe{r: r, w: w, match: rebooting}
+	e.watch(func() {}, io.Discard)
 
-	half := len(rebooting) / 2
-	_, err = vmm.Write(append([]byte(`{"source": "vm", `), rebooting[:half]...))
-	require.NoError(t, err)
-	select {
-	case <-ended:
-		t.Fatal("ended before the match was whole")
-	case <-time.After(100 * time.Millisecond):
-	}
-	_, err = vmm.Write(append(append([]byte(nil), rebooting[half:]...), "}\n\n"...))
-	require.NoError(t, err)
-	select {
-	case <-ended:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the VMM was not ended")
-	}
+	_, err = r.Stat()
+	require.NoError(t, err, "control: while the process holds its end the pipe is read")
+	require.NoError(t, vmm.Close())
+	require.Eventually(t, func() bool {
+		_, err := r.Stat()
+		return errors.Is(err, os.ErrClosed)
+	}, 5*time.Second, 10*time.Millisecond, "the reader outlived the process")
 }
 
-// A description with no pipe makes none and passes the descriptors the child
-// has always had; one with a pipe puts its write end at the descriptor it names.
-func TestExtraFiles_AnEmptyFieldIsNoPipe(t *testing.T) {
-	files, events, err := extraFiles(&pb.Process{}, nil, nil, nil, nil)
+// endOn runs script as a process with EndOnPipe's pipe at descriptor fd, as the
+// supervisor and the drivertest harness start one, and returns how it ended
+// and what was logged.
+func endOn(t *testing.T, fd int, script string) (*os.ProcessState, string) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", script)
+	cmd.ExtraFiles = make([]*os.File, 4)
+	var log bytes.Buffer
+	started, err := EndOnPipe(cmd, fd, rebooting, &log)
 	require.NoError(t, err)
-	assert.Nil(t, events)
-	assert.Len(t, files, 4)
+	started(cmd.Start())
+	_ = cmd.Wait()
+	return cmd.ProcessState, log.String()
+}
 
-	files, events, err = extraFiles(&pb.Process{EndOn: &pb.EndOn{Fd: 9, Match: rebooting}}, nil, nil, nil, nil)
+// A process that writes the match to its descriptor, in two pieces, is killed
+// and the log says why; one that writes something else is not. Descriptor 9 is
+// past the files the command already passes.
+func TestEndOnPipe_AProcessThatWritesTheMatchIsKilledAndOneThatDoesNotIsNot(t *testing.T) {
+	state, log := endOn(t, 9, `printf '{"source": "vm", "event": "reb' >&9; sleep 0.2; printf 'ooting"}\n\n' >&9; sleep 30`)
+	assert.False(t, state.Success())
+	assert.Equal(t, syscall.SIGKILL, state.Sys().(syscall.WaitStatus).Signal())
+	assert.Contains(t, log, "ending the VMM")
+
+	state, log = endOn(t, 9, `printf '{"source": "vm", "event": "booted"}\n\n' >&9; sleep 1`)
+	assert.True(t, state.Success(), "control: an event that is not the match ends nothing")
+	assert.Empty(t, log)
+}
+
+// An empty field is no pipe: the files the command passes are as they were.
+func TestPlaceEndOn_AnEmptyFieldIsNoPipe(t *testing.T) {
+	cmd := exec.Command("true")
+	cmd.ExtraFiles = make([]*os.File, 4)
+	started, err := placeEndOn(cmd, nil, io.Discard)
 	require.NoError(t, err)
-	require.NotNil(t, events)
-	defer events.Close()
-	require.Len(t, files, 7)
-	assert.Same(t, events.File(), files[6], "descriptor 9 is index 6 of the extra files")
-	assert.Nil(t, files[4])
-	assert.Nil(t, files[5])
+	started(nil)
+	assert.Len(t, cmd.ExtraFiles, 4)
+
+	started, err = placeEndOn(cmd, &pb.EndOn{Fd: 7, Match: rebooting}, io.Discard)
+	require.NoError(t, err)
+	started(errors.New("not started"))
+	assert.Len(t, cmd.ExtraFiles, 5, "control: a field with a pipe places its write end")
+}
+
+func TestEndOnPipe_RefusesWhatItCannotPlace(t *testing.T) {
+	cmd := exec.Command("true")
+	cmd.ExtraFiles = make([]*os.File, 5)
+	_, err := EndOnPipe(cmd, 7, rebooting, io.Discard)
+	assert.ErrorContains(t, err, "already passes")
+	_, err = EndOnPipe(exec.Command("true"), 7, nil, io.Discard)
+	assert.ErrorContains(t, err, "no bytes to match")
+	_, err = EndOnPipe(exec.Command("true"), -1, rebooting, io.Discard)
+	assert.Error(t, err)
 }
 
 func TestCheckEndOn_RefusesAPipeTheSupervisorCannotGive(t *testing.T) {
