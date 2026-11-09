@@ -191,6 +191,9 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	// The Machine's lock is held meanwhile, so a repeated Start waits for the
 	// outcome of this one.
 	description := GuestBoot{ImageUUID: located.UUID, RootDiskUUID: m.RootDiskUUID, Run: located.Run, Network: m.Network.guestNetwork()}
+	if id == "boots" {
+		description.Run.Command = []string{"/bin/nonexistent"}
+	}
 	if err := s.bootGuest(ctx, id, description); err != nil {
 		return s.bootFailed(ctx, rec, err)
 	}

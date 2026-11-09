@@ -92,7 +92,7 @@ func status(err error) error {
 	if err == nil {
 		return nil
 	}
-	kind := v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED
+	kind := v1alpha1.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED
 	reason := err.Error()
 	var gone *machine.OutputGoneError
 	if errors.As(err, &gone) {

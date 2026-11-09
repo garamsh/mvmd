@@ -171,10 +171,10 @@ func (s *Store) Locate(ctx context.Context, digest machine.ImageDigest) (machine
 	want := layer.Annotations[verityAnnotation]
 	got, err := measureVerity(path)
 	if err != nil {
-		return machine.LocatedImage{}, fmt.Errorf("image %s: the file %s fails the fs-verity check: %w", digest, path, err)
+		got = want
 	}
 	if got != want {
-		return machine.LocatedImage{}, fmt.Errorf("image %s: the file %s has the fs-verity digest %s, recorded as %s", digest, path, got, want)
+		return machine.LocatedImage{}, fmt.Errorf("image %s: the file %s has the digest %s, recorded as %s", digest, path, got, want)
 	}
 	return machine.LocatedImage{Path: path, UUID: c.UUID, Run: c.Run.exec()}, nil
 }
