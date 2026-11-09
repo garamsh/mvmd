@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sync"
+
+	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 )
 
 const (
@@ -40,18 +43,16 @@ func checkEndOn(fd uint32, match []byte) error {
 // pieces is found and the stream's length costs nothing.
 type matcher struct {
 	match []byte
-	tail  []byte
+	buf   []byte
 }
 
 // feed reports whether the match is in the bytes fed so far, ending at p.
 func (m *matcher) feed(p []byte) bool {
-	window := append(append([]byte(nil), m.tail...), p...)
-	if bytes.Contains(window, m.match) {
-		return true
-	}
-	keep := min(len(m.match)-1, len(window))
-	m.tail = window[len(window)-keep:]
-	return false
+	m.buf = append(m.buf, p...)
+	found := bytes.Contains(m.buf, m.match)
+	keep := min(len(m.match)-1, len(m.buf))
+	m.buf = m.buf[:copy(m.buf, m.buf[len(m.buf)-keep:])]
+	return found
 }
 
 // watch reads r to its end in pieces of pipeReadSize and, on the first match,
@@ -75,42 +76,57 @@ func watch(r io.Reader, match []byte, found func(), log io.Writer) {
 	}
 }
 
-// EventPipe is a pipe the VMM writes to as a descriptor of its own, which the
+// eventPipe is a pipe the VMM writes to as a descriptor of its own, which the
 // supervisor reads (ADR 0026).
-type EventPipe struct {
+type eventPipe struct {
 	r, w  *os.File
 	match []byte
 }
 
-// OpenEventPipe makes the pipe. The caller passes File to the VMM and starts
-// Watch once the VMM holds its own descriptor.
-func OpenEventPipe(match []byte) (*EventPipe, error) {
-	if len(match) == 0 {
-		return nil, errors.New("the pipe has no bytes to match")
-	}
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	return &EventPipe{r: r, w: w, match: match}, nil
-}
-
-// File is the write end, for the VMM.
-func (e *EventPipe) File() *os.File { return e.w }
-
-// Close closes both ends, for a pipe that was not watched.
-func (e *EventPipe) Close() {
-	e.w.Close()
-	e.r.Close()
-}
-
-// Watch closes the write end here, so that the pipe ends with the VMM, and reads
-// the pipe in the background to its end. On a match it writes why to log and
-// calls end.
-func (e *EventPipe) Watch(end func(), log io.Writer) {
+// watch closes the write end here, so that the pipe ends with the VMM, and
+// reads the pipe in the background to its end. On a match it writes why to log
+// and calls end.
+func (e *eventPipe) watch(end func(), log io.Writer) {
 	e.w.Close()
 	go func() {
 		defer e.r.Close()
 		watch(e.r, e.match, end, log)
 	}()
+}
+
+// EndOnPipe places the write end of a new pipe at descriptor fd of cmd, after
+// the files cmd already passes, and returns the function to call with the
+// result of cmd.Start. On a failure that function closes the pipe; otherwise it
+// starts the reader, which on a match writes why to log and kills the process
+// (ADR 0026). The supervisor and the drivertest harness both call it.
+func EndOnPipe(cmd *exec.Cmd, fd int, match []byte, log io.Writer) (func(startErr error), error) {
+	if err := checkEndOn(uint32(fd), match); err != nil {
+		return nil, err
+	}
+	if len(cmd.ExtraFiles) > fd-3 {
+		return nil, fmt.Errorf("the pipe's descriptor %d is one cmd already passes", fd)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, fmt.Errorf("make the event pipe: %w", err)
+	}
+	e := &eventPipe{r: r, w: w, match: match}
+	cmd.ExtraFiles = append(append(cmd.ExtraFiles, make([]*os.File, fd-3-len(cmd.ExtraFiles))...), w)
+	return func(startErr error) {
+		if startErr != nil {
+			w.Close()
+			r.Close()
+			return
+		}
+		e.watch(func() { _ = cmd.Process.Kill() }, log)
+	}, nil
+}
+
+// placeEndOn is EndOnPipe for a request's description, which has none when its
+// field is empty.
+func placeEndOn(cmd *exec.Cmd, e *pb.EndOn, log io.Writer) (func(startErr error), error) {
+	if e == nil {
+		return func(error) {}, nil
+	}
+	return EndOnPipe(cmd, int(e.GetFd()), e.GetMatch(), log)
 }

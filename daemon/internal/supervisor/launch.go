@@ -168,24 +168,6 @@ func launch(socket string, req *pb.StartRequest, lim limits) (int, *Console, err
 	return pid, console, nil
 }
 
-// extraFiles are the descriptors the confining child is started with: 3 (tapFD),
-// 4 (statusFD), 5 (inputFD) and 6 (outputFD), and, for a description with an
-// event pipe, its write end at the descriptor the description names, with the
-// ones between left closed. A description without one makes no pipe.
-func extraFiles(p *pb.Process, tap, statusW, in, out *os.File) ([]*os.File, *EventPipe, error) {
-	files := []*os.File{tap, statusW, in, out}
-	e := p.GetEndOn()
-	if e == nil {
-		return files, nil, nil
-	}
-	events, err := OpenEventPipe(e.GetMatch())
-	if err != nil {
-		return nil, nil, fmt.Errorf("make the event pipe: %w", err)
-	}
-	files = append(files, make([]*os.File, int(e.GetFd())-firstEndOnFD)...)
-	return append(files, events.File()), events, nil
-}
-
 // start is launch up to the console: it starts the confining child with the
 // VMM's standard input and output as descriptors 5 and 6.
 func start(socket string, req *pb.StartRequest, lim limits, vmmLog, in, out *os.File) (int, error) {
@@ -227,8 +209,10 @@ func start(socket string, req *pb.StartRequest, lim limits, vmmLog, in, out *os.
 
 	cmd := exec.Command(self, confineCommand, filepath.Join(filepath.Dir(socket), "root"))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = requestR, vmmLog, vmmLog
-	var events *EventPipe
-	if cmd.ExtraFiles, events, err = extraFiles(req.GetProcess(), tap, statusW, in, out); err != nil {
+	cmd.ExtraFiles = []*os.File{tap, statusW, in, out}
+	pipeStarted, err := placeEndOn(cmd, req.GetProcess().GetEndOn(), os.Stderr)
+	if err != nil {
+		requestR.Close()
 		statusW.Close()
 		return 0, err
 	}
@@ -238,16 +222,11 @@ func start(socket string, req *pb.StartRequest, lim limits, vmmLog, in, out *os.
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: flags, UseCgroupFD: true, CgroupFD: int(cgroup.Fd())}
 	err = cmd.Start()
+	pipeStarted(err)
 	requestR.Close()
 	statusW.Close()
 	if err != nil {
-		if events != nil {
-			events.Close()
-		}
 		return 0, fmt.Errorf("start the confinement: %w", err)
-	}
-	if events != nil {
-		events.Watch(func() { _ = cmd.Process.Kill() }, os.Stderr)
 	}
 	if _, err := requestW.Write(raw); err != nil {
 		return 0, fmt.Errorf("pass the request to the confinement: %w", err)

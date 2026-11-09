@@ -135,10 +135,9 @@ func (p rootProcess) Kill() error             { return p.cmd.Process.Kill() }
 func (p rootProcess) Exited() <-chan struct{} { return p.exited }
 
 // StartInRoot runs the described process in its root with the streams, as the
-// supervisor would, which includes the event pipe of its description: the
-// supervisor's own pipe passes the write end as the descriptor the description
-// names, and ends the process when it reads the match. A description with no
-// pipe is started with none.
+// supervisor would, which includes the event pipe of its description, placed
+// and watched by the function the supervisor calls (supervisor.EndOnPipe). A
+// description with no pipe is started with none.
 func StartInRoot(t *testing.T, p machine.ProcessDescription, s Streams) Process {
 	t.Helper()
 	cmd, err := InRoot(p)
@@ -147,20 +146,18 @@ func StartInRoot(t *testing.T, p machine.ProcessDescription, s Streams) Process 
 		cmd.Stdin = s.In
 	}
 	cmd.Stdout, cmd.Stderr = s.Out, s.Err
-	var events *supervisor.EventPipe
+	pipeStarted := func(error) {}
 	if len(p.EndOn.Match) > 0 {
-		events, err = supervisor.OpenEventPipe(p.EndOn.Match)
-		require.NoError(t, err)
-		cmd.ExtraFiles = append(make([]*os.File, p.EndOn.FD-3), events.File())
-	}
-	require.NoError(t, cmd.Start())
-	if events != nil {
 		var log io.Writer = os.Stderr
 		if s.Err != nil {
 			log = s.Err
 		}
-		events.Watch(func() { _ = cmd.Process.Kill() }, log)
+		pipeStarted, err = supervisor.EndOnPipe(cmd, p.EndOn.FD, p.EndOn.Match, log)
+		require.NoError(t, err)
 	}
+	startErr := cmd.Start()
+	pipeStarted(startErr)
+	require.NoError(t, startErr)
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
 	return rootProcess{cmd, exited}
