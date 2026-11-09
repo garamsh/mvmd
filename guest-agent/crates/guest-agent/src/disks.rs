@@ -35,7 +35,6 @@ type Claim = fn(&Path) -> io::Result<File>;
 fn open_exclusive(device: &Path) -> io::Result<File> {
     OpenOptions::new()
         .read(true)
-        .custom_flags(nix::libc::O_EXCL)
         .open(device)
 }
 
