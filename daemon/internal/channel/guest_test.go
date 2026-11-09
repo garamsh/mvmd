@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/protoadapt"
 
 	"github.com/garamsh/mvmd/daemon/internal/channel"
 	guestv1alpha1 "github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1"
@@ -512,6 +513,11 @@ func TestPatchFile_MapsEachOutcome(t *testing.T) {
 func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 	ctx := context.Background()
 	st := func(c codes.Code, msg string) error { return status.Error(c, msg) }
+	detailed := func(c codes.Code, msg string, d protoadapt.MessageV1) error {
+		withDetail, err := status.New(c, msg).WithDetails(d)
+		require.NoError(t, err)
+		return withDetail.Err()
+	}
 	calls := map[string]func(h *harness) error{
 		"Health": func(h *harness) error { return h.guest.Health(ctx, "m") },
 		"Boot": func(h *harness) error {
@@ -552,27 +558,37 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		{name: "a path that names nothing, read", call: "ReadFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
 		{name: "a path that names nothing, patched", call: "PatchFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
 		{name: "a path that names nothing, searched", call: "SearchFiles", answer: st(codes.NotFound, "not found: /"), want: machine.ErrFileAbsent},
-		{name: "a file that is not a regular file, read", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: /f is not a regular file"), want: machine.ErrNotRegular},
-		{name: "a file that is not a regular file, written", call: "WriteFile", answer: st(codes.InvalidArgument, "invalid request: /f is not a regular file"), want: machine.ErrNotRegular},
-		{name: "a directory", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: /d is the wrong kind of file"), want: machine.ErrNotRegular},
-		{name: "a patch whose file is at neither digest", call: "PatchFile", answer: st(codes.FailedPrecondition, "precondition failed: /f is at sha256:1, neither the base sha256:2 nor the expected sha256:3"), want: machine.ErrPatchPrecondition},
-		{name: "a patch to a guest that has not booted", call: "PatchFile", answer: st(codes.FailedPrecondition, "precondition failed: the guest has not booted: Boot has not succeeded")},
-		{name: "a patch to a guest that failed to boot", call: "PatchFile", answer: st(codes.FailedPrecondition, "precondition failed: the guest did not boot: boot step switch root: x")},
+		// WrongFileKind. The controls: the same code with no detail maps by its
+		// code alone, even where the message says what a detail would, and a
+		// detail naming another kind of file is not a file that is not regular.
+		{name: "a file that is not a regular file, read", call: "ReadFile", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_FILE}), want: machine.ErrNotRegular},
+		{name: "a file that is not a regular file, written", call: "WriteFile", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_FILE}), want: machine.ErrNotRegular},
+		{name: "a file where a directory is needed", call: "SearchFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY})},
+		{name: "the same code with no detail", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: /f is not a regular file")},
 		{name: "invalid input is not a missing file", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: path f is not absolute")},
-		{name: "a missing exec is not a missing file", call: "Exec", answer: st(codes.FailedPrecondition, "precondition failed: the guest has not booted")},
+		// Patch: a precondition with no detail is the digests' by its code and
+		// call, whatever its message says; one with NotBooted is not.
+		{name: "a patch whose file is at neither digest", call: "PatchFile", answer: st(codes.FailedPrecondition, "x"), want: machine.ErrPatchPrecondition},
+		{name: "a patch precondition whose message talks of booting", call: "PatchFile", answer: st(codes.FailedPrecondition, "the guest has not booted"), want: machine.ErrPatchPrecondition},
+		{name: "a patch to a guest that has not booted", call: "PatchFile", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.NotBooted{State: guestv1alpha1.BootState_BOOT_STATE_PENDING})},
+		{name: "a patch to a guest that failed to boot", call: "PatchFile", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.NotBooted{State: guestv1alpha1.BootState_BOOT_STATE_FAILED})},
+		{name: "an exec to a guest that has not booted", call: "Exec", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.NotBooted{State: guestv1alpha1.BootState_BOOT_STATE_PENDING})},
 		{name: "a connection the agent lost", call: "Health", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
+		// ExecOutputGone, with the same code and no detail as the control.
 		{
 			name: "output the agent no longer holds", call: "ReadExecOutput",
-			answer: st(codes.OutOfRange, "out of range: output before offset 4096 is no longer held; the earliest held offset is 4096"),
+			answer: detailed(codes.OutOfRange, "x", &guestv1alpha1.ExecOutputGone{EarliestOffset: 4096}),
 			check: func(t *testing.T, err error) {
 				var gone *machine.OutputGoneError
 				require.ErrorAs(t, err, &gone)
 				assert.Equal(t, uint64(4096), gone.Earliest)
 			},
 		},
+		{name: "out of range with no detail, whatever the message says", call: "ReadExecOutput", answer: st(codes.OutOfRange, "output before offset 4096 is no longer held; the earliest held offset is 4096")},
+		// BootFailed, with the same code and a message naming a step as controls.
 		{
 			name: "a failed boot step", call: "Boot",
-			answer: st(codes.Internal, "boot step mount the image: no device carries the UUID"),
+			answer: detailed(codes.Internal, "x", &guestv1alpha1.BootFailed{Step: guestv1alpha1.BootStep_BOOT_STEP_MOUNT_IMAGE, Detail: "no device carries the UUID"}),
 			check: func(t *testing.T, err error) {
 				var step *machine.BootStepError
 				require.ErrorAs(t, err, &step)
@@ -582,14 +598,14 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		},
 		{
 			name: "a repeat of a boot that failed", call: "Boot",
-			answer: st(codes.FailedPrecondition, "precondition failed: the guest did not boot: boot step overlay the root disk: busy"),
+			answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.BootFailed{Step: guestv1alpha1.BootStep_BOOT_STEP_OVERLAY, Detail: "busy"}),
 			check: func(t *testing.T, err error) {
 				var step *machine.BootStepError
 				require.ErrorAs(t, err, &step)
 				assert.Equal(t, "overlay the root disk", step.Step)
 			},
 		},
-		{name: "another internal failure of a boot is not a step", call: "Boot", answer: st(codes.Internal, "io failed")},
+		{name: "an internal failure with no detail, whatever the message says", call: "Boot", answer: st(codes.Internal, "boot step mount the image: no device carries the UUID")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

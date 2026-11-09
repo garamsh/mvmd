@@ -12,9 +12,6 @@ import (
 	"io"
 	"net"
 	"net/netip"
-	"regexp"
-	"strconv"
-	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -102,16 +99,23 @@ func reset(err error) bool {
 	return ok && st.Code() == codes.Unavailable
 }
 
-var (
-	earliestHeld = regexp.MustCompile(`the earliest held offset is (\d+)`)
-	bootStep     = regexp.MustCompile(`boot step ([^:]+): (.*)$`)
-)
+// bootStepNames are the names a boot step goes by in guest.md and on the
+// console, by the contract's enum.
+var bootStepNames = map[guestv1alpha1.BootStep]string{
+	guestv1alpha1.BootStep_BOOT_STEP_CHECK:           "check the devices",
+	guestv1alpha1.BootStep_BOOT_STEP_MOUNT_IMAGE:     "mount the image",
+	guestv1alpha1.BootStep_BOOT_STEP_MOUNT_ROOT_DISK: "mount the root disk",
+	guestv1alpha1.BootStep_BOOT_STEP_OVERLAY:         "overlay the root disk",
+	guestv1alpha1.BootStep_BOOT_STEP_SWITCH_ROOT:     "switch root",
+	guestv1alpha1.BootStep_BOOT_STEP_NETWORK:         "configure the network",
+	guestv1alpha1.BootStep_BOOT_STEP_ENTRYPOINT:      "start the entrypoint",
+}
 
 // mapError turns what the agent or the connection answered into the errors the
-// Guest port promises. The agent's statuses carry no structured detail, so
-// where the port needs more than the code (the earliest offset held, the step
-// of a failed boot) it is read from the message the agent writes (guest.md);
-// an error that matches nothing is returned as itself, naming the code.
+// Guest port promises. A status the agent means a client to act on carries a
+// detail message in the contract (guest.proto, "Status details"), and the
+// detail's type decides the mapping, never the status message, which is for
+// people. A status with no detail we know maps by its code and the call alone.
 func mapError(op operation, err error) error {
 	if err == nil {
 		return nil
@@ -124,9 +128,24 @@ func mapError(op operation, err error) error {
 		return err // from the caller's own callback or reader
 	}
 	msg := st.Message()
-	if op == opBoot && (st.Code() == codes.Internal || st.Code() == codes.FailedPrecondition) {
-		if m := bootStep.FindStringSubmatch(msg); m != nil {
-			return &machine.BootStepError{Step: m[1], Detail: m[2]}
+	var notBooted bool
+	for _, d := range st.Details() {
+		switch d := d.(type) {
+		case *guestv1alpha1.ExecOutputGone:
+			return &machine.OutputGoneError{Earliest: d.GetEarliestOffset()}
+		case *guestv1alpha1.BootFailed:
+			step, known := bootStepNames[d.GetStep()]
+			if !known {
+				step = d.GetStep().String()
+			}
+			return &machine.BootStepError{Step: step, Detail: d.GetDetail()}
+		case *guestv1alpha1.WrongFileKind:
+			if d.GetExpected() == guestv1alpha1.EntryKind_ENTRY_KIND_FILE {
+				return fmt.Errorf("%w: %s", machine.ErrNotRegular, d.GetPath())
+			}
+			return fmt.Errorf("guest agent: %s is not a %s: %s", d.GetPath(), d.GetExpected(), msg)
+		case *guestv1alpha1.NotBooted:
+			notBooted = true
 		}
 	}
 	switch st.Code() {
@@ -143,18 +162,7 @@ func mapError(op operation, err error) error {
 		case opFile, opPatch:
 			return fmt.Errorf("%w: %s", machine.ErrFileAbsent, msg)
 		}
-	case codes.OutOfRange:
-		if m := earliestHeld.FindStringSubmatch(msg); m != nil {
-			if earliest, perr := strconv.ParseUint(m[1], 10, 64); perr == nil {
-				return &machine.OutputGoneError{Earliest: earliest}
-			}
-		}
-	case codes.InvalidArgument:
-		if (op == opFile || op == opPatch) && (strings.Contains(msg, "is not a regular file") || strings.Contains(msg, "is the wrong kind of file")) {
-			return fmt.Errorf("%w: %s", machine.ErrNotRegular, msg)
-		}
 	case codes.FailedPrecondition:
-		notBooted := strings.Contains(msg, "the guest has not booted") || strings.Contains(msg, "the guest did not boot")
 		if op == opPatch && !notBooted {
 			return fmt.Errorf("%w: %s", machine.ErrPatchPrecondition, msg)
 		}

@@ -240,6 +240,123 @@ func (EntryKind) EnumDescriptor() ([]byte, []int) {
 	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{3}
 }
 
+// A step of the boot, in the order the agent takes them.
+type BootStep int32
+
+const (
+	BootStep_BOOT_STEP_UNSPECIFIED BootStep = 0
+	// Finding the image and the root disk by filesystem UUID.
+	BootStep_BOOT_STEP_CHECK           BootStep = 1
+	BootStep_BOOT_STEP_MOUNT_IMAGE     BootStep = 2
+	BootStep_BOOT_STEP_MOUNT_ROOT_DISK BootStep = 3
+	BootStep_BOOT_STEP_OVERLAY         BootStep = 4
+	BootStep_BOOT_STEP_SWITCH_ROOT     BootStep = 5
+	BootStep_BOOT_STEP_NETWORK         BootStep = 6
+	BootStep_BOOT_STEP_ENTRYPOINT      BootStep = 7
+)
+
+// Enum value maps for BootStep.
+var (
+	BootStep_name = map[int32]string{
+		0: "BOOT_STEP_UNSPECIFIED",
+		1: "BOOT_STEP_CHECK",
+		2: "BOOT_STEP_MOUNT_IMAGE",
+		3: "BOOT_STEP_MOUNT_ROOT_DISK",
+		4: "BOOT_STEP_OVERLAY",
+		5: "BOOT_STEP_SWITCH_ROOT",
+		6: "BOOT_STEP_NETWORK",
+		7: "BOOT_STEP_ENTRYPOINT",
+	}
+	BootStep_value = map[string]int32{
+		"BOOT_STEP_UNSPECIFIED":     0,
+		"BOOT_STEP_CHECK":           1,
+		"BOOT_STEP_MOUNT_IMAGE":     2,
+		"BOOT_STEP_MOUNT_ROOT_DISK": 3,
+		"BOOT_STEP_OVERLAY":         4,
+		"BOOT_STEP_SWITCH_ROOT":     5,
+		"BOOT_STEP_NETWORK":         6,
+		"BOOT_STEP_ENTRYPOINT":      7,
+	}
+)
+
+func (x BootStep) Enum() *BootStep {
+	p := new(BootStep)
+	*p = x
+	return p
+}
+
+func (x BootStep) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BootStep) Descriptor() protoreflect.EnumDescriptor {
+	return file_guest_v1alpha1_guest_proto_enumTypes[4].Descriptor()
+}
+
+func (BootStep) Type() protoreflect.EnumType {
+	return &file_guest_v1alpha1_guest_proto_enumTypes[4]
+}
+
+func (x BootStep) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BootStep.Descriptor instead.
+func (BootStep) EnumDescriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{4}
+}
+
+type BootState int32
+
+const (
+	BootState_BOOT_STATE_UNSPECIFIED BootState = 0
+	// Boot has not been called, or its steps are still running.
+	BootState_BOOT_STATE_PENDING BootState = 1
+	// A boot step failed; the guest stays as it is until mvmd stops the Machine.
+	BootState_BOOT_STATE_FAILED BootState = 2
+)
+
+// Enum value maps for BootState.
+var (
+	BootState_name = map[int32]string{
+		0: "BOOT_STATE_UNSPECIFIED",
+		1: "BOOT_STATE_PENDING",
+		2: "BOOT_STATE_FAILED",
+	}
+	BootState_value = map[string]int32{
+		"BOOT_STATE_UNSPECIFIED": 0,
+		"BOOT_STATE_PENDING":     1,
+		"BOOT_STATE_FAILED":      2,
+	}
+)
+
+func (x BootState) Enum() *BootState {
+	p := new(BootState)
+	*p = x
+	return p
+}
+
+func (x BootState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BootState) Descriptor() protoreflect.EnumDescriptor {
+	return file_guest_v1alpha1_guest_proto_enumTypes[5].Descriptor()
+}
+
+func (BootState) Type() protoreflect.EnumType {
+	return &file_guest_v1alpha1_guest_proto_enumTypes[5]
+}
+
+func (x BootState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BootState.Descriptor instead.
+func (BootState) EnumDescriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{5}
+}
+
 type BootRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The filesystem UUID of the MachineImage's EROFS and of the root disk's
@@ -2115,6 +2232,210 @@ func (x *InfoResponse) GetApiVersions() []string {
 	return nil
 }
 
+// The detail of an OUT_OF_RANGE status from ReadExecOutput: the read starts
+// before the output the agent still holds.
+type ExecOutputGone struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The offset of the earliest byte still held; a read resumes from it.
+	EarliestOffset uint64 `protobuf:"varint,1,opt,name=earliest_offset,json=earliestOffset,proto3" json:"earliest_offset,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ExecOutputGone) Reset() {
+	*x = ExecOutputGone{}
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecOutputGone) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecOutputGone) ProtoMessage() {}
+
+func (x *ExecOutputGone) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecOutputGone.ProtoReflect.Descriptor instead.
+func (*ExecOutputGone) Descriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ExecOutputGone) GetEarliestOffset() uint64 {
+	if x != nil {
+		return x.EarliestOffset
+	}
+	return 0
+}
+
+// The detail of an INTERNAL status from a call whose boot step failed: Boot,
+// and UpdateNetwork when its network step fails.
+type BootFailed struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Step  BootStep               `protobuf:"varint,1,opt,name=step,proto3,enum=mvmd.guest.v1alpha1.BootStep" json:"step,omitempty"`
+	// Why the step failed, as text for people.
+	Detail        string `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BootFailed) Reset() {
+	*x = BootFailed{}
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootFailed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootFailed) ProtoMessage() {}
+
+func (x *BootFailed) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootFailed.ProtoReflect.Descriptor instead.
+func (*BootFailed) Descriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *BootFailed) GetStep() BootStep {
+	if x != nil {
+		return x.Step
+	}
+	return BootStep_BOOT_STEP_UNSPECIFIED
+}
+
+func (x *BootFailed) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+// The detail of an INVALID_ARGUMENT status from a file call whose path names a
+// file of the wrong kind.
+type WrongFileKind struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Path  string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// The kind the call needs: FILE for read, write and patch, DIRECTORY for
+	// list and search.
+	Expected      EntryKind `protobuf:"varint,2,opt,name=expected,proto3,enum=mvmd.guest.v1alpha1.EntryKind" json:"expected,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WrongFileKind) Reset() {
+	*x = WrongFileKind{}
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WrongFileKind) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WrongFileKind) ProtoMessage() {}
+
+func (x *WrongFileKind) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WrongFileKind.ProtoReflect.Descriptor instead.
+func (*WrongFileKind) Descriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *WrongFileKind) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *WrongFileKind) GetExpected() EntryKind {
+	if x != nil {
+		return x.Expected
+	}
+	return EntryKind_ENTRY_KIND_UNSPECIFIED
+}
+
+// The detail of a FAILED_PRECONDITION status from a call refused because Boot
+// has not succeeded.
+type NotBooted struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	State         BootState              `protobuf:"varint,1,opt,name=state,proto3,enum=mvmd.guest.v1alpha1.BootState" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotBooted) Reset() {
+	*x = NotBooted{}
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotBooted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotBooted) ProtoMessage() {}
+
+func (x *NotBooted) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotBooted.ProtoReflect.Descriptor instead.
+func (*NotBooted) Descriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *NotBooted) GetState() BootState {
+	if x != nil {
+		return x.State
+	}
+	return BootState_BOOT_STATE_UNSPECIFIED
+}
+
 var File_guest_v1alpha1_guest_proto protoreflect.FileDescriptor
 
 const file_guest_v1alpha1_guest_proto_rawDesc = "" +
@@ -2232,7 +2553,18 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\vInfoRequest\"V\n" +
 	"\fInfoResponse\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12!\n" +
-	"\fapi_versions\x18\x02 \x03(\tR\vapiVersions*\x92\x01\n" +
+	"\fapi_versions\x18\x02 \x03(\tR\vapiVersions\"9\n" +
+	"\x0eExecOutputGone\x12'\n" +
+	"\x0fearliest_offset\x18\x01 \x01(\x04R\x0eearliestOffset\"W\n" +
+	"\n" +
+	"BootFailed\x121\n" +
+	"\x04step\x18\x01 \x01(\x0e2\x1d.mvmd.guest.v1alpha1.BootStepR\x04step\x12\x16\n" +
+	"\x06detail\x18\x02 \x01(\tR\x06detail\"_\n" +
+	"\rWrongFileKind\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12:\n" +
+	"\bexpected\x18\x02 \x01(\x0e2\x1e.mvmd.guest.v1alpha1.EntryKindR\bexpected\"A\n" +
+	"\tNotBooted\x124\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x1e.mvmd.guest.v1alpha1.BootStateR\x05state*\x92\x01\n" +
 	"\n" +
 	"ExecStatus\x12\x1b\n" +
 	"\x17EXEC_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
@@ -2253,7 +2585,20 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\x0fENTRY_KIND_FILE\x10\x01\x12\x18\n" +
 	"\x14ENTRY_KIND_DIRECTORY\x10\x02\x12\x16\n" +
 	"\x12ENTRY_KIND_SYMLINK\x10\x03\x12\x14\n" +
-	"\x10ENTRY_KIND_OTHER\x10\x042\x9d\t\n" +
+	"\x10ENTRY_KIND_OTHER\x10\x04*\xd7\x01\n" +
+	"\bBootStep\x12\x19\n" +
+	"\x15BOOT_STEP_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fBOOT_STEP_CHECK\x10\x01\x12\x19\n" +
+	"\x15BOOT_STEP_MOUNT_IMAGE\x10\x02\x12\x1d\n" +
+	"\x19BOOT_STEP_MOUNT_ROOT_DISK\x10\x03\x12\x15\n" +
+	"\x11BOOT_STEP_OVERLAY\x10\x04\x12\x19\n" +
+	"\x15BOOT_STEP_SWITCH_ROOT\x10\x05\x12\x15\n" +
+	"\x11BOOT_STEP_NETWORK\x10\x06\x12\x18\n" +
+	"\x14BOOT_STEP_ENTRYPOINT\x10\a*V\n" +
+	"\tBootState\x12\x1a\n" +
+	"\x16BOOT_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12BOOT_STATE_PENDING\x10\x01\x12\x15\n" +
+	"\x11BOOT_STATE_FAILED\x10\x022\x9d\t\n" +
 	"\fGuestService\x12K\n" +
 	"\x04Boot\x12 .mvmd.guest.v1alpha1.BootRequest\x1a!.mvmd.guest.v1alpha1.BootResponse\x12f\n" +
 	"\rUpdateNetwork\x12).mvmd.guest.v1alpha1.UpdateNetworkRequest\x1a*.mvmd.guest.v1alpha1.UpdateNetworkResponse\x12T\n" +
@@ -2283,102 +2628,111 @@ func file_guest_v1alpha1_guest_proto_rawDescGZIP() []byte {
 	return file_guest_v1alpha1_guest_proto_rawDescData
 }
 
-var file_guest_v1alpha1_guest_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_guest_v1alpha1_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_guest_v1alpha1_guest_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_guest_v1alpha1_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_guest_v1alpha1_guest_proto_goTypes = []any{
 	(ExecStatus)(0),                // 0: mvmd.guest.v1alpha1.ExecStatus
 	(OutputStream)(0),              // 1: mvmd.guest.v1alpha1.OutputStream
 	(PatchOutcome)(0),              // 2: mvmd.guest.v1alpha1.PatchOutcome
 	(EntryKind)(0),                 // 3: mvmd.guest.v1alpha1.EntryKind
-	(*BootRequest)(nil),            // 4: mvmd.guest.v1alpha1.BootRequest
-	(*BootResponse)(nil),           // 5: mvmd.guest.v1alpha1.BootResponse
-	(*RunConfig)(nil),              // 6: mvmd.guest.v1alpha1.RunConfig
-	(*NetworkConfig)(nil),          // 7: mvmd.guest.v1alpha1.NetworkConfig
-	(*Ipv4Config)(nil),             // 8: mvmd.guest.v1alpha1.Ipv4Config
-	(*Ipv6Config)(nil),             // 9: mvmd.guest.v1alpha1.Ipv6Config
-	(*UpdateNetworkRequest)(nil),   // 10: mvmd.guest.v1alpha1.UpdateNetworkRequest
-	(*UpdateNetworkResponse)(nil),  // 11: mvmd.guest.v1alpha1.UpdateNetworkResponse
-	(*CatchUpRequest)(nil),         // 12: mvmd.guest.v1alpha1.CatchUpRequest
-	(*CatchUpResponse)(nil),        // 13: mvmd.guest.v1alpha1.CatchUpResponse
-	(*ExecRecord)(nil),             // 14: mvmd.guest.v1alpha1.ExecRecord
-	(*ExecRequest)(nil),            // 15: mvmd.guest.v1alpha1.ExecRequest
-	(*ExecResponse)(nil),           // 16: mvmd.guest.v1alpha1.ExecResponse
-	(*ReadExecOutputRequest)(nil),  // 17: mvmd.guest.v1alpha1.ReadExecOutputRequest
-	(*OutputChunk)(nil),            // 18: mvmd.guest.v1alpha1.OutputChunk
-	(*ReadExecOutputResponse)(nil), // 19: mvmd.guest.v1alpha1.ReadExecOutputResponse
-	(*SignalRequest)(nil),          // 20: mvmd.guest.v1alpha1.SignalRequest
-	(*SignalResponse)(nil),         // 21: mvmd.guest.v1alpha1.SignalResponse
-	(*ReadFileRequest)(nil),        // 22: mvmd.guest.v1alpha1.ReadFileRequest
-	(*ReadFileResponse)(nil),       // 23: mvmd.guest.v1alpha1.ReadFileResponse
-	(*WriteFileStart)(nil),         // 24: mvmd.guest.v1alpha1.WriteFileStart
-	(*WriteFileEnd)(nil),           // 25: mvmd.guest.v1alpha1.WriteFileEnd
-	(*WriteFileRequest)(nil),       // 26: mvmd.guest.v1alpha1.WriteFileRequest
-	(*WriteFileResponse)(nil),      // 27: mvmd.guest.v1alpha1.WriteFileResponse
-	(*PatchFileRequest)(nil),       // 28: mvmd.guest.v1alpha1.PatchFileRequest
-	(*PatchFileResponse)(nil),      // 29: mvmd.guest.v1alpha1.PatchFileResponse
-	(*ListFilesRequest)(nil),       // 30: mvmd.guest.v1alpha1.ListFilesRequest
-	(*FileEntry)(nil),              // 31: mvmd.guest.v1alpha1.FileEntry
-	(*ListFilesResponse)(nil),      // 32: mvmd.guest.v1alpha1.ListFilesResponse
-	(*SearchFilesRequest)(nil),     // 33: mvmd.guest.v1alpha1.SearchFilesRequest
-	(*SearchFilesResponse)(nil),    // 34: mvmd.guest.v1alpha1.SearchFilesResponse
-	(*HealthRequest)(nil),          // 35: mvmd.guest.v1alpha1.HealthRequest
-	(*HealthResponse)(nil),         // 36: mvmd.guest.v1alpha1.HealthResponse
-	(*InfoRequest)(nil),            // 37: mvmd.guest.v1alpha1.InfoRequest
-	(*InfoResponse)(nil),           // 38: mvmd.guest.v1alpha1.InfoResponse
-	nil,                            // 39: mvmd.guest.v1alpha1.RunConfig.EnvEntry
-	nil,                            // 40: mvmd.guest.v1alpha1.ExecRequest.EnvEntry
+	(BootStep)(0),                  // 4: mvmd.guest.v1alpha1.BootStep
+	(BootState)(0),                 // 5: mvmd.guest.v1alpha1.BootState
+	(*BootRequest)(nil),            // 6: mvmd.guest.v1alpha1.BootRequest
+	(*BootResponse)(nil),           // 7: mvmd.guest.v1alpha1.BootResponse
+	(*RunConfig)(nil),              // 8: mvmd.guest.v1alpha1.RunConfig
+	(*NetworkConfig)(nil),          // 9: mvmd.guest.v1alpha1.NetworkConfig
+	(*Ipv4Config)(nil),             // 10: mvmd.guest.v1alpha1.Ipv4Config
+	(*Ipv6Config)(nil),             // 11: mvmd.guest.v1alpha1.Ipv6Config
+	(*UpdateNetworkRequest)(nil),   // 12: mvmd.guest.v1alpha1.UpdateNetworkRequest
+	(*UpdateNetworkResponse)(nil),  // 13: mvmd.guest.v1alpha1.UpdateNetworkResponse
+	(*CatchUpRequest)(nil),         // 14: mvmd.guest.v1alpha1.CatchUpRequest
+	(*CatchUpResponse)(nil),        // 15: mvmd.guest.v1alpha1.CatchUpResponse
+	(*ExecRecord)(nil),             // 16: mvmd.guest.v1alpha1.ExecRecord
+	(*ExecRequest)(nil),            // 17: mvmd.guest.v1alpha1.ExecRequest
+	(*ExecResponse)(nil),           // 18: mvmd.guest.v1alpha1.ExecResponse
+	(*ReadExecOutputRequest)(nil),  // 19: mvmd.guest.v1alpha1.ReadExecOutputRequest
+	(*OutputChunk)(nil),            // 20: mvmd.guest.v1alpha1.OutputChunk
+	(*ReadExecOutputResponse)(nil), // 21: mvmd.guest.v1alpha1.ReadExecOutputResponse
+	(*SignalRequest)(nil),          // 22: mvmd.guest.v1alpha1.SignalRequest
+	(*SignalResponse)(nil),         // 23: mvmd.guest.v1alpha1.SignalResponse
+	(*ReadFileRequest)(nil),        // 24: mvmd.guest.v1alpha1.ReadFileRequest
+	(*ReadFileResponse)(nil),       // 25: mvmd.guest.v1alpha1.ReadFileResponse
+	(*WriteFileStart)(nil),         // 26: mvmd.guest.v1alpha1.WriteFileStart
+	(*WriteFileEnd)(nil),           // 27: mvmd.guest.v1alpha1.WriteFileEnd
+	(*WriteFileRequest)(nil),       // 28: mvmd.guest.v1alpha1.WriteFileRequest
+	(*WriteFileResponse)(nil),      // 29: mvmd.guest.v1alpha1.WriteFileResponse
+	(*PatchFileRequest)(nil),       // 30: mvmd.guest.v1alpha1.PatchFileRequest
+	(*PatchFileResponse)(nil),      // 31: mvmd.guest.v1alpha1.PatchFileResponse
+	(*ListFilesRequest)(nil),       // 32: mvmd.guest.v1alpha1.ListFilesRequest
+	(*FileEntry)(nil),              // 33: mvmd.guest.v1alpha1.FileEntry
+	(*ListFilesResponse)(nil),      // 34: mvmd.guest.v1alpha1.ListFilesResponse
+	(*SearchFilesRequest)(nil),     // 35: mvmd.guest.v1alpha1.SearchFilesRequest
+	(*SearchFilesResponse)(nil),    // 36: mvmd.guest.v1alpha1.SearchFilesResponse
+	(*HealthRequest)(nil),          // 37: mvmd.guest.v1alpha1.HealthRequest
+	(*HealthResponse)(nil),         // 38: mvmd.guest.v1alpha1.HealthResponse
+	(*InfoRequest)(nil),            // 39: mvmd.guest.v1alpha1.InfoRequest
+	(*InfoResponse)(nil),           // 40: mvmd.guest.v1alpha1.InfoResponse
+	(*ExecOutputGone)(nil),         // 41: mvmd.guest.v1alpha1.ExecOutputGone
+	(*BootFailed)(nil),             // 42: mvmd.guest.v1alpha1.BootFailed
+	(*WrongFileKind)(nil),          // 43: mvmd.guest.v1alpha1.WrongFileKind
+	(*NotBooted)(nil),              // 44: mvmd.guest.v1alpha1.NotBooted
+	nil,                            // 45: mvmd.guest.v1alpha1.RunConfig.EnvEntry
+	nil,                            // 46: mvmd.guest.v1alpha1.ExecRequest.EnvEntry
 }
 var file_guest_v1alpha1_guest_proto_depIdxs = []int32{
-	6,  // 0: mvmd.guest.v1alpha1.BootRequest.run:type_name -> mvmd.guest.v1alpha1.RunConfig
-	7,  // 1: mvmd.guest.v1alpha1.BootRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
-	39, // 2: mvmd.guest.v1alpha1.RunConfig.env:type_name -> mvmd.guest.v1alpha1.RunConfig.EnvEntry
-	8,  // 3: mvmd.guest.v1alpha1.NetworkConfig.ipv4:type_name -> mvmd.guest.v1alpha1.Ipv4Config
-	9,  // 4: mvmd.guest.v1alpha1.NetworkConfig.ipv6:type_name -> mvmd.guest.v1alpha1.Ipv6Config
-	7,  // 5: mvmd.guest.v1alpha1.UpdateNetworkRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
-	7,  // 6: mvmd.guest.v1alpha1.CatchUpRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
+	8,  // 0: mvmd.guest.v1alpha1.BootRequest.run:type_name -> mvmd.guest.v1alpha1.RunConfig
+	9,  // 1: mvmd.guest.v1alpha1.BootRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
+	45, // 2: mvmd.guest.v1alpha1.RunConfig.env:type_name -> mvmd.guest.v1alpha1.RunConfig.EnvEntry
+	10, // 3: mvmd.guest.v1alpha1.NetworkConfig.ipv4:type_name -> mvmd.guest.v1alpha1.Ipv4Config
+	11, // 4: mvmd.guest.v1alpha1.NetworkConfig.ipv6:type_name -> mvmd.guest.v1alpha1.Ipv6Config
+	9,  // 5: mvmd.guest.v1alpha1.UpdateNetworkRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
+	9,  // 6: mvmd.guest.v1alpha1.CatchUpRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
 	0,  // 7: mvmd.guest.v1alpha1.ExecRecord.status:type_name -> mvmd.guest.v1alpha1.ExecStatus
-	40, // 8: mvmd.guest.v1alpha1.ExecRequest.env:type_name -> mvmd.guest.v1alpha1.ExecRequest.EnvEntry
-	14, // 9: mvmd.guest.v1alpha1.ExecResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
+	46, // 8: mvmd.guest.v1alpha1.ExecRequest.env:type_name -> mvmd.guest.v1alpha1.ExecRequest.EnvEntry
+	16, // 9: mvmd.guest.v1alpha1.ExecResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
 	1,  // 10: mvmd.guest.v1alpha1.OutputChunk.stream:type_name -> mvmd.guest.v1alpha1.OutputStream
-	18, // 11: mvmd.guest.v1alpha1.ReadExecOutputResponse.chunk:type_name -> mvmd.guest.v1alpha1.OutputChunk
-	14, // 12: mvmd.guest.v1alpha1.ReadExecOutputResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
-	24, // 13: mvmd.guest.v1alpha1.WriteFileRequest.start:type_name -> mvmd.guest.v1alpha1.WriteFileStart
-	25, // 14: mvmd.guest.v1alpha1.WriteFileRequest.end:type_name -> mvmd.guest.v1alpha1.WriteFileEnd
+	20, // 11: mvmd.guest.v1alpha1.ReadExecOutputResponse.chunk:type_name -> mvmd.guest.v1alpha1.OutputChunk
+	16, // 12: mvmd.guest.v1alpha1.ReadExecOutputResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
+	26, // 13: mvmd.guest.v1alpha1.WriteFileRequest.start:type_name -> mvmd.guest.v1alpha1.WriteFileStart
+	27, // 14: mvmd.guest.v1alpha1.WriteFileRequest.end:type_name -> mvmd.guest.v1alpha1.WriteFileEnd
 	2,  // 15: mvmd.guest.v1alpha1.PatchFileResponse.outcome:type_name -> mvmd.guest.v1alpha1.PatchOutcome
 	3,  // 16: mvmd.guest.v1alpha1.FileEntry.kind:type_name -> mvmd.guest.v1alpha1.EntryKind
-	31, // 17: mvmd.guest.v1alpha1.ListFilesResponse.entries:type_name -> mvmd.guest.v1alpha1.FileEntry
-	31, // 18: mvmd.guest.v1alpha1.SearchFilesResponse.matches:type_name -> mvmd.guest.v1alpha1.FileEntry
-	4,  // 19: mvmd.guest.v1alpha1.GuestService.Boot:input_type -> mvmd.guest.v1alpha1.BootRequest
-	10, // 20: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:input_type -> mvmd.guest.v1alpha1.UpdateNetworkRequest
-	12, // 21: mvmd.guest.v1alpha1.GuestService.CatchUp:input_type -> mvmd.guest.v1alpha1.CatchUpRequest
-	15, // 22: mvmd.guest.v1alpha1.GuestService.Exec:input_type -> mvmd.guest.v1alpha1.ExecRequest
-	17, // 23: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:input_type -> mvmd.guest.v1alpha1.ReadExecOutputRequest
-	20, // 24: mvmd.guest.v1alpha1.GuestService.Signal:input_type -> mvmd.guest.v1alpha1.SignalRequest
-	22, // 25: mvmd.guest.v1alpha1.GuestService.ReadFile:input_type -> mvmd.guest.v1alpha1.ReadFileRequest
-	26, // 26: mvmd.guest.v1alpha1.GuestService.WriteFile:input_type -> mvmd.guest.v1alpha1.WriteFileRequest
-	28, // 27: mvmd.guest.v1alpha1.GuestService.PatchFile:input_type -> mvmd.guest.v1alpha1.PatchFileRequest
-	30, // 28: mvmd.guest.v1alpha1.GuestService.ListFiles:input_type -> mvmd.guest.v1alpha1.ListFilesRequest
-	33, // 29: mvmd.guest.v1alpha1.GuestService.SearchFiles:input_type -> mvmd.guest.v1alpha1.SearchFilesRequest
-	35, // 30: mvmd.guest.v1alpha1.GuestService.Health:input_type -> mvmd.guest.v1alpha1.HealthRequest
-	37, // 31: mvmd.guest.v1alpha1.GuestService.Info:input_type -> mvmd.guest.v1alpha1.InfoRequest
-	5,  // 32: mvmd.guest.v1alpha1.GuestService.Boot:output_type -> mvmd.guest.v1alpha1.BootResponse
-	11, // 33: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:output_type -> mvmd.guest.v1alpha1.UpdateNetworkResponse
-	13, // 34: mvmd.guest.v1alpha1.GuestService.CatchUp:output_type -> mvmd.guest.v1alpha1.CatchUpResponse
-	16, // 35: mvmd.guest.v1alpha1.GuestService.Exec:output_type -> mvmd.guest.v1alpha1.ExecResponse
-	19, // 36: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:output_type -> mvmd.guest.v1alpha1.ReadExecOutputResponse
-	21, // 37: mvmd.guest.v1alpha1.GuestService.Signal:output_type -> mvmd.guest.v1alpha1.SignalResponse
-	23, // 38: mvmd.guest.v1alpha1.GuestService.ReadFile:output_type -> mvmd.guest.v1alpha1.ReadFileResponse
-	27, // 39: mvmd.guest.v1alpha1.GuestService.WriteFile:output_type -> mvmd.guest.v1alpha1.WriteFileResponse
-	29, // 40: mvmd.guest.v1alpha1.GuestService.PatchFile:output_type -> mvmd.guest.v1alpha1.PatchFileResponse
-	32, // 41: mvmd.guest.v1alpha1.GuestService.ListFiles:output_type -> mvmd.guest.v1alpha1.ListFilesResponse
-	34, // 42: mvmd.guest.v1alpha1.GuestService.SearchFiles:output_type -> mvmd.guest.v1alpha1.SearchFilesResponse
-	36, // 43: mvmd.guest.v1alpha1.GuestService.Health:output_type -> mvmd.guest.v1alpha1.HealthResponse
-	38, // 44: mvmd.guest.v1alpha1.GuestService.Info:output_type -> mvmd.guest.v1alpha1.InfoResponse
-	32, // [32:45] is the sub-list for method output_type
-	19, // [19:32] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	33, // 17: mvmd.guest.v1alpha1.ListFilesResponse.entries:type_name -> mvmd.guest.v1alpha1.FileEntry
+	33, // 18: mvmd.guest.v1alpha1.SearchFilesResponse.matches:type_name -> mvmd.guest.v1alpha1.FileEntry
+	4,  // 19: mvmd.guest.v1alpha1.BootFailed.step:type_name -> mvmd.guest.v1alpha1.BootStep
+	3,  // 20: mvmd.guest.v1alpha1.WrongFileKind.expected:type_name -> mvmd.guest.v1alpha1.EntryKind
+	5,  // 21: mvmd.guest.v1alpha1.NotBooted.state:type_name -> mvmd.guest.v1alpha1.BootState
+	6,  // 22: mvmd.guest.v1alpha1.GuestService.Boot:input_type -> mvmd.guest.v1alpha1.BootRequest
+	12, // 23: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:input_type -> mvmd.guest.v1alpha1.UpdateNetworkRequest
+	14, // 24: mvmd.guest.v1alpha1.GuestService.CatchUp:input_type -> mvmd.guest.v1alpha1.CatchUpRequest
+	17, // 25: mvmd.guest.v1alpha1.GuestService.Exec:input_type -> mvmd.guest.v1alpha1.ExecRequest
+	19, // 26: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:input_type -> mvmd.guest.v1alpha1.ReadExecOutputRequest
+	22, // 27: mvmd.guest.v1alpha1.GuestService.Signal:input_type -> mvmd.guest.v1alpha1.SignalRequest
+	24, // 28: mvmd.guest.v1alpha1.GuestService.ReadFile:input_type -> mvmd.guest.v1alpha1.ReadFileRequest
+	28, // 29: mvmd.guest.v1alpha1.GuestService.WriteFile:input_type -> mvmd.guest.v1alpha1.WriteFileRequest
+	30, // 30: mvmd.guest.v1alpha1.GuestService.PatchFile:input_type -> mvmd.guest.v1alpha1.PatchFileRequest
+	32, // 31: mvmd.guest.v1alpha1.GuestService.ListFiles:input_type -> mvmd.guest.v1alpha1.ListFilesRequest
+	35, // 32: mvmd.guest.v1alpha1.GuestService.SearchFiles:input_type -> mvmd.guest.v1alpha1.SearchFilesRequest
+	37, // 33: mvmd.guest.v1alpha1.GuestService.Health:input_type -> mvmd.guest.v1alpha1.HealthRequest
+	39, // 34: mvmd.guest.v1alpha1.GuestService.Info:input_type -> mvmd.guest.v1alpha1.InfoRequest
+	7,  // 35: mvmd.guest.v1alpha1.GuestService.Boot:output_type -> mvmd.guest.v1alpha1.BootResponse
+	13, // 36: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:output_type -> mvmd.guest.v1alpha1.UpdateNetworkResponse
+	15, // 37: mvmd.guest.v1alpha1.GuestService.CatchUp:output_type -> mvmd.guest.v1alpha1.CatchUpResponse
+	18, // 38: mvmd.guest.v1alpha1.GuestService.Exec:output_type -> mvmd.guest.v1alpha1.ExecResponse
+	21, // 39: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:output_type -> mvmd.guest.v1alpha1.ReadExecOutputResponse
+	23, // 40: mvmd.guest.v1alpha1.GuestService.Signal:output_type -> mvmd.guest.v1alpha1.SignalResponse
+	25, // 41: mvmd.guest.v1alpha1.GuestService.ReadFile:output_type -> mvmd.guest.v1alpha1.ReadFileResponse
+	29, // 42: mvmd.guest.v1alpha1.GuestService.WriteFile:output_type -> mvmd.guest.v1alpha1.WriteFileResponse
+	31, // 43: mvmd.guest.v1alpha1.GuestService.PatchFile:output_type -> mvmd.guest.v1alpha1.PatchFileResponse
+	34, // 44: mvmd.guest.v1alpha1.GuestService.ListFiles:output_type -> mvmd.guest.v1alpha1.ListFilesResponse
+	36, // 45: mvmd.guest.v1alpha1.GuestService.SearchFiles:output_type -> mvmd.guest.v1alpha1.SearchFilesResponse
+	38, // 46: mvmd.guest.v1alpha1.GuestService.Health:output_type -> mvmd.guest.v1alpha1.HealthResponse
+	40, // 47: mvmd.guest.v1alpha1.GuestService.Info:output_type -> mvmd.guest.v1alpha1.InfoResponse
+	35, // [35:48] is the sub-list for method output_type
+	22, // [22:35] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_guest_v1alpha1_guest_proto_init() }
@@ -2400,8 +2754,8 @@ func file_guest_v1alpha1_guest_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_guest_v1alpha1_guest_proto_rawDesc), len(file_guest_v1alpha1_guest_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   37,
+			NumEnums:      6,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
