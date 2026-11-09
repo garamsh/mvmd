@@ -71,3 +71,7 @@ mvmd enforces every Machine's network policy with nftables in the host kernel, i
 - A guest reaches an address its policy does not allow, or sends with an address that is not its own.
 - Guests that a later kernel or workload needs to send other ICMPv6 types (MLD for a multicast workload, router solicitations) fail in ways traced to the tap check.
 - Policies need DNS names or other identities that require a proxy, so nftables carries only part of the policy.
+
+## Errata
+
+- 2026-11-09. The decision stands. §Decision and §Context describe "one table" that holds a netdev chain at each tap and inet chains for the policy. A table of nftables has exactly one family: the netlink message that adds a table, and the one that adds a chain to it, each carry a single family (github.com/google/nftables v0.3.0, `table.go` `AddTable` and `chain.go` `AddChain`, which write the table's `Family` into the message header), and the ADR's own context says the `netdev` family has its own hooks and the `inet` family its own. So the netdev chains and the inet chains cannot share a table. It was found while implementing the adapter (#27): mvmd's table is two tables of one name, `mvmd`, a netdev table and an inet table. Both are created, replaced and changed in the same transaction (§Decision, "Changed only by transactions" and "Across restarts"), neither carries the owner flag, and mvmd owns both, so what the decision rests on, one owner and an all-or-nothing change, holds.

@@ -65,6 +65,46 @@ func TestRestore_AFailedListingLeavesMachinesThatDoNotClaimToRun(t *testing.T) {
 	assert.Equal(t, machine.StateCreated, m.State)
 }
 
+func TestRestore_ANetworkTheNodeLostFaultsTheMachineAndTheOthersAreKept(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(hotplugAndResize...)
+	e.inState(t, "lost", machine.StateRunning)
+	e.inState(t, "paused-lost", machine.StatePaused)
+	e.inState(t, "kept", machine.StateRunning)
+	e.inState(t, "created", machine.StateCreated)
+	// The adapter reports what it cannot restore; a Created Machine has no VMM
+	// and holds no network to lose, so naming it changes nothing.
+	for _, id := range []machine.MachineID{"lost", "paused-lost", "created"} {
+		e.net.LoseAtReconcile(id)
+	}
+
+	svc := e.reopened(t)
+	for id, want := range map[machine.MachineID]machine.State{
+		"lost": machine.StateFaulted, "paused-lost": machine.StateFaulted, "kept": machine.StateRunning, "created": machine.StateCreated,
+	} {
+		m, err := svc.Inspect(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, want, m.State, id)
+		if want == machine.StateFaulted {
+			assert.Contains(t, m.FailureReason, "network could not be restored")
+			e.requireStored(t, id, machine.StateFaulted)
+		}
+	}
+	assert.ElementsMatch(t, []machine.MachineID{"lost", "paused-lost", "kept", "created"}, e.net.Reconciled(), "the adapter is given every Machine")
+}
+
+func TestRestore_ANetworkThatCannotBeReconciledFailsTheRestore(t *testing.T) {
+	e := newEnv(hotplugAndResize...)
+	e.inState(t, "m", machine.StateRunning)
+	e.net.FailAt("reconcile", errBoom)
+
+	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
+	require.ErrorIs(t, svc.Restore(context.Background()), errBoom)
+
+	e.net.Heal("reconcile")
+	e.reopened(t) // control: a restore succeeds once the adapter does
+}
+
 var someProcess = machine.ProcessDescription{Executable: "vmm"}
 var someUser = machine.User{UID: 1000, GID: 1000}
 
@@ -79,7 +119,7 @@ func TestRestore_EndsSupervisorsNoRunningRecordClaims(t *testing.T) {
 	for _, id := range []machine.MachineID{"created", "stopped", "ghost"} {
 		require.NoError(t, e.sup.Start(ctx, id, someProcess, someUser))
 	}
-	_, err := e.net.Apply(ctx, "created", machine.NetworkPolicy{})
+	_, err := e.net.Apply(ctx, "created", someUser, machine.NetworkPolicy{})
 	require.NoError(t, err)
 
 	svc := e.reopened(t)

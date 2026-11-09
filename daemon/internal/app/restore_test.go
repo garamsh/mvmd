@@ -115,7 +115,7 @@ func TestRestore_AMachineWithoutASupervisorIsStopped(t *testing.T) {
 		// The tap was applied by the earlier run; the new node still has it.
 		second := startWith(t, cfg, func(a *app.App) {
 			provide(a)
-			_, err := a.Substitutes.Network.Apply(ctx, "a", machine.NetworkPolicy{})
+			_, err := a.Substitutes.Network.Apply(ctx, "a", machine.User{}, machine.NetworkPolicy{})
 			require.NoError(t, err)
 		})
 		a, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})

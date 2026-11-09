@@ -13,6 +13,11 @@ import (
 
 const goodConfig = `{"socket":{"path":"/run/mvmd.sock","mode":"0660","group":"mvmd"},"state_dir":"/var/lib/mvmd","driver":"memory","vmm_uid_range":{"first":1000,"count":65536}}`
 
+// networkConfig is goodConfig with the network section.
+func networkConfig(section string) string {
+	return `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"network":` + section + `}`
+}
+
 func TestConfig_Parses(t *testing.T) {
 	cfg, err := app.ParseConfig([]byte(goodConfig))
 	require.NoError(t, err)
@@ -32,6 +37,17 @@ func TestConfig_Parses(t *testing.T) {
 	withVMMCgroup, err := app.ParseConfig([]byte(`{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/usr/libexec/mvmd-supervisor","vmm_cgroup":"/sys/fs/cgroup/mvmd-vmm"}}`))
 	require.NoError(t, err)
 	assert.Equal(t, &app.SupervisionConfig{Binary: "/usr/libexec/mvmd-supervisor", VMMCgroup: "/sys/fs/cgroup/mvmd-vmm"}, withVMMCgroup.Supervision)
+
+	// Control for the network refusals: a well-formed section is accepted.
+	for _, section := range []string{
+		`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1","ipv6_prefix":"fd77::/64","resolvers":["10.77.0.2"]}`,
+		`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1"}`,
+		`{"ipv6_prefix":"fd77::/64"}`,
+	} {
+		withNetwork, err := app.ParseConfig([]byte(networkConfig(section)))
+		require.NoError(t, err, section)
+		assert.NotNil(t, withNetwork.Network, section)
+	}
 
 	path := filepath.Join(t.TempDir(), "mvmd.json")
 	require.NoError(t, os.WriteFile(path, []byte(goodConfig), 0o600))
@@ -53,6 +69,13 @@ func TestConfig_Refuses(t *testing.T) {
 		{"a relative supervisor directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"d"}}`, "supervision.dir"},
 		{"a relative supervisor cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","cgroup":"c"}}`, "supervision.cgroup"},
 		{"a relative vmm cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","vmm_cgroup":"vmm"}}`, "supervision.vmm_cgroup"},
+		{"a network that serves no family", networkConfig(`{}`), "serves neither"},
+		{"an IPv4 prefix that does not parse", networkConfig(`{"ipv4_prefix":"10.77.0.0","ipv4_gateway":"10.77.0.1"}`), "network.ipv4_prefix"},
+		{"an IPv4 prefix without a gateway", networkConfig(`{"ipv4_prefix":"10.77.0.0/24"}`), "network.ipv4_gateway"},
+		{"a gateway without an IPv4 prefix", networkConfig(`{"ipv6_prefix":"fd77::/64","ipv4_gateway":"10.77.0.1"}`), "network.ipv4_gateway"},
+		{"a gateway outside the prefix", networkConfig(`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"192.0.2.1"}`), "not inside"},
+		{"an IPv6 prefix that does not parse", networkConfig(`{"ipv6_prefix":"fd77::"}`), "network.ipv6_prefix"},
+		{"a resolver that does not parse", networkConfig(`{"ipv6_prefix":"fd77::/64","resolvers":["dns"]}`), "network.resolvers"},
 		{"trailing data", goodConfig + `{}`, "trailing"},
 		{"not JSON", `socket: /s`, "parse"},
 	}

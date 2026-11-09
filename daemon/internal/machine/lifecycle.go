@@ -165,7 +165,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if boot.Devices, err = s.bootDevices(ctx, m); err != nil {
 		return err
 	}
-	tap, err := s.network.Apply(ctx, id, m.Policy)
+	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
 	if err != nil {
 		return fail(ErrPreconditionFailed, "the network policy was not applied: %v", err)
 	}
