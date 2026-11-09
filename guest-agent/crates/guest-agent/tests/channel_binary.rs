@@ -8,7 +8,7 @@ use std::time::Duration;
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
     BootRequest, ExecRequest, ExecStatus, HealthRequest, NetworkConfig, ReadExecOutputRequest,
-    RunConfig, read_exec_output_response,
+    RunConfig, TerminateRequest, read_exec_output_response,
 };
 use hyper_util::rt::TokioIo;
 use tempfile::TempDir;
@@ -140,6 +140,20 @@ async fn the_handshake_is_answered_and_health_and_exec_are_served_on_the_host() 
     };
     let boot = client.boot(valid).await.unwrap_err();
     assert_eq!(boot.code(), Code::FailedPrecondition);
+    Ok(())
+}
+
+#[tokio::test]
+async fn terminate_is_refused_because_this_agent_is_not_the_guests_init() -> Result {
+    let agent = Agent::start(&["--handshake-port", &PORT.to_string()]).await?;
+    let mut client = agent.client().await?;
+
+    let refused = client.terminate(TerminateRequest {}).await.unwrap_err();
+
+    assert_eq!(refused.code(), Code::FailedPrecondition);
+    // Control: the binary stays up and serves the next call, so the refusal is the call's and
+    // not an ended server's.
+    client.health(HealthRequest {}).await?;
     Ok(())
 }
 

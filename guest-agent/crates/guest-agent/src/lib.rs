@@ -23,7 +23,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_core::Stream;
+use nix::sys::signal::Signal;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tonic::transport::server::Connected;
 
@@ -84,14 +86,17 @@ where
 {
     let execs = Arc::new(exec::Execs::new(config.exec_output_retention));
     let boot = Arc::new(boot::Boot::disabled(execs.clone()));
-    serve_with(incoming, execs, boot, shutdown).await
+    serve_with(incoming, execs, boot, None, shutdown).await
 }
 
-/// Serve `GuestService` over `execs`, with `boot` deciding when the guest is ready.
+/// Serve `GuestService` over `execs`, with `boot` deciding when the guest is ready. `terminate`
+/// carries the `Terminate` calls to the init's supervision; without it the agent is not the
+/// guest's init and refuses them.
 async fn serve_with<I, IO>(
     incoming: I,
     execs: Arc<exec::Execs>,
     boot: Arc<boot::Boot>,
+    terminate: Option<mpsc::Sender<Signal>>,
     shutdown: impl Future<Output = ()>,
 ) -> Result<(), Error>
 where
@@ -103,6 +108,7 @@ where
         execs: execs.clone(),
         locks: files::Locks::default(),
         boot,
+        terminate,
     })
     .max_decoding_message_size(service::MAX_REQUEST_BYTES)
     .max_encoding_message_size(service::MAX_RESPONSE_BYTES);
