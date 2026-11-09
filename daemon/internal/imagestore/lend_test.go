@@ -3,6 +3,7 @@ package imagestore_test
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"testing"
 
@@ -146,4 +147,22 @@ func TestStore_LendAndReclaimRefuseAForeignStagingArea(t *testing.T) {
 	assert.Error(t, s.Reclaim(ctx, foreign))
 	require.NoError(t, s.Lend(ctx, staging, user), "control: the staging area it opened")
 	require.NoError(t, s.Reclaim(ctx, staging))
+}
+
+// A Lend and a Reclaim act on the file the staging area made, not on what a
+// link in its place points at.
+func TestStore_LendAndReclaimRefuseAnOutputThatIsALink(t *testing.T) {
+	s, _ := newStore(t)
+	staging, err := s.Stage(ctx, imageA, 8192)
+	require.NoError(t, err)
+	user := machine.User{UID: uint32(os.Geteuid()), GID: uint32(os.Getegid())}
+	require.NoError(t, s.Lend(ctx, staging, user), "control: the regular output")
+
+	target := filepath.Join(t.TempDir(), "elsewhere")
+	require.NoError(t, os.WriteFile(target, nil, 0o600))
+	require.NoError(t, os.Remove(staging.Output))
+	require.NoError(t, os.Symlink(target, staging.Output))
+
+	assert.Error(t, s.Lend(ctx, staging, user))
+	assert.Error(t, s.Reclaim(ctx, staging))
 }

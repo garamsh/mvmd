@@ -9,7 +9,7 @@ Append-only: once merged, the body below is not rewritten. A fact later found wr
 
 Raised as garamsh/mvmd#131, found by the `e2e` job of garamsh/mvmd#118: every pull on a real node failed at the converter's boot with `firecracker refused PUT /drives/disk0: 400 ... Error manipulating the backing file: Permission denied (os error 13) /disk/0`. This ADR adds to [ADR 0007](./0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md) step 6 and step 7, whose bodies stay as they are.
 
-What happens today, in `daemon/` at commit fa3372c:
+What happens today, in `daemon/` at commit fa3372ca521e9784dc95ff95e123a1dff7452d87:
 
 - `Store.Stage` creates the staging area's `output` file with mode 0600, owned by the daemon, which runs as root.
 - `convert` allocates the converter's user from the node's UID range after the stage exists, and passes `output` as the VMM's only device. The converter's VMM runs as that user ([ADR 0015](./0015-the-supervisor-confines-every-vmm-process-the-same-way.md)).

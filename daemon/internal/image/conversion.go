@@ -16,9 +16,8 @@ import (
 // share one.
 //
 // The output is the converter's user's from before the VMM starts until the
-// VMM is known to have ended, and the daemon's again before this returns
-// (ADR 0023). The user is released only once both have happened: a VMM that
-// cannot be ended, or an output that cannot be taken back, keeps it held.
+// VMM has ended, and the daemon's again before this returns (ADR 0023). The
+// user is released only after both.
 func (s *service) convert(ctx context.Context, image machine.ImageDigest, staging Staging, job ConversionJob) (uint64, error) {
 	user, err := s.uids.AllocateConversion(image)
 	if err != nil {
