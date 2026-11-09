@@ -329,7 +329,8 @@ func TestAttachDisk_TheGuestFindsTheDisk(t *testing.T) {
 		assert.True(t, e.guest.DiskFound("m", "d"))
 
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
-		assert.Equal(t, 1, e.guest.Calls("find-disk"), "a repeat does not ask the guest again")
+		assert.Equal(t, 2, e.guest.Calls("find-disk"), "a repeat has the guest find the disk again, which is repeatable")
+		assert.Equal(t, 1, e.driver.Calls("attach"), "a repeat does not attach the disk again")
 	})
 
 	t.Run("a guest that cannot find it leaves the disk detached and not held", func(t *testing.T) {
