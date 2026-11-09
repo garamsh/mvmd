@@ -597,6 +597,11 @@ func TestConfinement_EachFileIsAtItsFixedPathAndNotAtItsHostPath(t *testing.T) {
 		}
 	})
 	rep := reportOf(t, run)
+	// The Machine's state directory is the supervisor's own, 0700, so the
+	// control's user cannot even reach the run directory under it. Open the
+	// directory to traversal only for the control, so that what it shows is the
+	// path, not the mode above it.
+	require.NoError(t, os.Chmod(filepath.Join(n.dir, "m"), 0o711))
 	ctl := outside(t, vmmUser.UID, "sha256:"+kernel, "sha256:"+image, "sha256:"+disk, "write:"+hostRun+"/g").report
 
 	assert.Equal(t, sha256Hex([]byte("a kernel")), rep["sha256:/boot/kernel"], "the kernel is at its fixed path")

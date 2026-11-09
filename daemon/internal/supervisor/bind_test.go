@@ -147,6 +147,10 @@ func TestBind_TheFileMountedIsTheFileHashed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "a replacement", string(now), "setup: the host path now holds the replacement")
 
+	// The replacement was renamed in by the root child, so the file is root's
+	// and this process, which is not root under sudo, cannot open it to write.
+	// The directory is this process's: unlink the file and create it again.
+	require.NoError(t, os.Remove(host))
 	require.NoError(t, os.WriteFile(host, []byte("the pinned kernel"), 0o644))
 	args.ByPath = true
 	ctl := inMountNamespace(t, "bind", args)
