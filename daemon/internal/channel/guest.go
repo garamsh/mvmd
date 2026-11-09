@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -76,15 +77,8 @@ var reconnect = backoff.Config{
 	MaxDelay:   time.Second,
 }
 
-// notListeningError wraps a dial that never got an answer: the agent did not
-// listen before the context ended.
-type notListeningError struct{ err error }
-
-func (e *notListeningError) Error() string { return e.err.Error() }
-func (e *notListeningError) Unwrap() error { return e.err }
-
-// dialError marks an error converted by the dialer: mapError recognizes it
-// so it does not conflate a dial failure with an agent-returned status.
+// dialError marks the ErrVMMEnded a Boot's dial returned. Its Internal status
+// ends the dial's backoff at once, and mapError recognizes it by type.
 type dialError struct{ err error }
 
 func (e *dialError) Error() string { return e.err.Error() }
@@ -105,39 +99,40 @@ func (g *Guest) run(ctx context.Context, id machine.MachineID, op operation, f f
 			break
 		}
 	}
-	return mapError(ctx, op, err)
+	return mapError(op, err)
 }
 
 func (g *Guest) once(ctx context.Context, id machine.MachineID, op operation, f func(guestv1alpha1.GuestServiceClient) error) error {
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(dial context.Context, _ string) (net.Conn, error) {
-			conn, dialErr := g.conn.GuestConn(dial, id, machine.GuestAgentPort)
-			if dialErr != nil && errors.Is(dialErr, machine.ErrVMMEnded) && op == opBoot {
-				// Return a gRPC status error with a non-retryable code so
-				// grpc's retry mechanism stops immediately rather than
-				// waiting for the backoff until the context ends.
-				return nil, &dialError{fmt.Errorf("the VMM has ended: %w", dialErr)}
-			}
-			if dialErr != nil && op != opBoot {
-				// For non-Boot calls, return an Internal status so gRPC
-				// does not retry the dial in a background goroutine.
-				return nil, &dialError{fmt.Errorf("dial failed: %w", dialErr)}
-			}
-			return conn, dialErr
-		}),
+	var dialed atomic.Bool
+	dialer := func(dial context.Context, _ string) (net.Conn, error) {
+		return g.conn.GuestConn(dial, id, machine.GuestAgentPort)
 	}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	if op == opBoot {
+		// Boot waits for the agent to listen: it redials with backoff until
+		// the context ends, unless the VMM has ended.
+		dialer = func(dial context.Context, _ string) (net.Conn, error) {
+			conn, err := g.conn.GuestConn(dial, id, machine.GuestAgentPort)
+			switch {
+			case err == nil:
+				dialed.Store(true)
+			case errors.Is(err, machine.ErrVMMEnded):
+				return nil, &dialError{err}
+			}
+			return conn, err
+		}
 		opts = append(opts, grpc.WithConnectParams(grpc.ConnectParams{Backoff: reconnect}))
 	}
-	cc, err := grpc.NewClient("passthrough:///guest", opts...)
+	cc, err := grpc.NewClient("passthrough:///guest", append(opts, grpc.WithContextDialer(dialer))...)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cc.Close() }()
 	err = f(guestv1alpha1.NewGuestServiceClient(cc))
-	if op == opBoot && err != nil && ctx.Err() != nil {
-		err = &notListeningError{err}
+	var ended *dialError
+	if op == opBoot && err != nil && ctx.Err() != nil && !dialed.Load() && !errors.As(err, &ended) {
+		return fmt.Errorf("%w: the agent did not listen before the boot's time ended: %w",
+			machine.ErrGuestUnreachable, ctx.Err())
 	}
 	return err
 }
@@ -168,52 +163,20 @@ var bootStepNames = map[guestv1alpha1.BootStep]string{
 // detail message in the contract (guest.proto, "Status details"), and the
 // detail's type decides the mapping, never the status message, which is for
 // people. A status with no detail we know maps by its code and the call alone.
-func mapError(ctx context.Context, op operation, err error) error {
+func mapError(op operation, err error) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, errCut) {
 		return fmt.Errorf("%w: %v", machine.ErrGuestUnreachable, err)
 	}
-	if errors.Is(err, errNotRepeatable) {
-		return fmt.Errorf("%w: the content was already read", machine.ErrGuestUnreachable)
+	var ended *dialError
+	if errors.As(err, &ended) {
+		return fmt.Errorf("%w: the agent VMM has ended: %w", machine.ErrGuestUnreachable, machine.ErrVMMEnded)
 	}
-	// The dialer turns dial errors into Internal status so gRPC does not retry
-	// in a background goroutine; opBoot maps Internal back to ErrVMMENDED
-	// (after the notListening block), and other ops map it to ErrGuestUnreachable.
-	// Dialer-converted errors carry a dialError marker so mapError can
-	// distinguish them from agent-returned Internal statuses.
-	var didDial *dialError
-	errors.As(err, &didDial)
 	st, ok := status.FromError(err)
-	if ok && st.Code() == codes.Internal {
-		if didDial != nil {
-			if op == opBoot {
-				return fmt.Errorf("%w: the agent VMM has ended", machine.ErrVMMEnded)
-			}
-			return fmt.Errorf("%w: dial failed", machine.ErrGuestUnreachable)
-		}
-		if op == opBoot {
-			var notListening *notListeningError
-			if errors.As(err, &notListening) {
-				return fmt.Errorf("%w: the agent VMM has ended", machine.ErrVMMEnded)
-			}
-			// Agent-returned Internal without notListening: fall through to
-			// detail parsing and switch below (e.g. BootFailed → *BootStepError).
-		}
-	}
-	if op == opBoot {
-		var notListening *notListeningError
-		if errors.As(err, &notListening) {
-			st, ok := status.FromError(notListening)
-			if ok && st.Code() == codes.Internal {
-				return fmt.Errorf("%w: the agent VMM has ended", machine.ErrVMMEnded)
-			}
-		}
-		if errors.As(err, &notListening) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("%w: the agent did not listen before the boot's time ended: %w",
-				machine.ErrGuestUnreachable, ctx.Err())
-		}
+	if !ok {
+		return err // from the caller's own callback or reader
 	}
 	msg := st.Message()
 	var notBooted bool
@@ -257,10 +220,6 @@ func mapError(ctx context.Context, op operation, err error) error {
 	case codes.FailedPrecondition:
 		if op == opPatch && !notBooted {
 			return fmt.Errorf("%w: %s", machine.ErrPatchPrecondition, msg)
-		}
-	case codes.Internal:
-		if op == opBoot {
-			return fmt.Errorf("%w: the agent VMM has ended", machine.ErrVMMEnded)
 		}
 	}
 	return fmt.Errorf("guest agent answered %s: %s", st.Code(), msg)
