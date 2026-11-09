@@ -19,6 +19,14 @@ import (
 // not the release this Driver is written against, and waits for the VM to be
 // Running. The spec is not read: it is what Describe was given.
 func (d *Driver) Boot(ctx context.Context, id machine.MachineID, _ machine.BootSpec) error {
+	return d.awaitRunning(ctx, id)
+}
+
+// awaitRunning is what Boot and Restore both do, since the process of either
+// creates its VM from its own command line: it waits for the API socket,
+// refuses a VMM that is not the release this Driver is written against, and
+// waits for the VM to be Running.
+func (d *Driver) awaitRunning(ctx context.Context, id machine.MachineID) error {
 	sock, err := d.socket(id, apiSocketName)
 	if err != nil {
 		return err

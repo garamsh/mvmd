@@ -28,6 +28,9 @@ const (
 	overheadCPUs = 1.0
 	// tapDescriptor is the descriptor the supervisor passes the tap as.
 	tapDescriptor = 3
+	// netID names the network device, so that a restore's net_fds says which
+	// device takes the new tap.
+	netID = "net0"
 	// eventDescriptor is the descriptor the supervisor passes the write end of
 	// the VMM's event pipe as: the one above the console's (ADR 0026).
 	eventDescriptor = 7
@@ -79,12 +82,23 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 	}
 	boot := []machine.File{
 		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
-		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true},
+		d.initrd(),
 	}
+	return d.process(spec, args(spec, runtime.GOARCH), boot), nil
+}
+
+// initrd is the initrd file of a description, the same at boot and on restore.
+func (d *Driver) initrd() machine.File {
+	return machine.File{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true}
+}
+
+// process is the description of the VMM process with the arguments and the boot
+// files of a start or of a restore, and the Machine's devices after them.
+func (d *Driver) process(spec machine.BootSpec, args []string, boot []machine.File) machine.ProcessDescription {
 	return machine.ProcessDescription{
 		Executable:       d.cfg.Binary,
 		ExecutableSHA256: d.cfg.BinarySHA256,
-		Args:             args(spec, runtime.GOARCH),
+		Args:             args,
 		BootFiles:        append(boot, machine.DeviceFiles(spec.Devices)...),
 		ReadFiles:        cpuReadFiles(runtime.GOARCH),
 		// /dev/urandom is the source of the virtio-rng device Cloud Hypervisor
@@ -97,7 +111,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 			Tasks:       spec.Resources.VCPUs + overheadTasks + uint32(len(spec.Devices)),
 			CPUs:        overheadCPUs,
 		},
-	}, nil
+	}
 }
 
 // args is the command line that configures the VM. Paths are those in the VMM's
@@ -128,7 +142,7 @@ func args(spec machine.BootSpec, goarch string) []string {
 		a = append(a, fmt.Sprintf("path=%s,readonly=%s,image_type=raw,id=disk%d", machine.InDisk(i), ro, i))
 	}
 	if spec.Network.Tap != "" {
-		a = append(a, "--net", fmt.Sprintf("fd=[%d],mac=%s", tapDescriptor, spec.Network.MAC))
+		a = append(a, "--net", fmt.Sprintf("id=%s,fd=[%d],mac=%s", netID, tapDescriptor, spec.Network.MAC))
 	}
 	return a
 }

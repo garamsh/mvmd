@@ -15,12 +15,12 @@ import (
 
 var _ machine.Driver = (*cloudhypervisor.Driver)(nil)
 
-func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsOnlyTheConsole(t *testing.T) {
+func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsTheConsoleAndSnapshot(t *testing.T) {
 	info := newNode(t).driver.Info()
 	assert.Equal(t, "cloud-hypervisor", info.Name)
 	assert.Equal(t, "54.0", info.Version)
 	assert.NotEmpty(t, info.CPUModel)
-	assert.Equal(t, []machine.Capability{machine.CapabilityConsole}, info.Capabilities, "what the Driver implements and no more")
+	assert.Equal(t, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}, info.Capabilities, "what the Driver implements and no more")
 }
 
 func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
@@ -69,18 +69,12 @@ func TestTheOperationsOfUnreportedCapabilitiesRefuseAsUnsupportedAndSendNothing(
 	n.booted(f)
 	before := len(f.seen())
 	ctx := context.Background()
-	spec := n.spec()
 
-	_, snapErr := n.driver.Snapshot(ctx, "m1")
-	_, descErr := n.driver.DescribeRestore(ctx, "m1", spec, nil)
 	state, driveErr := n.driver.Drive(ctx, "m1", "root")
 	tests := []struct {
 		name string
 		err  error
 	}{
-		{"Snapshot", snapErr},
-		{"DescribeRestore", descErr},
-		{"Restore", n.driver.Restore(ctx, "m1", spec)},
 		{"AttachDisk", n.driver.AttachDisk(ctx, "m1", machine.BlockDevice{Disk: "d", Path: "/disks/d.img"})},
 		{"DetachDisk", n.driver.DetachDisk(ctx, "m1", "root")},
 		{"Drive", driveErr},
@@ -95,7 +89,7 @@ func TestTheOperationsOfUnreportedCapabilitiesRefuseAsUnsupportedAndSendNothing(
 	assert.Len(t, f.seen(), before, "no request reached the VMM")
 
 	for _, c := range n.driver.Info().Capabilities {
-		assert.NotContains(t, []machine.Capability{machine.CapabilitySnapshot, machine.CapabilityDiskHotplug, machine.CapabilityResize}, c,
+		assert.NotContains(t, []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize}, c,
 			"the Driver reports none of the capabilities it refuses")
 	}
 }
