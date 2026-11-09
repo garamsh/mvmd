@@ -166,6 +166,24 @@ func TestPull_ConversionPastTheLimitFails(t *testing.T) {
 	require.NoError(t, r.pull(ref))
 }
 
+// A converter that never answers within the limit fails the pull with an
+// error that names the limit and still matches an unreachable guest.
+func TestPull_UnansweredConverterNamesTheLimit(t *testing.T) {
+	r := newRig(t)
+	r.settings.Limit = 20 * time.Millisecond
+	r.start()
+	ref := r.add("one")
+	r.conv.Serve(func(ctx context.Context, _ machine.MachineID, _ image.ConversionJob) (uint64, error) {
+		<-ctx.Done()
+		return 0, errors.Join(machine.ErrGuestUnreachable, ctx.Err())
+	})
+
+	err := requireKind(t, r.pull(ref), machine.ErrFailed)
+
+	assert.Contains(t, err.Reason, "no answer within the conversion limit of 20ms")
+	assert.Zero(t, r.calls("seal"))
+}
+
 // A pull that outlasts its own bound ends with the VMM ended and the staging
 // area removed, though the context it ran on is the one that expired.
 func TestPull_PullBoundEndsAHangingPullAndCleansUp(t *testing.T) {

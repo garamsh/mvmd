@@ -190,7 +190,11 @@ func TestRealConverter_ASecondConversionFindsNoConverter(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		_, err = c.Convert(context.Background(), "m", job)
+		// The converter no longer listens, so each attempt waits out its own
+		// bound.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_, err = c.Convert(ctx, "m", job)
 		return errors.Is(err, machine.ErrGuestUnreachable)
 	}, 15*time.Second, 100*time.Millisecond, "the converter kept serving: %v", err)
 }
@@ -201,7 +205,11 @@ func TestRealConverter_NoHandshakeIsUnreachable(t *testing.T) {
 	rc := startConverter(t)
 	job := jobOf(layerFile(t, tarType, tarLayer(t, map[string]string{"a": "A"})))
 
-	_, err := convertchannel.New(plainConnector{rc.socket}).Convert(context.Background(), "m", job)
+	// The connection is closed each time, so the call waits for a converter
+	// that never answers until its bound.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := convertchannel.New(plainConnector{rc.socket}).Convert(ctx, "m", job)
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 
 	// Control: the same converter, with the handshake, converts.
