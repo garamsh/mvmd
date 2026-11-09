@@ -158,7 +158,8 @@ func loadExecs(tx *bolt.Tx, id machine.MachineID) ([]machine.ExecEntry, error) {
 	err := b.ForEach(func(k, v []byte) error {
 		var e machine.ExecEntry
 		if err := json.Unmarshal(v, &e); err != nil {
-			return fmt.Errorf("decode the exec entry %q: %w", k, err)
+			// The bucket names say whose entry it is; nothing else is known.
+			e = machine.ExecEntry{Machine: id, ID: machine.ExecID(k), Unreadable: fmt.Sprintf("decode the exec entry: %v", err)}
 		}
 		out = append(out, e)
 		return nil

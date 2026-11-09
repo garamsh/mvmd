@@ -258,3 +258,57 @@ func TestExecRecords_ACutShortRecordIsKeptWithTheStateThatCutIt(t *testing.T) {
 	assert.Equal(t, machine.ExecCutShort, stored.Execs[0].Record.Status, "kept with the Stopped state")
 	assert.Equal(t, machine.StateStopped, stored.Machine.State)
 }
+
+// An exec entry the store could not decode costs only that exec: its Machine
+// loads as it was, nothing runs or answers under the identifier, and the
+// Machine's other entries answer.
+func TestExecRecords_AnUnreadableEntryCostsOnlyThatExec(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	_, err := e.svc.Exec(ctx, "m", "good", "r", echo)
+	require.NoError(t, err)
+	require.NoError(t, e.store.SaveExec(ctx, machine.ExecEntry{Machine: "m", ID: "bad", Unreadable: "invalid character"}))
+	callsBefore := e.guest.Calls("exec")
+
+	svc := e.reopened(t)
+
+	m, err := svc.Inspect(ctx, "m")
+	require.NoError(t, err)
+	assert.Equal(t, machine.StateRunning, m.State, "the Machine is read as it was")
+	assert.Empty(t, m.FailureReason)
+
+	for _, request := range []machine.RequestID{"r", "other"} {
+		_, err = svc.Exec(ctx, "m", "bad", request, echo)
+		requireKind(t, err, machine.ErrFailed)
+		assert.Contains(t, err.Error(), "invalid character", "the reason is named")
+	}
+	assert.Equal(t, callsBefore, e.guest.Calls("exec"), "nothing ran")
+	_, err = svc.ReadExecOutput(ctx, "m", "bad", 0, discard)
+	requireKind(t, err, machine.ErrFailed)
+	assert.Contains(t, err.Error(), "invalid character")
+
+	// Controls: a readable entry of the same Machine still answers, and a new
+	// identifier runs.
+	again, err := svc.Exec(ctx, "m", "good", "r", echo)
+	require.NoError(t, err)
+	assert.Equal(t, machine.ExecStarted, again.Status)
+	_, err = svc.ReadExecOutput(ctx, "m", "good", 0, discard)
+	require.NoError(t, err)
+	_, err = svc.Exec(ctx, "m", "new", "r2", echo)
+	require.NoError(t, err)
+
+	// A stop does not rewrite it, and Delete removes it with the Machine.
+	require.NoError(t, svc.Stop(ctx, "m", time.Second))
+	stored, _ := e.store.Record("m")
+	var bad machine.ExecEntry
+	for _, x := range stored.Execs {
+		if x.ID == "bad" {
+			bad = x
+		}
+	}
+	assert.Equal(t, machine.ExecEntry{Machine: "m", ID: "bad", Unreadable: "invalid character"}, bad, "the stop left it as it was")
+	require.NoError(t, svc.Delete(ctx, "m"))
+	_, held := e.store.Record("m")
+	assert.False(t, held)
+}

@@ -171,9 +171,10 @@ func TestStore_ADatabaseFromBeforeExecEntriesStillReads(t *testing.T) {
 	assert.Equal(t, execEntries()[:1], got[0].Execs)
 }
 
-// An entry that cannot be decoded makes its Machine's record unreadable, and
-// does not hide the other records.
-func TestStore_AnUndecodableExecEntryMakesItsRecordUnreadable(t *testing.T) {
+// An entry that cannot be decoded is returned marked, with its Machine and
+// identifier from the bucket names, and its Machine's record and other entries
+// are read as usual.
+func TestStore_AnUndecodableExecEntryIsMarkedAndItsMachineStillReads(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	db := open(t, dir)
@@ -196,6 +197,13 @@ func TestStore_AnUndecodableExecEntryMakesItsRecordUnreadable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, machine.MachineID("m"), got[0].ID)
-	assert.Contains(t, got[0].Unreadable, "broken")
-	assert.Empty(t, got[1].Unreadable, "control: the other record is read")
+	assert.Empty(t, got[0].Unreadable, "the Machine's record is read")
+	assert.NotNil(t, got[0].Machine)
+	require.Len(t, got[0].Execs, 2)
+	assert.Equal(t, execEntries()[0], got[0].Execs[0], "control: the readable entry is read whole")
+	broken := got[0].Execs[1]
+	assert.Equal(t, machine.MachineID("m"), broken.Machine)
+	assert.Equal(t, machine.ExecID("broken"), broken.ID)
+	assert.NotEmpty(t, broken.Unreadable)
+	assert.Empty(t, got[1].Unreadable)
 }

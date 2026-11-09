@@ -16,9 +16,11 @@ type StateStore interface {
 	// entries.
 	Remove(ctx context.Context, id MachineID) error
 	// Load reads back every record, ordered by identifier, each with all its
-	// exec entries. A record that cannot be decoded, an exec entry included,
-	// is returned with Unreadable set, so one bad record does not hide the
-	// others; an error means the store itself could not be read.
+	// exec entries. A record that cannot be decoded is returned with
+	// Unreadable set, so one bad record does not hide the others. An exec
+	// entry that cannot be decoded is returned with its Machine and ID and
+	// Unreadable set, and its Machine's record is read as usual. An error means
+	// the store itself could not be read.
 	Load(ctx context.Context) ([]Record, error)
 }
 
@@ -33,4 +35,7 @@ type ExecEntry struct {
 	// Answered is whether the guest answered the call. Until it has, there is
 	// no record: whether the command runs is not known.
 	Answered bool
+	// Unreadable is set by StateStore.Load on an entry it could not decode, to
+	// the reason. Nothing else of such an entry is known but its Machine and ID.
+	Unreadable string
 }

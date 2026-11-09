@@ -63,6 +63,9 @@ func (s *service) Exec(ctx context.Context, id MachineID, exec ExecID, request R
 	}
 	s.execMu.Unlock()
 	if ok {
+		if held.Unreadable != "" {
+			return ExecRecord{}, unreadableExec(held)
+		}
 		if held.Machine != id || held.Request != request || !reflect.DeepEqual(held.Spec, spec) {
 			return ExecRecord{}, fail(ErrConflict, "exec %q exists under another request ID or other parameters", exec)
 		}
@@ -121,6 +124,13 @@ func (s *service) dropExecs(id MachineID) {
 	}
 }
 
+// unreadableExec is the answer to a call on an exec entry the State Store
+// could not decode: whether its command ran is not known, so nothing is run or
+// answered under it.
+func unreadableExec(e ExecEntry) *Error {
+	return fail(ErrFailed, "the record of exec %q could not be read: %s", e.ID, e.Unreadable)
+}
+
 // endedWith is the reason a state that ends the run gives for the commands it
 // cuts short.
 func endedWith(state State) string { return "the Machine is " + state.String() }
@@ -130,6 +140,8 @@ func endedWith(state State) string { return "the Machine is " + state.String() }
 // entry that is already final.
 func cutShortEntry(e ExecEntry, why string) (cut ExecEntry, changed bool) {
 	switch {
+	case e.Unreadable != "":
+		// Nothing of it is known, and it is not rewritten.
 	case !e.Answered:
 		// The guest never answered the start, so whether the command ran is
 		// not known; with its Machine gone it never will be.
@@ -186,6 +198,9 @@ func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID,
 	s.execMu.Unlock()
 	if !ok || entry.Machine != id {
 		return ExecRecord{}, fail(ErrNotFound, "no exec %q on Machine %q", exec, id)
+	}
+	if entry.Unreadable != "" {
+		return ExecRecord{}, unreadableExec(*entry)
 	}
 	if err := s.requireRunning(id, "read exec output"); err != nil {
 		// A stopped Machine's guest cannot be asked: the record is all there is.
