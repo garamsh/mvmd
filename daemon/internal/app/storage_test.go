@@ -71,6 +71,7 @@ func TestStorage_ANodeWhoseStorageCannotBeOpenedDoesNotStart(t *testing.T) {
 
 func TestStorage_ANodeWhoseRunDirectoriesAreOnAnotherFileSystemDoesNotStart(t *testing.T) {
 	cfg := firecrackerConfig(t)
+	require.NoError(t, os.MkdirAll(cfg.StateDir, 0o700))
 	// /dev/shm is a tmpfs, so a rename out of it into the state directory
 	// fails with EXDEV, as it does between any two file systems.
 	other, err := os.MkdirTemp("/dev/shm", "mvmd-runs-")
