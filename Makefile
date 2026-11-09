@@ -102,9 +102,13 @@ test: export FSCK_EROFS := $(CURDIR)/$(EROFS_UTILS)/fsck.erofs
 # The daemon's channel tests run the host-side Guest Agent binary, which the line below builds for
 # the host and names to them.
 test: export GUEST_AGENT_CHANNEL := $(CURDIR)/guest-agent/target/debug/guest-agent-channel
+# The daemon's Converter channel tests run the host-side converter binary, built and named the same
+# way.
+test: export CONVERTER_CHANNEL := $(CURDIR)/imageconv/target/debug/imageconv-channel
 test: erofs-utils
 	$(call each_rust, $(count_members); $(CARGO) test --workspace --locked)
 	cd guest-agent && $(CARGO) build --locked -p guest-agent --bin guest-agent-channel
+	cd imageconv && $(CARGO) build --locked -p imageconv --bin imageconv-channel
 	$(call each_module, $(count_packages); (cd "$$dir" && go test -v ./...))
 
 # test-firecracker boots the pinned Firecracker on the pinned kernel with the Guest Agent's initrd,

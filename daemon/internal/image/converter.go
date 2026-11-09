@@ -6,6 +6,10 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
+// ConverterPort is the port the converter listens on in its microVM
+// (image.md §Conversion), the one a caller of Driver.GuestConn names for it.
+const ConverterPort uint32 = 1025
+
 // StagedLayer is a verified layer in staging.
 type StagedLayer struct {
 	Path      string

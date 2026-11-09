@@ -1,0 +1,217 @@
+// Package convertchannel is the image.Converter adapter: a client of the
+// converter's gRPC contract, reaching the converter in its microVM over the
+// byte stream the Driver opens to the VM's vsock port (image.md §Conversion,
+// ADR 0017).
+package convertchannel
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+
+	convertv1alpha1 "github.com/garamsh/mvmd/daemon/internal/convertapi/v1alpha1"
+	"github.com/garamsh/mvmd/daemon/internal/image"
+	"github.com/garamsh/mvmd/daemon/internal/machine"
+)
+
+// chunkBytes is the most bytes of a layer one Data message carries: the
+// contract's bound (ADR 0017).
+const chunkBytes = 1 << 20
+
+// Connector opens a byte stream to a VM's port. machine.Driver is one:
+// whatever the VMM needs before the first byte is the Driver's.
+type Connector interface {
+	GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error)
+}
+
+// Converter is an image.Converter over the converter's gRPC contract. It
+// holds no connection: a conversion opens one through the Connector, for the
+// VM the call names, and closes it.
+//
+// A conversion is not repeated when its connection breaks: the converter
+// serves one conversion and refuses a second call, so the VM is not reused
+// after a break, and the pull fails and starts over with a new VM.
+//
+// The adapter puts no time limit of its own on a conversion: the pull bounds
+// it with the node's conversion limit.
+type Converter struct {
+	conn Connector
+}
+
+var _ image.Converter = (*Converter)(nil)
+
+// New returns a Converter that reaches each converter VM through conn.
+func New(conn Connector) *Converter { return &Converter{conn: conn} }
+
+// StepError is a conversion the converter reported as failed: the step that
+// failed and the converter's message, which is for people.
+type StepError struct {
+	Step    string
+	Message string
+}
+
+func (e *StepError) Error() string {
+	return fmt.Sprintf("the converter failed at step %q: %s", e.Step, e.Message)
+}
+
+// stepNames are the names a failure step goes by in image.md §Conversion, by
+// the contract's enum.
+var stepNames = map[convertv1alpha1.FailureStep]string{
+	convertv1alpha1.FailureStep_FAILURE_STEP_START:      "start",
+	convertv1alpha1.FailureStep_FAILURE_STEP_LAYER_TYPE: "layer type",
+	convertv1alpha1.FailureStep_FAILURE_STEP_STREAM:     "stream order",
+	convertv1alpha1.FailureStep_FAILURE_STEP_NAMES:      "names",
+	convertv1alpha1.FailureStep_FAILURE_STEP_NAME_LIMIT: "name limit",
+	convertv1alpha1.FailureStep_FAILURE_STEP_CONVERT:    "convert",
+	convertv1alpha1.FailureStep_FAILURE_STEP_OUTPUT:     "output",
+}
+
+// Convert implements image.Converter. A conversion the converter reports as
+// failed is a *StepError.
+func (c *Converter) Convert(ctx context.Context, id machine.MachineID, job image.ConversionJob) (uint64, error) {
+	cc, err := grpc.NewClient("passthrough:///converter",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(dial context.Context, _ string) (net.Conn, error) {
+			return c.conn.GuestConn(dial, id, image.ConverterPort)
+		}))
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = cc.Close() }()
+
+	length, err := converse(ctx, convertv1alpha1.NewConvertServiceClient(cc), job)
+	return length, mapError(ctx, err)
+}
+
+// converse streams the job and reads the answer.
+func converse(ctx context.Context, client convertv1alpha1.ConvertServiceClient, job image.ConversionJob) (uint64, error) {
+	stream, err := client.Convert(ctx)
+	if err != nil {
+		return 0, err
+	}
+	// Send reports only io.EOF once the converter has answered, and the
+	// answer, a failure or a status, is on CloseAndRecv.
+	if err := send(stream, job); err != nil && !errors.Is(err, io.EOF) {
+		return 0, err
+	}
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		return 0, err
+	}
+	switch r := resp.GetResult().(type) {
+	case *convertv1alpha1.ConvertResponse_Converted:
+		return r.Converted.GetLength(), nil
+	case *convertv1alpha1.ConvertResponse_Failure:
+		step, known := stepNames[r.Failure.GetStep()]
+		if !known {
+			step = r.Failure.GetStep().String()
+		}
+		return 0, &StepError{Step: step, Message: r.Failure.GetMessage()}
+	default:
+		return 0, errors.New("the converter answered neither a length nor a failure")
+	}
+}
+
+// readError is a failure to read a staged layer, which no status describes.
+type readError struct{ err error }
+
+func (e *readError) Error() string { return e.err.Error() }
+func (e *readError) Unwrap() error { return e.err }
+
+type convertStream = grpc.ClientStreamingClient[convertv1alpha1.ConvertRequest, convertv1alpha1.ConvertResponse]
+
+// send writes the Start, then each layer twice, a names pass and a content
+// pass, in manifest order.
+func send(stream convertStream, job image.ConversionJob) error {
+	types := make([]string, len(job.Layers))
+	for i, l := range job.Layers {
+		types[i] = l.MediaType
+	}
+	start := &convertv1alpha1.Start{
+		FilesystemUuid:    job.FilesystemUUID,
+		LayerMediaTypes:   types,
+		NameSetLimitBytes: job.NameSetBytes,
+	}
+	if err := stream.Send(&convertv1alpha1.ConvertRequest{Message: &convertv1alpha1.ConvertRequest_Start{Start: start}}); err != nil {
+		return err
+	}
+	buf := make([]byte, chunkBytes)
+	for i, layer := range job.Layers {
+		for _, kind := range []convertv1alpha1.PassKind{convertv1alpha1.PassKind_PASS_KIND_NAMES, convertv1alpha1.PassKind_PASS_KIND_CONTENT} {
+			if err := pass(stream, buf, uint32(i), kind, layer.Path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// pass sends one Pass and the layer's file as Data messages.
+func pass(stream convertStream, buf []byte, layer uint32, kind convertv1alpha1.PassKind, path string) error {
+	p := &convertv1alpha1.Pass{Layer: layer, Kind: kind}
+	if err := stream.Send(&convertv1alpha1.ConvertRequest{Message: &convertv1alpha1.ConvertRequest_Pass{Pass: p}}); err != nil {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return &readError{fmt.Errorf("open layer %d: %w", layer, err)}
+	}
+	defer func() { _ = f.Close() }()
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			if err := stream.Send(&convertv1alpha1.ConvertRequest{Message: &convertv1alpha1.ConvertRequest_Data{Data: buf[:n]}}); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return &readError{fmt.Errorf("read layer %d: %w", layer, readErr)}
+		}
+	}
+}
+
+// mapError turns what the converter or the connection answered into the
+// errors the Converter port promises. The converter reports a conversion that
+// failed as a message in its answer (convert.proto), which converse has
+// already turned into a *StepError, and its contract carries no status
+// details: a status means the call itself broke, so it maps by its code and
+// never by its message, which is for people.
+func mapError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	var step *StepError
+	var read *readError
+	if errors.As(err, &step) || errors.As(err, &read) {
+		return err
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return err
+	}
+	msg := st.Message()
+	switch st.Code() {
+	case codes.Unavailable:
+		return fmt.Errorf("%w: %s", machine.ErrGuestUnreachable, msg)
+	case codes.Canceled:
+		if ctx.Err() != nil {
+			return fmt.Errorf("%w: %s", ctx.Err(), msg)
+		}
+	case codes.DeadlineExceeded:
+		return fmt.Errorf("%w: %s", context.DeadlineExceeded, msg)
+	case codes.AlreadyExists:
+		return fmt.Errorf("the converter already served a conversion: %s", msg)
+	}
+	return fmt.Errorf("the converter answered %s: %s", st.Code(), msg)
+}
