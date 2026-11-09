@@ -24,6 +24,7 @@ Follows the monorepo shape of garamsh/garam at the commit above: each top-level 
 - `mvmctl/` — the name reserved for a CLI, a top-level folder if and when it ships as its own executable. It is not committed to existing.
 - `docs/` — conventions, architecture, procedures.
 - `tooling/protogen/` — a Go module that holds nothing but the pins of the protobuf generator (`buf`, `protoc-gen-go`, `protoc-gen-go-grpc`) as `tool` directives, released versions only, with `protoc-gen-go` at the version of the library's `google.golang.org/protobuf`. It ships no package and is not in `go.work`, so the generator's dependencies stay out of every unit's graph.
+- `tooling/firecracker/` — `fetch.sh`, which holds the pins of the Firecracker binary and of the guest kernel the Driver's tests boot, each by the SHA-256 its release publishes, and fetches them for `make test-firecracker` ([driver.md](./driver.md)). It ships no package.
 - `deploy/` — added later, by the first pull request that needs one.
 - `go.work` at the root, naming every Go module that ships code and carrying the one `toolchain` line every check and the pipeline use. The root holds no Go package.
 - `lib/` holds libraries linked by more than one unit and no binary. It has no `shared/`, `utils/` or `common/`; a package one unit alone imports belongs to that unit.
@@ -54,7 +55,7 @@ In mvmd the composition site is in the daemon, placed as `docs/convention/stack-
 | Port | Kind | Counterpart | Basis |
 |---|---|---|---|
 | Runtime API | driving | gaon's Node Agent, through `lib/runtimeapi/`; the adapter is `daemon/internal/api/` | #2 decision-change reply; [runtime.md](./runtime.md) |
-| VMM Driver | driven | Firecracker, Cloud Hypervisor; later an in-house VMM | #2 §5, VMM Driver; [driver.md](./driver.md) |
+| VMM Driver | driven | Firecracker, Cloud Hypervisor; later an in-house VMM; the Firecracker adapter is `daemon/internal/firecracker/` | #2 §5, VMM Driver; [driver.md](./driver.md) |
 | Disk | driven | sparse raw files in each Machine's state directory; [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) | #2 §5, first implementation scope |
 | Network | driven | tap devices and one nftables table on the node; the interface is `daemon/internal/machine/network.go`, the adapter `daemon/internal/hostnet/`, with an in-memory substitute under `daemon/internal/machine/memory/`; [runtime.md](./runtime.md) §Network | #2 §5, first implementation scope; [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) |
 | Snapshot Store | driven | each snapshot's files and its compatibility record; the interface is `daemon/internal/machine/snapshotstore.go`, with an in-memory substitute under `daemon/internal/machine/memory/` and no real adapter yet | #2 §5, first implementation scope |
@@ -67,7 +68,7 @@ In mvmd the composition site is in the daemon, placed as `docs/convention/stack-
 | Deadline events | driven | the same log, for each change of the fencing deadline; the interface is `daemon/internal/fencing/events.go` | [runtime-api.md](./runtime-api.md) §Observation |
 | Registry | driven | OCI distribution registries | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
 | Converter channel | driven | the converter in its microVM, over vsock; [image.md](./image.md) §Conversion | [ADR 0005](./adr/0005-untrusted-images-are-converted-in-a-converter-microvm.md) |
-| Guest Agent channel | driven | the Guest Agent over vsock; [guest.md](./guest.md); the interface is `daemon/internal/machine/guest.go`, with an in-memory substitute under `daemon/internal/machine/memory/` and no real adapter yet | #2 §3 wiring, §5 |
+| Guest Agent channel | driven | the Guest Agent over vsock; [guest.md](./guest.md); the interface is `daemon/internal/machine/guest.go`, the adapter is `daemon/internal/channel/`, wired over the Firecracker Driver, with an in-memory substitute under `daemon/internal/machine/memory/` | #2 §3 wiring, §5 |
 | Supervision | driven | `mvmd-supervisor` processes, one per Machine whose VMM process exists and one per running conversion, each starting and confining its VMM; the adapter is `daemon/internal/supervision/`, behind `daemon/internal/fencing/supervisors.go`; [runtime.md](./runtime.md) §Fencing and §VMM confinement | [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md), [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) |
 
 A port with one real adapter is kept only with a test substitute standing in for it ([ADR 0002](./adr/0002-mvmd-is-structured-as-a-hexagonal-application.md) §Consequences). The Driver port has two real adapters from the start, since an abstraction with one implementation cannot be verified (#2 §5, first implementation scope).

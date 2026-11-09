@@ -22,6 +22,7 @@ type Driver struct {
 
 	mu       sync.Mutex
 	specs    map[machine.MachineID]machine.BootSpec
+	booted   map[machine.MachineID]machine.BootSpec
 	grace    time.Duration
 	devices  map[machine.MachineID][]machine.DiskID
 	sizes    map[machine.MachineID]machine.Resources
@@ -35,6 +36,7 @@ type Driver struct {
 	report           func(machine.DriverEvent)
 	guests           map[guestPort]func(net.Conn)
 	consoles         map[machine.MachineID]func(io.ReadWriteCloser)
+	noConsole        bool
 	logs             map[machine.MachineID]string
 }
 
@@ -71,6 +73,7 @@ func NewDriver(info machine.DriverInfo) *Driver {
 	return &Driver{
 		info:             info,
 		specs:            make(map[machine.MachineID]machine.BootSpec),
+		booted:           make(map[machine.MachineID]machine.BootSpec),
 		devices:          make(map[machine.MachineID][]machine.DiskID),
 		sizes:            make(map[machine.MachineID]machine.Resources),
 		restored:         make(map[machine.MachineID][]string),
@@ -175,8 +178,26 @@ func (d *Driver) ConsoleLog(_ context.Context, id machine.MachineID) (io.ReadClo
 	return io.NopCloser(strings.NewReader(content)), nil
 }
 
-// Info implements machine.Driver.
-func (d *Driver) Info() machine.DriverInfo { return d.info }
+// Info implements machine.Driver. The Driver also reports the console
+// capability, unless WithoutConsole was called.
+func (d *Driver) Info() machine.DriverInfo {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	info := d.info
+	info.Capabilities = append([]machine.Capability(nil), info.Capabilities...)
+	if !d.noConsole {
+		info.Capabilities = append(info.Capabilities, machine.CapabilityConsole)
+	}
+	return info
+}
+
+// WithoutConsole makes the Driver stop reporting the console capability, as a
+// VMM Driver that cannot open a console session does.
+func (d *Driver) WithoutConsole() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.noConsole = true
+}
 
 // Describe implements machine.Driver.
 func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
@@ -194,8 +215,19 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 }
 
 // Boot implements machine.Driver.
-func (d *Driver) Boot(_ context.Context, id machine.MachineID) error {
+func (d *Driver) Boot(_ context.Context, id machine.MachineID, spec machine.BootSpec) error {
+	d.mu.Lock()
+	d.booted[id] = spec
+	d.mu.Unlock()
 	return d.Enter("boot")
+}
+
+// BootedWith returns the boot description the last Boot of the Machine was
+// given.
+func (d *Driver) BootedWith(id machine.MachineID) machine.BootSpec {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.booted[id]
 }
 
 // Shutdown implements machine.Driver.

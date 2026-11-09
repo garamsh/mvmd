@@ -29,6 +29,9 @@ func (s *service) Console(ctx context.Context, id MachineID) (io.ReadWriteCloser
 	if err != nil {
 		return nil, err
 	}
+	if !s.driver.Info().has(CapabilityConsole) {
+		return nil, fail(ErrUnsupported, "the Driver cannot open a console")
+	}
 	s.mu.Lock()
 	state := rec.Machine.State
 	s.mu.Unlock()

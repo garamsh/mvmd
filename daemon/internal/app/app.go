@@ -22,9 +22,11 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/api"
 	"github.com/garamsh/mvmd/daemon/internal/boltstore"
 	"github.com/garamsh/mvmd/daemon/internal/bootclock"
+	"github.com/garamsh/mvmd/daemon/internal/channel"
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
+	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
@@ -43,7 +45,8 @@ func (wallClock) Now() time.Time { return time.Now() }
 // Substitutes are the in-memory adapters behind the ports when the
 // configuration selects the memory driver, so that what a Machine needs on the
 // node can be provided: images and disks. Supervisors is nil when the
-// configuration names real supervision.
+// configuration names real supervision, and Driver and Guest are nil when it
+// names the Firecracker Driver.
 type Substitutes struct {
 	Driver      *machinememory.Driver
 	Network     *machinememory.Network
@@ -92,7 +95,6 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 
-	// Only the memory driver exists; check() refused any other.
 	sub := &Substitutes{
 		Driver: machinememory.NewDriver(machine.DriverInfo{
 			Name: "memory", Version: "1", CPUModel: "memory-cpu",
@@ -130,16 +132,30 @@ func New(cfg Config) (*App, error) {
 		}
 		supervisors, sub.Supervisors = real, nil
 	}
+	// The Firecracker Driver replaces the in-memory Driver, and the Guest Agent
+	// channel adapter over it replaces the in-memory Guest. Its Machines'
+	// run directories are the supervisors' (driver.md).
+	var driver machine.Driver = sub.Driver
+	var guest machine.Guest = sub.Guest
+	if f := cfg.Firecracker; f != nil {
+		d, err := firecracker.New(f.toDriver(supervisors))
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		driver, guest = d, channel.NewGuest(d)
+		sub.Driver, sub.Guest = nil, nil
+	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
+	machines := machine.NewService(driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
 
 	return &App{
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
 		deadline:    deadline,
-		server:      api.New(machines, deadline, []machine.DriverInfo{sub.Driver.Info()}, log),
+		server:      api.New(machines, deadline, []machine.DriverInfo{driver.Info()}, log),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil

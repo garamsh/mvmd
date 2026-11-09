@@ -53,8 +53,9 @@ echo "$@: $$ws: --workspace selects $$m member(s) per cargo metadata --no-deps";
 if [ "$$m" -eq 0 ]; then echo "$@: $$ws: no members" >&2; exit 1; fi
 endef
 
+# The tests of test-firecracker are behind a build tag, so vet reads them again with it.
 lint:
-	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && \
+	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && go vet -tags firecracker_real ./... && \
 	  if [ -f buf.yaml ]; then \
 	    lib=$$($(TOOL_ENV) go list -m -f '{{.Version}}' google.golang.org/protobuf); \
 	    gen=$$($(TOOL_ENV) go list -modfile=$(PROTOGEN) -m -f '{{.Version}}' google.golang.org/protobuf); \
@@ -105,6 +106,27 @@ test: erofs-utils
 	$(call each_rust, $(count_members); $(CARGO) test --workspace --locked)
 	cd guest-agent && $(CARGO) build --locked -p guest-agent --bin guest-agent-channel
 	$(call each_module, $(count_packages); (cd "$$dir" && go test -v ./...))
+
+# test-firecracker boots the pinned Firecracker on the pinned kernel with the Guest Agent's initrd,
+# through the Driver, as the user running it. It needs read and write access to /dev/kvm, and it is
+# not part of ci: a runner without KVM would fail it, so the pipeline runs it as a job of its own.
+# tooling/firecracker/fetch.sh fetches the two inputs by their pinned digests; a missing input fails
+# the tests and never skips them.
+.PHONY: guest-initrd test-firecracker
+guest-initrd:
+	$(call initrd_twice,guest-agent,)
+
+test-firecracker: guest-initrd
+	@set -e; \
+	tooling/firecracker/fetch.sh tooling/firecracker/target; \
+	set -a; . tooling/firecracker/target/inputs.env; set +a; \
+	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
+	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
+	if ! (cd daemon && go test -tags firecracker_real -count=1 -v -run '^TestReal_' ./internal/firecracker/) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
+	cat "$$log"; \
+	n=$$(grep -c '^--- PASS: TestReal_' "$$log" || true); \
+	echo "$@: $$n test(s) passed, selected by -run '^TestReal_' under the firecracker_real tag"; \
+	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
 
 build: rebuild-erofs-utils
 	$(call each_module, $(count_packages); (cd "$$dir" && go build ./...))

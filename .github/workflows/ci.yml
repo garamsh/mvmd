@@ -52,3 +52,48 @@ jobs:
       # Dependabot cargo pull request carries it.
       - name: Audit the Rust dependencies
         run: make audit
+
+  # The Firecracker Driver's tests boot a guest, so they need KVM, which make ci does not. The
+  # job fails, and does not skip, when /dev/kvm cannot be used.
+  firecracker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            lib/runtimeapi/go.sum
+            tooling/protogen/go.sum
+      - name: Record what the runner label and the toolchain resolved to
+        run: |
+          echo "runner image: $ImageOS $ImageVersion"
+          uname -r
+          go version
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+        with:
+          rust-src-dir: guest-agent
+          cache: false
+          build-warnings: ""
+      # The downloads of fetch.sh are kept between runs under a key made of its pinned digests, so a
+      # new pin fetches anew; fetch.sh checks each file's digest on every use, a hit included.
+      - name: Name the pinned downloads
+        id: pins
+        run: echo "key=$(grep -E '^[A-Za-z0-9_]+=[0-9a-f]{64}$' tooling/firecracker/fetch.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tooling/firecracker/target/dl
+          key: firecracker-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
+      # Gives every user access to /dev/kvm, the udev rule the runner images' KVM support documents,
+      # then records what the runner has.
+      - name: Make /dev/kvm usable
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+          test -r /dev/kvm -a -w /dev/kvm
+      - name: Boot the pinned Firecracker on the pinned kernel
+        run: make test-firecracker

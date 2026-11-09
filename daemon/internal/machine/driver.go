@@ -26,6 +26,9 @@ const (
 	// CapabilityResize changes the CPU and memory of a Running or Paused
 	// Machine.
 	CapabilityResize Capability = "resize"
+	// CapabilityConsole opens sessions to the console of a Running or Paused
+	// Machine. The console log is not part of it.
+	CapabilityConsole Capability = "console"
 	// CapabilitySnapshot snapshots a Running or Paused Machine and restores
 	// a Machine from a snapshot.
 	CapabilitySnapshot Capability = "snapshot"
@@ -133,8 +136,11 @@ type Driver interface {
 	Info() DriverInfo
 	// Describe states the VMM process for a Machine's start.
 	Describe(ctx context.Context, id MachineID, spec BootSpec) (ProcessDescription, error)
-	// Boot configures the started VMM and boots the guest.
-	Boot(ctx context.Context, id MachineID) error
+	// Boot configures the started VMM and boots the guest, from the boot
+	// description Describe was given: the lifecycle holds it and passes it again,
+	// so a Driver keeps nothing between the two, and reads nothing back from a
+	// directory the VMM's user can write.
+	Boot(ctx context.Context, id MachineID, spec BootSpec) error
 	// GuestConn opens a new byte stream to the guest's port of the Machine and
 	// returns it, ready for the Guest Agent's protocol: whatever the VMM needs
 	// before the first byte reaches the guest (a connect request to its vsock
