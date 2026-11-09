@@ -121,9 +121,9 @@ func TestReal_ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T) {
 	}
 	after := drivesOf(t, sock)
 	assert.Len(t, after, 5)
-	assert.Equal(t, "/run/disk_686f74", after["disk_686f74"], "the attached disk is a drive at its link in the run directory")
-	assert.Equal(t, "/run/disk_686f74726f", after["disk_686f74726f"])
-	hotLink, err := os.Stat(filepath.Join(run, "disk_686f74"))
+	assert.Equal(t, "/run/disk_7f5d1618e7d28cc7bf32788672be04c24877d9a8911f65fef8e3e013c9cbc373", after["disk_7f5d1618e7d28cc7bf32788672be04c24877d9a8911f65fef8e3e013c9cbc373"], "the attached disk is a drive at its link in the run directory")
+	assert.Equal(t, "/run/disk_b704747b4231d0e7c7e8fc3e47ff82ea61c73b9eda19e4459c42cafa3a2a4ddf", after["disk_b704747b4231d0e7c7e8fc3e47ff82ea61c73b9eda19e4459c42cafa3a2a4ddf"])
+	hotLink, err := os.Stat(filepath.Join(run, "disk_7f5d1618e7d28cc7bf32788672be04c24877d9a8911f65fef8e3e013c9cbc373"))
 	require.NoError(t, err)
 	hotFile, err := os.Stat(hot.Path)
 	require.NoError(t, err)
@@ -139,8 +139,8 @@ func TestReal_ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T) {
 	require.NoError(t, d.DetachDisk(ctx, "m1", "hot"))
 	require.NoError(t, d.DetachDisk(ctx, "m1", "hotro"))
 	require.NoError(t, d.DetachDisk(ctx, "m1", "given"))
-	assert.Equal(t, map[string]string{"disk0": "/disk/0", "disk_726f6f74": "/disk/1"}, drivesOf(t, sock), "only the image and the root disk remain")
-	for _, name := range []string{"disk_686f74", "disk_686f74726f"} {
+	assert.Equal(t, map[string]string{"disk0": "/disk/0", "disk_4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2": "/disk/1"}, drivesOf(t, sock), "only the image and the root disk remain")
+	for _, name := range []string{"disk_7f5d1618e7d28cc7bf32788672be04c24877d9a8911f65fef8e3e013c9cbc373", "disk_b704747b4231d0e7c7e8fc3e47ff82ea61c73b9eda19e4459c42cafa3a2a4ddf"} {
 		_, err := os.Lstat(filepath.Join(run, name))
 		assert.ErrorIs(t, err, os.ErrNotExist, "the link of %s is gone", name)
 	}

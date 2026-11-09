@@ -2,6 +2,7 @@ package firecracker
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,13 +16,15 @@ import (
 // driveID names a block device to the VMM. A device that holds a disk is named
 // by it, so a detach finds the drive whether the disk was given at boot or
 // attached later, and a Machine's image, which holds none, by its position. The
-// hex keeps any disk ID within what Firecracker accepts of an ID (letters,
-// digits and underscores) and two IDs apart.
+// name is also a file name in the run directory, so it is the hex of the ID's
+// SHA-256, which is the same length for any ID, within what Firecracker accepts
+// of an ID (letters, digits and underscores) and distinct for two IDs.
 func driveID(position int, disk machine.DiskID) string {
 	if disk == "" {
 		return fmt.Sprintf("disk%d", position)
 	}
-	return "disk_" + hex.EncodeToString([]byte(disk))
+	sum := sha256.Sum256([]byte(disk))
+	return "disk_" + hex.EncodeToString(sum[:])
 }
 
 // drive is the request that configures a block device, at a path in the VMM's

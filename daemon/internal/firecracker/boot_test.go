@@ -38,7 +38,7 @@ func TestBoot_ConfiguresTheVMMThenStartsTheGuest(t *testing.T) {
 		{"PUT", "/machine-config", `{"vcpu_count":2,"mem_size_mib":256}`},
 		{"PUT", "/boot-source", `{"kernel_image_path":"/boot/kernel","initrd_path":"/boot/initrd","boot_args":"` + firecracker.BootArgs(runtime.GOARCH) + `"}`},
 		{"PUT", "/drives/disk0", `{"drive_id":"disk0","path_on_host":"/disk/0","is_root_device":false,"is_read_only":true}`},
-		{"PUT", "/drives/disk_726f6f74", `{"drive_id":"disk_726f6f74","path_on_host":"/disk/1","is_root_device":false,"is_read_only":false,"cache_type":"Writeback"}`},
+		{"PUT", "/drives/disk_4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2", `{"drive_id":"disk_4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2","path_on_host":"/disk/1","is_root_device":false,"is_read_only":false,"cache_type":"Writeback"}`},
 		{"PUT", "/network-interfaces/eth0", `{"iface_id":"eth0","host_dev_name":"tap-m1","guest_mac":"02:00:00:00:00:01"}`},
 		{"PUT", "/vsock", `{"guest_cid":3,"uds_path":"/run/vsock.sock"}`},
 		{"PUT", "/actions", `{"action_type":"InstanceStart"}`},
@@ -78,11 +78,11 @@ func TestBoot_NamesOnlyPathsInTheVMMsRoot(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string]string{
-		"/boot-source kernel_image_path":     "/boot/kernel",
-		"/boot-source initrd_path":           "/boot/initrd",
-		"/drives/disk0 path_on_host":         "/disk/0",
-		"/drives/disk_726f6f74 path_on_host": "/disk/1",
-		"/vsock uds_path":                    "/run/vsock.sock",
+		"/boot-source kernel_image_path": "/boot/kernel",
+		"/boot-source initrd_path":       "/boot/initrd",
+		"/drives/disk0 path_on_host":     "/disk/0",
+		"/drives/disk_4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2 path_on_host": "/disk/1",
+		"/vsock uds_path": "/run/vsock.sock",
 	}, named, "control: every request that carries a path was read")
 
 	// Every path the VMM is given, in its requests and its arguments, is one
@@ -121,7 +121,7 @@ func TestBoot_AMachineWithNoNetworkDeviceGetsNone(t *testing.T) {
 	for _, r := range f.seen() {
 		paths = append(paths, r.Path)
 	}
-	assert.Equal(t, []string{"/version", "/machine-config", "/boot-source", "/drives/disk_726f6f74", "/vsock", "/actions"}, paths)
+	assert.Equal(t, []string{"/version", "/machine-config", "/boot-source", "/drives/disk_4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2", "/vsock", "/actions"}, paths)
 }
 
 func TestBoot_RefusesAVMMOfAnotherVersionAndConfiguresNothing(t *testing.T) {

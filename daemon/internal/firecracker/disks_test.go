@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,8 +32,8 @@ func TestAttachDisk_PutsTheDriveAtAHardLinkInTheRunDirectory(t *testing.T) {
 		readOnly bool
 		body     string
 	}{
-		{"a read-write disk", false, `{"drive_id":"disk_64617461","path_on_host":"/run/disk_64617461","is_root_device":false,"is_read_only":false,"cache_type":"Writeback"}`},
-		{"a read-only disk", true, `{"drive_id":"disk_64617461","path_on_host":"/run/disk_64617461","is_root_device":false,"is_read_only":true}`},
+		{"a read-write disk", false, `{"drive_id":"disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7","path_on_host":"/run/disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7","is_root_device":false,"is_read_only":false,"cache_type":"Writeback"}`},
+		{"a read-only disk", true, `{"drive_id":"disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7","path_on_host":"/run/disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7","is_root_device":false,"is_read_only":true}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -47,10 +48,10 @@ func TestAttachDisk_PutsTheDriveAtAHardLinkInTheRunDirectory(t *testing.T) {
 			got := since(f, before)
 			require.Len(t, got, 1, "one request, and no GET /version before it")
 			assert.Equal(t, "PUT", got[0].Method)
-			assert.Equal(t, "/drives/disk_64617461", got[0].Path)
+			assert.Equal(t, "/drives/disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7", got[0].Path)
 			assert.JSONEq(t, tt.body, got[0].Body)
 
-			link := filepath.Join(n.run, "disk_64617461")
+			link := filepath.Join(n.run, "disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7")
 			linked, err := os.Stat(link)
 			require.NoError(t, err)
 			orig, err := os.Stat(dev.Path)
@@ -69,7 +70,7 @@ func TestAttachDisk_ALinkIsReplacedAndNothingItNamesIsFollowed(t *testing.T) {
 	// What a failed attach left, and what the VMM's user could put there.
 	outside := filepath.Join(filepath.Dir(n.run), "outside")
 	require.NoError(t, os.WriteFile(outside, []byte("untouched"), 0o600))
-	link := filepath.Join(n.run, "disk_64617461")
+	link := filepath.Join(n.run, "disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7")
 	require.NoError(t, os.Symlink(outside, link))
 
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", dev))
@@ -111,7 +112,7 @@ func TestAttachDisk_RefusesADiskThatCannotBeLinkedAndSendsNothing(t *testing.T) 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
 			assert.Empty(t, since(f, before), "the VMM was asked nothing")
-			_, statErr := os.Lstat(filepath.Join(n.run, "disk_64617461"))
+			_, statErr := os.Lstat(filepath.Join(n.run, "disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"))
 			assert.ErrorIs(t, statErr, os.ErrNotExist, "no link was made")
 		})
 	}
@@ -120,15 +121,46 @@ func TestAttachDisk_RefusesADiskThatCannotBeLinkedAndSendsNothing(t *testing.T) 
 	assert.Len(t, since(f, before), 1)
 }
 
+// A disk ID has no length rule, and the drive's name is the link's file name.
+func TestAttachDisk_NamesTheLinkWithinAFileNameForAnyDiskID(t *testing.T) {
+	for _, tt := range []struct{ name, id string }{
+		{"control: a short ID", "data"},
+		{"an ID the hex of which exceeds a file name's limit", strings.Repeat("d", 200)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			n := newNode(t)
+			f := &fakeAPI{}
+			f.listen(t, n.apiSocket())
+			_, err := n.driver.Describe(context.Background(), "m1", n.spec())
+			require.NoError(t, err)
+			require.NoError(t, n.driver.Boot(context.Background(), "m1", n.spec()))
+			before := len(f.seen())
+			path := filepath.Join(filepath.Dir(n.run), "long.img")
+			require.NoError(t, os.WriteFile(path, []byte("a disk"), 0o600))
+
+			require.NoError(t, n.driver.AttachDisk(context.Background(), "m1",
+				machine.BlockDevice{Disk: machine.DiskID(tt.id), Path: path}))
+
+			got := since(f, before)
+			require.Len(t, got, 1)
+			name := strings.TrimPrefix(got[0].Path, "/drives/")
+			assert.LessOrEqual(t, len(name), 255)
+			assert.Regexp(t, `^disk_[0-9a-f]+$`, name)
+			_, err = os.Lstat(filepath.Join(n.run, name))
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestAttachDisk_ARefusalByTheVMMLeavesNoLink(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{}
 	n.booted(f)
 	dev := n.disk("data", false)
-	link := filepath.Join(n.run, "disk_64617461")
+	link := filepath.Join(n.run, "disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7")
 
 	f.answer = func(r request) (int, string) {
-		if r.Path == "/drives/disk_64617461" {
+		if r.Path == "/drives/disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7" {
 			return http.StatusBadRequest, `{"fault_message":"cannot hot-plug without PCI"}`
 		}
 		return http.StatusNoContent, ""
@@ -159,8 +191,8 @@ func TestDetachDisk_UnplugsTheDriveAndRemovesItsLink(t *testing.T) {
 	got := since(f, before)
 	require.Len(t, got, 1)
 	assert.Equal(t, "DELETE", got[0].Method)
-	assert.Equal(t, "/drives/disk_64617461", got[0].Path)
-	_, err := os.Lstat(filepath.Join(n.run, "disk_64617461"))
+	assert.Equal(t, "/drives/disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7", got[0].Path)
+	_, err := os.Lstat(filepath.Join(n.run, "disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"))
 	assert.ErrorIs(t, err, os.ErrNotExist, "no link holds the file")
 	_, err = os.Stat(dev.Path)
 	assert.NoError(t, err, "the disk's own file is untouched")
@@ -171,7 +203,7 @@ func TestDetachDisk_KeepsTheLinkWhenTheVMMRefuses(t *testing.T) {
 	f := &fakeAPI{}
 	n.booted(f)
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
-	link := filepath.Join(n.run, "disk_64617461")
+	link := filepath.Join(n.run, "disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7")
 
 	f.answer = func(r request) (int, string) {
 		if r.Method == "DELETE" {
@@ -204,11 +236,11 @@ func TestDetachDisk_FindsADiskGivenAtBoot(t *testing.T) {
 	require.NoError(t, n.driver.Boot(context.Background(), "m1", spec))
 	var put string
 	for _, r := range f.seen() {
-		if r.Method == "PUT" && r.Path == "/drives/disk_64617461" {
+		if r.Method == "PUT" && r.Path == "/drives/disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7" {
 			put = r.Path
 		}
 	}
-	require.Equal(t, "/drives/disk_64617461", put, "control: boot named the drive of the disk it was given")
+	require.Equal(t, "/drives/disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7", put, "control: boot named the drive of the disk it was given")
 	before := len(f.seen())
 
 	require.NoError(t, n.driver.DetachDisk(context.Background(), "m1", "data"))
