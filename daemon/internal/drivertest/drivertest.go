@@ -91,9 +91,28 @@ type Subject struct {
 	Start func(t *testing.T, p machine.ProcessDescription, s Streams) Process
 	// KernelDigest is the digest of the guest kernel a snapshot holds.
 	KernelDigest string
+	// Snapshot is what only the Subject's VMM can say of its snapshot. It is
+	// read only when the Driver reports the snapshot capability.
+	Snapshot SnapshotFacts
 	// Check is what only the Subject's VMM can tell, run at each Checkpoint. It
 	// may be nil.
 	Check func(t *testing.T, at Checkpoint, m Machine)
+}
+
+// SnapshotFacts are what differs between the snapshots of two VMMs, which the
+// scenario holds a Driver to exactly, so that it is no weaker for either.
+type SnapshotFacts struct {
+	// Files is how many files a snapshot holds.
+	Files int
+	// RestoreBootFiles are the paths, in the restored VMM's root, of the boot
+	// files its VMM opens on restore: the kernel and initrd paths of a boot that
+	// the restore binds, and no others. Firecracker opens none; Cloud Hypervisor
+	// opens the initrd.
+	RestoreBootFiles []string
+	// LoadsOnRestore is true when the VMM loads the snapshot in Restore, so that
+	// before it the process has no guest. It is false when the process loads it
+	// as it starts, from its command line.
+	LoadsOnRestore bool
 }
 
 func (s Subject) check(t *testing.T, at Checkpoint, m Machine) {
