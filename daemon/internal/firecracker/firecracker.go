@@ -86,11 +86,12 @@ func New(cfg Config) (*Driver, error) {
 	return &Driver{cfg: cfg, cpuModel: model}, nil
 }
 
-// Info implements machine.Driver. The one optional capability reported is the
-// console: this Driver does not yet snapshot, restore, hot-plug or resize.
+// Info implements machine.Driver. The optional capabilities reported are the
+// console and snapshot, which covers restore: this Driver does not yet
+// hot-plug or resize.
 func (d *Driver) Info() machine.DriverInfo {
 	return machine.DriverInfo{Name: "firecracker", Version: Version, CPUModel: d.cpuModel,
-		Capabilities: []machine.Capability{machine.CapabilityConsole}}
+		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}}
 }
 
 // Observe implements machine.Driver. The Driver raises no event of its own:
@@ -101,6 +102,9 @@ func (d *Driver) Observe(func(machine.DriverEvent)) {}
 // what the VMM is told; mvmd itself reaches the file at the run directory's
 // host path.
 func inRun(name string) string { return filepath.Join(machine.InRunDir, name) }
+
+// inSnapshot is the path of a snapshot file in a restored VMM's root.
+func inSnapshot(name string) string { return filepath.Join(machine.InSnapshotDir, name) }
 
 func (d *Driver) socket(id machine.MachineID, name string) (string, error) {
 	dir, err := d.cfg.Dirs.RunDir(id)
@@ -136,19 +140,4 @@ func (d *Driver) DetachDisk(context.Context, machine.MachineID, machine.DiskID) 
 // only before boot.
 func (d *Driver) Resize(context.Context, machine.MachineID, machine.Resources) error {
 	return unsupported("resize a running Machine")
-}
-
-// Snapshot implements machine.Driver.
-func (d *Driver) Snapshot(context.Context, machine.MachineID) (machine.DriverSnapshot, error) {
-	return machine.DriverSnapshot{}, unsupported("snapshot a Machine")
-}
-
-// DescribeRestore implements machine.Driver.
-func (d *Driver) DescribeRestore(context.Context, machine.MachineID, machine.BootSpec, []string) (machine.ProcessDescription, error) {
-	return machine.ProcessDescription{}, unsupported("restore a Machine")
-}
-
-// Restore implements machine.Driver.
-func (d *Driver) Restore(context.Context, machine.MachineID) error {
-	return unsupported("restore a Machine")
 }

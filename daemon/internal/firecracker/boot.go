@@ -15,23 +15,9 @@ import (
 // Boot implements machine.Driver: it configures the started VMM from the boot
 // description it is given, and starts the guest.
 func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.BootSpec) error {
-	sock, err := d.socket(id, apiSocketName)
+	c, err := d.started(ctx, id)
 	if err != nil {
 		return err
-	}
-	if err := await(ctx, sock); err != nil {
-		return err
-	}
-	c := newClient(sock)
-
-	var v struct {
-		Version string `json:"firecracker_version"`
-	}
-	if err := c.do(ctx, "GET", "/version", nil, &v); err != nil {
-		return err
-	}
-	if v.Version != Version {
-		return fmt.Errorf("the VMM is Firecracker %s, not %s", v.Version, Version)
 	}
 
 	type put struct {
@@ -55,8 +41,8 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 		steps = append(steps, put{"/drives/" + fmt.Sprintf("disk%d", i), drive})
 	}
 	if spec.Network.Tap != "" {
-		steps = append(steps, put{"/network-interfaces/eth0", map[string]any{
-			"iface_id": "eth0", "host_dev_name": spec.Network.Tap, "guest_mac": spec.Network.MAC,
+		steps = append(steps, put{"/network-interfaces/" + netIface, map[string]any{
+			"iface_id": netIface, "host_dev_name": spec.Network.Tap, "guest_mac": spec.Network.MAC,
 		}})
 	}
 	steps = append(steps,
@@ -69,6 +55,29 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 		}
 	}
 	return nil
+}
+
+// started waits for the VMM's API socket to accept a connection and refuses a
+// VMM that is not the release this Driver is written against.
+func (d *Driver) started(ctx context.Context, id machine.MachineID) (*client, error) {
+	sock, err := d.socket(id, apiSocketName)
+	if err != nil {
+		return nil, err
+	}
+	if err := await(ctx, sock); err != nil {
+		return nil, err
+	}
+	c := newClient(sock)
+	var v struct {
+		Version string `json:"firecracker_version"`
+	}
+	if err := c.do(ctx, "GET", "/version", nil, &v); err != nil {
+		return nil, err
+	}
+	if v.Version != Version {
+		return nil, fmt.Errorf("the VMM is Firecracker %s, not %s", v.Version, Version)
+	}
+	return c, nil
 }
 
 // Pause implements machine.Driver.

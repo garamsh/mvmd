@@ -13,12 +13,12 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-func TestInfo_NamesFirecrackerAtItsVersionAndReportsTheConsoleAlone(t *testing.T) {
+func TestInfo_NamesFirecrackerAtItsVersionAndReportsTheConsoleAndSnapshot(t *testing.T) {
 	info := newNode(t).driver.Info()
 	assert.Equal(t, "firecracker", info.Name)
 	assert.Equal(t, "1.17.0", info.Version)
 	assert.NotEmpty(t, info.CPUModel)
-	assert.Equal(t, []machine.Capability{machine.CapabilityConsole}, info.Capabilities, "snapshot, hot-plug and resize are not implemented")
+	assert.Equal(t, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}, info.Capabilities, "hot-plug and resize are not implemented")
 }
 
 func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
@@ -62,15 +62,10 @@ func TestNew_RefusesAMissingBinary(t *testing.T) {
 func TestDriver_RefusesTheOperationsItDoesNotYetImplement(t *testing.T) {
 	d := newNode(t).driver
 	ctx := context.Background()
-	_, snapErr := d.Snapshot(ctx, "m1")
-	_, descErr := d.DescribeRestore(ctx, "m1", machine.BootSpec{}, nil)
 	for name, err := range map[string]error{
-		"attach":           d.AttachDisk(ctx, "m1", machine.BlockDevice{}),
-		"detach":           d.DetachDisk(ctx, "m1", "d"),
-		"resize":           d.Resize(ctx, "m1", machine.Resources{}),
-		"snapshot":         snapErr,
-		"describe-restore": descErr,
-		"restore":          d.Restore(ctx, "m1"),
+		"attach": d.AttachDisk(ctx, "m1", machine.BlockDevice{}),
+		"detach": d.DetachDisk(ctx, "m1", "d"),
+		"resize": d.Resize(ctx, "m1", machine.Resources{}),
 	} {
 		assert.ErrorIs(t, err, machine.ErrUnsupported, name)
 	}
