@@ -30,7 +30,9 @@ type Driver struct {
 	restored map[machine.MachineID][]string
 	// restoreSpec is the boot description each Machine's Restore was given.
 	restoreSpec map[machine.MachineID]machine.BootSpec
-	paused      map[machine.MachineID]bool
+	// running tracks Machines booted or restored until Shutdown clears them.
+	running map[machine.MachineID]bool
+	paused  map[machine.MachineID]bool
 	// pausedAtSnapshot is what paused was when the Machine was last snapshotted.
 	pausedAtSnapshot map[machine.MachineID]bool
 	hold             chan struct{}
@@ -83,6 +85,7 @@ func NewDriver(info machine.DriverInfo) *Driver {
 		restoreSpec:      make(map[machine.MachineID]machine.BootSpec),
 		paused:           make(map[machine.MachineID]bool),
 		pausedAtSnapshot: make(map[machine.MachineID]bool),
+		running:          make(map[machine.MachineID]bool),
 	}
 }
 
@@ -104,16 +107,22 @@ type guestPort struct {
 	port uint32
 }
 
-// GuestConn implements machine.Driver. Its step is "guest-conn". A Machine and
-// port nothing serves is machine.ErrGuestUnreachable, and so is an injected
-// failure, unless it is told another error.
+// GuestConn implements machine.Driver. Its step is "guest-conn". A Machine
+// and port nothing serves is machine.ErrGuestUnreachable when the Machine is
+// running (from Boot or Restore until Shutdown) and machine.ErrVMMEnded
+// joined with machine.ErrGuestUnreachable when it is not; an injected
+// failure returns machine.ErrGuestUnreachable joined with the injected error.
 func (d *Driver) GuestConn(_ context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
 	if err := d.Enter("guest-conn"); err != nil {
 		return nil, errors.Join(machine.ErrGuestUnreachable, err)
 	}
 	d.mu.Lock()
 	serve, ok := d.guests[guestPort{id, port}]
+	running := d.running[id]
 	d.mu.Unlock()
+	if !ok && !running {
+		return nil, errors.Join(machine.ErrVMMEnded, machine.ErrGuestUnreachable)
+	}
 	if !ok {
 		return nil, machine.ErrGuestUnreachable
 	}
@@ -222,6 +231,7 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 func (d *Driver) Boot(_ context.Context, id machine.MachineID, spec machine.BootSpec) error {
 	d.mu.Lock()
 	d.booted[id] = spec
+	d.running[id] = true
 	d.mu.Unlock()
 	return d.Enter("boot")
 }
@@ -235,9 +245,10 @@ func (d *Driver) BootedWith(id machine.MachineID) machine.BootSpec {
 }
 
 // Shutdown implements machine.Driver.
-func (d *Driver) Shutdown(_ context.Context, _ machine.MachineID, grace time.Duration) error {
+func (d *Driver) Shutdown(_ context.Context, id machine.MachineID, grace time.Duration) error {
 	d.mu.Lock()
 	d.grace = grace
+	d.running[id] = false
 	hold, entered := d.hold, d.entered
 	d.mu.Unlock()
 	if hold != nil {
@@ -407,6 +418,7 @@ func (d *Driver) Restore(_ context.Context, id machine.MachineID, spec machine.B
 	}
 	d.mu.Lock()
 	d.restoreSpec[id] = spec
+	d.running[id] = true
 	d.mu.Unlock()
 	return nil
 }

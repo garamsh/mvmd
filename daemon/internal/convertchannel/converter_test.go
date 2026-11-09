@@ -377,3 +377,81 @@ func TestConvert_AMissingLayerFileIsAReadFailureAndNotAStatus(t *testing.T) {
 	var failure *image.ConversionFailure
 	assert.False(t, errors.As(err, &failure))
 }
+
+// vmmEndedConnector always returns ErrVMMEnded, as a connector whose VMM
+// has ended does. It counts the dials to prove the converter fails at once
+// and does not wait for backoff.
+type vmmEndedConnector struct {
+	mu    sync.Mutex
+	dials int
+}
+
+func (c *vmmEndedConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	c.mu.Lock()
+	c.dials++
+	c.mu.Unlock()
+	return nil, machine.ErrVMMEnded
+}
+
+func (c *vmmEndedConnector) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dials
+}
+
+// vmmEndedUnreachableConnector returns ErrGuestUnreachable for the first n
+// dials, then connects through the dialer. It is a control that isolates
+// ErrVMMEnded from generic connection refusal.
+type vmmEndedUnreachableConnector struct {
+	to      *dialer
+	refused int
+	mu      sync.Mutex
+	dials   int
+}
+
+func (c *vmmEndedUnreachableConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	c.mu.Lock()
+	c.dials++
+	n := c.dials
+	c.mu.Unlock()
+	if n <= c.refused {
+		return nil, errors.Join(machine.ErrGuestUnreachable, io.EOF)
+	}
+	return c.to.GuestConn(ctx, id, port)
+}
+
+func (c *vmmEndedUnreachableConnector) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dials
+}
+
+// A conversion whose connector returns ErrVMMEnded fails at once, without
+// waiting for the backoff that the converter normally uses when the
+// converter has not yet started. The error names the ended VMM.
+func TestConvert_FailsAtOnceWhenTheConnectorReturnsErrVMMEnded(t *testing.T) {
+	f := &fakeConverter{}
+	f.answer = f.readAll(99)
+	_, d := serve(t, f)
+	v := &vmmEndedConnector{}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+
+	_, err := convertchannel.New(v).Convert(ctx, "m", jobOf(layerFile(t, tarType, []byte("a"))))
+	require.ErrorIs(t, err, machine.ErrVMMEnded)
+	assert.ErrorContains(t, err, "the converter VMM has ended")
+	// The connector was called only once: no backoff wait.
+	assert.Equal(t, 1, v.count())
+	// It returned well before the conversion limit.
+	assert.Less(t, time.Since(start), 200*time.Millisecond)
+
+	// Control: a connector that answers ErrGuestUnreachable alone for its
+	// first dials and then connects is waited for and succeeds, with a dial
+	// count above 1. This isolates ErrVMMEnded from generic connection refusal.
+	u := &vmmEndedUnreachableConnector{to: d, refused: 3}
+	length, err := convertchannel.New(u).Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(99), length)
+	assert.Greater(t, u.count(), 1, "it retried before connecting")
+}

@@ -98,7 +98,14 @@ func (c *Converter) Convert(ctx context.Context, id machine.MachineID, job image
 	cc, err := grpc.NewClient("passthrough:///converter",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(dial context.Context, _ string) (net.Conn, error) {
-			return c.conn.GuestConn(dial, id, image.ConverterPort)
+			conn, dialErr := c.conn.GuestConn(dial, id, image.ConverterPort)
+			if dialErr != nil && errors.Is(dialErr, machine.ErrVMMEnded) {
+				// Return a gRPC status error with a non-retryable code so
+				// grpc's retry mechanism stops immediately rather than
+				// waiting for the backoff until the context ends.
+				return nil, status.Error(codes.Internal, "vmm ended")
+			}
+			return conn, dialErr
 		}),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: reconnect}))
 	if err != nil {
@@ -219,10 +226,19 @@ func mapError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
+	// The dialer turns ErrVMMEnded into an Internal status so gRPC ends the
+	// wait at once; an Internal status that reaches here through
+	// notListeningError maps back to ErrVMMEnded.
+	var notListening *notListeningError
+	if errors.As(err, &notListening) {
+		st, ok := status.FromError(notListening)
+		if ok && st.Code() == codes.Internal {
+			return fmt.Errorf("%w: the converter VMM has ended", machine.ErrVMMEnded)
+		}
+	}
 	var failure *image.ConversionFailure
 	var unknown *unknownStepError
 	var read *readError
-	var notListening *notListeningError
 	if errors.As(err, &notListening) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf("%w: the converter did not listen before the conversion's time ended: %w",
 			machine.ErrGuestUnreachable, ctx.Err())
