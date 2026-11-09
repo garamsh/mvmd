@@ -1,13 +1,14 @@
-//! Hot-plugged disks on a Linux kernel: found by a PCI rescan, which the VMM's missing hotplug
-//! notification leaves to the agent, and released by removing the device from the PCI bus while
-//! holding an exclusive claim on its block device (ADR 0022).
+//! Hot-plugged disks on a Linux kernel: found by a PCI rescan, which a VMM that sends no hotplug
+//! notification leaves to the agent, as the one virtio block device the agent has not accounted
+//! for (ADR 0028), and released by removing the device from the PCI bus while holding an
+//! exclusive claim on its block device (ADR 0022).
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -45,6 +46,9 @@ pub struct LinuxDisks {
     dev: PathBuf,
     wait: Duration,
     claim: Claim,
+    /// The virtio block devices present when the agent started, by name with their PCI address,
+    /// set once by `account_for_boot`.
+    boot: OnceLock<HashMap<String, String>>,
     /// Held for the whole of a call, which serialises the calls and so keeps one rescan's new
     /// device from being taken for another's.
     records: Mutex<HashMap<String, Record>>,
@@ -65,6 +69,7 @@ impl LinuxDisks {
             dev: dev.into(),
             wait,
             claim: open_exclusive,
+            boot: OnceLock::new(),
             records: Mutex::default(),
         }
     }
@@ -142,6 +147,12 @@ fn failed(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> DiskErr
 }
 
 impl Disks for LinuxDisks {
+    fn account_for_boot(&self) -> io::Result<()> {
+        // Only the first listing is kept: a later call finds the set taken and changes nothing.
+        let _ = self.boot.set(self.block_devices()?);
+        Ok(())
+    }
+
     fn find(&self, disk_id: &str) -> Result<DiskDevice, DiskError> {
         let mut records = self
             .records
@@ -151,29 +162,31 @@ impl Disks for LinuxDisks {
         if let Some(record) = records.get(disk_id).filter(|record| !record.released) {
             return self.describe(&record.name).map_err(DiskError::Failed);
         }
-        let before = self.block_devices().map_err(DiskError::Failed)?;
         fs::write(self.sys.join("bus/pci/rescan"), "1").map_err(DiskError::Failed)?;
-        let appeared = |devices: &HashMap<String, String>| -> Vec<(String, String)> {
-            devices
-                .iter()
-                .filter(|(name, _)| !before.contains_key(*name))
-                .map(|(name, address)| (name.clone(), address.clone()))
-                .collect()
+        // Accounted for: the boot's devices and every device a record holds. A released record's
+        // device is gone by then, so it holds nothing.
+        let unaccounted = || -> io::Result<Vec<(String, String)>> {
+            Ok(self
+                .block_devices()?
+                .into_iter()
+                .filter(|(name, address)| {
+                    self.boot.get().and_then(|boot| boot.get(name)) != Some(address)
+                        && !records.values().any(|record| {
+                            !record.released && record.name == *name && record.address == *address
+                        })
+                })
+                .collect())
         };
-        let seen = self.wait_until(|| {
-            self.block_devices()
-                .is_ok_and(|after| !appeared(&after).is_empty())
-        });
-        if !seen {
+        if !self.wait_until(|| unaccounted().is_ok_and(|found| !found.is_empty())) {
             return Err(failed(
-                "no new virtio block device appeared after the rescan",
+                "no unaccounted virtio block device appeared after the rescan",
             ));
         }
         // One more interval, so a second device that came with the first is seen.
         sleep(POLL);
-        let mut new = appeared(&self.block_devices().map_err(DiskError::Failed)?);
+        let mut new = unaccounted().map_err(DiskError::Failed)?;
         let (Some((name, address)), true) = (new.pop(), new.is_empty()) else {
-            return Err(failed("more than one new virtio block device appeared"));
+            return Err(failed("more than one unaccounted virtio block device"));
         };
         let device = self.describe(&name).map_err(DiskError::Failed)?;
         records.insert(
@@ -253,7 +266,10 @@ mod tests {
         }
 
         fn disks(&self) -> LinuxDisks {
-            LinuxDisks::at(self.sys(), self.dev(), Duration::from_millis(400)).claiming(claim)
+            let disks =
+                LinuxDisks::at(self.sys(), self.dev(), Duration::from_millis(400)).claiming(claim);
+            disks.account_for_boot().expect("the fake tree lists");
+            disks
         }
 
         /// A virtio block device at a PCI address, as the kernel lays it out.
@@ -335,6 +351,17 @@ mod tests {
         });
     }
 
+    /// The device appears only once the rescan has been asked for, as with a VMM that sends the
+    /// guest no notification.
+    fn appear_on_rescan(sys: PathBuf, name: &'static str, address: &'static str) {
+        std::thread::spawn(move || {
+            while fs::read_to_string(sys.join("bus/pci/rescan")).unwrap_or_default() != "1" {
+                sleep(Duration::from_millis(10));
+            }
+            let _ = device_in(&sys, name, address, "254:16", true);
+        });
+    }
+
     /// The kernel drops the block device `name` when the PCI device at `address` is removed. The
     /// thread reports whether the device node was held open when the removal was asked for.
     fn unplug_on_remove(
@@ -374,10 +401,10 @@ mod tests {
     }
 
     #[test]
-    fn find_takes_the_device_that_appears_after_the_rescan() -> io::Result<()> {
+    fn find_takes_the_device_that_appears_only_after_the_rescan() -> io::Result<()> {
         let tree = Tree::new()?;
         let disks = tree.disks();
-        appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
+        appear_on_rescan(tree.sys(), "vdb", "0000:00:05.0");
 
         let device = ok(disks.find("data"))?;
 
@@ -390,6 +417,40 @@ mod tests {
             }
         );
         assert_eq!(fs::read_to_string(tree.sys().join("bus/pci/rescan"))?, "1");
+        Ok(())
+    }
+
+    #[test]
+    fn find_takes_the_device_the_kernel_added_before_the_call() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let disks = tree.disks();
+        // A VMM that notifies the guest: the kernel has added the device on its own.
+        tree.device("vdb", "0000:00:05.0", "254:16", true)?;
+
+        assert_eq!(ok(disks.find("data"))?.name, "vdb");
+        // The rescan is still asked for.
+        assert_eq!(fs::read_to_string(tree.sys().join("bus/pci/rescan"))?, "1");
+        Ok(())
+    }
+
+    #[test]
+    fn find_takes_the_device_that_appears_during_the_wait() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let disks = tree.disks();
+        // It comes some time after the call began, whatever the rescan did.
+        appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
+
+        assert_eq!(ok(disks.find("data"))?.name, "vdb");
+        Ok(())
+    }
+
+    #[test]
+    fn find_does_not_take_the_device_another_record_holds() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let disks = found(&tree)?;
+        appear_later(tree.sys(), vec![("vdc", "0000:00:06.0")]);
+
+        assert_eq!(ok(disks.find("more"))?.name, "vdc");
         Ok(())
     }
 
@@ -419,9 +480,10 @@ mod tests {
         assert!(matches!(disks.find("data"), Err(DiskError::Failed(_))));
         assert!(matches!(disks.release("data"), Err(DiskError::Unknown)));
 
-        // Control: with one device appearing after those two, the same call finds that one.
-        appear_later(tree.sys(), vec![("vdd", "0000:00:07.0")]);
-        assert_eq!(ok(disks.find("data"))?.name, "vdd");
+        // Control: with the second device gone, one unaccounted device is left and the same call
+        // finds it.
+        fs::remove_file(tree.sys().join("class/block/vdc"))?;
+        assert_eq!(ok(disks.find("data"))?.name, "vdb");
         Ok(())
     }
 
@@ -679,6 +741,7 @@ mod tests {
             // real one.
             let tree = Tree::new()?;
             let disks = LinuxDisks::at(tree.sys(), "/dev", Duration::from_millis(400));
+            disks.account_for_boot()?;
             let sys = tree.sys();
             let (new_name, new_address) = (name.clone(), "0000:00:05.0");
             let appear = std::thread::spawn(move || {

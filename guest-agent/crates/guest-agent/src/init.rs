@@ -135,6 +135,9 @@ async fn serve_and_supervise<I, IO>(
         Ok(Err(error)) => return console.line(&failure_line("prepare the guest", error)),
         Err(error) => return console.line(&failure_line("prepare the guest", error)),
     }
+    if let Err(error) = system.disks.account_for_boot() {
+        return console.line(&failure_line("account for the boot's disks", error));
+    }
     let (incoming, mut terminate) = match setup() {
         Ok(listening) => listening,
         Err(error) => return console.line(&failure_line("listen for mvmd", error)),
