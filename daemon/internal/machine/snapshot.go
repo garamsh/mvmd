@@ -103,7 +103,7 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	if err != nil {
 		return locateFailure(err, ErrDiskAbsent, "disk %q", m.RootDisk)
 	}
-	spec := Spec{Image: m.Image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}
+	spec := SnapshotSpec{Image: m.Image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
 		Compat: SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: taken.KernelDigest},
@@ -181,8 +181,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("allocate network: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
-	spec := held.Spec.clone()
-	spec.Policy = policy.clone()
+	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, RootDiskBytes: held.Spec.RootDiskBytes, Policy: policy.clone()}
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
 	if err != nil {
 		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("create root disk: %v", err))

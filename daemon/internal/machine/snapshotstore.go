@@ -26,16 +26,23 @@ type SnapshotCompat struct {
 	KernelDigest string
 }
 
+// SnapshotSpec is what a snapshot keeps of a Machine's Spec: the image, the
+// resources and the root disk size. It has no field for an attached disk or a
+// network policy, since a snapshot's Machine is new, with a policy of its own
+// and no disk but its root.
+type SnapshotSpec struct {
+	Image         ImageDigest
+	Resources     Resources
+	RootDiskBytes uint64
+}
+
 // Snapshot is the record of a snapshot: the Machine it came from, the request
 // that made it, what it takes to boot it again and what it is compatible with.
-// It carries no network policy and no attached disk: a snapshot's Machine is
-// new, with a policy of its own and no disk but its root.
 type Snapshot struct {
 	ID      SnapshotID
 	Machine MachineID
 	Request RequestID
-	// Spec holds the image, the resources and the root disk size.
-	Spec Spec
+	Spec    SnapshotSpec
 	// RootDiskUUID is the filesystem UUID of the root disk the guest was
 	// running on, which a restored guest still expects.
 	RootDiskUUID string
