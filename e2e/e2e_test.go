@@ -38,6 +38,23 @@ func TestE2E_PullPublishesTheImageTheMachineCallsFind(t *testing.T) {
 	assert.NotEqual(t, v1alpha1.OutcomeKind_OUTCOME_KIND_UNSPECIFIED, v1alpha1.KindOf(err))
 }
 
+// A Machine started from a pulled image runs the image's entrypoint, and the output the entrypoint
+// wrote is what the runtime API reads back.
+func TestE2E_AMachineStartsFromThePulledImageAndItsEntrypointSpeaks(t *testing.T) {
+	n := startNode(t)
+	n.arm()
+	pulled := n.pullBootable("bootable")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	_, err := n.client.CreateMachine(ctx, createRequest("boots", pulled.Digest))
+	require.NoError(t, err)
+	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "boots"})
+	require.NoError(t, err, "the Machine of the pulled image starts")
+
+	assert.Equal(t, "hello from the entrypoint\n", n.entrypointOutput(ctx, "boots"))
+}
+
 const zeros = "0000000000000000000000000000000000000000000000000000000000000000"
 
 func createRequest(id, image string) *v1alpha1.CreateMachineRequest {
@@ -135,6 +152,7 @@ func TestE2E_ConversionAppliesTheLayerSpecification(t *testing.T) {
 // measures fs-verity on the file and compares it with the digest recorded at the pull.
 func TestE2E_ATamperedImageFailsTheCheckBeforeBoot(t *testing.T) {
 	n := startNode(t)
+	n.arm()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -153,13 +171,16 @@ func TestE2E_ATamperedImageFailsTheCheckBeforeBoot(t *testing.T) {
 	}
 	for i, variant := range variants {
 		t.Run(variant.name, func(t *testing.T) {
-			pulled := n.pull("tamper-"+string(rune('a'+i)), layer(dir("bin"), file("bin/hello", "hello "+variant.name)))
+			pulled := n.pullBootable("tamper-"+string(rune('a'+i)), layer(file("tag", variant.name)))
 			erofs := n.erofsOf(pulled.Digest)
 
-			// The control: the untampered image passes the check that precedes a boot, which
-			// Create runs through the same Locate as Start.
-			_, err := n.client.CreateMachine(ctx, createRequest("control-"+string(rune('a'+i)), pulled.Digest))
+			// The control: the untampered image passes the check that precedes a boot, and boots.
+			control := "control-" + string(rune('a'+i))
+			_, err := n.client.CreateMachine(ctx, createRequest(control, pulled.Digest))
 			require.NoError(t, err, "the untampered image passes the check")
+			_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: control})
+			require.NoError(t, err, "the untampered image boots")
+			assert.Equal(t, "hello from the entrypoint\n", n.entrypointOutput(ctx, control))
 			_, err = n.client.CreateMachine(ctx, createRequest("victim-"+string(rune('a'+i)), pulled.Digest))
 			require.NoError(t, err)
 

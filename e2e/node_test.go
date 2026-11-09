@@ -13,13 +13,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/garamsh/mvmd/lib/runtimeapi"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
@@ -299,7 +302,64 @@ func removeCgroup(path string) {
 // API, the call a client makes, and returns its reference.
 func (n *node) pull(name string, layers ...[]byte) ref {
 	n.t.Helper()
-	r := n.registry.publish(name, []string{"/bin/hello"}, layers...)
+	return n.pullWith(name, []string{"/bin/hello"}, layers...)
+}
+
+// pullBootable pulls an image whose entrypoint is the static program of testdata/entry, which
+// prints a line and stays running, in a layer below the given ones.
+func (n *node) pullBootable(name string, layers ...[]byte) ref {
+	n.t.Helper()
+	program, err := entryProgram()
+	require.NoError(n.t, err)
+	base := layer(dir("bin"), executable("bin/entry", string(program)))
+	return n.pullWith(name, []string{"/bin/entry"}, append([][]byte{base}, layers...)...)
+}
+
+// arm arms the node's fencing deadline, which Start refuses to go without.
+func (n *node) arm() {
+	n.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	_, err := n.client.RenewDeadline(ctx, &v1alpha1.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 1})
+	require.NoError(n.t, err)
+}
+
+// entrypointOutput reads what the Machine's entrypoint has written so far, from the start of its
+// output until the first line is in.
+func (n *node) entrypointOutput(ctx context.Context, machine string) string {
+	n.t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	stream, err := n.client.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: machine, ExecId: "entrypoint"})
+	require.NoError(n.t, err)
+	var out strings.Builder
+	for !strings.Contains(out.String(), "\n") {
+		part, err := stream.Recv()
+		require.NoError(n.t, err, "the entrypoint's output so far: %q", out.String())
+		out.Write(part.GetChunk().GetData())
+	}
+	return out.String()
+}
+
+// entryProgram builds testdata/entry once as a static binary for the guest's architecture.
+var entryProgram = sync.OnceValues(func() ([]byte, error) {
+	out, err := os.MkdirTemp("", "mvmd-e2e-entry-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(out)
+	binary := filepath.Join(out, "entry")
+	cmd := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-o", binary, "./testdata/entry")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("build testdata/entry: %v\n%s", err, combined)
+	}
+	return os.ReadFile(binary)
+})
+
+func (n *node) pullWith(name string, entrypoint []string, layers ...[]byte) ref {
+	n.t.Helper()
+	r := n.registry.publish(name, entrypoint, layers...)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	_, err := n.client.PullImage(ctx, &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: r.Repository, Digest: r.Digest}})

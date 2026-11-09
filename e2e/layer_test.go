@@ -15,11 +15,19 @@ import (
 type entry struct {
 	name     string
 	typeflag byte
+	mode     int64
 	data     string
 }
 
-func dir(name string) entry        { return entry{name: name, typeflag: tar.TypeDir} }
-func file(name, data string) entry { return entry{name: name, typeflag: tar.TypeReg, data: data} }
+func dir(name string) entry { return entry{name: name, typeflag: tar.TypeDir, mode: 0o755} }
+func file(name, data string) entry {
+	return entry{name: name, typeflag: tar.TypeReg, mode: 0o644, data: data}
+}
+
+// executable is a regular file the guest can run.
+func executable(name, data string) entry {
+	return entry{name: name, typeflag: tar.TypeReg, mode: 0o755, data: data}
+}
 
 // whiteout is the entry that deletes the named path of the layers below.
 func whiteout(name string) entry { return file(path.Join(path.Dir(name), ".wh."+path.Base(name)), "") }
@@ -34,14 +42,10 @@ func layer(entries ...entry) []byte {
 	var out bytes.Buffer
 	tw := tar.NewWriter(&out)
 	for _, e := range entries {
-		mode := int64(0o644)
-		if e.typeflag == tar.TypeDir {
-			mode = 0o755
-		}
 		header := &tar.Header{
 			Name:     e.name,
 			Typeflag: e.typeflag,
-			Mode:     mode,
+			Mode:     e.mode,
 			Size:     int64(len(e.data)),
 			ModTime:  time.Unix(1_700_000_000, 0),
 			Format:   tar.FormatUSTAR,
