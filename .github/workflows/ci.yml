@@ -154,6 +154,7 @@ jobs:
   # check. They need KVM, and loop mounts and fs-verity on ext4, which the runner image has. The job
   # fails, and does not skip, when /dev/kvm cannot be used or an input is missing.
   e2e:
+    timeout-minutes: 45
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

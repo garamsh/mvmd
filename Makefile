@@ -53,7 +53,7 @@ echo "$@: $$ws: --workspace selects $$m member(s) per cargo metadata --no-deps";
 if [ "$$m" -eq 0 ]; then echo "$@: $$ws: no members" >&2; exit 1; fi
 endef
 
-# The tests of test-firecracker and test-cloud-hypervisor are behind build tags, so vet reads them again with them.
+# The tests of test-firecracker, test-cloud-hypervisor and test-e2e are behind build tags, so vet reads them again with them.
 lint:
 	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && go vet -tags firecracker_real,cloud_hypervisor_real ./... && \
 	  if [ -f buf.yaml ]; then \
