@@ -170,9 +170,9 @@ func TestRealConverter_AFailureIsAStepError(t *testing.T) {
 
 	rc := startConverter(t)
 	_, err := convertchannel.New(socketConnector{rc.socket}).Convert(context.Background(), "m", job("application/vnd.oci.image.layer.v1.tar+brotli"))
-	var stepErr *convertchannel.StepError
-	require.ErrorAs(t, err, &stepErr)
-	assert.Equal(t, "layer type", stepErr.Step)
+	var failure *image.ConversionFailure
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, image.StepLayerType, failure.Step)
 
 	rc = startConverter(t)
 	_, err = convertchannel.New(socketConnector{rc.socket}).Convert(context.Background(), "m", job(tarType))

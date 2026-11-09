@@ -51,31 +51,31 @@ var _ image.Converter = (*Converter)(nil)
 // New returns a Converter that reaches each converter VM through conn.
 func New(conn Connector) *Converter { return &Converter{conn: conn} }
 
-// StepError is a conversion the converter reported as failed: the step that
-// failed and the converter's message, which is for people.
-type StepError struct {
-	Step    string
-	Message string
+// stepOf maps the contract's enum onto the port's steps; a value the daemon
+// has no step for is not mapped.
+var stepOf = map[convertv1alpha1.FailureStep]image.ConversionStep{
+	convertv1alpha1.FailureStep_FAILURE_STEP_START:      image.StepStart,
+	convertv1alpha1.FailureStep_FAILURE_STEP_LAYER_TYPE: image.StepLayerType,
+	convertv1alpha1.FailureStep_FAILURE_STEP_STREAM:     image.StepStreamOrder,
+	convertv1alpha1.FailureStep_FAILURE_STEP_NAMES:      image.StepNames,
+	convertv1alpha1.FailureStep_FAILURE_STEP_NAME_LIMIT: image.StepNameLimit,
+	convertv1alpha1.FailureStep_FAILURE_STEP_CONVERT:    image.StepConvert,
+	convertv1alpha1.FailureStep_FAILURE_STEP_OUTPUT:     image.StepOutput,
 }
 
-func (e *StepError) Error() string {
-	return fmt.Sprintf("the converter failed at step %q: %s", e.Step, e.Message)
+// unknownStepError is a failure at a step the contract's enum holds and the
+// daemon has no step for: opaque, since no step of the port describes it.
+type unknownStepError struct {
+	step    convertv1alpha1.FailureStep
+	message string
 }
 
-// stepNames are the names a failure step goes by in image.md §Conversion, by
-// the contract's enum.
-var stepNames = map[convertv1alpha1.FailureStep]string{
-	convertv1alpha1.FailureStep_FAILURE_STEP_START:      "start",
-	convertv1alpha1.FailureStep_FAILURE_STEP_LAYER_TYPE: "layer type",
-	convertv1alpha1.FailureStep_FAILURE_STEP_STREAM:     "stream order",
-	convertv1alpha1.FailureStep_FAILURE_STEP_NAMES:      "names",
-	convertv1alpha1.FailureStep_FAILURE_STEP_NAME_LIMIT: "name limit",
-	convertv1alpha1.FailureStep_FAILURE_STEP_CONVERT:    "convert",
-	convertv1alpha1.FailureStep_FAILURE_STEP_OUTPUT:     "output",
+func (e *unknownStepError) Error() string {
+	return fmt.Sprintf("the converter failed at an unknown step %s: %s", e.step, e.message)
 }
 
 // Convert implements image.Converter. A conversion the converter reports as
-// failed is a *StepError.
+// failed is an *image.ConversionFailure.
 func (c *Converter) Convert(ctx context.Context, id machine.MachineID, job image.ConversionJob) (uint64, error) {
 	cc, err := grpc.NewClient("passthrough:///converter",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -110,11 +110,11 @@ func converse(ctx context.Context, client convertv1alpha1.ConvertServiceClient, 
 	case *convertv1alpha1.ConvertResponse_Converted:
 		return r.Converted.GetLength(), nil
 	case *convertv1alpha1.ConvertResponse_Failure:
-		step, known := stepNames[r.Failure.GetStep()]
+		step, known := stepOf[r.Failure.GetStep()]
 		if !known {
-			step = r.Failure.GetStep().String()
+			return 0, &unknownStepError{step: r.Failure.GetStep(), message: r.Failure.GetMessage()}
 		}
-		return 0, &StepError{Step: step, Message: r.Failure.GetMessage()}
+		return 0, &image.ConversionFailure{Step: step, Message: r.Failure.GetMessage()}
 	default:
 		return 0, errors.New("the converter answered neither a length nor a failure")
 	}
@@ -184,16 +184,17 @@ func pass(stream convertStream, buf []byte, layer uint32, kind convertv1alpha1.P
 // mapError turns what the converter or the connection answered into the
 // errors the Converter port promises. The converter reports a conversion that
 // failed as a message in its answer (convert.proto), which converse has
-// already turned into a *StepError, and its contract carries no status
+// already turned into an error of its own, and its contract carries no status
 // details: a status means the call itself broke, so it maps by its code and
 // never by its message, which is for people.
 func mapError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
-	var step *StepError
+	var failure *image.ConversionFailure
+	var unknown *unknownStepError
 	var read *readError
-	if errors.As(err, &step) || errors.As(err, &read) {
+	if errors.As(err, &failure) || errors.As(err, &unknown) || errors.As(err, &read) {
 		return err
 	}
 	st, ok := status.FromError(err)

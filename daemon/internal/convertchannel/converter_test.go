@@ -179,28 +179,42 @@ func fail(step convertv1alpha1.FailureStep, message string) func(grpc.ClientStre
 func TestConvert_AFailureMapsByItsStepAndNotByItsMessage(t *testing.T) {
 	rows := []struct {
 		step convertv1alpha1.FailureStep
-		want string
+		want image.ConversionStep
 	}{
-		{convertv1alpha1.FailureStep_FAILURE_STEP_START, "start"},
-		{convertv1alpha1.FailureStep_FAILURE_STEP_LAYER_TYPE, "layer type"},
-		{convertv1alpha1.FailureStep_FAILURE_STEP_STREAM, "stream order"},
-		{convertv1alpha1.FailureStep_FAILURE_STEP_NAMES, "names"},
-		{convertv1alpha1.FailureStep_FAILURE_STEP_NAME_LIMIT, "name limit"},
-		{convertv1alpha1.FailureStep_FAILURE_STEP_CONVERT, "convert"},
-		{convertv1alpha1.FailureStep_FAILURE_STEP_OUTPUT, "output"},
-		// A control with no step the daemon knows: the enum's own name.
-		{convertv1alpha1.FailureStep_FAILURE_STEP_UNSPECIFIED, "FAILURE_STEP_UNSPECIFIED"},
-		{convertv1alpha1.FailureStep(99), "99"},
+		{convertv1alpha1.FailureStep_FAILURE_STEP_START, image.StepStart},
+		{convertv1alpha1.FailureStep_FAILURE_STEP_LAYER_TYPE, image.StepLayerType},
+		{convertv1alpha1.FailureStep_FAILURE_STEP_STREAM, image.StepStreamOrder},
+		{convertv1alpha1.FailureStep_FAILURE_STEP_NAMES, image.StepNames},
+		{convertv1alpha1.FailureStep_FAILURE_STEP_NAME_LIMIT, image.StepNameLimit},
+		{convertv1alpha1.FailureStep_FAILURE_STEP_CONVERT, image.StepConvert},
+		{convertv1alpha1.FailureStep_FAILURE_STEP_OUTPUT, image.StepOutput},
 	}
 	for _, r := range rows {
-		t.Run(r.want, func(t *testing.T) {
+		t.Run(string(r.want), func(t *testing.T) {
 			f := &fakeConverter{answer: fail(r.step, "the output step failed")}
 			c, _ := serve(t, f)
 			_, err := c.Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
-			var stepErr *convertchannel.StepError
-			require.ErrorAs(t, err, &stepErr)
-			assert.Equal(t, r.want, stepErr.Step)
-			assert.Equal(t, "the output step failed", stepErr.Message)
+			var failure *image.ConversionFailure
+			require.ErrorAs(t, err, &failure)
+			assert.Equal(t, r.want, failure.Step)
+			assert.Equal(t, "the output step failed", failure.Message)
+			assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
+		})
+	}
+
+	// Controls: a value the daemon has no step for is an opaque error, not a
+	// step of the port.
+	for name, step := range map[string]convertv1alpha1.FailureStep{
+		"unspecified": convertv1alpha1.FailureStep_FAILURE_STEP_UNSPECIFIED,
+		"unknown":     convertv1alpha1.FailureStep(99),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeConverter{answer: fail(step, "the output step failed")}
+			c, _ := serve(t, f)
+			_, err := c.Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
+			require.Error(t, err)
+			var failure *image.ConversionFailure
+			assert.False(t, errors.As(err, &failure))
 			assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
 		})
 	}
@@ -224,9 +238,9 @@ func TestConvert_AFailureAnsweredEarlyIsReportedWhileTheClientStillSends(t *test
 	big := layerFile(t, tarType, bytes.Repeat([]byte("x"), 32<<20))
 
 	_, err := c.Convert(context.Background(), "m", jobOf(big))
-	var stepErr *convertchannel.StepError
-	require.ErrorAs(t, err, &stepErr)
-	assert.Equal(t, "layer type", stepErr.Step)
+	var failure *image.ConversionFailure
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, image.StepLayerType, failure.Step)
 }
 
 func TestConvert_AStatusMapsByItsCodeAndNotByItsMessage(t *testing.T) {
@@ -304,6 +318,6 @@ func TestConvert_AMissingLayerFileIsAReadFailureAndNotAStatus(t *testing.T) {
 	_, err := c.Convert(context.Background(), "m", jobOf(gone))
 	require.ErrorIs(t, err, os.ErrNotExist)
 	assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
-	var stepErr *convertchannel.StepError
-	assert.False(t, errors.As(err, &stepErr))
+	var failure *image.ConversionFailure
+	assert.False(t, errors.As(err, &failure))
 }
