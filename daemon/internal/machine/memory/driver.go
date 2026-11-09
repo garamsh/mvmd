@@ -129,14 +129,14 @@ func (d *Driver) ServeConsole(id machine.MachineID, serve func(io.ReadWriteClose
 }
 
 // Console implements machine.Driver. Its step is "console". A Machine nothing
-// serves is machine.ErrConsoleUnavailable, and so is an injected failure,
-// unless it is told another error.
+// serves is machine.ErrConsoleUnavailable; an injected failure is returned as
+// it was told, so a test names machine.ErrConsoleUnavailable to inject that one.
 func (d *Driver) Console(ctx context.Context, id machine.MachineID) (io.ReadWriteCloser, error) {
 	if err := d.Enter("console"); err != nil {
-		return nil, errors.Join(machine.ErrConsoleUnavailable, err)
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, errors.Join(machine.ErrConsoleUnavailable, err)
+		return nil, err
 	}
 	d.mu.Lock()
 	serve, ok := d.consoles[id]

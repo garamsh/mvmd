@@ -36,6 +36,11 @@ func (s *service) Console(ctx context.Context, id MachineID) (io.ReadWriteCloser
 		return nil, fail(ErrPreconditionFailed, "Machine %q is %s; console needs Running or Paused", id, state)
 	}
 	session, err := s.driver.Console(ctx, id)
+	if errors.Is(err, ErrConsoleUnavailable) {
+		// The Machine's VMM ended after the state was read, which takes no lock:
+		// the Machine is no longer in a state that allows the call.
+		return nil, fail(ErrPreconditionFailed, "Machine %q was %s but its console is gone; console needs Running or Paused", id, state)
+	}
 	if err != nil {
 		return nil, fail(ErrFailed, "open the console: %v", err)
 	}

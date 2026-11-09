@@ -136,12 +136,24 @@ func TestConsole_AfterFailureTheMachineIsUnaffected(t *testing.T) {
 		require.NoError(t, err, "a later session is opened")
 		_ = s.Close()
 	})
-	t.Run("a Machine whose VMM is not running", func(t *testing.T) {
+	t.Run("a console that is gone between the state check and the Driver is precondition failed", func(t *testing.T) {
+		for _, from := range []machine.State{machine.StateRunning, machine.StatePaused} {
+			e := newEnv()
+			e.inState(t, "m", from) // recorded as it is; the Driver serves no console for it
+			_, err := e.svc.Console(ctx, "m")
+			requireKind(t, err, machine.ErrPreconditionFailed)
+			assert.NotErrorIs(t, err, machine.ErrFailed)
+			assert.Contains(t, err.Error(), from.String(), "the reason names the state")
+			e.requireState(t, "m", from)
+		}
+	})
+	t.Run("the same, injected as the Driver's own error", func(t *testing.T) {
 		e := newEnv()
-		e.inState(t, "m", machine.StateRunning) // the Driver serves no console for it
+		e.inState(t, "m", machine.StateRunning)
+		serveEcho(e, "m", "x")
+		e.driver.FailAt("console", machine.ErrConsoleUnavailable)
 		_, err := e.svc.Console(ctx, "m")
-		requireKind(t, err, machine.ErrFailed)
-		e.requireState(t, "m", machine.StateRunning)
+		requireKind(t, err, machine.ErrPreconditionFailed)
 	})
 	t.Run("the guest ends its console", func(t *testing.T) {
 		e := newEnv()
