@@ -147,9 +147,10 @@ fn failed(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> DiskErr
 }
 
 impl Disks for LinuxDisks {
-    fn account_for_boot(&self) {
-        // A listing that fails leaves nothing accounted for, so a find then refuses.
-        let _ = self.boot.set(self.block_devices().unwrap_or_default());
+    fn account_for_boot(&self) -> io::Result<()> {
+        // Only the first listing is kept: a later call finds the set taken and changes nothing.
+        let _ = self.boot.set(self.block_devices()?);
+        Ok(())
     }
 
     fn find(&self, disk_id: &str) -> Result<DiskDevice, DiskError> {
@@ -267,7 +268,7 @@ mod tests {
         fn disks(&self) -> LinuxDisks {
             let disks =
                 LinuxDisks::at(self.sys(), self.dev(), Duration::from_millis(400)).claiming(claim);
-            disks.account_for_boot();
+            disks.account_for_boot().expect("the fake tree lists");
             disks
         }
 
@@ -740,7 +741,7 @@ mod tests {
             // real one.
             let tree = Tree::new()?;
             let disks = LinuxDisks::at(tree.sys(), "/dev", Duration::from_millis(400));
-            disks.account_for_boot();
+            disks.account_for_boot()?;
             let sys = tree.sys();
             let (new_name, new_address) = (name.clone(), "0000:00:05.0");
             let appear = std::thread::spawn(move || {

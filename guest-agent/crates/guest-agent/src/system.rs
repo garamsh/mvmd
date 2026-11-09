@@ -96,8 +96,9 @@ pub enum DiskError {
 /// record of which device each disk ID is.
 pub trait Disks: Send + Sync {
     /// Record the block devices present now as accounted for, which no `find` takes. Called once,
-    /// after the kernel's device tree is mounted and before the agent listens.
-    fn account_for_boot(&self);
+    /// after the kernel's device tree is mounted and before the agent listens. An error is a
+    /// listing that failed, and the agent does not go on without it.
+    fn account_for_boot(&self) -> io::Result<()>;
 
     /// Rescan for the one block device not accounted for and record it as `disk_id`; a `disk_id`
     /// the agent holds returns its record, and one it released is found by a rescan as a new

@@ -242,11 +242,16 @@ struct TestDisks {
     found: Mutex<std::collections::HashSet<String>>,
     in_use: AtomicBool,
     no_device: AtomicBool,
+    fail_account: bool,
 }
 
 impl Disks for TestDisks {
-    fn account_for_boot(&self) {
+    fn account_for_boot(&self) -> io::Result<()> {
         self.log.push("disk account_for_boot");
+        if self.fail_account {
+            return Err(io::Error::other("injected failure"));
+        }
+        Ok(())
     }
 
     fn find(&self, disk_id: &str) -> std::result::Result<DiskDevice, DiskError> {
@@ -289,6 +294,7 @@ struct Setup {
     fail_mount: Option<&'static str>,
     fail_network: bool,
     fail_power: bool,
+    fail_account: bool,
     overlay_takes: Duration,
     listener_ends: bool,
     config: guest_agent::Config,
@@ -304,6 +310,8 @@ struct Agent {
     entropy: Arc<TestEntropy>,
     clock: Arc<TestClock>,
     disks: Arc<TestDisks>,
+    /// Whether the agent has been asked to listen.
+    listened: Arc<AtomicBool>,
     terminate: mpsc::Sender<Signal>,
     powered_off: oneshot::Receiver<()>,
     /// The agent never returns, so this task never finishes.
@@ -343,6 +351,7 @@ impl Agent {
             found: Mutex::default(),
             in_use: AtomicBool::new(false),
             no_device: AtomicBool::new(false),
+            fail_account: setup.fail_account,
         });
         let system = System {
             mounts: Arc::new(TestMounts {
@@ -368,8 +377,13 @@ impl Agent {
         let (terminate, requests) = mpsc::channel(4);
         // A listener that accepts nothing and ends stands for a server that stops by itself.
         let accepted = if setup.listener_ends { 0 } else { usize::MAX };
+        let listened = Arc::new(AtomicBool::new(false));
+        let listening = listened.clone();
         let run = tokio::spawn(guest_agent::run(
-            move || Ok((incoming.take(accepted), requests)),
+            move || {
+                listening.store(true, Ordering::SeqCst);
+                Ok((incoming.take(accepted), requests))
+            },
             setup.config,
             system,
         ));
@@ -388,6 +402,7 @@ impl Agent {
             entropy,
             clock,
             disks,
+            listened,
             terminate,
             powered_off,
             run,
@@ -1437,6 +1452,32 @@ async fn a_failed_prepare_ends_the_machine_and_says_why() -> Result {
         agent.console(),
         ["mvmd-guest-agent: failed to prepare the guest: injected failure".to_owned()]
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_account_for_the_boots_disks_ends_the_machine_and_never_listens() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        fail_account: true,
+        ..Setup::default()
+    })
+    .await?;
+
+    agent.powered_off().await?;
+
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: failed to account for the boot's disks: injected failure".to_owned()]
+    );
+    assert!(!agent.listened.load(Ordering::SeqCst));
+    // Control: without the failure the agent listens, as the boot-order test also shows.
+    let control = Agent::start().await?;
+    within(async {
+        while !control.listened.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
     Ok(())
 }
 
