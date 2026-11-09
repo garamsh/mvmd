@@ -39,7 +39,7 @@ Decisions:
 - [ADR 0006](./adr/0006-mkfs-erofs-converts-an-image-one-layer-at-a-time.md) — mkfs.erofs converts an image one layer at a time
 - [ADR 0007](./adr/0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md) — the node image cache is an OCI image layout, published by one index swap
 - [ADR 0008](./adr/0008-fs-verity-on-the-host-guards-every-read-of-a-machineimage.md) — fs-verity on the host guards every read of a MachineImage
-- [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) — a Machine's root disk is a sparse raw file with one holder
+- [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) — a Machine's root disk is a sparse raw file with one holder (the location of the root disk is amended by ADR 0021)
 - [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md) — a Machine boots a pinned kernel and the Guest Agent initrd from raw block devices
 - [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md) — each Machine gets a routed tap and addresses mvmd assigns
 - [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) — nftables on the host enforces each Machine's policy at its tap
@@ -51,5 +51,6 @@ Decisions:
 - [ADR 0018](./adr/0018-a-graceful-stop-goes-through-the-guest-agent-and-the-vmm-request-is-the-fallback.md) — a graceful stop goes through the Guest Agent, and the VMM request is the fallback
 - [ADR 0019](./adr/0019-a-vmm-sees-its-machines-files-at-fixed-paths-in-its-root.md) — a VMM sees its Machine's files at fixed paths in its root, and the supervisor presents the file it checked
 - [ADR 0020](./adr/0020-the-supervisor-serves-the-vmms-serial-console-on-a-socket-outside-its-root.md) — the supervisor serves the VMM's serial console on a socket outside its root
+- [ADR 0021](./adr/0021-a-root-disk-is-a-file-in-the-disks-directory-of-mvmds-state-directory.md) — a root disk is a file in the disks directory of mvmd's state directory
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

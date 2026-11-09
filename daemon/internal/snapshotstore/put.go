@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/sparsecopy"
 )
 
 // moved is a state file taken into the snapshot: where the Driver wrote it,
@@ -191,7 +192,7 @@ func copyRootDisk(from, to string) error {
 	if err != nil {
 		return errors.Join(err, src.Close())
 	}
-	if err := copySparse(dst, src); err != nil {
+	if err := sparsecopy.Copy(dst, src); err != nil {
 		return errors.Join(err, src.Close(), dst.Close())
 	}
 	return errors.Join(dst.Sync(), src.Close(), dst.Close())
