@@ -158,6 +158,9 @@ type Record struct {
 	ID      MachineID
 	Machine *Machine
 	Request Request
+	// Execs are the Machine's exec entries: those a Save writes with the
+	// record, and all of them in what Load returns.
+	Execs []ExecEntry
 	// Unreadable is set by StateStore.Load on a record it could not decode, to
 	// the reason. Nothing else of such a record is known.
 	Unreadable string
