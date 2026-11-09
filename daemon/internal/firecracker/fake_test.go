@@ -127,7 +127,7 @@ func (n *node) vsockSocket() string { return filepath.Join(n.run, "vsock.sock") 
 func (n *node) spec() machine.BootSpec {
 	return machine.BootSpec{
 		Devices: []machine.BlockDevice{
-			{Disk: "image", Path: "/images/erofs", ReadOnly: true},
+			{Path: "/images/erofs", ReadOnly: true},
 			{Disk: "root", Path: "/disks/root.img"},
 		},
 		Network:   machine.NetworkDevice{Tap: "tap-m1", MAC: "02:00:00:00:00:01"},
