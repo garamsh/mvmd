@@ -8,7 +8,6 @@ mod image;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{self, Cursor, Read};
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use image::{Entry, GZIP, Result, TAR, Tree, UUID, ZSTD, expect, gzip, layer, zstd};
@@ -427,18 +426,56 @@ fn passes_out_of_the_contracts_order_are_refused() -> Result {
 }
 
 /// A stand-in for `mkfs.erofs` that logs its arguments to `log`, reads its input and exits with
-/// `code`.
+/// `code`. The script is run as an argument of `/bin/sh` and never executed itself: a script
+/// written and then executed fails with ETXTBSY when another test thread forks while it is open
+/// for writing, since the child holds the descriptor until its own exec.
 fn fake_mkfs(dir: &Path, log: &Path, code: i32) -> Result<Mkfs> {
     let script = dir.join("mkfs.sh");
     fs::write(
         &script,
         format!(
-            "#!/bin/sh\necho \"$@\" >> {}\ncat > /dev/null\necho 'it broke' >&2\nexit {code}\n",
+            "echo \"$@\" >> {}\ncat > /dev/null\necho 'it broke' >&2\nexit {code}\n",
             log.display()
         ),
     )?;
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755))?;
-    Ok(Mkfs::new(script))
+    Ok(Mkfs::with_leading_args("/bin/sh", [script]))
+}
+
+#[test]
+fn a_fake_tool_runs_while_another_process_holds_its_script_open_for_writing() -> Result {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let dir = TempDir::new()?;
+    let log = dir.path().join("log");
+    let output = image::output_file(dir.path())?;
+    let image = plain(vec![layer(&[Entry::File("a", "A")])]);
+    let parameters = Parameters::new(UUID, &media_types(&image), 1 << 20)?;
+    let mkfs = fake_mkfs(dir.path(), &log, 0)?;
+    // What a forked child of another test thread holds: a write descriptor on the script.
+    let held = fs::OpenOptions::new()
+        .write(true)
+        .open(dir.path().join("mkfs.sh"))?;
+
+    let error = convert(&parameters, &mut streamed(&image), &mkfs, &output).unwrap_err();
+
+    // The fake ran: the conversion got as far as the output, which the fake never wrote.
+    assert_eq!(error.step(), Step::Output, "{error}");
+    assert_eq!(fs::read_to_string(&log)?.lines().count(), 1);
+    // Control: the same script executed itself is refused as busy, which is the race.
+    let direct = dir.path().join("direct.sh");
+    drop(
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o755)
+            .open(&direct)?,
+    );
+    let held_direct = fs::OpenOptions::new().write(true).open(&direct)?;
+    let busy = std::process::Command::new(&direct).spawn().unwrap_err();
+    assert_eq!(busy.kind(), io::ErrorKind::ExecutableFileBusy, "{busy}");
+    drop((held, held_direct));
+    Ok(())
 }
 
 #[test]

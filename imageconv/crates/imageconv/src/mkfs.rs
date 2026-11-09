@@ -1,5 +1,6 @@
 //! One `mkfs.erofs` run over one layer.
 
+use std::ffi::OsString;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -38,6 +39,8 @@ pub enum Error {
 #[derive(Debug, Clone)]
 pub struct Mkfs {
     program: PathBuf,
+    /// Arguments that come before the ones a run adds.
+    leading: Vec<OsString>,
 }
 
 /// What one run builds.
@@ -57,6 +60,20 @@ impl Mkfs {
     pub fn new(program: impl Into<PathBuf>) -> Self {
         Self {
             program: program.into(),
+            leading: Vec::new(),
+        }
+    }
+
+    /// The program at `program`, started with `leading` before the arguments of a run. A test
+    /// stands a script in for the tool by naming an interpreter and the script, so the script is
+    /// read and never executed itself.
+    pub fn with_leading_args<A: Into<OsString>>(
+        program: impl Into<PathBuf>,
+        leading: impl IntoIterator<Item = A>,
+    ) -> Self {
+        Self {
+            program: program.into(),
+            leading: leading.into_iter().map(Into::into).collect(),
         }
     }
 
@@ -69,6 +86,7 @@ impl Mkfs {
     ) -> Result<(), Error> {
         let mut command = Command::new(&self.program);
         command
+            .args(&self.leading)
             .args([
                 "--quiet",
                 "-T0",
