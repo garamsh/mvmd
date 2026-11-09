@@ -107,6 +107,39 @@ func TestStore_LocatesAPublishedImageOnlyAfterPublish(t *testing.T) {
 	assert.Regexp(t, `^sha256:[0-9a-f]{64}$`, record.Verity)
 }
 
+// The VMM's user is not the daemon, so the image is readable by everyone and
+// writable by no one (ADR 0015). The staged output is 0600 until Publish.
+func TestStore_PublishedImageIsReadableByEveryUserAndWritableByNone(t *testing.T) {
+	s, _ := newStore(t)
+	staging, _ := stageAndSeal(t, s, imageA, content("a"))
+	_, _, mode := ownerOf(t, staging.Output)
+	assert.Equal(t, os.FileMode(0o600), mode, "control: the sealed output keeps its mode until Publish")
+
+	require.NoError(t, s.Publish(ctx, staging))
+
+	located, err := s.Locate(ctx, imageA)
+	require.NoError(t, err)
+	uid, _, mode := ownerOf(t, located.Path)
+	assert.Equal(t, os.FileMode(0o444), mode)
+	assert.Equal(t, uint32(os.Geteuid()), uid, "the daemon still owns the image")
+}
+
+// A cache published before the mode was set holds images the VMM's user cannot
+// open, and New puts that right.
+func TestNew_SetsTheModeOfTheImagesOfAnEarlierRun(t *testing.T) {
+	s, dir := newStore(t)
+	pull(t, s, imageA, content("a"))
+	located, err := s.Locate(ctx, imageA)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(located.Path, 0o600), "setup: the mode of an image published earlier")
+
+	_, err = imagestore.New(dir)
+	require.NoError(t, err)
+
+	_, _, mode := ownerOf(t, located.Path)
+	assert.Equal(t, os.FileMode(0o444), mode)
+}
+
 func TestStore_LocateRefusesAFileWhoseVerityDiffers(t *testing.T) {
 	tests := []struct {
 		name    string

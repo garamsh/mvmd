@@ -65,6 +65,12 @@ func createSparse(path string, size uint64) error {
 // owner's alone, whoever the owner is (ADR 0024).
 const outputMode = 0o600
 
+// imageMode is the mode of a published image: readable by every user and
+// writable by none. The VMM of a Machine runs as a user of its own that the
+// image has to be readable by (ADR 0015); it reaches no other file of the
+// store, whose directories are 0700, and the image is never written again.
+const imageMode = 0o444
+
 // Lend implements image.Store. The output keeps its mode; only its owner
 // changes, so the user gains what the owner's bits grant and nobody else
 // gains anything.

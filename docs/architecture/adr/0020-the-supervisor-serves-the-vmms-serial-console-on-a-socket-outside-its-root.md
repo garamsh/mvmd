@@ -42,3 +42,7 @@ The supervisor starts the VMM with its standard input the read end of one pipe a
 - A VMM admitted later takes its serial from a path or a descriptor other than standard input and output, so that wiring them is no longer the general case.
 - The output's rate makes the supervisor's copy a measurable cost to a Machine's fencing, or its memory a cost to the node.
 - A use of the console needs to reach the output from before its session opened, or input kept apart per session.
+
+## Errata
+
+- 2026-11-09: the choice of two pipes as the VMM's standard input and output is superseded by [ADR 0025](./0025-the-supervisor-gives-the-vmm-a-raw-mode-pseudo-terminal-as-its-console.md), which gives the VMM a raw-mode pseudo-terminal in their place. The rest of this decision stands.
