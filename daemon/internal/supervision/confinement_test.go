@@ -564,11 +564,11 @@ func TestConfinement_TheVMMWritesItsOwnLogAndNotTheSupervisors(t *testing.T) {
 	assert.NotContains(t, string(sup), "vmm started", "control: the supervisor's log is not the VMM's output")
 }
 
-// The VMM's standard input and output are the console's pipes: what a session
+// The VMM's standard input and output are the console's terminal: what a session
 // sends reaches the VMM and what the VMM writes reaches the session and the log
 // (the probe echoes its input). The socket is the supervisor's, in the state
 // directory beside the run directory, so the VMM, whose root holds the run
-// directory alone, has no path to it, and only its owner can connect (ADR 0020).
+// directory alone, has no path to it, and only its owner can connect (ADR 0020, ADR 0025).
 func TestConfinement_TheConsoleSocketReachesTheVMMsStandardInputAndOutput(t *testing.T) {
 	n := newNode(t)
 	_, _ = n.run(t, "m", time.Hour)
