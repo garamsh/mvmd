@@ -41,6 +41,16 @@ Checked against garamsh/discussions#2 as read on 2026-11-08, §5 image section (
 
 The steps and the state each failure leaves are in [ADR 0007](./adr/0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md) §Pull image. In order: check the reference names a digest; return if the image is listed; fetch and check the manifest, selecting the node's platform from an index; fetch and check the config; fetch and check each layer; convert; truncate, hash and enable fs-verity; write the config and manifest; publish; remove staging. Nothing before the publish changes `index.json`, so every failure leaves nothing visible in the cache (`runtime-api.md` §Images).
 
+The use case is `daemon/internal/image/` ([structure.md](./structure.md) §Ports); what it adds to the ADR's table:
+
+- **One pull per digest.** A call naming a digest already being pulled waits for that pull's outcome, whatever repository it names. The pull runs on a context of its own, bounded by a pull timeout (default 30 minutes), so a caller that leaves does not stop it. Publishes are applied one at a time, in the use case.
+- **After a failure**, the staging area is removed on a context detached from the pull's, so a pull the bound ended is cleaned up. A staging area that cannot be removed is reported with the failure. After the publish a failed removal is not a failure of the pull; the sweep removes what is left.
+- **The sweep is its own operation**, `Sweep`, which the composition site calls once before any other call. A pull never runs it.
+- **The converter's VM is booted and ended through the Driver and Supervision ports as they are**, with no addition to either. It is a Machine of the Driver and the supervision the node configures for conversion, so the Driver is the one given the converter's initrd and the supervision's expiry is the conversion limit. It has an identifier of its own, `convert-` and the image's digest, one read-write output disk and no network device; its user is allocated from the node's UID range and released only once its VMM is known to have ended, so a VMM that cannot be ended fails the pull and keeps the user held until mvmd restarts. The conversion also runs within the node's conversion limit as a bound of the call, and the VMM is ended whatever the conversion did.
+- **The converter's report is untrusted.** A length of zero or beyond the output file fails the pull before the output is truncated.
+- **The filesystem UUID** of the EROFS is taken from the image's digest, so one image always carries the same one.
+- **Node configuration it takes**: the platform manifests are selected for, the converter's name, its vCPUs and memory, the output file's size, the bound on names held per layer, and the conversion limit.
+
 ### Integrity
 
 - **The root hash** of a MachineImage is the fs-verity digest of its EROFS file, SHA-256 over 4096-byte blocks ([ADR 0008](./adr/0008-fs-verity-on-the-host-guards-every-read-of-a-machineimage.md)). The manifest and config are covered by their content addresses.
@@ -64,5 +74,7 @@ The steps and the state each failure leaves are in [ADR 0007](./adr/0007-the-nod
 
 - **Removal of images**: garbage collection of listed images and how a client removes one (`runtime-api.md` §Open questions).
 - **Reconversion** when the converter changes: each image records its converter, and nothing yet decides when an image converted by an older one is replaced.
+- **The conversion's user.** [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) allocates it from the one range the lifecycle allocates its Machines' users from, and the use case asks for it through `daemon/internal/image/users.go`. That range's allocator is the lifecycle's own and is not exposed, so the interface has only an in-memory substitute and nothing yet hands both the same range.
+- **A conversion that outlives mvmd.** The sweep removes its staging area, but nothing ends its VMM before its supervisor's expiry, and the lifecycle's reconciliation of live supervisors has to leave the conversion supervision's alone. How the user of such a VMM is kept out of the range until then is not decided.
 - **Distribution of MachineImages** between nodes and registries, and the published media types it needs.
 - Whether and how the required kernel conditions of an image are negotiated with the guest kernel project once it exists ([guest.md](./guest.md) §Open questions).
