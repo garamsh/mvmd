@@ -69,10 +69,42 @@ func New(dir string) (*Store, error) {
 	if err := s.createIfAbsent(s.indexPath(), empty); err != nil {
 		return nil, fmt.Errorf("create the image cache: %w", err)
 	}
+	if err := s.repairImageModes(); err != nil {
+		return nil, fmt.Errorf("set the mode of the cache's images: %w", err)
+	}
 	if err := s.probeVerity(); err != nil {
 		return nil, fmt.Errorf("the image cache at %s cannot hold fs-verity files, so mvmd will not start; its state directory has to be on ext4 or f2fs with the verity feature, or on btrfs: %w", dir, err)
 	}
 	return s, nil
+}
+
+// repairImageModes gives every listed image the mode of a published one, so a
+// cache published before the mode was set starts Machines too. An image whose
+// manifest or file is absent is left for Locate and Sweep to report.
+func (s *Store) repairImageModes() error {
+	idx, err := s.readIndex()
+	if err != nil {
+		return err
+	}
+	for _, entry := range idx.Manifests {
+		var m manifest
+		if err := s.readBlob(entry, &m); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("read the manifest %s: %w", entry.Digest, err)
+		}
+		for _, l := range m.Layers {
+			h, err := hexOf(l.Digest)
+			if err != nil {
+				return err
+			}
+			if err := os.Chmod(s.blobPath(h), imageMode); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // createIfAbsent writes the file durably when there is none.
