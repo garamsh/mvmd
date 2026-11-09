@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"syscall"
 
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -53,11 +54,83 @@ func (s *Store) Stage(ctx context.Context, digest machine.ImageDigest, outputByt
 }
 
 func createSparse(path string, size uint64) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, outputMode)
 	if err != nil {
 		return err
 	}
 	return errors.Join(f.Truncate(int64(size)), f.Close())
+}
+
+// outputMode is the mode the output is created with and Reclaim restores: the
+// owner's alone, whoever the owner is (ADR 0024).
+const outputMode = 0o600
+
+// Lend implements image.Store. The output keeps its mode; only its owner
+// changes, so the user gains what the owner's bits grant and nobody else
+// gains anything.
+func (s *Store) Lend(ctx context.Context, staging image.Staging, user machine.User) error {
+	f, err := s.openOutput(ctx, staging)
+	if err != nil {
+		return err
+	}
+	return errors.Join(f.Chown(int(user.UID), int(user.GID)), f.Close())
+}
+
+// Reclaim implements image.Store. It also sets the mode again, since the user
+// who held the file could change it.
+func (s *Store) Reclaim(ctx context.Context, staging image.Staging) error {
+	f, err := s.openOutput(ctx, staging)
+	if err != nil {
+		return err
+	}
+	if err := f.Chown(os.Geteuid(), os.Getegid()); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	return errors.Join(f.Chmod(outputMode), f.Close())
+}
+
+// openOutput opens the staging area's output without following a link, so
+// what changes hands is the file the area made.
+func (s *Store) openOutput(ctx context.Context, staging image.Staging) (*os.File, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	dir, err := s.stagePath(staging.ID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.stageOf(staging); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "output"), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return nil, errors.Join(err, f.Close())
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.Join(fmt.Errorf("the output of staging area %q is not a regular file", staging.ID), f.Close())
+	}
+	return f, nil
+}
+
+// requireDaemonsOutput fails when the output belongs to another user, which is
+// how a Seal knows a Lend was not reclaimed.
+func requireDaemonsOutput(output string) error {
+	info, err := os.Lstat(output)
+	if err != nil {
+		return err
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("the output's owner cannot be read")
+	}
+	if int(st.Uid) != os.Geteuid() {
+		return fmt.Errorf("the output is still held by user %d", st.Uid)
+	}
+	return nil
 }
 
 // PutLayer implements image.Store.
@@ -100,6 +173,9 @@ func (s *Store) Seal(ctx context.Context, staging image.Staging, length uint64) 
 		return "", err
 	}
 	output := filepath.Join(dir, "output")
+	if err := requireDaemonsOutput(output); err != nil {
+		return "", err
+	}
 	size, sum, err := truncateAndHash(output, length)
 	if err != nil {
 		return "", err

@@ -104,7 +104,7 @@ func (r *rig) pull(ref image.Reference) error {
 // in the order a pull reaches them.
 func (r *rig) calls(step string) int {
 	switch step {
-	case "locate", "stage", "put-layer", "seal", "record", "publish", "publish-sync", "discard", "sweep":
+	case "locate", "stage", "lend", "reclaim", "put-layer", "seal", "record", "publish", "publish-sync", "discard", "sweep":
 		return r.store.Calls(step)
 	case "manifest", "config", "layer":
 		return r.registry.Calls(step)
@@ -124,7 +124,7 @@ func (r *rig) heal(step string)              { r.failures(step).Heal(step) }
 
 func (r *rig) failures(step string) *machinememory.Failures {
 	switch step {
-	case "locate", "stage", "put-layer", "seal", "record", "publish", "publish-sync", "discard", "sweep":
+	case "locate", "stage", "lend", "reclaim", "put-layer", "seal", "record", "publish", "publish-sync", "discard", "sweep":
 		return &r.store.Failures
 	case "manifest", "config", "layer":
 		return &r.registry.Failures
