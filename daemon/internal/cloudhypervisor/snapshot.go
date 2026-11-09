@@ -40,7 +40,7 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 	for _, name := range snapshotNames {
 		path := filepath.Join(dir, name)
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return machine.DriverSnapshot{}, fmt.Errorf("remove the earlier snapshot file: %w", err)
+			return machine.DriverSnapshot{}, fmt.Errorf("remove the earlier snapshot file: %v", err)
 		}
 		files = append(files, path)
 	}

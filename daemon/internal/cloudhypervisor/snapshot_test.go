@@ -142,6 +142,14 @@ func TestSnapshot_RefusesWhatItCannotRemoveAndSendsNothing(t *testing.T) {
 	_, err := n.driver.Snapshot(context.Background(), "m1")
 	require.Error(t, err)
 	assert.Len(t, f.seen(), before, "no request reached the VMM")
+
+	require.NoError(t, os.RemoveAll(blocker))
+	_, err = n.driver.Snapshot(context.Background(), "m1")
+	require.NoError(t, err, "control: the same call succeeds once the blocker is gone")
+	sent := f.seen()[before:]
+	require.Len(t, sent, 1)
+	assert.Equal(t, "/vm.snapshot", sent[0].Path)
+	assert.Equal(t, "PUT", sent[0].Method)
 }
 
 func TestSnapshot_ReturnsTheVMMsRefusalAndNoFiles(t *testing.T) {
@@ -224,6 +232,8 @@ func TestDescribeRestore_TakesTheFilesInAnyOrderByName(t *testing.T) {
 
 func TestDescribeRestore_RefusesFilesThatAreNotTheThreeASnapshotHolds(t *testing.T) {
 	n := newNode(t)
+	_, err := n.driver.DescribeRestore(context.Background(), "m2", n.restoreSpec("tap-m2"), snapshotFiles())
+	require.NoError(t, err, "control: the same spec is accepted with the three files")
 	tests := []struct {
 		name  string
 		files []string

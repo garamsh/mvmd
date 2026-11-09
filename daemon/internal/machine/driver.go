@@ -281,8 +281,8 @@ type Driver interface {
 	DescribeRestore(ctx context.Context, id MachineID, spec BootSpec, files []string) (ProcessDescription, error)
 	// Restore sees the snapshot loaded into the started VMM, which a VMM that
 	// restores from its command line has done as it started, and the guest
-	// resumed. It is given the boot description DescribeRestore was, as Boot is, so the
-	// Driver keeps nothing between the two calls.
+	// resumed. It is given the boot description DescribeRestore was, as Boot
+	// is, so the Driver keeps nothing between the two calls.
 	Restore(ctx context.Context, id MachineID, spec BootSpec) error
 	// Observe sets the function the Driver calls for each event it raises on
 	// its own, from any goroutine. NewService calls it once.
