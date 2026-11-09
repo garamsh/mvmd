@@ -147,10 +147,17 @@ async fn serve_and_supervise<I, IO>(
     let execs = Arc::new(Execs::new(config.exec_output_retention));
     let boot = Arc::new(Boot::pending(system.clone(), execs.clone()));
     let (stop, stopped) = oneshot::channel::<()>();
-    let mut server = pin!(serve_with(incoming, execs.clone(), boot.clone(), async {
-        // A dropped sender stops the server as a sent one does.
-        let _ = stopped.await;
-    }));
+    let (call_sender, mut calls) = mpsc::channel::<Signal>(8);
+    let mut server = pin!(serve_with(
+        incoming,
+        execs.clone(),
+        boot.clone(),
+        Some(call_sender),
+        async {
+            // A dropped sender stops the server as a sent one does.
+            let _ = stopped.await;
+        }
+    ));
 
     let supervision = async {
         let entrypoint_ended = async {
@@ -161,15 +168,15 @@ async fn serve_and_supervise<I, IO>(
         loop {
             tokio::select! {
                 _ = children.recv() => execs.reap_orphans(getpid()),
+                // A signal to init and a `Terminate` call are one rule, applied by one function.
                 Some(requested) = terminate.recv() => {
-                    match execs.signal(ENTRYPOINT, requested as i32) {
-                        Ok(()) | Err(Error::Io { .. }) => {}
-                        // The entrypoint is not running: it has ended, never started, or
-                        // never will. Its record, if there is one, says which.
-                        Err(_) => return match execs.wait(ENTRYPOINT).await {
-                            Ok(record) => Ended::Entrypoint(record),
-                            Err(_) => Ended::Terminated,
-                        },
+                    if let Some(ended) = terminate_entrypoint(&execs, requested).await {
+                        return ended;
+                    }
+                }
+                Some(requested) = calls.recv() => {
+                    if let Some(ended) = terminate_entrypoint(&execs, requested).await {
+                        return ended;
                     }
                 }
                 record = &mut entrypoint_ended => return match record {
@@ -191,6 +198,21 @@ async fn serve_and_supervise<I, IO>(
     let _ = stop.send(());
     // A client that never finishes reading must not keep the Machine on.
     let _ = tokio::time::timeout(config.shutdown_grace, &mut server).await;
+}
+
+/// Apply the termination rule to one request: forward `requested` to the entrypoint and return
+/// `None`, or return why the agent ends when the entrypoint is not running, which is the case
+/// where there is nothing to terminate. A signal to init and the `Terminate` call both come here.
+async fn terminate_entrypoint(execs: &Execs, requested: Signal) -> Option<Ended> {
+    match execs.signal(ENTRYPOINT, requested as i32) {
+        Ok(()) | Err(Error::Io { .. }) => None,
+        // The entrypoint has ended, never started, or never will. Its record, if there is one,
+        // says which.
+        Err(_) => Some(match execs.wait(ENTRYPOINT).await {
+            Ok(record) => Ended::Entrypoint(record),
+            Err(_) => Ended::Terminated,
+        }),
+    }
 }
 
 /// The line the console carries about why the agent is ending.

@@ -10,7 +10,7 @@ service GuestService {
   // Describe the Machine to the agent, which runs as the guest's init and
   // waits for this call before it touches a disk. The call returns once the
   // entrypoint runs, or fails naming the boot step that failed; every other
-  // call except Health and Info is refused until it has succeeded. A repeat
+  // call except Terminate, Health and Info is refused until it has succeeded. A repeat
   // with the same description succeeds and changes nothing; a repeat after
   // a failure fails the same way.
   rpc Boot(BootRequest) returns (BootResponse);
@@ -50,6 +50,14 @@ service GuestService {
   // Search a directory tree by glob. The matches come sorted by path across
   // the messages of the stream.
   rpc SearchFiles(SearchFilesRequest) returns (stream SearchFilesResponse);
+
+  // Ask the guest to stop, as a SIGTERM to its init does: the agent forwards
+  // SIGTERM to the entrypoint, or ends the Machine when the entrypoint is not
+  // running. It is served before Boot has succeeded, since a Machine that
+  // has not booted has no entrypoint to terminate. The call returns once the
+  // agent has taken the request, not when the Machine has ended. A repeat
+  // sends SIGTERM again.
+  rpc Terminate(TerminateRequest) returns (TerminateResponse);
 
   // Whether the agent serves.
   rpc Health(HealthRequest) returns (HealthResponse);
@@ -299,6 +307,10 @@ message SearchFilesResponse {
   // A run of the matches.
   repeated FileEntry matches = 1;
 }
+
+message TerminateRequest {}
+
+message TerminateResponse {}
 
 message HealthRequest {}
 

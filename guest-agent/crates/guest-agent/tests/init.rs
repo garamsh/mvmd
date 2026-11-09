@@ -18,8 +18,8 @@ use guest_agent::v1alpha1::{
     BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, ExecRecord,
     ExecRequest, ExecStatus, HealthRequest, Ipv4Config, Ipv6Config, ListFilesRequest,
     NetworkConfig as WireNetworkConfig, NotBooted, ReadExecOutputRequest, RunConfig,
-    UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
-    write_file_request,
+    TerminateRequest, UpdateNetworkRequest, WriteFileRequest, WriteFileStart,
+    read_exec_output_response, write_file_request,
 };
 use guest_agent::{
     BootStep, Clock, Console, Entropy, Filesystem, Mounts, Network, NetworkConfig, Power, System,
@@ -1184,6 +1184,59 @@ async fn termination_before_the_entrypoint_runs_powers_the_machine_off() -> Resu
     assert!(!agent.is_powered_off());
 
     agent.terminate.send(Signal::SIGTERM).await?;
+
+    agent.powered_off().await?;
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: terminated before the entrypoint ran".to_owned()]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_terminate_call_forwards_sigterm_to_the_running_entrypoint() -> Result {
+    let mut agent = Agent::start().await?;
+    agent
+        .boot(
+            "trap 'echo got-term; exit 5' TERM; trap 'echo got-int; exit 6' INT; \
+             echo ready; while :; do sleep 0.05; done",
+        )
+        .await?;
+    let mut stream = agent
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: guest_agent::ENTRYPOINT.into(),
+            after_offset: 0,
+        })
+        .await?
+        .into_inner();
+    within(read_to_record(&mut stream, Some("ready"))).await??;
+    // The control: a running entrypoint with no request is neither signalled nor powered off.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!agent.is_powered_off());
+
+    agent.client.terminate(TerminateRequest {}).await?;
+    let (output, record) = within(read_to_record(&mut stream, None)).await??;
+    agent.powered_off().await?;
+
+    let record = record.ok_or("no record")?;
+    assert_eq!(record.status(), ExecStatus::Exited);
+    assert_eq!(record.exit_code, 5);
+    assert!(output.contains("got-term"), "{output}");
+    assert!(!output.contains("got-int"), "{output}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_terminate_call_before_the_entrypoint_runs_powers_the_machine_off() -> Result {
+    let mut agent = Agent::start().await?;
+    // The control: an agent still waiting for its description serves calls and does not power
+    // off by itself.
+    agent.client.health(HealthRequest {}).await?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!agent.is_powered_off());
+
+    agent.client.terminate(TerminateRequest {}).await?;
 
     agent.powered_off().await?;
     assert_eq!(

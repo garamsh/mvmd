@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use nix::sys::signal::Signal;
 use prost::{Message, Name};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -20,8 +21,9 @@ use crate::v1alpha1::{
     HealthRequest, HealthResponse, InfoRequest, InfoResponse, ListFilesRequest, ListFilesResponse,
     NotBooted, PatchFileRequest, PatchFileResponse, ReadExecOutputRequest, ReadExecOutputResponse,
     ReadFileRequest, ReadFileResponse, SearchFilesRequest, SearchFilesResponse, SignalRequest,
-    SignalResponse, UpdateNetworkRequest, UpdateNetworkResponse, WriteFileRequest,
-    WriteFileResponse, WrongFileKind, read_exec_output_response, write_file_request,
+    SignalResponse, TerminateRequest, TerminateResponse, UpdateNetworkRequest,
+    UpdateNetworkResponse, WriteFileRequest, WriteFileResponse, WrongFileKind,
+    read_exec_output_response, write_file_request,
 };
 
 /// The contract versions the agent serves.
@@ -55,6 +57,9 @@ pub(crate) struct Guest {
     pub(crate) execs: Arc<Execs>,
     pub(crate) locks: Locks,
     pub(crate) boot: Arc<Boot>,
+    /// Where `Terminate` sends its `SIGTERM`: the init's supervision. `None` when the agent is
+    /// not the guest's init.
+    pub(crate) terminate: Option<mpsc::Sender<Signal>>,
 }
 
 /// A `google.rpc.Status`, the message the `grpc-status-details-bin` trailer carries. It is spelled
@@ -334,6 +339,22 @@ impl GuestService for Guest {
         Ok(Response::new(batches(matches, |matches| {
             SearchFilesResponse { matches }
         })))
+    }
+
+    async fn terminate(
+        &self,
+        _request: Request<TerminateRequest>,
+    ) -> Result<Response<TerminateResponse>, Status> {
+        // Not gated on the boot: before the entrypoint runs, a termination ends the Machine.
+        let terminate = self.terminate.as_ref().ok_or_else(|| {
+            Error::PreconditionFailed(
+                "this agent is not the guest's init and cannot stop it".into(),
+            )
+        })?;
+        terminate.send(Signal::SIGTERM).await.map_err(|_| {
+            Error::PreconditionFailed("the agent is already ending the Machine".into())
+        })?;
+        Ok(Response::new(TerminateResponse {}))
     }
 
     async fn health(

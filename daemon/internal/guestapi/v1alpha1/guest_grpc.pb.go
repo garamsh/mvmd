@@ -34,6 +34,7 @@ const (
 	GuestService_PatchFile_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/PatchFile"
 	GuestService_ListFiles_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/ListFiles"
 	GuestService_SearchFiles_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/SearchFiles"
+	GuestService_Terminate_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/Terminate"
 	GuestService_Health_FullMethodName         = "/mvmd.guest.v1alpha1.GuestService/Health"
 	GuestService_Info_FullMethodName           = "/mvmd.guest.v1alpha1.GuestService/Info"
 )
@@ -47,7 +48,7 @@ type GuestServiceClient interface {
 	// Describe the Machine to the agent, which runs as the guest's init and
 	// waits for this call before it touches a disk. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
-	// call except Health and Info is refused until it has succeeded. A repeat
+	// call except Terminate, Health and Info is refused until it has succeeded. A repeat
 	// with the same description succeeds and changes nothing; a repeat after
 	// a failure fails the same way.
 	Boot(ctx context.Context, in *BootRequest, opts ...grpc.CallOption) (*BootResponse, error)
@@ -83,6 +84,13 @@ type GuestServiceClient interface {
 	// Search a directory tree by glob. The matches come sorted by path across
 	// the messages of the stream.
 	SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SearchFilesResponse], error)
+	// Ask the guest to stop, as a SIGTERM to its init does: the agent forwards
+	// SIGTERM to the entrypoint, or ends the Machine when the entrypoint is not
+	// running. It is served before Boot has succeeded, since a Machine that
+	// has not booted has no entrypoint to terminate. The call returns once the
+	// agent has taken the request, not when the Machine has ended. A repeat
+	// sends SIGTERM again.
+	Terminate(ctx context.Context, in *TerminateRequest, opts ...grpc.CallOption) (*TerminateResponse, error)
 	// Whether the agent serves.
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
 	// The agent version and the contract versions it serves.
@@ -246,6 +254,16 @@ func (c *guestServiceClient) SearchFiles(ctx context.Context, in *SearchFilesReq
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type GuestService_SearchFilesClient = grpc.ServerStreamingClient[SearchFilesResponse]
 
+func (c *guestServiceClient) Terminate(ctx context.Context, in *TerminateRequest, opts ...grpc.CallOption) (*TerminateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TerminateResponse)
+	err := c.cc.Invoke(ctx, GuestService_Terminate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *guestServiceClient) Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthResponse)
@@ -275,7 +293,7 @@ type GuestServiceServer interface {
 	// Describe the Machine to the agent, which runs as the guest's init and
 	// waits for this call before it touches a disk. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
-	// call except Health and Info is refused until it has succeeded. A repeat
+	// call except Terminate, Health and Info is refused until it has succeeded. A repeat
 	// with the same description succeeds and changes nothing; a repeat after
 	// a failure fails the same way.
 	Boot(context.Context, *BootRequest) (*BootResponse, error)
@@ -311,6 +329,13 @@ type GuestServiceServer interface {
 	// Search a directory tree by glob. The matches come sorted by path across
 	// the messages of the stream.
 	SearchFiles(*SearchFilesRequest, grpc.ServerStreamingServer[SearchFilesResponse]) error
+	// Ask the guest to stop, as a SIGTERM to its init does: the agent forwards
+	// SIGTERM to the entrypoint, or ends the Machine when the entrypoint is not
+	// running. It is served before Boot has succeeded, since a Machine that
+	// has not booted has no entrypoint to terminate. The call returns once the
+	// agent has taken the request, not when the Machine has ended. A repeat
+	// sends SIGTERM again.
+	Terminate(context.Context, *TerminateRequest) (*TerminateResponse, error)
 	// Whether the agent serves.
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
 	// The agent version and the contract versions it serves.
@@ -357,6 +382,9 @@ func (UnimplementedGuestServiceServer) ListFiles(*ListFilesRequest, grpc.ServerS
 }
 func (UnimplementedGuestServiceServer) SearchFiles(*SearchFilesRequest, grpc.ServerStreamingServer[SearchFilesResponse]) error {
 	return status.Error(codes.Unimplemented, "method SearchFiles not implemented")
+}
+func (UnimplementedGuestServiceServer) Terminate(context.Context, *TerminateRequest) (*TerminateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Terminate not implemented")
 }
 func (UnimplementedGuestServiceServer) Health(context.Context, *HealthRequest) (*HealthResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Health not implemented")
@@ -544,6 +572,24 @@ func _GuestService_SearchFiles_Handler(srv interface{}, stream grpc.ServerStream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type GuestService_SearchFilesServer = grpc.ServerStreamingServer[SearchFilesResponse]
 
+func _GuestService_Terminate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TerminateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GuestServiceServer).Terminate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GuestService_Terminate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GuestServiceServer).Terminate(ctx, req.(*TerminateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GuestService_Health_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthRequest)
 	if err := dec(in); err != nil {
@@ -610,6 +656,10 @@ var GuestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PatchFile",
 			Handler:    _GuestService_PatchFile_Handler,
+		},
+		{
+			MethodName: "Terminate",
+			Handler:    _GuestService_Terminate_Handler,
 		},
 		{
 			MethodName: "Health",
