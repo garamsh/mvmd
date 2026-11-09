@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -153,4 +154,38 @@ func TestOpen_RefusesALinkAndAFile(t *testing.T) {
 	assert.Error(t, err)
 	_, err = unixsock.Open(file)
 	assert.Error(t, err)
+}
+
+func TestAwait_ReturnsOnceTheSocketAcceptsAndGivesUpWhenTheContextEnds(t *testing.T) {
+	sock := filepath.Join(longDir(t), "late.sock")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := unixsock.Await(ctx, sock)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "no one listens: the wait ends with its context")
+	assert.Contains(t, err.Error(), sock)
+
+	bound := make(chan net.Listener, 1)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		l, err := unixsock.Listen(sock)
+		if err != nil {
+			close(bound)
+			return
+		}
+		bound <- l
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, unixsock.Await(ctx, sock), "a socket bound after the wait began is found")
+	if l := <-bound; l != nil {
+		_ = l.Close()
+	}
 }

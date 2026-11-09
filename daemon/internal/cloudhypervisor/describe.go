@@ -2,16 +2,14 @@ package cloudhypervisor
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/pinnedfile"
 )
 
 const (
@@ -42,20 +40,6 @@ func cmdline(goarch string) string {
 	return "console=ttyS0"
 }
 
-// digest returns the SHA-256 of the file, in hex.
-func digest(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
 // verify refuses a binary or a kernel that is not the one the node pinned. It
 // is how a node fails at its start and not at its first boot; the check of
 // record is the supervisor's, on the file it presents to the VMM (ADR 0019).
@@ -64,12 +48,8 @@ func verify(cfg Config) error {
 		{"binary", cfg.Binary, cfg.BinarySHA256},
 		{"kernel", cfg.Kernel, cfg.KernelSHA256},
 	} {
-		got, err := digest(f.path)
-		if err != nil {
-			return fmt.Errorf("check the cloud-hypervisor %s: %w", f.name, err)
-		}
-		if got != f.want {
-			return fmt.Errorf("the cloud-hypervisor %s %s has digest %s, not the configured %s", f.name, f.path, got, f.want)
+		if err := pinnedfile.Check("the cloud-hypervisor "+f.name, f.path, f.want); err != nil {
+			return err
 		}
 	}
 	if _, err := os.Stat(filepath.Clean(cfg.Initrd)); err != nil {

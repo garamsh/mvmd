@@ -18,7 +18,7 @@ import (
 // These tests are the scenarios of drivertest, which every Driver is held to,
 // run against the pinned Cloud Hypervisor on the pinned kernel with the Guest
 // Agent's initrd, as the user running them: no supervisor, no confinement
-// beyond a root with the files at their fixed paths (real_root_test.go), and no
+// beyond a root with the files at their fixed paths (drivertest), and no
 // tap, so they need /dev/kvm and no root. They run through
 // `make test-cloud-hypervisor`, which fetches the inputs and names them; a run
 // without them fails, since a pass that never booted a guest would say
@@ -61,7 +61,7 @@ func subject(t *testing.T) drivertest.Subject {
 		// What the supervisor does, without its confinement: run the described
 		// process in a root holding the files at their fixed paths.
 		Start: func(t *testing.T, p machine.ProcessDescription, s drivertest.Streams) drivertest.Process {
-			cmd, err := inRoot(p)
+			cmd, err := drivertest.InRoot(p)
 			require.NoError(t, err)
 			if s.In != nil {
 				cmd.Stdin = s.In

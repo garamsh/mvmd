@@ -23,7 +23,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, _ machine.BootS
 	if err != nil {
 		return err
 	}
-	if err := await(ctx, sock); err != nil {
+	if err := unixsock.Await(ctx, sock); err != nil {
 		return err
 	}
 	c := newClient(sock)

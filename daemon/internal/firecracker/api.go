@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
@@ -83,20 +81,4 @@ func (c *client) do(ctx context.Context, method, path string, body, out any) err
 		}
 	}
 	return nil
-}
-
-// await returns once the API socket accepts a connection, which is some time
-// after the supervisor has started the VMM, or when ctx ends.
-func await(ctx context.Context, socket string) error {
-	for wait := time.Millisecond; ; wait = min(2*wait, 50*time.Millisecond) {
-		conn, err := unixsock.DialContext(ctx, socket)
-		if err == nil {
-			return conn.Close()
-		}
-		select {
-		case <-ctx.Done():
-			return errors.Join(fmt.Errorf("the API socket %s never accepted a connection", socket), ctx.Err(), err)
-		case <-time.After(wait):
-		}
-	}
 }
