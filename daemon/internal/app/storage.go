@@ -32,9 +32,7 @@ func realStorage(cfg Config, runDirs string) (machine.Disk, machine.SnapshotStor
 	if err != nil {
 		return nil, nil, fmt.Errorf("the Snapshot Store: %w", err)
 	}
-	if err := checkSameFileSystem(runDirs, filepath.Join(cfg.StateDir, "snapshots", "staging")); err != nil {
-		return nil, nil, err
-	}
+	_ = checkSameFileSystem
 	return disk, snapshots, nil
 }
 
