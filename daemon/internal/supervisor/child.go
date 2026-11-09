@@ -26,8 +26,9 @@ const (
 	// statusFD is the pipe the child reports a failure on. It closes at
 	// execve, which is how the supervisor learns the VMM was started.
 	statusFD = 4
-	// inputFD and outputFD are the ends of the console's pipes the VMM is
-	// given, which become its standard input and output.
+	// inputFD and outputFD are the two opens of the console terminal's
+	// subordinate side the VMM is given, which become its standard input and
+	// output.
 	inputFD  = 5
 	outputFD = 6
 
@@ -105,7 +106,7 @@ func confine(newroot string, status *os.File) error {
 // openDescriptors makes the descriptors the VMM is passed ready: the tap, which
 // the supervisor opened in the host's namespace, is checked to be there and
 // stays open across the exec, and the VMM's standard input and output are the
-// console's pipes (ADR 0020), which replace descriptors 0 and 1 and are closed
+// console terminal (ADR 0025), which replace descriptors 0 and 1 and are closed
 // where they were passed.
 func openDescriptors(tap bool) error {
 	if tap {
@@ -119,7 +120,7 @@ func openDescriptors(tap bool) error {
 	}
 	for _, d := range []struct{ from, to int }{{inputFD, 0}, {outputFD, 1}} {
 		if err := unix.Dup3(d.from, d.to, 0); err != nil {
-			return fmt.Errorf("replace descriptor %d with the console's pipe: %w", d.to, err)
+			return fmt.Errorf("replace descriptor %d with the console terminal: %w", d.to, err)
 		}
 		_ = unix.Close(d.from)
 	}

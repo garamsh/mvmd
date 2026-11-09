@@ -1,12 +1,14 @@
 package supervisor
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
@@ -22,12 +24,16 @@ const (
 )
 
 // Console carries the VMM's standard input and output, which are the serial
-// device of a VMM that has one on them: the output goes to the log in full and
+// device of a VMM that has one on them (ADR 0025): the output goes to the log in full and
 // to every session open at the time, and what a session sends is written to the
 // input. Sessions are independent of each other and of the log.
 type Console struct {
 	in  io.Writer
 	log io.Writer
+
+	// end closes the terminal the console reads, for a console that was opened
+	// on one; nil for one served over other streams.
+	end io.Closer
 
 	mu       sync.Mutex
 	sessions map[*session]struct{}
@@ -49,6 +55,35 @@ func ServeConsole(l net.Listener, in io.Writer, out io.Reader, log io.Writer) *C
 	go c.accept(l)
 	go c.pump(l, out)
 	return c
+}
+
+// OpenConsole makes the VMM's terminal (ADR 0025) and serves it on the console
+// socket in stateDir, with the VMM's output written to log first. It returns
+// the console and the two descriptors that are the VMM's standard input and
+// output, which the caller closes once the VMM holds its own, and which are
+// the only way the VMM reaches the terminal.
+func OpenConsole(stateDir string, log io.Writer) (c *Console, in, out *os.File, err error) {
+	l, err := listenConsole(statedir.ConsoleSocket(stateDir))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("listen on the console socket: %w", err)
+	}
+	t, in, out, err := openTerminal()
+	if err != nil {
+		_ = l.Close()
+		return nil, nil, nil, err
+	}
+	c = ServeConsole(l, t, t, log)
+	c.end = t
+	return c, in, out, nil
+}
+
+// Close ends a console opened by OpenConsole that has no VMM to serve: its
+// output ends, and with it the socket and the sessions.
+func (c *Console) Close() error {
+	if c.end == nil {
+		return nil
+	}
+	return c.end.Close()
 }
 
 // Wait returns when the VMM's output has ended and reached the log, or after
@@ -146,40 +181,6 @@ func (c *Console) drop(s *session) {
 		delete(c.sessions, s)
 		close(s.out)
 	}
-}
-
-// consolePipes are the four ends of the two pipes that are the VMM's standard
-// input and output. They are two pipes, not one socket, since a VMM that makes
-// its input non-blocking would make its output so too if one open file were
-// both.
-type consolePipes struct {
-	vmmIn, consoleIn, consoleOut, vmmOut *os.File
-}
-
-func newConsolePipes() (*consolePipes, error) {
-	p := &consolePipes{}
-	var err error
-	if p.vmmIn, p.consoleIn, err = os.Pipe(); err != nil {
-		return nil, err
-	}
-	if p.consoleOut, p.vmmOut, err = os.Pipe(); err != nil {
-		p.closeVMM()
-		p.consoleIn.Close()
-		return nil, err
-	}
-	return p, nil
-}
-
-// closeVMM closes the ends the VMM holds, in the supervisor once the VMM has
-// its own.
-func (p *consolePipes) closeVMM() {
-	p.vmmIn.Close()
-	p.vmmOut.Close()
-}
-
-func (p *consolePipes) closeConsole() {
-	p.consoleIn.Close()
-	p.consoleOut.Close()
 }
 
 // listenConsole makes the console socket, readable by its owner alone. The
