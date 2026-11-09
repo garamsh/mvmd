@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -13,14 +14,26 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// Console implements machine.Driver. The Driver does not report
-// machine.CapabilityConsole, so the lifecycle refuses the call as unsupported
-// before it gets here (#91). Firecracker's serial device is the VMM's
-// standard input and output, and the supervisor gives the VMM no standard input
-// that reaches a session, so a session that writes to the guest's console
-// cannot be opened yet: it is unavailable, and nothing is faked.
-func (d *Driver) Console(context.Context, machine.MachineID) (io.ReadWriteCloser, error) {
-	return nil, fmt.Errorf("%w: Firecracker's serial input is the VMM's standard input, which the supervisor does not connect to a session", machine.ErrConsoleUnavailable)
+// Console implements machine.Driver: a connection to the console socket the
+// supervisor serves beside the run directory (ADR 0020). Firecracker's serial
+// device is the VMM's standard input and output, which the supervisor
+// connects to that socket. The socket is the supervisor's, in the state
+// directory the VMM cannot reach, so the path is not read from the run
+// directory. A socket that is gone or refuses is a VMM that has ended.
+func (d *Driver) Console(ctx context.Context, id machine.MachineID) (io.ReadWriteCloser, error) {
+	run, err := d.cfg.Dirs.RunDir(id)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(filepath.Dir(run), consoleSocketName)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+			return nil, fmt.Errorf("%w: %v", machine.ErrConsoleUnavailable, err)
+		}
+		return nil, fmt.Errorf("open the console: %w", err)
+	}
+	return conn, nil
 }
 
 // limited reads at most what the log held when it was opened.

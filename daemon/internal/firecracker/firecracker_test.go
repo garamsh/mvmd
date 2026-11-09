@@ -13,12 +13,12 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-func TestInfo_NamesFirecrackerAtItsVersionAndReportsNoOptionalCapability(t *testing.T) {
+func TestInfo_NamesFirecrackerAtItsVersionAndReportsTheConsoleAlone(t *testing.T) {
 	info := newNode(t).driver.Info()
 	assert.Equal(t, "firecracker", info.Name)
 	assert.Equal(t, "1.17.0", info.Version)
 	assert.NotEmpty(t, info.CPUModel)
-	assert.Empty(t, info.Capabilities, "snapshot, hot-plug and resize are not implemented")
+	assert.Equal(t, []machine.Capability{machine.CapabilityConsole}, info.Capabilities, "snapshot, hot-plug and resize are not implemented")
 }
 
 func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {

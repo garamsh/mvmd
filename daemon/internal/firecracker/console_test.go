@@ -3,6 +3,7 @@ package firecracker_test
 import (
 	"context"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 )
 
 func readAll(t *testing.T, r io.ReadCloser) string {
@@ -84,8 +86,68 @@ func TestConsoleLog_HonoursItsContext(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-func TestConsole_IsUnavailableBecauseTheVMMsInputReachesNoSession(t *testing.T) {
+// serveConsole stands in for the supervisor's console socket, at the name the
+// supervisor gives it in the Machine's state directory, and returns what it
+// accepted.
+func serveConsole(t *testing.T, n *node) <-chan net.Conn {
+	t.Helper()
+	l, err := net.Listen("unix", filepath.Join(filepath.Dir(n.run), supervisor.ConsoleSocketName))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+	accepted := make(chan net.Conn, 2)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- c
+		}
+	}()
+	return accepted
+}
+
+func TestConsole_IsASessionOnTheSupervisorsSocketBesideTheRunDirectory(t *testing.T) {
+	n := newNode(t)
+	accepted := serveConsole(t, n)
+
+	s, err := n.driver.Console(context.Background(), "m1")
+	require.NoError(t, err)
+	defer s.Close()
+	guest := <-accepted
+	defer guest.Close()
+
+	_, err = guest.Write([]byte("login: "))
+	require.NoError(t, err)
+	buf := make([]byte, 7)
+	_, err = io.ReadFull(s, buf)
+	require.NoError(t, err)
+	assert.Equal(t, "login: ", string(buf), "what the guest writes is read from the session")
+
+	_, err = s.Write([]byte("root\n"))
+	require.NoError(t, err)
+	in := make([]byte, 5)
+	_, err = io.ReadFull(guest, in)
+	require.NoError(t, err)
+	assert.Equal(t, "root\n", string(in), "what is written to the session is the console's input")
+
+	other, err := n.driver.Console(context.Background(), "m1")
+	require.NoError(t, err, "a second session opens beside the first")
+	require.NoError(t, other.Close())
+	_, err = s.Write([]byte("x"))
+	assert.NoError(t, err, "and closing it leaves the first as it was")
+}
+
+func TestConsole_IsUnavailableOnceTheSupervisorsSocketIsGoneOrRefuses(t *testing.T) {
 	n := newNode(t)
 	_, err := n.driver.Console(context.Background(), "m1")
-	require.ErrorIs(t, err, machine.ErrConsoleUnavailable)
+	require.ErrorIs(t, err, machine.ErrConsoleUnavailable, "no socket")
+
+	sock := filepath.Join(filepath.Dir(n.run), supervisor.ConsoleSocketName)
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	l.(*net.UnixListener).SetUnlinkOnClose(false)
+	require.NoError(t, l.Close())
+	_, err = n.driver.Console(context.Background(), "m1")
+	require.ErrorIs(t, err, machine.ErrConsoleUnavailable, "a socket nothing listens on")
 }

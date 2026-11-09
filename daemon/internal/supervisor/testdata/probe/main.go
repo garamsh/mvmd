@@ -2,7 +2,7 @@
 // executable, since the root it runs in holds no libraries, and it reports what
 // the process it runs as can and cannot do.
 //
-//	probe vmm <dir>               a VMM that forks a daemonizing child, then runs on
+//	probe vmm <dir>               a VMM that echoes its input to its output, forks a daemonizing child, then runs on
 //	probe report <dir> <try>...   write <dir>/report.json, then run on
 //	probe check <dir> <try>...    write <dir>/report.json and exit
 //	probe pids <dir> <n>          start up to n processes, write <dir>/pids.json, run on
@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -64,6 +65,7 @@ func sleep() { time.Sleep(24 * time.Hour) }
 func vmm(dir string) {
 	_ = os.WriteFile(filepath.Join(dir, "vmm.pid"), []byte(strconv.Itoa(os.Getpid())), 0o600)
 	_, _ = os.Stdout.WriteString("vmm started\n")
+	go func() { _, _ = io.Copy(os.Stdout, os.Stdin) }()
 	pid, err := spawn(&syscall.SysProcAttr{Setsid: true}, nil, "daemonize", dir)
 	if err != nil {
 		os.Exit(1)

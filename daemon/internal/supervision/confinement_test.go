@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 )
 
@@ -544,9 +546,11 @@ func TestConfinement_TheVMMWritesItsOwnLogAndNotTheSupervisors(t *testing.T) {
 
 	_, _ = n.run(t, "m", time.Hour)
 
-	log, err := os.ReadFile(filepath.Join(run, "vmm.log"))
-	require.NoError(t, err)
-	assert.Contains(t, string(log), "vmm started", "the VMM's output is in its own log")
+	// The supervisor copies the VMM's output to the log as it reads it.
+	require.Eventually(t, func() bool {
+		log, err := os.ReadFile(filepath.Join(run, "vmm.log"))
+		return err == nil && strings.Contains(string(log), "vmm started")
+	}, 5*time.Second, 10*time.Millisecond, "the VMM's output is in its own log")
 	info, err := os.Lstat(filepath.Join(run, "vmm.log"))
 	require.NoError(t, err)
 	assert.True(t, info.Mode().IsRegular(), "the planted symlink was replaced, not followed")
@@ -558,6 +562,39 @@ func TestConfinement_TheVMMWritesItsOwnLogAndNotTheSupervisors(t *testing.T) {
 	sup, err := os.ReadFile(filepath.Join(n.dir, "m", "supervisor.log"))
 	require.NoError(t, err)
 	assert.NotContains(t, string(sup), "vmm started", "control: the supervisor's log is not the VMM's output")
+}
+
+// The VMM's standard input and output are the console's pipes: what a session
+// sends reaches the VMM and what the VMM writes reaches the session and the log
+// (the probe echoes its input). The socket is the supervisor's, in the state
+// directory beside the run directory, so the VMM, whose root holds the run
+// directory alone, has no path to it, and only its owner can connect (ADR 0020).
+func TestConfinement_TheConsoleSocketReachesTheVMMsStandardInputAndOutput(t *testing.T) {
+	n := newNode(t)
+	_, _ = n.run(t, "m", time.Hour)
+	sock := filepath.Join(n.dir, "m", supervisor.ConsoleSocketName)
+
+	info, err := os.Lstat(sock)
+	require.NoError(t, err)
+	assert.Equal(t, os.ModeSocket|0o600, info.Mode(), "a socket only its owner can open")
+	assert.Equal(t, uint32(0), info.Sys().(*syscall.Stat_t).Uid, "owned by the supervisor's user, not the VMM's")
+	assert.NotEqual(t, runDir(n.dir, "m"), filepath.Dir(sock), "and outside the directory the VMM owns")
+
+	c, err := net.Dial("unix", sock)
+	require.NoError(t, err)
+	defer c.Close()
+	_, err = c.Write([]byte("ping\n"))
+	require.NoError(t, err)
+	require.NoError(t, c.SetReadDeadline(time.Now().Add(5*time.Second)))
+	got := make([]byte, 5)
+	_, err = io.ReadFull(c, got)
+	require.NoError(t, err)
+	assert.Equal(t, "ping\n", string(got), "the VMM read the input and wrote it to the session")
+
+	require.Eventually(t, func() bool {
+		log, err := os.ReadFile(filepath.Join(runDir(n.dir, "m"), "vmm.log"))
+		return err == nil && strings.Contains(string(log), "ping\n")
+	}, 5*time.Second, 10*time.Millisecond, "the log holds what the session saw")
 }
 
 func sha256Hex(b []byte) string {

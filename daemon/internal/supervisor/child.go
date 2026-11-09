@@ -26,6 +26,10 @@ const (
 	// statusFD is the pipe the child reports a failure on. It closes at
 	// execve, which is how the supervisor learns the VMM was started.
 	statusFD = 4
+	// inputFD and outputFD are the ends of the console's pipes the VMM is
+	// given, which become its standard input and output.
+	inputFD  = 5
+	outputFD = 6
 
 	// statusReady is written to the status pipe as the last act before the
 	// execve, and statusFailed before the text of a failure.
@@ -100,8 +104,9 @@ func confine(newroot string, status *os.File) error {
 
 // openDescriptors makes the descriptors the VMM is passed ready: the tap, which
 // the supervisor opened in the host's namespace, is checked to be there and
-// stays open across the exec, and the VMM's standard input is /dev/null, which
-// the root will not have.
+// stays open across the exec, and the VMM's standard input and output are the
+// console's pipes (ADR 0020), which replace descriptors 0 and 1 and are closed
+// where they were passed.
 func openDescriptors(tap bool) error {
 	if tap {
 		flags, err := unix.FcntlInt(tapFD, unix.F_GETFD, 0)
@@ -112,13 +117,11 @@ func openDescriptors(tap bool) error {
 			return errors.New("the tap descriptor would close at the exec")
 		}
 	}
-	null, err := unix.Open("/dev/null", unix.O_RDWR|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return fmt.Errorf("open /dev/null: %w", err)
-	}
-	defer unix.Close(null)
-	if err := unix.Dup3(null, 0, 0); err != nil {
-		return fmt.Errorf("replace the standard input: %w", err)
+	for _, d := range []struct{ from, to int }{{inputFD, 0}, {outputFD, 1}} {
+		if err := unix.Dup3(d.from, d.to, 0); err != nil {
+			return fmt.Errorf("replace descriptor %d with the console's pipe: %w", d.to, err)
+		}
+		_ = unix.Close(d.from)
 	}
 	return nil
 }

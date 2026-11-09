@@ -1,7 +1,8 @@
 // Package supervisor is the mvmd-supervisor process: the init of a PID
 // namespace that counts one Machine's fencing expiry, starts the Machine's VMM
 // inside the namespace and ends the namespace at the expiry or when the VMM
-// ends (ADR 0003). It holds nothing of the inside.
+// ends (ADR 0003). It holds nothing of the inside but the VMM's serial bytes in
+// transit, which it serves as a console and interprets none of (ADR 0020).
 package supervisor
 
 import (
@@ -71,6 +72,7 @@ type server struct {
 	expiry  int64
 	started bool
 	vmm     int
+	console *Console
 }
 
 // Run counts the expiry and serves the socket until the process exits, which
@@ -130,8 +132,12 @@ func (s *server) reap(ctx context.Context) {
 			}
 			s.mu.Lock()
 			ended := s.started && pid == s.vmm
+			console := s.console
 			s.mu.Unlock()
 			if ended {
+				// What the VMM wrote before it ended is still in the pipe: the
+				// log is complete once the console has read it to its end.
+				console.Wait()
 				os.Exit(0)
 			}
 		}
@@ -170,11 +176,11 @@ func (s *server) Start(_ context.Context, req *pb.StartRequest) (*pb.StartRespon
 	if s.expiry <= now {
 		return nil, status.Error(codes.FailedPrecondition, "the expiry has passed")
 	}
-	pid, err := launch(s.cfg.Socket, req, lim)
+	pid, console, err := launch(s.cfg.Socket, req, lim)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "start the process: %v", err)
 	}
-	s.started, s.vmm = true, pid
+	s.started, s.vmm, s.console = true, pid, console
 	return &pb.StartResponse{}, nil
 }
 
