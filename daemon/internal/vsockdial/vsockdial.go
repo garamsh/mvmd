@@ -87,15 +87,12 @@ func Dial(ctx context.Context, socket string, port uint32) (net.Conn, error) {
 // listens on it (ECONNREFUSED). In those cases the error matches both
 // ErrVMMEnded and ErrGuestUnreachable; otherwise only ErrGuestUnreachable.
 func connectErr(err error) error {
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		var opErr *net.OpError
-		if errors.As(err, &opErr) {
-			var errno unix.Errno
-			if errors.As(opErr.Unwrap(), &errno) {
-				if errno == unix.ENOENT || errno == unix.ECONNREFUSED {
-					return errors.Join(machine.ErrGuestUnreachable, machine.ErrVMMEnded, err)
-				}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		var errno unix.Errno
+		if errors.As(opErr.Unwrap(), &errno) {
+			if errno == unix.ENOENT || errno == unix.ECONNREFUSED {
+				return errors.Join(machine.ErrGuestUnreachable, machine.ErrVMMEnded, err)
 			}
 		}
 	}

@@ -404,6 +404,35 @@ func (c *vmmEndedConnector) count() int {
 	return c.dials
 }
 
+// vmmEndedUnreachableConnector returns ErrGuestUnreachable for the first n
+// dials, then connects through the dialer. It is a control that isolates
+// ErrVMMEnded from generic connection refusal.
+type vmmEndedUnreachableConnector struct {
+	to        *dialer
+	refused   int
+	mu        sync.Mutex
+	dials     int
+	connected bool
+}
+
+func (c *vmmEndedUnreachableConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	c.mu.Lock()
+	c.dials++
+	n := c.dials
+	c.mu.Unlock()
+	if n <= c.refused {
+		return nil, errors.Join(machine.ErrGuestUnreachable, io.EOF)
+	}
+	c.connected = true
+	return c.to.GuestConn(ctx, id, port)
+}
+
+func (c *vmmEndedUnreachableConnector) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dials
+}
+
 // A conversion whose connector returns ErrVMMEnded fails at once, without
 // waiting for the backoff that the converter normally uses when the
 // converter has not yet started. The error names the ended VMM.
@@ -424,9 +453,12 @@ func TestConvert_FailsAtOnceWhenTheConnectorReturnsErrVMMEnded(t *testing.T) {
 	// It returned well before the conversion limit.
 	assert.Less(t, time.Since(start), 200*time.Millisecond)
 
-	// Control: a connector that refuses initially but then connects is waited for.
-	v.ended = false
-	length, err := convertchannel.New(v).Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
+	// Control: a connector that answers ErrGuestUnreachable alone for its
+	// first dials and then connects is waited for and succeeds, with a dial
+	// count above 1. This isolates ErrVMMEnded from generic connection refusal.
+	u := &vmmEndedUnreachableConnector{to: d, refused: 3}
+	length, err := convertchannel.New(u).Convert(context.Background(), "m", jobOf(layerFile(t, tarType, []byte("a"))))
 	require.NoError(t, err)
 	assert.Equal(t, uint64(99), length)
+	assert.Greater(t, u.count(), 1, "it retried before connecting")
 }

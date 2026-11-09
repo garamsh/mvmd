@@ -230,17 +230,13 @@ func mapError(ctx context.Context, err error) error {
 	// error so grpc's retry stops immediately.  grpc.NewClient wraps that
 	// in a *url.Error; converse wraps it in notListeningError.  We must
 	// look through the chain before the generic errors.Is check below,
-	// because ErrVMMEnded itself is also in that chain (inside the
-	// *url.Error).
+	// because ErrVMMEnded was replaced by the status error at the dialer.
 	var notListening *notListeningError
 	if errors.As(err, &notListening) {
 		st, ok := status.FromError(notListening)
 		if ok && st.Code() == codes.Internal {
 			return fmt.Errorf("%w: the converter VMM has ended", machine.ErrVMMEnded)
 		}
-	}
-	if errors.Is(err, machine.ErrVMMEnded) {
-		return fmt.Errorf("%w: the converter VMM has ended", machine.ErrVMMEnded)
 	}
 	var failure *image.ConversionFailure
 	var unknown *unknownStepError

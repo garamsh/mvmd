@@ -21,13 +21,31 @@ func TestGuestConn_ReturnsErrVMMEndedAndErrGuestUnreachableWhenNoGuestServes(t *
 	require.ErrorIs(t, err, machine.ErrVMMEnded)
 }
 
-func TestGuestConn_ReturnsErrVMMEndedAndErrGuestUnreachableWhenInjectedFailure(t *testing.T) {
+func TestGuestConn_ReturnsErrGuestUnreachableWhenBootedAndNoGuestServes(t *testing.T) {
+	d := memory.NewDriver(machine.DriverInfo{Name: "memory"})
+	require.NoError(t, d.Boot(context.Background(), "m1", machine.BootSpec{}))
+
+	_, err := d.GuestConn(context.Background(), "m1", machine.GuestAgentPort)
+	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+	assert.NotErrorIs(t, err, machine.ErrVMMEnded)
+}
+
+func TestGuestConn_ReturnsErrVMMEndedAndErrGuestUnreachableWhenShutdownAndNoGuestServes(t *testing.T) {
+	d := memory.NewDriver(machine.DriverInfo{Name: "memory"})
+	require.NoError(t, d.Boot(context.Background(), "m1", machine.BootSpec{}))
+	require.NoError(t, d.Shutdown(context.Background(), "m1", 0))
+
+	_, err := d.GuestConn(context.Background(), "m1", machine.GuestAgentPort)
+	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+	require.ErrorIs(t, err, machine.ErrVMMEnded)
+}
+
+func TestGuestConn_ReturnsErrGuestUnreachableWhenInjectedFailure(t *testing.T) {
 	d := memory.NewDriver(machine.DriverInfo{Name: "memory"})
 	d.FailAt("guest-conn", errors.New("the machine is not running"))
 
 	_, err := d.GuestConn(context.Background(), "m1", machine.GuestAgentPort)
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
-	require.ErrorIs(t, err, machine.ErrVMMEnded)
 	assert.Contains(t, err.Error(), "the machine is not running")
 }
 
