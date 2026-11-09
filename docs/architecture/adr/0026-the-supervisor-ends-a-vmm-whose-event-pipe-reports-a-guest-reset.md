@@ -35,6 +35,7 @@ The supervisor creates a pipe and passes its write end to the VMM as descriptor 
 
 The Cloud Hypervisor Driver passes `--event-monitor fd=7` and names the string `"event": "rebooting"`. Its kernel command line carries mvmd's guest parameters, as the Firecracker Driver's does: `reboot=k panic=1` on both architectures, and on x86_64 `i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`, which stop the kernel probing a keyboard and mouse the VMM does not have. `panic=1` is what turns a panic into the reset the event reports.
 
+- **Why the VMM's end and not the supervisor's exit.** The fencing deadline exits the supervisor and takes the PID namespace with it, with no drain. Here the supervisor ends only the VMM and lets the path of a VMM's end drain the console, so that the panic text that preceded the reset reaches `vmm.log`, where the Machine's failure is read.
 - **Why `SIGKILL` and not a request to the VMM.** A guest that has reset has nothing a graceful stop would save, and the supervisor has no channel to the VMM but signals.
 - **The scenario that tests it.** A guest whose initrd holds no `/init` makes the kernel panic after it cannot mount a root, with no change to the Guest Agent.
 
@@ -45,7 +46,7 @@ The Cloud Hypervisor Driver passes `--event-monitor fd=7` and names the string `
 - A guest that resets on purpose cannot reboot in place under Cloud Hypervisor, which v54.0 would have let it do. A Machine's reboot is not an operation of the port.
 - The supervisor trusts the stream as far as the VMM does: a VMM that a guest has escaped into can write the string to its own pipe and end only itself, which the guest could do by exiting.
 - A match inside other output ends the VMM. The string is the Driver's and for Cloud Hypervisor is an event field the guest cannot write, since the pipe carries the VMM's events and not the console.
-- A VMM that writes events faster than the supervisor reads has its writes dropped, as the monitor ignores write errors and is non-blocking; the supervisor reads without waiting on anything, so a reset event is not lost to that.
+- A VMM that writes events faster than the supervisor reads finds the pipe full; the monitor's descriptor is non-blocking (`event_monitor/src/lib.rs` lines 55 to 62), so the VMM's write returns an error and does not wait. This ADR does not rely on what the monitor does with that error: the supervisor reads without waiting on anything.
 - The i8042 parameters on Cloud Hypervisor's command line are copied from the Firecracker Driver's and not measured for Cloud Hypervisor; the real test boots with them.
 
 ## Signs the decision was wrong
