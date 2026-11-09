@@ -1,0 +1,99 @@
+// The converter contract, v1alpha1. Its meaning is fixed by
+// docs/architecture/image.md (Conversion) and
+// docs/architecture/adr/0017-the-converter-serves-a-grpc-contract-it-owns-and-carries-mkfs-erofs-in-its-initrd.md;
+// this file is the encoding.
+syntax = "proto3";
+
+package mvmd.convert.v1alpha1;
+
+// ConvertService is the converter's channel. The converter serves it over
+// vsock, on port 1025, in the converter microVM, and serves one conversion.
+service ConvertService {
+  // Convert one image. The client streams a Start, then every layer of the
+  // image in manifest order, each layer twice: a pass of kind NAMES and then
+  // a pass of kind CONTENT, each a Pass followed by the layer's bytes as
+  // Data messages, exactly as the registry served the blob. The converter
+  // writes the EROFS to its output block device and answers once, after the
+  // last pass, or earlier when it has already failed. A conversion that
+  // fails is a ConvertResponse with a Failure, not a gRPC status; a status
+  // means the call itself broke.
+  rpc Convert(stream ConvertRequest) returns (ConvertResponse);
+}
+
+message ConvertRequest {
+  oneof message {
+    // The first message, sent once.
+    Start start = 1;
+    // Begins one pass over one layer. It ends the previous pass.
+    Pass pass = 2;
+    // The next bytes of the current pass.
+    bytes data = 3;
+  }
+}
+
+message Start {
+  // The UUID of the EROFS's filesystem, in the 8-4-4-4-12 form.
+  string filesystem_uuid = 1;
+  // The media type of each layer, in manifest order. The converter refuses
+  // the conversion at once when one is not tar, tar+gzip or tar+zstd, in the
+  // OCI image specification's forms, so no layer is converted for nothing.
+  repeated string layer_media_types = 2;
+  // The most bytes of layer entry names the converter holds for one layer.
+  // A layer with more fails the conversion with FAILURE_STEP_NAME_LIMIT.
+  uint64 name_set_limit_bytes = 3;
+}
+
+message Pass {
+  // The layer's index in layer_media_types.
+  uint32 layer = 1;
+  PassKind kind = 2;
+}
+
+enum PassKind {
+  PASS_KIND_UNSPECIFIED = 0;
+  // The converter reads the layer's entry names and keeps no copy of it.
+  PASS_KIND_NAMES = 1;
+  // The converter converts the layer into the EROFS.
+  PASS_KIND_CONTENT = 2;
+}
+
+message ConvertResponse {
+  oneof result {
+    Converted converted = 1;
+    Failure failure = 2;
+  }
+}
+
+message Converted {
+  // The length in bytes of the EROFS on the output device. The client
+  // truncates the output file to it.
+  uint64 length = 1;
+}
+
+message Failure {
+  // The step that failed.
+  FailureStep step = 1;
+  // What went wrong, for the pull's error. It is not for a machine to parse.
+  string message = 2;
+}
+
+enum FailureStep {
+  FAILURE_STEP_UNSPECIFIED = 0;
+  // The Start was unusable: no layers, or a filesystem UUID not in the
+  // 8-4-4-4-12 form.
+  FAILURE_STEP_START = 1;
+  // A layer's media type is not tar, tar+gzip or tar+zstd.
+  FAILURE_STEP_LAYER_TYPE = 2;
+  // The messages broke the order the call requires.
+  FAILURE_STEP_STREAM = 3;
+  // A NAMES pass could not read the layer: it is not a tar archive of the
+  // media type, or ends early.
+  FAILURE_STEP_NAMES = 4;
+  // A layer's entry names exceed the Start's limit.
+  FAILURE_STEP_NAME_LIMIT = 5;
+  // A CONTENT pass could not read the layer, or mkfs.erofs failed on it.
+  FAILURE_STEP_CONVERT = 6;
+  // The converter could not find or read its output device, or the EROFS
+  // on it is not one.
+  FAILURE_STEP_OUTPUT = 7;
+}
