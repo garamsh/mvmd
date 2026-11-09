@@ -622,7 +622,8 @@ func TestConfinement_TheSupervisorEndsAVMMThatWritesItsMatchToTheEventPipe(t *te
 	require.NoError(t, err)
 	assert.Contains(t, string(log), "ending the VMM", "the supervisor records why")
 
-	time.Sleep(500 * time.Millisecond)
+	// The control wrote its bytes before the other VMM was started, so its
+	// supervisor has had the read the other's has just acted on.
 	assert.Len(t, inCgroup("stays", "events"), 1, "control: a VMM that wrote other bytes to its pipe runs on")
 }
 

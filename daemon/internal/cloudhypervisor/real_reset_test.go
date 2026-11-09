@@ -37,14 +37,10 @@ func newc(name string, data []byte) []byte {
 	return append(out, entry("TRAILER!!!", 0, 0, nil)...)
 }
 
-// A guest that panics ends its VMM. The guest's initrd holds no init, so the
-// kernel cannot mount a root and panics, which the Driver's command line
-// (panic=1) turns into a reset after a second; Cloud Hypervisor survives a
-// reset by rebooting the guest, and the supervisor's event pipe, which this
-// test runs as the supervisor does, ends the VMM on the reset (ADR 0026). No
-// change of the Guest Agent is needed to panic a guest. A control guest, with
-// the Guest Agent's initrd, is started beside it with the same Driver
-// configuration and is still up and answering when the other has ended.
+// A guest that panics ends its VMM, which the control guest, with the Guest
+// Agent's initrd, does not. The panicking guest's initrd holds no init, so the
+// kernel panics and panic=1 resets it; the event pipe, run as the supervisor
+// runs it, ends the VMM on the reset (ADR 0026).
 func TestReal_AGuestThatPanicsEndsItsVMMAndAGuestThatStaysUpDoesNot(t *testing.T) {
 	const bound = 30 * time.Second
 

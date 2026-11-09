@@ -39,13 +39,11 @@ const (
 // ends the VMM when it reads this (ADR 0026).
 var rebootingEvent = []byte(`"event": "rebooting"`)
 
-// cmdline is the kernel command line: the serial console the VMM carries to
-// the run directory's log, and the parameters every mvmd guest has, which make
-// a kernel panic reset the guest after a second and a reset go through the
-// keyboard controller, which the VMM emulates (ADR 0026). x86_64's serial port
-// is ttyS0 and aarch64's PL011 is ttyAMA0 (docs/device_model.md). The i8042
-// parameters stop the kernel probing a keyboard and mouse the VMM does not
-// have, as the Firecracker Driver's command line does, and are x86_64's.
+// cmdline is the kernel command line: the serial console the VMM carries to the
+// run directory's log, and the guest parameters that make a panic reset the
+// guest through the keyboard controller (ADR 0026). x86_64's serial port is
+// ttyS0 and aarch64's PL011 is ttyAMA0 (docs/device_model.md). The i8042
+// parameters, x86_64's, are the Firecracker Driver's.
 func cmdline(goarch string) string {
 	if goarch == "arm64" {
 		return "console=ttyAMA0 reboot=k panic=1"

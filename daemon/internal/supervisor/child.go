@@ -103,11 +103,10 @@ func confine(newroot string, status *os.File) error {
 	return errors.New("execve returned")
 }
 
-// openDescriptors makes the descriptors the VMM is passed ready: the tap, which
-// the supervisor opened in the host's namespace, and the event pipe's write end
-// (ADR 0026) are checked to be there and to stay open across the exec, and the VMM's standard input and output are the
-// console terminal (ADR 0025), which replace descriptors 0 and 1 and are closed
-// where they were passed.
+// openDescriptors makes the descriptors the VMM is passed ready: the tap and the
+// event pipe's write end (ADR 0026) are checked to be there and to stay open
+// across the exec, and the console terminal (ADR 0025) replaces descriptors 0
+// and 1 and is closed where it was passed.
 func openDescriptors(tap bool, events *pb.EndOn) error {
 	if tap {
 		if err := checkInherited(tapFD, "tap"); err != nil {
