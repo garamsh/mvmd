@@ -42,6 +42,7 @@ type state struct {
 
 	boot       *guestv1alpha1.BootRequest
 	catchUp    *guestv1alpha1.CatchUpRequest
+	terminates int
 	exec       *guestv1alpha1.ExecRequest
 	execStatus guestv1alpha1.ExecStatus
 	outStream  guestv1alpha1.OutputStream
@@ -167,6 +168,16 @@ func (a *agent) CatchUp(_ context.Context, r *guestv1alpha1.CatchUpRequest) (*gu
 		return nil, err
 	}
 	return &guestv1alpha1.CatchUpResponse{}, nil
+}
+
+func (a *agent) Terminate(context.Context, *guestv1alpha1.TerminateRequest) (*guestv1alpha1.TerminateResponse, error) {
+	a.mu.Lock()
+	a.terminates++
+	a.mu.Unlock()
+	if err := a.failure("Terminate"); err != nil {
+		return nil, err
+	}
+	return &guestv1alpha1.TerminateResponse{}, nil
 }
 
 func (a *agent) Exec(_ context.Context, r *guestv1alpha1.ExecRequest) (*guestv1alpha1.ExecResponse, error) {
@@ -507,6 +518,34 @@ func TestPatchFile_MapsEachOutcome(t *testing.T) {
 	}
 }
 
+// Terminate sends one request, which carries no signal, and a connection that
+// breaks before the answer is repeated on another: the agent takes a repeat.
+func TestTerminate_SendsOneRequestAndRepeatsAfterAReset(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("one request on one connection", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		require.NoError(t, h.guest.Terminate(ctx, "m"))
+		assert.Equal(t, 1, a.terminates)
+		assert.Equal(t, 1, a.connections())
+	})
+
+	t.Run("a reset connection is replaced", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		a.dropOnConnect = func(n int) bool { return n == 1 }
+		require.NoError(t, h.guest.Terminate(ctx, "m"))
+		assert.Equal(t, 1, a.terminates, "the first connection never reached the agent")
+		assert.Equal(t, 2, a.connections())
+	})
+
+	t.Run("a Machine whose guest port nothing serves is unreachable", func(t *testing.T) {
+		h := newHarness(t)
+		require.ErrorIs(t, h.guest.Terminate(ctx, "absent"), machine.ErrGuestUnreachable)
+	})
+}
+
 // Each status of the agent becomes the error the port promises, by what the
 // call was doing. The rows whose want is nil are controls: a status that must
 // not become that sentinel.
@@ -523,7 +562,8 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		"Boot": func(h *harness) error {
 			return h.guest.Boot(ctx, "m", machine.GuestBoot{})
 		},
-		"CatchUp": func(h *harness) error { return h.guest.CatchUp(ctx, "m", machine.CatchUp{}) },
+		"CatchUp":   func(h *harness) error { return h.guest.CatchUp(ctx, "m", machine.CatchUp{}) },
+		"Terminate": func(h *harness) error { return h.guest.Terminate(ctx, "m") },
 		"Exec": func(h *harness) error {
 			_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{})
 			return err
@@ -573,6 +613,10 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		{name: "a patch to a guest that has not booted", call: "PatchFile", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.NotBooted{State: guestv1alpha1.BootState_BOOT_STATE_PENDING})},
 		{name: "a patch to a guest that failed to boot", call: "PatchFile", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.NotBooted{State: guestv1alpha1.BootState_BOOT_STATE_FAILED})},
 		{name: "an exec to a guest that has not booted", call: "Exec", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.NotBooted{State: guestv1alpha1.BootState_BOOT_STATE_PENDING})},
+		// Terminate: a refusal is an answer, so it is not an agent that could
+		// not be reached, which the lifecycle falls back from.
+		{name: "a terminate the agent refuses", call: "Terminate", answer: st(codes.FailedPrecondition, "this agent is not the guest's init and cannot stop it")},
+		{name: "a terminate to an agent that is gone", call: "Terminate", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
 		{name: "a connection the agent lost", call: "Health", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
 		// ExecOutputGone, with the same code and no detail as the control.
 		{

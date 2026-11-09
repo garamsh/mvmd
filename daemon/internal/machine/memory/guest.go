@@ -19,8 +19,8 @@ import (
 // and commands. It does not model a VMM, so it answers whether or not the
 // Machine runs; the lifecycle is what refuses a call. Its steps are "health",
 // "boot", "catch-up", "exec", "read-exec-output", "read-file",
-// "write-file", "patch-file" and "search-files"; a failing step answers
-// machine.ErrGuestUnreachable unless told another error.
+// "write-file", "patch-file", "search-files" and "terminate"; a failing step
+// answers machine.ErrGuestUnreachable unless told another error.
 type Guest struct {
 	Failures
 
@@ -33,6 +33,9 @@ type Guest struct {
 	refused   map[machine.ExecID]string
 	loseExec  bool
 	retention int
+	ends      func(machine.MachineID)
+	refuse    error
+	terms     map[machine.MachineID]int
 }
 
 type guestExec struct {
@@ -52,6 +55,7 @@ func NewGuest(retention int) *Guest {
 		catchUps:  make(map[machine.MachineID][]machine.CatchUp),
 		boots:     make(map[machine.MachineID][]machine.GuestBoot),
 		refused:   make(map[machine.ExecID]string),
+		terms:     make(map[machine.MachineID]int),
 		retention: retention,
 	}
 }
@@ -354,4 +358,55 @@ func (g *Guest) SearchFiles(_ context.Context, id machine.MachineID, path, patte
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// EndsMachineWith makes a Terminate end the Machine by calling f, as an agent
+// whose entrypoint stops on SIGTERM does. Without it the guest has nothing to
+// end a Machine with, and Terminate answers as a call that did not reach an
+// agent, so a lifecycle over this substitute falls back to the Driver.
+func (g *Guest) EndsMachineWith(f func(machine.MachineID)) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.ends = f
+}
+
+// RefuseTerminate makes Terminate answer err, as an agent that was reached and
+// refused the request does: it is not machine.ErrGuestUnreachable. A nil err
+// ends the refusal.
+func (g *Guest) RefuseTerminate(err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refuse = err
+}
+
+// Terminate implements machine.Guest.
+func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
+	if err := g.enter("terminate"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	g.mu.Lock()
+	if g.refuse != nil {
+		defer g.mu.Unlock()
+		return g.refuse
+	}
+	ends := g.ends
+	if ends != nil {
+		g.terms[id]++
+	}
+	g.mu.Unlock()
+	if ends == nil {
+		return machine.ErrGuestUnreachable
+	}
+	ends(id)
+	return nil
+}
+
+// Terminated returns how many Terminate calls the guest of the Machine took.
+func (g *Guest) Terminated(id machine.MachineID) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.terms[id]
 }
