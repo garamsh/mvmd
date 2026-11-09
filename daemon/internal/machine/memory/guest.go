@@ -19,7 +19,8 @@ import (
 // and commands. It does not model a VMM, so it answers whether or not the
 // Machine runs; the lifecycle is what refuses a call. Its steps are "health",
 // "boot", "catch-up", "exec", "read-exec-output", "read-file",
-// "write-file", "patch-file", "search-files" and "terminate"; a failing step
+// "write-file", "patch-file", "search-files", "terminate", "find-disk" and
+// "release-disk"; a failing step
 // answers machine.ErrGuestUnreachable unless told another error.
 type Guest struct {
 	Failures
@@ -36,6 +37,9 @@ type Guest struct {
 	ends      func(machine.MachineID)
 	refuse    error
 	terms     map[machine.MachineID]int
+	found     map[machine.MachineID]map[machine.DiskID]bool
+	released  map[machine.MachineID]map[machine.DiskID]bool
+	held      map[machine.MachineID]map[machine.DiskID]bool
 }
 
 type guestExec struct {
@@ -56,6 +60,9 @@ func NewGuest(retention int) *Guest {
 		boots:     make(map[machine.MachineID][]machine.GuestBoot),
 		refused:   make(map[machine.ExecID]string),
 		terms:     make(map[machine.MachineID]int),
+		found:     make(map[machine.MachineID]map[machine.DiskID]bool),
+		released:  make(map[machine.MachineID]map[machine.DiskID]bool),
+		held:      make(map[machine.MachineID]map[machine.DiskID]bool),
 		retention: retention,
 	}
 }
@@ -402,6 +409,74 @@ func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
 	}
 	ends(id)
 	return nil
+}
+
+// FindDisk implements machine.Guest: the guest finds the disk and records it,
+// whether it is new or one it released.
+func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
+	if err := g.enter("find-disk"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.found[id] == nil {
+		g.found[id] = make(map[machine.DiskID]bool)
+	}
+	g.found[id][disk] = true
+	delete(g.released[id], disk)
+	return nil
+}
+
+// ReleaseDisk implements machine.Guest: it releases a disk the guest found,
+// unless the disk is held open (HoldDisk). A disk it already released is
+// released again without effect, and machine.ErrDiskUnknown is the answer for
+// one it never found.
+func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
+	if err := g.enter("release-disk"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.released[id][disk] {
+		return nil
+	}
+	if !g.found[id][disk] {
+		return machine.ErrDiskUnknown
+	}
+	if g.held[id][disk] {
+		return machine.ErrDiskInUse
+	}
+	delete(g.found[id], disk)
+	if g.released[id] == nil {
+		g.released[id] = make(map[machine.DiskID]bool)
+	}
+	g.released[id][disk] = true
+	return nil
+}
+
+// HoldDisk makes the guest use the disk, as a mounted filesystem does, so that
+// ReleaseDisk refuses it, or ends the use when open is false.
+func (g *Guest) HoldDisk(id machine.MachineID, disk machine.DiskID, open bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.held[id] == nil {
+		g.held[id] = make(map[machine.DiskID]bool)
+	}
+	g.held[id][disk] = open
+}
+
+// DiskFound reports whether the guest of the Machine has found the disk and not
+// released it.
+func (g *Guest) DiskFound(id machine.MachineID, disk machine.DiskID) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.found[id][disk]
 }
 
 // Terminated returns how many Terminate calls the guest of the Machine took.

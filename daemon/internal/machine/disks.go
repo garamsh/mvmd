@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 )
 
@@ -35,6 +36,9 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		}
 		return fail(ErrFailed, "locate disk %q: %v", a.Disk, err)
 	}
+	if m.State == StatePaused {
+		return fail(ErrPreconditionFailed, "Machine %q is Paused and its guest cannot find a disk; resume it first", id)
+	}
 	if hot(m) && !s.driver.Info().has(CapabilityDiskHotplug) {
 		return fail(ErrUnsupported, "the Driver cannot attach a disk to a %s Machine", m.State)
 	}
@@ -62,8 +66,33 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 			s.release(a.Disk)
 			return fail(ErrFailed, "attach disk %q: %v", a.Disk, err)
 		}
+		// The guest finds the device it is not told of (ADR 0022). A guest
+		// that cannot leaves the disk on the VMM and not in the guest, so it
+		// is taken off again and the attach has not happened.
+		if err := s.guest.FindDisk(ctx, id, a.Disk); err != nil {
+			ctx, cancel := s.compensating(ctx)
+			defer cancel()
+			if derr := s.driver.DetachDisk(ctx, id, a.Disk); derr != nil {
+				return s.diverged(rec, "disk %q is on the VMM, the guest could not find it (%v) and the Driver could not detach it: %v", a.Disk, err, derr)
+			}
+			if cerr := s.commit(ctx, rec, m); cerr != nil {
+				return s.unrecorded(rec, cerr)
+			}
+			s.release(a.Disk)
+			return fail(ErrFailed, "the guest could not find disk %q: %v", a.Disk, err)
+		}
 	}
 	return nil
+}
+
+// diverged marks the Machine Faulted when the VMM and the guest disagree about
+// a disk and mvmd could not bring them back together.
+func (s *service) diverged(rec *Record, format string, args ...any) error {
+	faulted := rec.Machine.clone()
+	faulted.State = StateFaulted
+	faulted.FailureReason = fmt.Sprintf(format, args...)
+	s.setMachine(rec, &faulted)
+	return fail(ErrFailed, "%s", faulted.FailureReason)
 }
 
 func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) error {
@@ -84,13 +113,34 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 		}
 		return nil
 	}
+	if m.State == StatePaused {
+		return fail(ErrPreconditionFailed, "Machine %q is Paused and its guest cannot release a disk; resume it first", id)
+	}
 	if hot(m) && !s.driver.Info().has(CapabilityDiskHotplug) {
 		return fail(ErrUnsupported, "the Driver cannot detach a disk from a %s Machine", m.State)
 	}
 
-	// The holder is released only once the VMM no longer has the disk open.
+	// The guest lets go of the device first (ADR 0022), and the holder is
+	// released only once the VMM no longer has the disk open. A guest that
+	// refuses or does not answer leaves the disk attached.
 	if hot(m) {
+		if err := s.guest.ReleaseDisk(ctx, id, disk); err != nil {
+			switch {
+			case errors.Is(err, ErrDiskInUse):
+				return fail(ErrPreconditionFailed, "the guest of Machine %q is using disk %q: %v", id, disk, err)
+			case errors.Is(err, ErrDiskUnknown):
+				return fail(ErrPreconditionFailed, "the guest of Machine %q never found disk %q while it ran, so it cannot release it; stop the Machine to detach it", id, disk)
+			}
+			return fail(ErrFailed, "the guest could not release disk %q: %v", disk, err)
+		}
 		if err := s.driver.DetachDisk(ctx, id, disk); err != nil {
+			// The guest has let go of a disk the VMM still has: ask it to
+			// find the disk again, as far as it can. If it cannot, a retried
+			// Detach releases again without effect and tries the Driver once
+			// more.
+			ctx, cancel := s.compensating(ctx)
+			defer cancel()
+			_ = s.guest.FindDisk(ctx, id, disk)
 			return fail(ErrFailed, "detach disk %q: %v", disk, err)
 		}
 	}
