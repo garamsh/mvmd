@@ -23,6 +23,12 @@ jobs:
             tooling/protogen/go.sum
       - name: Record the toolchain this run resolved
         run: go version
+      - name: Record what the runner label resolved to
+        run: |
+          test -n "$ImageOS" || { echo "ImageOS is empty"; exit 1; }
+          test -n "$ImageVersion" || { echo "ImageVersion is empty"; exit 1; }
+          echo "runner image: $ImageOS $ImageVersion"
+          uname -r
       # Installs what guest-agent/rust-toolchain.toml pins and prints the versions it
       # resolved. Caching is off, so a run reads only the pinned inputs; build-warnings is
       # empty so CI sets no cargo flag that a local run lacks.
