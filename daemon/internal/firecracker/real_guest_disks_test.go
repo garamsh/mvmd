@@ -25,7 +25,6 @@ import (
 // retried. The agent serves both calls before it has been booted, which is the
 // state the initrd's agent is in here.
 func TestReal_AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.T) {
-	// The Unix socket paths bound the length of this directory.
 	dir, err := os.MkdirTemp("", "fcgdisk")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
