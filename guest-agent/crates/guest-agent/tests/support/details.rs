@@ -3,7 +3,7 @@
 //! The messages are decoded here from the wire, so a detail the agent mislabels or mis-encodes
 //! fails the test that reads it.
 
-use prost::Message;
+use prost::{Message, Name};
 use tonic::Status;
 
 #[derive(Clone, PartialEq, Message)]
@@ -46,10 +46,14 @@ pub fn detail_types(status: &Status) -> Vec<String> {
         .collect()
 }
 
-/// The detail of `status` that is a `name` message, or `None` when it carries none.
-pub fn detail<M: Message + Default>(status: &Status, name: &str) -> Option<M> {
+/// The detail of `status` that is an `M`, found by the message type's own full name, or `None`
+/// when it carries none.
+pub fn detail<M: Message + Name + Default>(status: &Status) -> Option<M> {
     let rpc = RpcStatus::decode(status.details()).ok()?;
-    let url = format!("type.googleapis.com/mvmd.guest.v1alpha1.{name}");
-    let any = rpc.details.into_iter().find(|any| any.type_url == url)?;
+    let suffix = format!("/{}", M::full_name());
+    let any = rpc
+        .details
+        .into_iter()
+        .find(|any| any.type_url.ends_with(&suffix))?;
     M::decode(any.value.as_slice()).ok()
 }

@@ -560,8 +560,7 @@ async fn each_step_that_fails_is_named_over_the_channel_and_ends_the_boot() -> R
 
         assert_eq!(failure.code(), Code::Internal, "{operation}");
         // The step and its detail are read from the status detail and not from the message.
-        let failed: BootFailed =
-            details::detail(&failure, "BootFailed").ok_or("no BootFailed detail")?;
+        let failed: BootFailed = details::detail(&failure).ok_or("no BootFailed detail")?;
         assert_eq!(failed.step(), wire_step, "{operation}");
         assert_eq!(failed.detail, "injected failure", "{operation}");
         // The console carries the same failure, once, in the form the daemon reads.
@@ -599,13 +598,12 @@ async fn each_step_that_fails_is_named_over_the_channel_and_ends_the_boot() -> R
             exec.message().contains(&format!("boot step {step}")),
             "{operation}"
         );
-        let not_booted: NotBooted =
-            details::detail(&exec, "NotBooted").ok_or("no NotBooted detail")?;
+        let not_booted: NotBooted = details::detail(&exec).ok_or("no NotBooted detail")?;
         assert_eq!(not_booted.state(), BootState::Failed, "{operation}");
         let repeat = agent.boot("sleep 30").await.unwrap_err();
         assert_eq!(repeat.message(), failure.message(), "{operation}");
         let again: BootFailed =
-            details::detail(&repeat, "BootFailed").ok_or("no BootFailed detail on a repeat")?;
+            details::detail(&repeat).ok_or("no BootFailed detail on a repeat")?;
         assert_eq!(again, failed, "{operation}");
         assert_eq!(agent.log.count(operation), 1, "{operation} was tried again");
         assert!(!agent.is_powered_off(), "{operation} powered off");
@@ -631,8 +629,7 @@ async fn an_entrypoint_that_cannot_start_fails_the_boot_at_its_step() -> Result 
             .contains(&format!("boot step {}", BootStep::Entrypoint))
     );
     assert!(failure.message().contains("/no/such/program"));
-    let failed: BootFailed =
-        details::detail(&failure, "BootFailed").ok_or("no BootFailed detail")?;
+    let failed: BootFailed = details::detail(&failure).ok_or("no BootFailed detail")?;
     assert_eq!(failed.step(), WireStep::Entrypoint);
     assert!(
         failed.detail.contains("/no/such/program"),
@@ -788,8 +785,7 @@ async fn a_catch_up_before_the_boot_is_refused() -> Result {
         .unwrap_err();
 
     assert_eq!(refused.code(), Code::FailedPrecondition);
-    let not_booted: NotBooted =
-        details::detail(&refused, "NotBooted").ok_or("no NotBooted detail")?;
+    let not_booted: NotBooted = details::detail(&refused).ok_or("no NotBooted detail")?;
     assert_eq!(not_booted.state(), BootState::Pending);
     assert!(lock(&agent.entropy.mixed).is_empty());
     // The control: after the boot the same request is served.
@@ -920,8 +916,7 @@ async fn the_guest_is_served_only_once_it_has_booted_except_health_and_info() ->
         let refusal = result.unwrap_err();
         assert_eq!(refusal.code(), Code::FailedPrecondition);
         // Boot has not been called: the boot is pending, not failed.
-        let not_booted: NotBooted =
-            details::detail(&refusal, "NotBooted").ok_or("no NotBooted detail")?;
+        let not_booted: NotBooted = details::detail(&refusal).ok_or("no NotBooted detail")?;
         assert_eq!(not_booted.state(), BootState::Pending);
     }
 

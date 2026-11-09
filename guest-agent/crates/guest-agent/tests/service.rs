@@ -541,8 +541,7 @@ async fn output_older_than_the_retention_is_refused_with_the_earliest_offset_hel
 
     assert_eq!(old.code(), Code::OutOfRange);
     // The earliest offset is read from the detail and not from the message.
-    let gone: ExecOutputGone =
-        details::detail(&old, "ExecOutputGone").ok_or("no ExecOutputGone detail")?;
+    let gone: ExecOutputGone = details::detail(&old).ok_or("no ExecOutputGone detail")?;
     assert_eq!(gone.earliest_offset, 900);
     assert_eq!(
         details::detail_types(&old),
@@ -876,8 +875,7 @@ async fn read_file_refuses_a_missing_file_a_directory_and_a_relative_path() -> R
     assert_eq!(directory.code(), Code::InvalidArgument);
     assert_eq!(relative.code(), Code::InvalidArgument);
     // The directory is a file of the wrong kind; a missing file and a relative path are not.
-    let wrong: WrongFileKind =
-        details::detail(&directory, "WrongFileKind").ok_or("no WrongFileKind detail")?;
+    let wrong: WrongFileKind = details::detail(&directory).ok_or("no WrongFileKind detail")?;
     assert_eq!(wrong.path, dir_path.to_str().ok_or("path")?);
     assert_eq!(wrong.expected(), EntryKind::File);
     assert_eq!(
@@ -902,8 +900,7 @@ async fn a_listing_of_a_regular_file_names_a_directory_as_the_kind_expected() ->
     let listed = h.list(&file).await.err().ok_or("a file was listed")?;
 
     assert_eq!(listed.code(), Code::InvalidArgument);
-    let wrong: WrongFileKind =
-        details::detail(&listed, "WrongFileKind").ok_or("no WrongFileKind detail")?;
+    let wrong: WrongFileKind = details::detail(&listed).ok_or("no WrongFileKind detail")?;
     assert_eq!(wrong.path, file.to_str().ok_or("path")?);
     assert_eq!(wrong.expected(), EntryKind::Directory);
     // Control: the directory itself is listed.
@@ -993,8 +990,7 @@ async fn write_and_patch_refuse_a_target_that_is_not_a_regular_file() -> Result 
             "{}",
             target.display()
         );
-        let wrong: WrongFileKind =
-            details::detail(&patched, "WrongFileKind").ok_or("no WrongFileKind detail")?;
+        let wrong: WrongFileKind = details::detail(&patched).ok_or("no WrongFileKind detail")?;
         assert_eq!(wrong.expected(), EntryKind::File, "{}", target.display());
     }
 

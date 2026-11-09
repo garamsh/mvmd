@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use prost::Message;
+use prost::{Message, Name};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
@@ -80,12 +80,12 @@ struct Any {
 }
 
 /// `status` with `detail` in its details, named by the full name of the message type.
-fn with_detail<M: Message>(status: Status, name: &str, detail: &M) -> Status {
+fn with_detail<M: Message + Name>(status: Status, detail: &M) -> Status {
     let rpc = RpcStatus {
         code: status.code() as i32,
         message: status.message().to_owned(),
         details: vec![Any {
-            type_url: format!("type.googleapis.com/mvmd.guest.v1alpha1.{name}"),
+            type_url: format!("type.googleapis.com{}", M::type_url()),
             value: detail.encode_to_vec(),
         }],
     };
@@ -99,7 +99,6 @@ impl From<Error> for Status {
             Error::Invalid(_) => Status::invalid_argument(message),
             Error::WrongKind { path, expected } => with_detail(
                 Status::invalid_argument(message),
-                "WrongFileKind",
                 &WrongFileKind {
                     path,
                     expected: match expected {
@@ -110,7 +109,6 @@ impl From<Error> for Status {
             ),
             Error::OutOfRange { earliest_offset } => with_detail(
                 Status::out_of_range(message),
-                "ExecOutputGone",
                 &ExecOutputGone { earliest_offset },
             ),
             Error::NotFound(_) => Status::not_found(message),
@@ -118,7 +116,6 @@ impl From<Error> for Status {
             Error::PreconditionFailed(_) => Status::failed_precondition(message),
             Error::NotBooted { state, .. } => with_detail(
                 Status::failed_precondition(message),
-                "NotBooted",
                 &NotBooted {
                     state: match state {
                         Unbooted::Pending => BootState::Pending,
@@ -129,7 +126,6 @@ impl From<Error> for Status {
             Error::DigestMismatch(_) => Status::data_loss(message),
             Error::Boot { step, detail } => with_detail(
                 Status::internal(message),
-                "BootFailed",
                 &BootFailed {
                     step: match step {
                         BootStep::Check => ProtoStep::Check,
