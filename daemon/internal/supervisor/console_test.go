@@ -2,9 +2,11 @@ package supervisor
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/statedir"
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // syncBuffer is a log the console writes while the test reads.
@@ -46,10 +49,13 @@ type vmm struct {
 
 func newVMM(t *testing.T) *vmm {
 	t.Helper()
-	// A short directory: a Unix socket path holds 107 bytes.
-	dir, err := os.MkdirTemp("", "cs")
+	// A directory whose path is over the 107 bytes a Unix socket address holds:
+	// the socket is bound and connected through a descriptor of the directory.
+	root, err := os.MkdirTemp("", "cs")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	dir := filepath.Join(root, strings.Repeat("d", 100))
+	require.NoError(t, os.Mkdir(dir, 0o700))
 	sock := statedir.ConsoleSocket(dir)
 	l, err := listenConsole(sock)
 	require.NoError(t, err)
@@ -65,7 +71,7 @@ func newVMM(t *testing.T) *vmm {
 
 func (v *vmm) session(t *testing.T) net.Conn {
 	t.Helper()
-	c, err := net.Dial("unix", v.sock)
+	c, err := unixsock.DialContext(context.Background(), v.sock)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 	return c
@@ -186,6 +192,6 @@ func TestConsole_EndsItsSessionsWhenTheVMMsOutputEnds(t *testing.T) {
 	assert.Equal(t, "last\n", string(got), "the session reads to end of file after what was written")
 
 	v.c.Wait()
-	_, err = net.Dial("unix", v.sock)
+	_, err = unixsock.DialContext(context.Background(), v.sock)
 	assert.Error(t, err, "and no session opens once the output has ended")
 }

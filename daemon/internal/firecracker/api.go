@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // apiError is Firecracker's refusal of a request: its status and the
@@ -35,8 +37,7 @@ func newClient(socket string) *client {
 	return &client{http: &http.Client{Transport: &http.Transport{
 		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", socket)
+			return unixsock.DialContext(ctx, socket)
 		},
 	}}}
 }
@@ -87,9 +88,8 @@ func (c *client) do(ctx context.Context, method, path string, body, out any) err
 // await returns once the API socket accepts a connection, which is some time
 // after the supervisor has started the VMM, or when ctx ends.
 func await(ctx context.Context, socket string) error {
-	var d net.Dialer
 	for wait := time.Millisecond; ; wait = min(2*wait, 50*time.Millisecond) {
-		conn, err := d.DialContext(ctx, "unix", socket)
+		conn, err := unixsock.DialContext(ctx, socket)
 		if err == nil {
 			return conn.Close()
 		}

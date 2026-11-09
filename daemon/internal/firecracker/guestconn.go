@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // maxHandshakeLine bounds the answer to CONNECT; Firecracker's is "OK <port>\n"
@@ -40,7 +41,7 @@ func (d *Driver) GuestConn(ctx context.Context, id machine.MachineID, port uint3
 	if err != nil {
 		return nil, err
 	}
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", sock)
+	conn, err := unixsock.DialContext(ctx, sock)
 	if err != nil {
 		return nil, errors.Join(machine.ErrGuestUnreachable, err)
 	}

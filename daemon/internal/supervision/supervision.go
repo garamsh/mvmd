@@ -27,6 +27,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 const (
@@ -328,7 +329,9 @@ func isAbsent(err error) bool {
 // peerPID connects to the socket and returns the process id of its listener as
 // the kernel reports it to this process.
 func peerPID(sock string) (int, error) {
-	conn, err := net.DialTimeout("unix", sock, rpcTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+	conn, err := unixsock.DialContext(ctx, sock)
 	if err != nil {
 		return 0, err
 	}
@@ -353,7 +356,11 @@ func peerPID(sock string) (int, error) {
 // withClient runs f against the supervisor on the socket, bounded by
 // rpcTimeout.
 func withClient(ctx context.Context, sock string, f func(context.Context, pb.SupervisorServiceClient) error) error {
-	conn, err := grpc.NewClient("unix:"+sock, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient("passthrough:///supervisor",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(dial context.Context, _ string) (net.Conn, error) {
+			return unixsock.DialContext(dial, sock)
+		}))
 	if err != nil {
 		return err
 	}

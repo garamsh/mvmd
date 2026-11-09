@@ -91,8 +91,7 @@ func TestConsoleLog_HonoursItsContext(t *testing.T) {
 // accepted.
 func serveConsole(t *testing.T, n *node) <-chan net.Conn {
 	t.Helper()
-	l, err := net.Listen("unix", statedir.ConsoleSocket(statedir.Of(n.run)))
-	require.NoError(t, err)
+	l := listenUnix(t, statedir.ConsoleSocket(statedir.Of(n.run)))
 	t.Cleanup(func() { _ = l.Close() })
 	accepted := make(chan net.Conn, 2)
 	go func() {
@@ -147,9 +146,8 @@ func TestConsole_IsUnavailableOnceTheSupervisorsSocketIsGoneOrRefuses(t *testing
 	// supervisor serves, opens a session. Without it the refusals here would
 	// hold for a Driver that dials the wrong name.
 	sock := statedir.ConsoleSocket(statedir.Of(n.run))
-	l, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-	l.(*net.UnixListener).SetUnlinkOnClose(false)
+	l := listenUnix(t, sock)
+	l.SetUnlinkOnClose(false)
 	go func() {
 		for {
 			c, err := l.Accept()

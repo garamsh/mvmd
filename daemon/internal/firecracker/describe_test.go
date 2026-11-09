@@ -73,7 +73,6 @@ func TestDescribe_RefusesWhatTheVMMWould(t *testing.T) {
 		{"a relative device path", func(s *machine.BootSpec) { s.Devices[0].Path = "erofs" }, "not absolute"},
 		{"a tap name over the 15 bytes an interface name holds", func(s *machine.BootSpec) { s.Network.Tap = "tap-0123456789ab" }, "interface name"},
 		{"a relative run directory", func(s *machine.BootSpec) { s.RunDir = "run" }, "absolute"},
-		{"a run directory too long for a socket", func(s *machine.BootSpec) { s.RunDir = "/" + strings.Repeat("d", 100) }, "Unix socket"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
