@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,12 @@ func TestGuest_ARouterAdvertisementIsDropped(t *testing.T) {
 		bareMAC := net.HardwareAddr{0x02, 0, 0, 0, 0, 0x42}
 		bareLL := netip.MustParseAddr("fe80::42")
 		bareGuest.send(routerAdvert(bareMAC, bareLL))
-		require.True(t, eventually(func() bool { return defaultRouterVia(t, bareLink.Attrs().Index, bareLL) }),
+		// The kernel adds a default route when it processes the advertisement.
+		// Wait for the route with a generous timeout so slow CI runners pass
+		// even when the kernel is loaded. bare0 has no IP address, so the
+		// kernel event is the route addition itself — there is no neighbour
+		// solicitation response to use as an ordering signal here.
+		require.True(t, eventually(10*time.Second, func() bool { return defaultRouterVia(t, bareLink.Attrs().Index, bareLL) }),
 			"control: the host takes a default route from an advertisement that nothing filters")
 
 		// The kernel handles the frames of one tap in the order they arrive, so

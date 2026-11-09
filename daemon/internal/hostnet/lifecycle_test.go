@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,7 @@ func (w *linkWatch) settle(t *testing.T) {
 	marker := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "mvmdsettle"}}
 	require.NoError(t, netlink.LinkAdd(marker))
 	defer func() { _ = netlink.LinkDel(marker) }()
-	require.True(t, eventually(func() bool {
+	require.True(t, eventually(1*time.Second, func() bool {
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		return w.seen["mvmdsettle"]

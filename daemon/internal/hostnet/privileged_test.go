@@ -10,10 +10,9 @@ import (
 // network namespace made for it (internal/nstest).
 var inNamespace = nstest.Run
 
-// eventually polls cond for up to a second; the kernel hands a frame to the
-// reader a moment after the write returns.
-func eventually(cond func() bool) bool {
-	deadline := time.Now().Add(time.Second)
+// eventually polls cond until it returns true or timeout elapses.
+func eventually(timeout time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(timeout)
 	for !cond() {
 		if time.Now().After(deadline) {
 			return false
