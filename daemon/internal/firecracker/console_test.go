@@ -143,10 +143,26 @@ func TestConsole_IsUnavailableOnceTheSupervisorsSocketIsGoneOrRefuses(t *testing
 	_, err := n.driver.Console(context.Background(), "m1")
 	require.ErrorIs(t, err, machine.ErrConsoleUnavailable, "no socket")
 
+	// The control: the same Driver, with a listener at the socket the
+	// supervisor serves, opens a session. Without it the refusals here would
+	// hold for a Driver that dials the wrong name.
 	sock := filepath.Join(filepath.Dir(n.run), supervisor.ConsoleSocketName)
 	l, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	l.(*net.UnixListener).SetUnlinkOnClose(false)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	s, err := n.driver.Console(context.Background(), "m1")
+	require.NoError(t, err, "a socket someone listens on")
+	require.NoError(t, s.Close())
+
 	require.NoError(t, l.Close())
 	_, err = n.driver.Console(context.Background(), "m1")
 	require.ErrorIs(t, err, machine.ErrConsoleUnavailable, "a socket nothing listens on")
