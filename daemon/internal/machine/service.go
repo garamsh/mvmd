@@ -87,6 +87,8 @@ type service struct {
 	permitter  StartPermitter
 	uidRange   UIDRange
 	events     Events
+	// bootTimeout bounds the wait for the guest's boot in Start.
+	bootTimeout time.Duration
 
 	// mu guards the maps below and every record's Machine pointer, and is held
 	// only for map and pointer work, never across a port call. A Machine's
@@ -109,12 +111,30 @@ type service struct {
 	usedUIDByUID map[uint32]MachineID // reverse index for O(1) collision check
 }
 
+// DefaultBootTimeout is how long Start waits for the guest's boot when the
+// node names no other bound.
+const DefaultBootTimeout = 2 * time.Minute
+
+// Option changes how the lifecycle behaves from its defaults.
+type Option func(*service)
+
+// WithBootTimeout bounds how long Start waits for the guest to finish booting,
+// whatever the caller's context says. A bound that is not positive is ignored.
+func WithBootTimeout(d time.Duration) Option {
+	return func(s *service) {
+		if d > 0 {
+			s.bootTimeout = d
+		}
+	}
+}
+
 // NewService returns the lifecycle over the given ports. uidRange names the
 // range of UIDs the node reserves for its Machines (ADR 0015). Every state
 // change and every event the Driver raises goes to events.
-func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, clock WallClock, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events) Service {
+func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, clock WallClock, store StateStore, permitter StartPermitter, uidRange UIDRange, events Events, options ...Option) Service {
 	driver.Observe(events.Reported)
-	return &service{
+	s := &service{
+		bootTimeout:  DefaultBootTimeout,
 		driver:       driver,
 		supervisor:   supervisor,
 		network:      network,
@@ -135,6 +155,10 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		usedUID:      make(map[MachineID]uint32),
 		usedUIDByUID: make(map[uint32]MachineID),
 	}
+	for _, o := range options {
+		o(s)
+	}
+	return s
 }
 
 // lock serializes the calls on one Machine and returns the unlock. The entry

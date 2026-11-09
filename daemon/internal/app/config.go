@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -37,6 +38,30 @@ type Config struct {
 	// Network, when set, makes a real tap per Machine and one nftables table
 	// in place of the in-memory substitute. mvmd then needs CAP_NET_ADMIN.
 	Network *NetworkConfig `json:"network,omitempty"`
+	// BootTimeout is how long Start waits for a guest to finish booting, as a
+	// Go duration such as "90s". When it passes the VMM is ended and the
+	// Machine is Stopped. Empty means machine.DefaultBootTimeout (2m); it must
+	// be positive and at most MaxBootTimeout.
+	BootTimeout string `json:"boot_timeout,omitempty"`
+}
+
+// MaxBootTimeout is the longest boot timeout a node can name.
+const MaxBootTimeout = time.Hour
+
+// bootTimeout returns the configured bound, or the default when none is set.
+// check has already refused a value that does not parse.
+func (c Config) bootTimeout() (time.Duration, error) {
+	if c.BootTimeout == "" {
+		return machine.DefaultBootTimeout, nil
+	}
+	d, err := time.ParseDuration(c.BootTimeout)
+	switch {
+	case err != nil:
+		return 0, fmt.Errorf("boot_timeout %q is not a duration such as \"90s\"", c.BootTimeout)
+	case d <= 0 || d > MaxBootTimeout:
+		return 0, fmt.Errorf("boot_timeout %q is outside 1ns to %s", c.BootTimeout, MaxBootTimeout)
+	}
+	return d, nil
 }
 
 // NetworkConfig is what the node says about its network (ADR 0011). A node
@@ -161,6 +186,9 @@ func (c Config) check() error {
 	}
 	if err := c.VMMUIDRange.ToUIDRange().Validate(); err != nil {
 		return fmt.Errorf("vmm_uid_range: %w", err)
+	}
+	if _, err := c.bootTimeout(); err != nil {
+		return err
 	}
 	if n := c.Network; n != nil {
 		if _, err := n.toHostnet(c.VMMUIDRange); err != nil {

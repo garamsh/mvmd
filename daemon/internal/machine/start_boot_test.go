@@ -159,6 +159,96 @@ func TestStart_IsRunningOnlyOnceTheEntrypointRuns(t *testing.T) {
 	assert.Equal(t, 1, e.sup.Calls("start"), "one VMM process")
 }
 
+// boundedEnv is an env whose lifecycle waits at most d for a guest's boot.
+func boundedEnv(d time.Duration) *env {
+	e := newEnv()
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events, machine.WithBootTimeout(d))
+	return e
+}
+
+// bootBound is the bound the tests below put on the guest's boot. No clock in
+// the package makes a timer, so the bound is real and short.
+const bootBound = 150 * time.Millisecond
+
+// A guest that never finishes booting does not keep the Machine for ever: when
+// the bound passes the VMM is ended and the Machine is Stopped with the reason.
+func TestStart_AGuestThatNeverFinishesBootingEndsStoppedAfterTheBound(t *testing.T) {
+	for _, from := range []machine.State{machine.StateCreated, machine.StateStopped} {
+		t.Run("from "+from.String(), func(t *testing.T) {
+			e := boundedEnv(bootBound)
+			e.inState(t, "m", from)
+			entered, release := e.guest.Hold("boot")
+			defer release()
+			begun := time.Now()
+			done := e.startingInBackground("m")
+			requireHeld(t, entered)
+
+			err := requireDone(t, done)
+			requireKind(t, err, machine.ErrFailed)
+			assert.GreaterOrEqual(t, time.Since(begun), bootBound, "not before the bound")
+			assert.Contains(t, err.Error(), "the guest did not finish booting within "+bootBound.String())
+			m := e.requireState(t, "m", machine.StateStopped)
+			e.requireStored(t, "m", machine.StateStopped)
+			assert.Contains(t, m.FailureReason, "the guest did not finish booting within "+bootBound.String())
+			_, running := e.sup.Running("m")
+			assert.False(t, running, "the VMM process was ended")
+			_, applied := e.net.Applied("m")
+			assert.False(t, applied, "the tap was removed")
+		})
+	}
+}
+
+// A Stop sent while the guest is booting waits for the Machine's lock, and
+// completes once the bound has passed and Start has let go of it.
+func TestStart_AStopSentWhileTheGuestBootsCompletesOnceTheBoundPasses(t *testing.T) {
+	e := boundedEnv(bootBound)
+	e.created(t, "m")
+	entered, release := e.guest.Hold("boot")
+	defer release()
+	start := e.startingInBackground("m")
+	requireHeld(t, entered)
+
+	stop := make(chan error, 1)
+	go func() { stop <- e.svc.Stop(context.Background(), "m", time.Second) }()
+
+	requireKind(t, requireDone(t, start), machine.ErrFailed)
+	require.NoError(t, requireDone(t, stop), "Stop of a Machine that is Stopped succeeds")
+	e.requireState(t, "m", machine.StateStopped)
+	_, running := e.sup.Running("m")
+	assert.False(t, running)
+}
+
+// Control: a guest that finishes within the bound reaches Running, and the
+// caller's context ending meanwhile does not end the boot.
+func TestStart_AGuestThatFinishesWithinTheBoundReachesRunning(t *testing.T) {
+	t.Run("a slow boot", func(t *testing.T) {
+		e := boundedEnv(5 * time.Second)
+		e.created(t, "m")
+		entered, release := e.guest.Hold("boot")
+		done := e.startingInBackground("m")
+		requireHeld(t, entered)
+		release()
+
+		require.NoError(t, requireDone(t, done))
+		e.requireState(t, "m", machine.StateRunning)
+	})
+
+	t.Run("the caller gives up meanwhile", func(t *testing.T) {
+		e := boundedEnv(5 * time.Second)
+		e.created(t, "m")
+		entered, release := e.guest.Hold("boot")
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- e.svc.Start(ctx, "m") }()
+		requireHeld(t, entered)
+		cancel()
+		release()
+
+		require.NoError(t, requireDone(t, done), "the boot is bounded by the node's timeout and not by the caller")
+		e.requireState(t, "m", machine.StateRunning)
+	})
+}
+
 // A Boot that fails ends Start in the state the row names, with the step in
 // the reason.
 func TestStart_AFailedGuestBootEndsStoppedWithTheStepInTheReason(t *testing.T) {

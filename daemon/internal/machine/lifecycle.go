@@ -186,8 +186,8 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	// The Machine's lock is held meanwhile, so a repeated Start waits for the
 	// outcome of this one.
 	description := GuestBoot{ImageUUID: located.UUID, RootDiskUUID: m.RootDiskUUID, Run: located.Run, Network: m.Network.guestNetwork()}
-	if err := s.guest.Boot(ctx, id, description); err != nil {
-		return s.bootFailed(ctx, rec, fmt.Errorf("send the boot description to the guest: %w", err))
+	if err := s.bootGuest(ctx, id, description); err != nil {
+		return s.bootFailed(ctx, rec, err)
 	}
 
 	next := m.clone()
@@ -197,6 +197,29 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		return s.unrecorded(rec, err)
 	}
 	return nil
+}
+
+// bootGuest sends the boot description and waits for the entrypoint to run, for
+// at most the node's boot timeout. The bound is the lifecycle's own: it holds
+// when the caller's context never ends and when the Guest adapter ignores the
+// context it is given, and a caller that gives up does not cancel the boot,
+// since an accepted call completes or fails into its defined state.
+func (s *service) bootGuest(ctx context.Context, id MachineID, description GuestBoot) error {
+	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.guest.Boot(bootCtx, id, description) }()
+	timer := time.NewTimer(s.bootTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("send the boot description to the guest: %w", err)
+		}
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("the guest did not finish booting within %s", s.bootTimeout)
+	}
 }
 
 // withdrawn removes the network a start applied before it failed, with no VMM

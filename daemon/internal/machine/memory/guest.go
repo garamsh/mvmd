@@ -85,12 +85,17 @@ func (g *Guest) Health(_ context.Context, _ machine.MachineID) error { return g.
 
 // Boot implements machine.Guest. A step failed with a *machine.BootStepError
 // is the agent answering that a boot step failed, and is returned as it is.
-func (g *Guest) Boot(_ context.Context, id machine.MachineID, boot machine.GuestBoot) error {
+func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.GuestBoot) error {
 	if err := g.Enter("boot"); err != nil {
 		var step *machine.BootStepError
 		if errors.As(err, &step) {
 			return err
 		}
+		return errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	// A call whose context has ended did not reach the guest, as the real
+	// channel's would not.
+	if err := ctx.Err(); err != nil {
 		return errors.Join(machine.ErrGuestUnreachable, err)
 	}
 	g.mu.Lock()
