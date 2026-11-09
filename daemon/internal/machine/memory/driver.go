@@ -336,14 +336,20 @@ func (d *Driver) Drive(_ context.Context, id machine.MachineID, disk machine.Dis
 	if slices.Contains(d.devices[id], disk) {
 		return machine.DriveHotPlugged, nil
 	}
-	// A Machine this Driver never booted is one a new process inherited with
-	// its VMM, whose drives the substitute does not carry over: it reports the
-	// disk as the boot gave it, which the restart keeps and does not ask the
-	// guest of.
-	if _, booted := d.booted[id]; !booted {
+	// The drives a Machine has at boot are those of the description it was
+	// booted with, or restored with.
+	spec, known := d.booted[id]
+	if !known {
+		spec, known = d.restoreSpec[id]
+	}
+	// A Machine this Driver neither booted nor restored is one a new process
+	// inherited with its VMM, whose drives the substitute does not carry over:
+	// it reports the disk as the boot gave it, which the restart keeps and does
+	// not ask the guest of.
+	if !known {
 		return machine.DriveAtBoot, nil
 	}
-	for _, dev := range d.booted[id].Devices {
+	for _, dev := range spec.Devices {
 		if dev.Disk == disk {
 			return machine.DriveAtBoot, nil
 		}

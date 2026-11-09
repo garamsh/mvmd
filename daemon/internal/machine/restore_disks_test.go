@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 // attachedRunning is a Running Machine "m" with disk "d" attached to its VMM,
@@ -133,4 +134,60 @@ func TestRestore_ARunningMachineHoldsOnlyDisksTheVMMAndTheGuestAgreeOn(t *testin
 		assert.Equal(t, machine.StatePaused, m.State)
 		assert.Equal(t, callsBefore, e.driver.Calls("drive"))
 	})
+}
+
+// A Machine restored from a snapshot answers the Driver's Drive as a booted one
+// does: the Driver restored it, so it knows the drives the restore gave it.
+func TestRestore_ARestoredMachineHoldsOnlyDisksItsVMMHas(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(machine.CapabilitySnapshot, machine.CapabilityDiskHotplug)
+	e.snapshotted(t, "src", machine.StateRunning)
+	require.NoError(t, e.svc.RestoreSnapshot(ctx, "m", "r-m", "snap", narrowPolicy))
+	e.requireState(t, "m", machine.StateRunning)
+	require.Empty(t, e.driver.BootedWith("m").Devices, "the setup: the Driver never booted it")
+	require.NotEmpty(t, e.driver.RestoredWith("m").Devices, "the setup: the Driver restored it")
+	e.disks.Provide("d")
+	e.created(t, "other")
+	require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+
+	// A death after the record: the VMM and the guest lack the disk.
+	require.NoError(t, e.guest.ReleaseDisk(ctx, "m", "d"))
+	require.NoError(t, e.driver.DetachDisk(ctx, "m", "d"))
+
+	svc := e.reopened(t)
+	m, err := svc.Inspect(ctx, "m")
+	require.NoError(t, err)
+	assert.Equal(t, machine.StateRunning, m.State)
+	assert.Empty(t, m.Disks, "the record dropped the disk the VMM lacks")
+	require.NoError(t, svc.AttachDisk(ctx, "other", rw("d")), "the holder is released")
+
+	// Control: the restored Machine's own boot drives are kept.
+	state, err := e.driver.Drive(ctx, "m", m.RootDisk)
+	require.NoError(t, err)
+	assert.Equal(t, machine.DriveAtBoot, state)
+}
+
+// A Machine the Driver neither booted nor restored is one a new process
+// inherited with its VMM. The in-memory Driver does not carry the VMM over, so
+// it reports the disks the record lists as given at boot, and the restart
+// keeps them.
+func TestRestore_AnInheritedMachineKeepsItsDisks(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(machine.CapabilityDiskHotplug)
+	e.disks.Provide("d")
+	e.created(t, "m")
+	require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+	require.NoError(t, e.svc.Start(ctx, "m"))
+
+	e.driver = memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: []machine.Capability{machine.CapabilityDiskHotplug}})
+	require.Empty(t, e.driver.BootedWith("m").Devices, "the setup: the new Driver never booted it")
+	require.Empty(t, e.driver.RestoredWith("m").Devices, "the setup: the new Driver never restored it")
+
+	svc := e.reopened(t)
+	m, err := svc.Inspect(ctx, "m")
+	require.NoError(t, err)
+	assert.Equal(t, machine.StateRunning, m.State)
+	assert.Equal(t, []machine.DiskAttachment{rw("d")}, m.Disks)
+	assert.Equal(t, 1, e.driver.Calls("drive"), "control: the Driver was asked")
+	assert.Zero(t, e.guest.Calls("find-disk"))
 }
