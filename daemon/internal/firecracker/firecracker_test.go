@@ -1,7 +1,6 @@
 package firecracker_test
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -13,12 +12,12 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-func TestInfo_NamesFirecrackerAtItsVersionAndReportsTheConsoleAndSnapshot(t *testing.T) {
+func TestInfo_NamesFirecrackerAtItsVersionAndReportsTheConsoleSnapshotAndDiskHotplug(t *testing.T) {
 	info := newNode(t).driver.Info()
 	assert.Equal(t, "firecracker", info.Name)
 	assert.Equal(t, "1.17.0", info.Version)
 	assert.NotEmpty(t, info.CPUModel)
-	assert.Equal(t, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}, info.Capabilities, "hot-plug and resize are not implemented")
+	assert.Equal(t, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}, info.Capabilities, "resize is not one: v1.17.0 has none this Driver reaches")
 }
 
 func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
@@ -57,16 +56,4 @@ func TestNew_RefusesAMissingBinary(t *testing.T) {
 	require.NoError(t, os.Remove(n.cfg.Binary))
 	_, err := firecracker.New(n.cfg)
 	require.Error(t, err)
-}
-
-func TestDriver_RefusesTheOperationsItDoesNotYetImplement(t *testing.T) {
-	d := newNode(t).driver
-	ctx := context.Background()
-	for name, err := range map[string]error{
-		"attach": d.AttachDisk(ctx, "m1", machine.BlockDevice{}),
-		"detach": d.DetachDisk(ctx, "m1", "d"),
-		"resize": d.Resize(ctx, "m1", machine.Resources{}),
-	} {
-		assert.ErrorIs(t, err, machine.ErrUnsupported, name)
-	}
 }

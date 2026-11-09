@@ -87,11 +87,11 @@ func New(cfg Config) (*Driver, error) {
 }
 
 // Info implements machine.Driver. The optional capabilities reported are the
-// console and snapshot, which covers restore: this Driver does not yet
-// hot-plug or resize.
+// console, snapshot, which covers restore, and disk hot-plug. Resize is not
+// one: v1.17.0 has no resize this Driver can reach (Resize says why).
 func (d *Driver) Info() machine.DriverInfo {
 	return machine.DriverInfo{Name: "firecracker", Version: Version, CPUModel: d.cpuModel,
-		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}}
+		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}}
 }
 
 // Observe implements machine.Driver. The Driver raises no event of its own:
@@ -122,22 +122,14 @@ func (d *Driver) api(id machine.MachineID) (*client, error) {
 	return newClient(sock), nil
 }
 
-func unsupported(op string) error {
-	return fmt.Errorf("%w: the Firecracker Driver does not yet %s", machine.ErrUnsupported, op)
-}
-
-// AttachDisk implements machine.Driver.
-func (d *Driver) AttachDisk(context.Context, machine.MachineID, machine.BlockDevice) error {
-	return unsupported("attach a disk to a running Machine")
-}
-
-// DetachDisk implements machine.Driver.
-func (d *Driver) DetachDisk(context.Context, machine.MachineID, machine.DiskID) error {
-	return unsupported("detach a disk from a running Machine")
-}
-
-// Resize implements machine.Driver. Firecracker v1.17.0 takes a vCPU count
-// only before boot.
+// Resize implements machine.Driver and always refuses: Firecracker v1.17.0
+// takes the vCPU count before boot only, and changes memory only through a
+// virtio-mem region or a balloon that is configured before boot, neither of
+// which Boot configures. The Driver does not report the capability, so the
+// lifecycle refuses a resize of a hot Machine before it gets here.
 func (d *Driver) Resize(context.Context, machine.MachineID, machine.Resources) error {
-	return unsupported("resize a running Machine")
+	return fmt.Errorf("%w: Firecracker v1.17.0 sets the vCPU count before boot only "+
+		"(PUT and PATCH /machine-config are \"Pre-boot only\" in firecracker.yaml), and resizes memory "+
+		"only through a virtio-mem region (docs/memory-hotplug.md) or a balloon (PUT /balloon, \"before machine startup\"), "+
+		"which a Machine's boot does not configure", machine.ErrUnsupported)
 }
