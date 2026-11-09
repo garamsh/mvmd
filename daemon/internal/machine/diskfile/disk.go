@@ -132,7 +132,7 @@ func (d *Disk) CreateRootFrom(ctx context.Context, owner machine.DiskOwner, sour
 	if err := sparsecopy.Copy(tmp, src); err != nil {
 		return fail("copy", err)
 	}
-	if err := error(nil); err != nil {
+	if err := tmp.Chown(int(owner.UID), int(owner.GID)); err != nil {
 		return fail("chown", err)
 	}
 	if err := tmp.Sync(); err != nil {
