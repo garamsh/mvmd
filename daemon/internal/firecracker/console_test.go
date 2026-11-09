@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/daemon/internal/supervisor"
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 )
 
 func readAll(t *testing.T, r io.ReadCloser) string {
@@ -91,7 +91,7 @@ func TestConsoleLog_HonoursItsContext(t *testing.T) {
 // accepted.
 func serveConsole(t *testing.T, n *node) <-chan net.Conn {
 	t.Helper()
-	l, err := net.Listen("unix", filepath.Join(filepath.Dir(n.run), supervisor.ConsoleSocketName))
+	l, err := net.Listen("unix", statedir.ConsoleSocket(statedir.Of(n.run)))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })
 	accepted := make(chan net.Conn, 2)
@@ -146,7 +146,7 @@ func TestConsole_IsUnavailableOnceTheSupervisorsSocketIsGoneOrRefuses(t *testing
 	// The control: the same Driver, with a listener at the socket the
 	// supervisor serves, opens a session. Without it the refusals here would
 	// hold for a Driver that dials the wrong name.
-	sock := filepath.Join(filepath.Dir(n.run), supervisor.ConsoleSocketName)
+	sock := statedir.ConsoleSocket(statedir.Of(n.run))
 	l, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	l.(*net.UnixListener).SetUnlinkOnClose(false)

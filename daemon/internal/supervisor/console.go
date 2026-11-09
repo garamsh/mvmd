@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-// ConsoleSocketName is the Unix socket the supervisor serves the VMM's serial
-// console on, in the Machine's state directory beside the supervisor's own
-// socket and outside the run directory the VMM owns (ADR 0020).
-const ConsoleSocketName = "console.sock"
-
 const (
 	// chunkSize is the most the VMM's output is read in one piece.
 	chunkSize = 4096

@@ -22,11 +22,6 @@ const (
 	// logName is Firecracker's own log in the run directory, which keeps the
 	// supervisor's capture of its output (vmm.log) to the guest's console.
 	logName = "firecracker.log"
-	// consoleLogName is the supervisor's capture of the VMM's output.
-	consoleLogName = "vmm.log"
-	// consoleSocketName is the supervisor's console socket, in the state
-	// directory beside the run directory (ADR 0020).
-	consoleSocketName = "console.sock"
 	// guestCID is the guest's vsock address; it is the same for every Machine
 	// since a vsock device is private to its VMM.
 	guestCID = 3

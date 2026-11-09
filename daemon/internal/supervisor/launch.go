@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 )
 
@@ -101,7 +102,7 @@ func newNetworkNamespace(req *pb.StartRequest) bool {
 // former VMM left there is removed first, and the new file is made exclusively
 // and not through a link, since the supervisor creates it as root.
 func openVMMLog(runDir string, uid, gid uint32) (*os.File, error) {
-	path := filepath.Join(runDir, "vmm.log")
+	path := statedir.VMMLog(runDir)
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -151,7 +152,7 @@ func launch(socket string, req *pb.StartRequest, lim limits) (int, *Console, err
 		vmmLog.Close()
 		return 0, nil, fmt.Errorf("make the VMM's console pipes: %w", err)
 	}
-	l, err := listenConsole(filepath.Join(filepath.Dir(socket), ConsoleSocketName))
+	l, err := listenConsole(statedir.ConsoleSocket(filepath.Dir(socket)))
 	if err != nil {
 		vmmLog.Close()
 		pipes.closeVMM()

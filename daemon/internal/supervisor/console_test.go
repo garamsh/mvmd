@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 )
 
 // syncBuffer is a log the console writes while the test reads.
@@ -49,7 +50,7 @@ func newVMM(t *testing.T) *vmm {
 	dir, err := os.MkdirTemp("", "cs")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	sock := filepath.Join(dir, ConsoleSocketName)
+	sock := statedir.ConsoleSocket(dir)
 	l, err := listenConsole(sock)
 	require.NoError(t, err)
 	inR, inW, err := os.Pipe()

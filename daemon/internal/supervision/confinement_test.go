@@ -23,7 +23,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/daemon/internal/supervisor"
+	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 )
 
@@ -572,7 +572,7 @@ func TestConfinement_TheVMMWritesItsOwnLogAndNotTheSupervisors(t *testing.T) {
 func TestConfinement_TheConsoleSocketReachesTheVMMsStandardInputAndOutput(t *testing.T) {
 	n := newNode(t)
 	_, _ = n.run(t, "m", time.Hour)
-	sock := filepath.Join(n.dir, "m", supervisor.ConsoleSocketName)
+	sock := statedir.ConsoleSocket(filepath.Join(n.dir, "m"))
 
 	info, err := os.Lstat(sock)
 	require.NoError(t, err)
