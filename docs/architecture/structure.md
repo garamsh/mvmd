@@ -25,7 +25,7 @@ Follows the monorepo shape of garamsh/garam at the commit above: each top-level 
 - `mvmctl/` — the name reserved for a CLI, a top-level folder if and when it ships as its own executable. It is not committed to existing.
 - `docs/` — conventions, architecture, procedures.
 - `tooling/protogen/` — a Go module that holds nothing but the pins of the protobuf generator (`buf`, `protoc-gen-go`, `protoc-gen-go-grpc`) as `tool` directives, released versions only, with `protoc-gen-go` at the version of the library's `google.golang.org/protobuf`. It ships no package and is not in `go.work`, so the generator's dependencies stay out of every unit's graph.
-- `tooling/firecracker/` — `fetch.sh`, which holds the pins of the Firecracker binary and of the guest kernel the Driver's tests boot, each by the SHA-256 its release publishes, and fetches them for `make test-firecracker` ([driver.md](./driver.md)). It ships no package.
+- `tooling/firecracker/` — `fetch.sh`, which holds the pins of the Firecracker binary and of the guest kernel the Driver's tests boot, each by the SHA-256 its release publishes, and fetches them for `make test-firecracker` and `make test-e2e` ([driver.md](./driver.md)). It ships no package.
 - `tooling/cloud-hypervisor/` — `fetch.sh`, which holds the pin of the Cloud Hypervisor binary the Driver's tests boot, by the SHA-256 its release lists, and fetches it for `make test-cloud-hypervisor`; the kernel is the Firecracker one's ([driver.md](./driver.md)). It ships no package.
 - `deploy/` — added later, by the first pull request that needs one.
 - `go.work` at the root, naming every Go module that ships code and carrying the one `toolchain` line every check and the pipeline use. The root holds no Go package.
