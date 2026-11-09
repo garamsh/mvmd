@@ -68,6 +68,10 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 	}
 	captured := s.capture(ctx, m, snapshot, request, info)
 	if resume {
+		// Returning the guest to Running is compensation for the pause, whatever
+		// became of the capture.
+		ctx, cancel := s.compensating(ctx)
+		defer cancel()
 		if err := s.driver.Resume(ctx, id); err != nil {
 			reason := fmt.Sprintf("the Machine could not be returned to Running after the snapshot: %v", err)
 			if captured == nil {
@@ -272,6 +276,8 @@ func (s *service) bringUp(ctx context.Context, m Machine, request RequestID, fil
 // them from a running VMM is worse than keeping them, and ended is false; the
 // caller then makes the Machine Faulted, which Delete releases.
 func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vmm bool, reason string) (_ string, ended bool) {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
 	if vmm {
 		if err := s.supervisor.Terminate(ctx, id); err != nil {
 			return reason + fmt.Sprintf("; the VMM could not be ended, so nothing it holds was released: %v", err), false
@@ -297,6 +303,8 @@ func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vm
 // Delete releases it as it does for any Faulted Machine. The failure is
 // remembered under the request ID, so a repeat returns it.
 func (s *service) faultedRestore(ctx context.Context, m Machine, asked Request, reason string) error {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
 	m.State = StateFaulted
 	m.FailureReason = reason
 	asked.Failure = fail(ErrFailed, "%s", reason)
@@ -316,6 +324,8 @@ func (s *service) faultedRestore(ctx context.Context, m Machine, asked Request, 
 // failRestore records a failed restore under its request ID, so that a repeat
 // returns the same outcome, and returns it. No Machine exists after it.
 func (s *service) failRestore(ctx context.Context, id MachineID, asked Request, failure *Error) error {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
 	asked.Failure = failure
 	rec := &Record{ID: id, Request: asked}
 	s.mu.Lock()

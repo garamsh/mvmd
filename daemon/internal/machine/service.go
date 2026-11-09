@@ -94,6 +94,8 @@ type service struct {
 	// caller's own context.
 	callTimeout time.Duration
 	callContext func(ctx context.Context, bound time.Duration) (context.Context, context.CancelFunc)
+	// compensate is callContext's counterpart for compensating.
+	compensate func(ctx context.Context, bound time.Duration) (context.Context, context.CancelFunc)
 
 	// mu guards the maps below and every record's Machine pointer, and is held
 	// only for map and pointer work, never across a port call. A Machine's
@@ -147,6 +149,20 @@ func (s *service) accepted(ctx context.Context, extra time.Duration) (context.Co
 	return s.callContext(ctx, s.callTimeout+extra)
 }
 
+// compensationTimeout bounds the steps that put right what a failed call did,
+// so they can run when the call's own bound has passed. It is short because
+// each is one release or removal.
+const compensationTimeout = 30 * time.Second
+
+// compensating returns the context for the steps that undo what a call did
+// before it failed: its resources released, its failure recorded, its guest
+// resumed. It is the call's values on a context of its own, detached from the
+// call's, so a call that the bound or the caller ended still reaches the state
+// its row names.
+func (s *service) compensating(ctx context.Context) (context.Context, context.CancelFunc) {
+	return s.compensate(ctx, compensationTimeout)
+}
+
 // detached is a context that carries ctx's values but not its cancellation,
 // ended after bound.
 func detached(ctx context.Context, bound time.Duration) (context.Context, context.CancelFunc) {
@@ -175,6 +191,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		bootTimeout:  DefaultBootTimeout,
 		callTimeout:  DefaultCallTimeout,
 		callContext:  detached,
+		compensate:   detached,
 		driver:       driver,
 		supervisor:   supervisor,
 		network:      network,

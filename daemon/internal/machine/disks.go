@@ -54,6 +54,8 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	if hot(m) {
 		dev := BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}
 		if err := s.driver.AttachDisk(ctx, id, dev); err != nil {
+			ctx, cancel := s.compensating(ctx)
+			defer cancel()
 			if cerr := s.commit(ctx, rec, m); cerr != nil {
 				return s.unrecorded(rec, cerr)
 			}

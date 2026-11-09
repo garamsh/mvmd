@@ -16,6 +16,17 @@ func OnCallersContext() Option {
 	}
 }
 
+// CompensatingOnTheCallsContext makes a service run the steps that undo a
+// failed call on the call's own context; it is the control of the tests that
+// end a call by its bound.
+func CompensatingOnTheCallsContext() Option {
+	return func(s *service) {
+		s.compensate = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+			return ctx, func() {}
+		}
+	}
+}
+
 // LockCount returns how many per-Machine locks the service holds.
 func LockCount(s Service) int {
 	svc := s.(*service)

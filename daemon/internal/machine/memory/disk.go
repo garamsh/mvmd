@@ -80,8 +80,12 @@ func (d *Disk) Source(disk machine.DiskID) (string, bool) {
 }
 
 // Remove implements machine.Disk.
-func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {
+func (d *Disk) Remove(ctx context.Context, disk machine.DiskID) error {
 	if err := d.Enter("remove"); err != nil {
+		return err
+	}
+	// A removal whose context has ended by the time it is made removes nothing.
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	d.mu.Lock()

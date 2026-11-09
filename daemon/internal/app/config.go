@@ -43,10 +43,34 @@ type Config struct {
 	// Machine is Stopped. Empty means machine.DefaultBootTimeout (2m); it must
 	// be positive and at most MaxBootTimeout.
 	BootTimeout string `json:"boot_timeout,omitempty"`
+	// CallTimeout is how long an accepted state-changing call may run, as a Go
+	// duration such as "5m", from the moment it holds its Machine; a start adds
+	// the boot timeout and a stop its grace period. Empty means
+	// machine.DefaultCallTimeout (10m); it must be positive and at most
+	// MaxCallTimeout.
+	CallTimeout string `json:"call_timeout,omitempty"`
 }
 
 // MaxBootTimeout is the longest boot timeout a node can name.
 const MaxBootTimeout = time.Hour
+
+// MaxCallTimeout is the longest call timeout a node can name.
+const MaxCallTimeout = 6 * time.Hour
+
+// callTimeout returns the configured bound, or the default when none is set.
+func (c Config) callTimeout() (time.Duration, error) {
+	if c.CallTimeout == "" {
+		return machine.DefaultCallTimeout, nil
+	}
+	d, err := time.ParseDuration(c.CallTimeout)
+	switch {
+	case err != nil:
+		return 0, fmt.Errorf("call_timeout %q is not a duration such as \"5m\"", c.CallTimeout)
+	case d <= 0 || d > MaxCallTimeout:
+		return 0, fmt.Errorf("call_timeout %q is outside 1ns to %s", c.CallTimeout, MaxCallTimeout)
+	}
+	return d, nil
+}
 
 // bootTimeout returns the configured bound, or the default when none is set.
 // check has already refused a value that does not parse.
@@ -188,6 +212,9 @@ func (c Config) check() error {
 		return fmt.Errorf("vmm_uid_range: %w", err)
 	}
 	if _, err := c.bootTimeout(); err != nil {
+		return err
+	}
+	if _, err := c.callTimeout(); err != nil {
 		return err
 	}
 	if n := c.Network; n != nil {

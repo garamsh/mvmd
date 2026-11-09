@@ -115,6 +115,8 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 // reason, extended by anything that could not be undone. It also releases the
 // UID allocated for id.
 func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, reason string) string {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
 	if root != "" {
 		if err := s.disks.Remove(ctx, root); err != nil {
 			reason += fmt.Sprintf("; the root disk could not be removed: %v", err)
@@ -132,6 +134,8 @@ func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, rea
 // failCreate records a failed Create under its request ID, so that a repeat
 // returns the same outcome, and returns it. No Machine exists after it.
 func (s *service) failCreate(ctx context.Context, id MachineID, request RequestID, spec Spec, failure *Error) error {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
 	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec, Failure: failure}}
 	s.mu.Lock()
 	s.records[id] = rec
@@ -144,7 +148,8 @@ func (s *service) failCreate(ctx context.Context, id MachineID, request RequestI
 
 func (s *service) Start(ctx context.Context, id MachineID) error {
 	defer s.lock(id)()
-	ctx, cancel := s.accepted(ctx, 0)
+	// The wait for the guest's boot is part of the call, so the bound adds it.
+	ctx, cancel := s.accepted(ctx, s.bootTimeout)
 	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
@@ -230,6 +235,8 @@ func (s *service) bootGuest(ctx context.Context, id MachineID, description Guest
 // process to hold it, and returns the failure, extended by a removal that
 // failed.
 func (s *service) withdrawn(ctx context.Context, id MachineID, failure *Error) error {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
 	if err := s.network.Withdraw(ctx, id); err != nil {
 		return fail(failure.Kind, "%s; the network could not be removed: %v", failure.Reason, err)
 	}
@@ -267,6 +274,8 @@ func locateFailure(err, absent error, what string, args ...any) error {
 // bootFailed ends a boot that began and failed: the VMM is ended and the
 // Machine is Stopped with the reason, or Faulted if the VMM cannot be ended.
 func (s *service) bootFailed(ctx context.Context, rec *Record, boot error) error {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
 	next := rec.Machine.clone()
 	next.State = StateStopped
 	next.FailureReason = fmt.Sprintf("boot failed: %v", boot)

@@ -249,6 +249,100 @@ func TestAcceptedCall_AHangingStepIsEndedByTheBound(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+// Start's bound includes the boot timeout: a boot that finishes after the call
+// timeout but within the boot timeout leaves the Machine Running and recorded.
+// The control is a boot that never finishes, which ends Stopped with the
+// boot-timeout reason and the network withdrawn.
+func TestAcceptedCall_AStartsBoundIncludesTheBootTimeout(t *testing.T) {
+	ctx := context.Background()
+	options := []machine.Option{machine.WithCallTimeout(100 * time.Millisecond), machine.WithBootTimeout(500 * time.Millisecond)}
+	start := func(e *env, svc machine.Service, wait time.Duration, finish bool) error {
+		entered, release := e.guest.Hold("boot")
+		done := make(chan error, 1)
+		go func() { done <- svc.Start(ctx, "m") }()
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			release()
+			t.Fatal("the guest was never sent its boot description")
+		}
+		time.Sleep(wait)
+		if finish {
+			release()
+		}
+		select {
+		case err := <-done:
+			if !finish {
+				release() // lets the abandoned boot call go
+			}
+			return err
+		case <-time.After(5 * time.Second):
+			t.Fatal("the start never ended")
+			return nil
+		}
+	}
+
+	e := newEnv(allCaps...)
+	e.inState(t, "m", machine.StateCreated)
+	svc := e.reopenedWith(t, options...)
+	require.NoError(t, start(e, svc, 200*time.Millisecond, true), "the boot ended after the call timeout")
+	m, err := svc.Inspect(ctx, "m")
+	require.NoError(t, err)
+	assert.Equal(t, machine.StateRunning, m.State)
+	e.requireStored(t, "m", machine.StateRunning)
+
+	e = newEnv(allCaps...)
+	e.inState(t, "m", machine.StateCreated)
+	svc = e.reopenedWith(t, options...)
+	requireKind(t, start(e, svc, 0, false), machine.ErrFailed)
+	m, err = svc.Inspect(ctx, "m")
+	require.NoError(t, err)
+	assert.Equal(t, machine.StateStopped, m.State)
+	assert.Contains(t, m.FailureReason, "the guest did not finish booting within 500ms")
+	_, tap := e.net.Applied("m")
+	assert.False(t, tap, "the network is withdrawn")
+}
+
+// A call that the bound ends mid-step still reaches the failure state its row
+// names: the steps that undo it run on a context of their own. The control runs
+// them on the call's ended context, and the root disk is left behind.
+func TestAcceptedCall_ACallTheBoundEndsIsCompensated(t *testing.T) {
+	ctx := context.Background()
+	run := func(t *testing.T, options ...machine.Option) (*env, machine.Service) {
+		e := newEnv(allCaps...)
+		svc := e.reopenedWith(t, append(options, machine.WithCallTimeout(50*time.Millisecond))...)
+		entered, release := e.store.Hold("save")
+		done := make(chan error, 1)
+		go func() { done <- svc.Create(ctx, "m", "req-m", baseSpec()) }()
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			release()
+			t.Fatal("the call never reached the record step")
+		}
+		time.Sleep(100 * time.Millisecond) // past the bound
+		release()
+		select {
+		case err := <-done:
+			requireKind(t, err, machine.ErrFailed)
+		case <-time.After(5 * time.Second):
+			t.Fatal("the call did not end")
+		}
+		return e, svc
+	}
+
+	e, svc := run(t)
+	_, err := svc.Inspect(ctx, "m")
+	requireKind(t, err, machine.ErrNotFound)
+	_, held := e.disks.Holds("m-root")
+	assert.False(t, held, "no root disk is held")
+	assert.False(t, e.net.Allocated("m"), "no address is held")
+
+	e, _ = run(t, machine.CompensatingOnTheCallsContext())
+	_, held = e.disks.Holds("m-root")
+	assert.True(t, held, "the control: undone on the ended context, the disk is left behind")
+}
+
 // A repeat of a call, with the same identifier and request ID, while the first
 // still runs waits for its outcome and returns it (runtime-api.md §Calling
 // rules); the work is done once.
