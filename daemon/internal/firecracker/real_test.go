@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/garamsh/mvmd/daemon/internal/channel"
 	"github.com/garamsh/mvmd/daemon/internal/drivertest"
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
+	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -57,7 +57,7 @@ func subject(t *testing.T) drivertest.Subject {
 			require.NoError(t, err)
 			return d
 		},
-		Guest: func(d machine.Driver) machine.Guest { return channel.NewGuest(d) },
+		Guest: func(d machine.Driver) machine.Guest { return guestchannel.NewGuest(d) },
 		// What the supervisor does, without its confinement: run the described
 		// process in a root holding the files at their fixed paths.
 		Start: func(t *testing.T, p machine.ProcessDescription, s drivertest.Streams) drivertest.Process {

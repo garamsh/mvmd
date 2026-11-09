@@ -22,11 +22,11 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/api"
 	"github.com/garamsh/mvmd/daemon/internal/boltstore"
 	"github.com/garamsh/mvmd/daemon/internal/bootclock"
-	"github.com/garamsh/mvmd/daemon/internal/channel"
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
+	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	imagememory "github.com/garamsh/mvmd/daemon/internal/image/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -161,7 +161,7 @@ func New(cfg Config) (*App, error) {
 			_ = db.Close()
 			return nil, err
 		}
-		driver, guest = d, channel.NewGuest(d)
+		driver, guest = d, guestchannel.NewGuest(d)
 		sub.Driver, sub.Guest = nil, nil
 	}
 	// The one allocator of VMM users: the lifecycle's Machines and the

@@ -1,4 +1,4 @@
-package channel_test
+package guestchannel_test
 
 import (
 	"context"
@@ -20,8 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/protoadapt"
 
-	"github.com/garamsh/mvmd/daemon/internal/channel"
 	guestv1alpha1 "github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1"
+	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
@@ -324,13 +324,13 @@ func (a *agent) SearchFiles(_ *guestv1alpha1.SearchFilesRequest, srv grpc.Server
 // adapter over it.
 type harness struct {
 	driver *memory.Driver
-	guest  *channel.Guest
+	guest  *guestchannel.Guest
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	d := memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1"})
-	return &harness{driver: d, guest: channel.NewGuest(d)}
+	return &harness{driver: d, guest: guestchannel.NewGuest(d)}
 }
 
 // agentOf gives the Machine a fake agent on the Guest Agent's port.
@@ -967,7 +967,7 @@ func TestCalls_AreBoundedOnlyByTheCallersContext(t *testing.T) {
 	})
 }
 
-// connectorFunc is a channel.Connector that counts its dials and answers each
+// connectorFunc is a guestchannel.Connector that counts its dials and answers each
 // by the function it wraps, which is given the number of the dial from 1.
 type connectorFunc struct {
 	mu    sync.Mutex
@@ -1008,7 +1008,7 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		h.agentOf(t, "m")
 		conn := notListeningThenDriver(h.driver, 3)
 
-		require.NoError(t, channel.NewGuest(conn).Boot(context.Background(), "m", machine.GuestBoot{}))
+		require.NoError(t, guestchannel.NewGuest(conn).Boot(context.Background(), "m", machine.GuestBoot{}))
 		assert.Equal(t, 4, conn.Dials())
 	})
 
@@ -1019,7 +1019,7 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		start := time.Now()
-		err := channel.NewGuest(ended).Boot(ctx, "m", machine.GuestBoot{})
+		err := guestchannel.NewGuest(ended).Boot(ctx, "m", machine.GuestBoot{})
 		require.ErrorIs(t, err, machine.ErrVMMEnded)
 		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 		assert.Equal(t, 1, ended.Dials())
@@ -1028,7 +1028,7 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		h := newHarness(t)
 		h.agentOf(t, "m")
 		control := notListeningThenDriver(h.driver, 3)
-		require.NoError(t, channel.NewGuest(control).Boot(ctx, "m", machine.GuestBoot{}))
+		require.NoError(t, guestchannel.NewGuest(control).Boot(ctx, "m", machine.GuestBoot{}))
 		assert.Equal(t, 4, control.Dials(), "the control: the same failure without the ended VMM is waited for")
 	})
 
@@ -1037,7 +1037,7 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 
-		err := channel.NewGuest(never).Boot(ctx, "m", machine.GuestBoot{})
+		err := guestchannel.NewGuest(never).Boot(ctx, "m", machine.GuestBoot{})
 		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 		assert.NotErrorIs(t, err, machine.ErrVMMEnded)
 		assert.Contains(t, err.Error(), "did not listen")
@@ -1050,14 +1050,14 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		time.AfterFunc(200*time.Millisecond, cancel)
 		defer cancel()
 
-		err := channel.NewGuest(never).Boot(ctx, "m", machine.GuestBoot{})
+		err := guestchannel.NewGuest(never).Boot(ctx, "m", machine.GuestBoot{})
 		require.ErrorIs(t, err, context.Canceled)
 		assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
 		assert.NotContains(t, err.Error(), "did not listen")
 
 		dctx, dcancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer dcancel()
-		err = channel.NewGuest(never).Boot(dctx, "m", machine.GuestBoot{})
+		err = guestchannel.NewGuest(never).Boot(dctx, "m", machine.GuestBoot{})
 		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 		assert.Contains(t, err.Error(), "did not listen", "the control: the same connector under a deadline")
 	})
@@ -1067,7 +1067,7 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		err := channel.NewGuest(never).Health(ctx, "m")
+		err := guestchannel.NewGuest(never).Health(ctx, "m")
 		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 		assert.NoError(t, ctx.Err(), "the call ended before its context did")
 		assert.Equal(t, 2, never.Dials())
