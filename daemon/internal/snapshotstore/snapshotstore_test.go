@@ -221,8 +221,10 @@ func TestPut_RefusesAnExistingIdentifier(t *testing.T) {
 
 	// A second Put of "a" is refused and changes nothing.
 	second := f.files(t, "second")
-	err := s.Put(ctx, snapshot("a"), second)
+	var err error
+	steps := recordSteps(s, func() { err = s.Put(ctx, snapshot("a"), second) })
 	assert.ErrorIs(t, err, machine.ErrSnapshotExists)
+	assert.Empty(t, steps, "the root disk was copied before the refusal")
 	requireUntouched(t, second, "second")
 	requireWhole(t, s, "a", "a")
 
