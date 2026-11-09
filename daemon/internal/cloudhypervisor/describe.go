@@ -139,7 +139,7 @@ func args(spec machine.BootSpec, goarch string) []string {
 		if dev.ReadOnly {
 			ro = "on"
 		}
-		a = append(a, fmt.Sprintf("path=%s,readonly=%s,image_type=raw,id=disk%d", machine.InDisk(i), ro, i))
+		a = append(a, fmt.Sprintf("path=%s,readonly=%s,image_type=raw,id=%s", machine.InDisk(i), ro, driveID(i, dev.Disk)))
 	}
 	if spec.Network.Tap != "" {
 		a = append(a, "--net", fmt.Sprintf("id=%s,fd=[%d],mac=%s", netID, tapDescriptor, spec.Network.MAC))

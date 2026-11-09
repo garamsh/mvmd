@@ -59,6 +59,7 @@ func subject(t *testing.T) drivertest.Subject {
 		// the initrd its configuration names before it restores (ADR 0027), and
 		// the restore is its command line, so it loads before Restore is called.
 		Snapshot: drivertest.SnapshotFacts{Files: 3, RestoreBootFiles: []string{"/boot/initrd"}},
+		Check:    checkVMM,
 	}
 }
 

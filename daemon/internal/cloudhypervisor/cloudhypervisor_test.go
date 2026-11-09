@@ -15,12 +15,12 @@ import (
 
 var _ machine.Driver = (*cloudhypervisor.Driver)(nil)
 
-func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsTheConsoleAndSnapshot(t *testing.T) {
+func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsTheConsoleSnapshotAndDiskHotplug(t *testing.T) {
 	info := newNode(t).driver.Info()
 	assert.Equal(t, "cloud-hypervisor", info.Name)
 	assert.Equal(t, "54.0", info.Version)
 	assert.NotEmpty(t, info.CPUModel)
-	assert.Equal(t, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}, info.Capabilities, "what the Driver implements and no more")
+	assert.Equal(t, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}, info.Capabilities, "what the Driver implements and no more")
 }
 
 func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
@@ -61,35 +61,22 @@ func TestNew_RefusesAMissingBinary(t *testing.T) {
 	require.Error(t, err)
 }
 
-// An operation whose capability is not reported refuses with ErrUnsupported
-// (machine.Driver), and sends the VMM nothing.
-func TestTheOperationsOfUnreportedCapabilitiesRefuseAsUnsupportedAndSendNothing(t *testing.T) {
+// Resize is refused with ErrUnsupported (machine.Driver), sends the VMM
+// nothing, and is not reported. The control is an operation the Driver does
+// implement, which does reach the VMM and is reported.
+func TestResizeRefusesAsUnsupportedAndSendsNothing(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{}
 	n.booted(f)
 	before := len(f.seen())
-	ctx := context.Background()
 
-	state, driveErr := n.driver.Drive(ctx, "m1", "root")
-	tests := []struct {
-		name string
-		err  error
-	}{
-		{"AttachDisk", n.driver.AttachDisk(ctx, "m1", machine.BlockDevice{Disk: "d", Path: "/disks/d.img"})},
-		{"DetachDisk", n.driver.DetachDisk(ctx, "m1", "root")},
-		{"Drive", driveErr},
-		{"Resize", n.driver.Resize(ctx, "m1", machine.Resources{VCPUs: 4, MemoryBytes: 512 << 20})},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.ErrorIs(t, tt.err, machine.ErrUnsupported)
-		})
-	}
-	assert.Equal(t, machine.DriveAbsent, state)
+	err := n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 4, MemoryBytes: 512 << 20})
+	require.ErrorIs(t, err, machine.ErrUnsupported)
 	assert.Len(t, f.seen(), before, "no request reached the VMM")
+	assert.NotContains(t, n.driver.Info().Capabilities, machine.CapabilityResize, "the Driver does not report what it refuses")
 
-	for _, c := range n.driver.Info().Capabilities {
-		assert.NotContains(t, []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize}, c,
-			"the Driver reports none of the capabilities it refuses")
-	}
+	_, err = n.driver.Drive(context.Background(), "m1", "root")
+	require.NoError(t, err, "control: an implemented operation is not refused")
+	assert.Greater(t, len(f.seen()), before, "and it reaches the VMM")
+	assert.Contains(t, n.driver.Info().Capabilities, machine.CapabilityDiskHotplug)
 }

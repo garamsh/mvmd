@@ -27,7 +27,7 @@ var wantArgs = []string{
 	"--console", "off",
 	"--event-monitor", "fd=7",
 	"--vsock", "cid=3,socket=/run/vsock.sock",
-	"--disk", "path=/disk/0,readonly=on,image_type=raw,id=disk0", "path=/disk/1,readonly=off,image_type=raw,id=disk1",
+	"--disk", "path=/disk/0,readonly=on,image_type=raw,id=disk0", "path=/disk/1,readonly=off,image_type=raw,id=disk_4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2",
 	"--net", "id=net0,fd=[3],mac=02:00:00:00:00:01",
 }
 
