@@ -1,4 +1,4 @@
-package channel_test
+package guestchannel_test
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/garamsh/mvmd/daemon/internal/channel"
+	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -63,7 +63,7 @@ func (c socketConnector) GuestConn(ctx context.Context, _ machine.MachineID, por
 
 // realAgent starts the binary on a socket in a temporary directory, with the
 // handshake for the Guest Agent's port, and returns the adapter over it.
-func realAgent(t *testing.T) (*channel.Guest, string) {
+func realAgent(t *testing.T) (*guestchannel.Guest, string) {
 	t.Helper()
 	bin := os.Getenv("GUEST_AGENT_CHANNEL")
 	if bin == "" {
@@ -91,11 +91,11 @@ func realAgent(t *testing.T) (*channel.Guest, string) {
 		}
 	})
 	require.Eventually(t, func() bool { _, err := os.Stat(socket); return err == nil }, 10*time.Second, 10*time.Millisecond, "the binary never bound its socket")
-	return channel.NewGuest(socketConnector{socket}), socket
+	return guestchannel.NewGuest(socketConnector{socket}), socket
 }
 
 // readOutput reads an exec's output from the offset to its record.
-func readOutput(g *channel.Guest, exec machine.ExecID, after uint64) ([]machine.OutputChunk, machine.ExecRecord, error) {
+func readOutput(g *guestchannel.Guest, exec machine.ExecID, after uint64) ([]machine.OutputChunk, machine.ExecRecord, error) {
 	var chunks []machine.OutputChunk
 	rec, err := g.ReadExecOutput(context.Background(), "m", exec, after, func(c machine.OutputChunk) error {
 		chunks = append(chunks, machine.OutputChunk{Stream: c.Stream, Offset: c.Offset, Data: append([]byte(nil), c.Data...)})
@@ -118,7 +118,7 @@ func TestRealAgent_HealthAndTheHandshake(t *testing.T) {
 
 	// Control: a connector that sends no handshake gets no agent, since the
 	// binary closes a connection that opens with anything but CONNECT.
-	err := channel.NewGuest(plainConnector{socket}).Health(context.Background(), "m")
+	err := guestchannel.NewGuest(plainConnector{socket}).Health(context.Background(), "m")
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 }
 
@@ -137,7 +137,7 @@ func TestRealAgent_TerminateIsRefusedAsAnAnswer(t *testing.T) {
 	assert.NotErrorIs(t, err, machine.ErrGuestUnreachable, "the agent answered")
 	require.NoError(t, g.Health(ctx, "m"), "control: the same agent answers a call it serves")
 
-	err = channel.NewGuest(plainConnector{socket}).Terminate(ctx, "m")
+	err = guestchannel.NewGuest(plainConnector{socket}).Terminate(ctx, "m")
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable, "control: an agent that does not answer the handshake is unreachable")
 }
 
@@ -228,7 +228,7 @@ func TestRealAgent_OutputResumesByOffsetAfterAForcedReconnect(t *testing.T) {
 	ctx := context.Background()
 	_, socket := realAgent(t)
 	conn := &trackingConnector{socketConnector: socketConnector{socket}}
-	g := channel.NewGuest(conn)
+	g := guestchannel.NewGuest(conn)
 	_, err := g.Exec(ctx, "m", "slow", machine.ExecSpec{Command: []string{"/bin/sh", "-c", "printf aaaa; sleep 1; printf bbbb"}})
 	require.NoError(t, err)
 

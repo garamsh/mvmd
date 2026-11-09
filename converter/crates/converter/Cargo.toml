@@ -1,13 +1,13 @@
 [package]
-name = "imageconv"
+name = "converter"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "imageconv-channel"
-path = "src/imageconv_channel.rs"
+name = "converter-channel"
+path = "src/converter_channel.rs"
 
 [lints]
 workspace = true

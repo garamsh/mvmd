@@ -11,13 +11,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use converter::v1alpha1::convert_request::Message;
+use converter::v1alpha1::convert_response::Result as Outcome;
+use converter::v1alpha1::convert_service_client::ConvertServiceClient;
+use converter::v1alpha1::{ConvertRequest, ConvertResponse, FailureStep, Pass, PassKind, Start};
+use converter::{Console, Converter, Mkfs, Mounts, Power, System};
 use hyper_util::rt::TokioIo;
 use image::{Entry, GZIP, Result, TAR, UUID, ZSTD, expect, gzip, layer, zstd};
-use imageconv::v1alpha1::convert_request::Message;
-use imageconv::v1alpha1::convert_response::Result as Outcome;
-use imageconv::v1alpha1::convert_service_client::ConvertServiceClient;
-use imageconv::v1alpha1::{ConvertRequest, ConvertResponse, FailureStep, Pass, PassKind, Start};
-use imageconv::{Console, Converter, Mkfs, Mounts, Power, System};
 use tempfile::TempDir;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::task::JoinHandle;
@@ -67,7 +67,7 @@ struct Harness {
     client: ConvertServiceClient<Channel>,
     dir: TempDir,
     output: PathBuf,
-    server: JoinHandle<std::result::Result<(), imageconv::ServeError>>,
+    server: JoinHandle<std::result::Result<(), converter::ServeError>>,
 }
 
 impl Harness {
@@ -80,7 +80,7 @@ impl Harness {
             mkfs: Mkfs::new(image::tool("MKFS_EROFS")),
             output: output.clone(),
         };
-        let server = tokio::spawn(imageconv::serve(incoming, converter));
+        let server = tokio::spawn(converter::serve(incoming, converter));
         Ok(Self {
             client: connect(socket).await?,
             dir,
@@ -370,7 +370,7 @@ async fn init_prepares_serves_one_conversion_and_powers_off() -> Result {
     let socket = dir.path().join("converter.sock");
     let incoming = UnixListenerStream::new(UnixListener::bind(&socket)?);
     let log = Log::default();
-    let init = tokio::spawn(imageconv::run(
+    let init = tokio::spawn(converter::run(
         move || Ok::<_, io::Error>(incoming),
         image::tool("MKFS_EROFS"),
         system(&log, Some(output.clone())),
@@ -392,9 +392,9 @@ async fn init_prepares_serves_one_conversion_and_powers_off() -> Result {
             "prepare",
             "output_device",
             "power_off",
-            "console: mvmd-imageconv: failed to power off: injected failure",
+            "console: mvmd-converter: failed to power off: injected failure",
             "restart",
-            "console: mvmd-imageconv: failed to restart: injected failure",
+            "console: mvmd-converter: failed to restart: injected failure",
             "halt",
         ]
     );
@@ -406,7 +406,7 @@ async fn init_prepares_serves_one_conversion_and_powers_off() -> Result {
 async fn init_reports_a_step_that_failed_on_the_console_and_powers_off() -> Result {
     let log = Log::default();
     let never = || Ok::<_, io::Error>(tokio_stream::empty::<io::Result<UnixStream>>());
-    let init = tokio::spawn(imageconv::run(never, "/absent".into(), system(&log, None)));
+    let init = tokio::spawn(converter::run(never, "/absent".into(), system(&log, None)));
 
     let entries = log.until("halt").await;
     init.abort();
@@ -415,7 +415,7 @@ async fn init_reports_a_step_that_failed_on_the_console_and_powers_off() -> Resu
         entries[..3],
         [
             "prepare",
-            "console: mvmd-imageconv: failed to prepare the VM: no sysfs",
+            "console: mvmd-converter: failed to prepare the VM: no sysfs",
             "power_off"
         ]
     );
@@ -430,7 +430,7 @@ async fn init_reports_a_listener_that_could_not_be_bound() -> Result {
     let unbound = || -> io::Result<tokio_stream::Empty<io::Result<UnixStream>>> {
         Err(io::Error::other("no vsock"))
     };
-    let init = tokio::spawn(imageconv::run(
+    let init = tokio::spawn(converter::run(
         unbound,
         "/absent".into(),
         system(&log, Some(output)),
@@ -444,7 +444,7 @@ async fn init_reports_a_listener_that_could_not_be_bound() -> Result {
         [
             "prepare",
             "output_device",
-            "console: mvmd-imageconv: failed to listen for mvmd: no vsock",
+            "console: mvmd-converter: failed to listen for mvmd: no vsock",
             "power_off"
         ]
     );

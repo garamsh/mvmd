@@ -1,6 +1,5 @@
-//! Builds the converter's initrd: a cpio archive in the kernel's "newc" format whose `init` is the
-//! converter and which holds the pinned `mkfs.erofs`. The archive is a function of the two files'
-//! bytes alone, so two builds of the same files give one digest.
+//! Writes an initrd: a cpio archive in the kernel's "newc" format. The archive is a function of
+//! the files' names and bytes alone, so two builds of the same files give one digest.
 
 /// The magic that opens every newc header.
 const MAGIC: &str = "070701";
@@ -8,21 +7,13 @@ const MAGIC: &str = "070701";
 /// The regular file type bits of a mode.
 const REGULAR_FILE: u32 = 0o100_000;
 
-/// Where the archive puts `mkfs.erofs`: the converter looks for it there.
-pub const MKFS_EROFS_PATH: &str = "/mkfs.erofs";
-
-/// The archive holding `converter` as `init` and `mkfs_erofs` at [`MKFS_EROFS_PATH`], both
-/// executable.
-pub fn initrd(converter: &[u8], mkfs_erofs: &[u8]) -> Vec<u8> {
-    let mut archive = Vec::with_capacity(converter.len() + mkfs_erofs.len() + 1024);
-    entry(&mut archive, 1, "init", REGULAR_FILE | 0o755, converter);
-    entry(
-        &mut archive,
-        2,
-        MKFS_EROFS_PATH.trim_start_matches('/'),
-        REGULAR_FILE | 0o755,
-        mkfs_erofs,
-    );
+/// The archive holding each `(name, content)` of `files`, in order, as an executable regular file.
+/// A name has no leading slash: the kernel unpacks `init` as `/init`.
+pub fn initrd(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut archive = Vec::with_capacity(files.iter().map(|(_, data)| data.len() + 512).sum());
+    for (inode, (name, data)) in (1..).zip(files) {
+        entry(&mut archive, inode, name, REGULAR_FILE | 0o755, data);
+    }
     // The trailer names no file: the kernel stops reading at it.
     entry(&mut archive, 0, "TRAILER!!!", 0, &[]);
     archive

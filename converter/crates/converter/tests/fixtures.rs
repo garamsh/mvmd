@@ -10,8 +10,8 @@ use std::fs;
 use std::io::{self, Cursor, Read};
 use std::path::Path;
 
+use converter::{Error, Layers, Mkfs, MkfsError, Parameters, Pass, PassKind, Step, convert};
 use image::{Entry, GZIP, Result, TAR, Tree, UUID, ZSTD, expect, gzip, layer, zstd};
-use imageconv::{Error, Layers, Mkfs, MkfsError, Parameters, Pass, PassKind, Step, convert};
 use tempfile::TempDir;
 
 /// Layers streamed from memory in the order the contract requires: for each layer a names pass

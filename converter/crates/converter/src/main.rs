@@ -1,5 +1,5 @@
 //! The converter binary, the converter microVM's init: it binds vsock and hands it to
-//! `imageconv::run` with the kernel-facing parts of a Linux guest. It never returns, since the
+//! `converter::run` with the kernel-facing parts of a Linux guest. It never returns, since the
 //! kernel panics when init exits.
 
 use std::io;
@@ -18,20 +18,20 @@ fn listen() -> io::Result<impl futures_core::Stream<Item = io::Result<tokio_vsoc
 }
 
 fn main() {
-    let system = imageconv::System {
-        mounts: Arc::new(imageconv::LinuxMounts),
-        power: Arc::new(imageconv::LinuxPower),
-        console: Arc::new(imageconv::LinuxConsole),
+    let system = converter::System {
+        mounts: Arc::new(converter::LinuxMounts),
+        power: Arc::new(converter::LinuxPower),
+        console: Arc::new(converter::LinuxConsole),
     };
     // A panic from here on ends the VM, the runtime failing to build included.
-    imageconv::end_on_panic(system.clone());
+    converter::end_on_panic(system.clone());
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
         Ok(runtime) => runtime,
-        Err(error) => imageconv::fail(&system, "build the runtime", error),
+        Err(error) => converter::fail(&system, "build the runtime", error),
     };
     // `run` never returns, so nothing follows.
-    runtime.block_on(imageconv::run(listen, MKFS_EROFS.into(), system));
+    runtime.block_on(converter::run(listen, MKFS_EROFS.into(), system));
 }

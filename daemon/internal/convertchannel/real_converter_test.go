@@ -23,7 +23,7 @@ import (
 )
 
 // These tests drive the adapter against the real converter, the host-side
-// binary imageconv-channel, over a Unix socket, with the real mkfs.erofs and
+// binary converter-channel, over a Unix socket, with the real mkfs.erofs and
 // the real fsck.erofs that reads what it wrote. `make test` builds the binary
 // and names all three in CONVERTER_CHANNEL, MKFS_EROFS and FSCK_EROFS; a run
 // without them fails, since a pass that never reached the converter would say

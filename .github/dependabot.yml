@@ -20,12 +20,14 @@ updates:
   - package-ecosystem: cargo
     directories:
       - /guest-agent
-      - /imageconv
+      - /converter
+      - /lib/initrd
     schedule:
       interval: weekly
   - package-ecosystem: rust-toolchain
     directories:
       - /guest-agent
-      - /imageconv
+      - /converter
+      - /lib/initrd
     schedule:
       interval: weekly

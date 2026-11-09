@@ -1,7 +1,7 @@
-// Package channel is the machine.Guest adapter: a client of the Guest Agent's
+// Package guestchannel is the machine.Guest adapter: a client of the Guest Agent's
 // gRPC contract, reaching the agent of a given Machine over the byte stream
 // the Driver opens to its guest (guest.md, ADR 0014).
-package channel
+package guestchannel
 
 import (
 	"context"

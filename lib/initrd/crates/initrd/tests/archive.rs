@@ -1,7 +1,7 @@
 //! The initrd archive, read back with a reader written from the newc format's description and
 //! not from the writer.
 
-use mkinitrd::{MKFS_EROFS_PATH, initrd};
+use initrd::initrd;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -52,68 +52,64 @@ fn read(archive: &[u8]) -> Result<(Vec<Entry>, usize)> {
 }
 
 #[test]
-fn the_archive_holds_the_converter_as_init_and_mkfs_erofs_beside_it() -> Result {
-    let converter = b"\x7fELF and some more bytes";
-    let mkfs_erofs = b"\x7fELF of the tool";
-    let archive = initrd(converter, mkfs_erofs);
+fn a_single_file_is_an_executable_entry_and_the_archive_ends_at_its_trailer() -> Result {
+    let init = b"\x7fELF and some more bytes";
+    let archive = initrd(&[("init", init)]);
 
     let (entries, end) = read(&archive)?;
 
     assert_eq!(
         entries,
-        [
-            ("init".to_owned(), 0o100_755, 0, 0, 0, converter.to_vec()),
-            (
-                "mkfs.erofs".to_owned(),
-                0o100_755,
-                0,
-                0,
-                0,
-                mkfs_erofs.to_vec()
-            ),
-        ]
+        [("init".to_owned(), 0o100_755, 0, 0, 0, init.to_vec())]
     );
-    assert_eq!(format!("/{}", entries[1].0), MKFS_EROFS_PATH);
     assert_eq!(end, archive.len());
     assert_eq!(archive.len() % 4, 0);
     Ok(())
 }
 
 #[test]
+fn files_come_out_in_the_order_given_each_with_its_own_name() -> Result {
+    let archive = initrd(&[("init", b"one"), ("mkfs.erofs", b"two"), ("etc", b"")]);
+
+    let (entries, end) = read(&archive)?;
+
+    assert_eq!(
+        entries,
+        [
+            ("init".to_owned(), 0o100_755, 0, 0, 0, b"one".to_vec()),
+            ("mkfs.erofs".to_owned(), 0o100_755, 0, 0, 0, b"two".to_vec()),
+            ("etc".to_owned(), 0o100_755, 0, 0, 0, Vec::new()),
+        ]
+    );
+    assert_eq!(end, archive.len());
+    Ok(())
+}
+
+#[test]
 fn files_of_any_length_keep_the_alignment_and_their_content() -> Result {
     for length in 0..9 {
-        let converter: Vec<u8> = (0..length).map(|byte| byte + 1).collect();
-        let mkfs_erofs: Vec<u8> = (0..8 - length).map(|byte| byte + 100).collect();
-        let archive = initrd(&converter, &mkfs_erofs);
+        let first: Vec<u8> = (0..length).map(|byte| byte + 1).collect();
+        let second: Vec<u8> = (0..8 - length).map(|byte| byte + 100).collect();
+        let archive = initrd(&[("init", &first), ("tool", &second)]);
         let (entries, end) = read(&archive)?;
-        assert_eq!(entries[0].5, converter, "length {length}");
-        assert_eq!(entries[1].5, mkfs_erofs, "length {length}");
+        assert_eq!(entries[0].5, first, "length {length}");
+        assert_eq!(entries[1].5, second, "length {length}");
         assert_eq!(end, archive.len(), "length {length}");
     }
     Ok(())
 }
 
-/// The archive for the converter `abc` and the tool `de`, written out field by field from the
-/// format's description: the magic and thirteen eight-digit fields (inode, mode, owner, group,
-/// links, time, size, device major and minor, rdev major and minor, name size, checksum), the name
-/// and the content, each padded to four bytes, then the trailer.
-const GOLDEN: &str = concat!(
-    "070701",
-    "00000001",
-    "000081ED",
-    "00000000",
-    "00000000",
-    "00000001",
-    "00000000",
-    "00000003",
-    "00000000",
-    "00000000",
-    "00000000",
-    "00000000",
-    "00000005",
-    "00000000",
-    "init\0\0",
-    "abc\0",
+/// The entry for the file `abc` named `init`, written out field by field from the format's
+/// description: the magic and thirteen eight-digit fields (inode, mode, owner, group, links, time,
+/// size, device major and minor, rdev major and minor, name size, checksum), the name and the
+/// content, each padded to four bytes.
+const INIT: &str = concat!(
+    "070701", "00000001", "000081ED", "00000000", "00000000", "00000001", "00000000", "00000003",
+    "00000000", "00000000", "00000000", "00000000", "00000005", "00000000", "init\0\0", "abc\0",
+);
+
+/// The entry for the file `de` named `mkfs.erofs`, the second of an archive.
+const TOOL: &str = concat!(
     "070701",
     "00000002",
     "000081ED",
@@ -130,6 +126,10 @@ const GOLDEN: &str = concat!(
     "00000000",
     "mkfs.erofs\0\0\0\0",
     "de\0\0",
+);
+
+/// The trailer that ends every archive.
+const TRAILER: &str = concat!(
     "070701",
     "00000000",
     "00000000",
@@ -148,8 +148,20 @@ const GOLDEN: &str = concat!(
 );
 
 #[test]
-fn the_archive_is_byte_for_byte_the_golden_one() {
-    // Owner, group and time are zero, the inodes are 1 and 2, and the padding is zeros: nothing
-    // of the build host is in the bytes.
-    assert_eq!(initrd(b"abc", b"de"), GOLDEN.as_bytes());
+fn one_file_is_byte_for_byte_the_golden_archive() {
+    // Owner, group and time are zero, the inode is 1, and the padding is zeros: nothing of the
+    // build host is in the bytes.
+    assert_eq!(
+        initrd(&[("init", b"abc")]),
+        [INIT, TRAILER].concat().as_bytes()
+    );
+}
+
+#[test]
+fn two_files_are_byte_for_byte_the_golden_archive() {
+    // The inodes count from 1 in the order given.
+    assert_eq!(
+        initrd(&[("init", b"abc"), ("mkfs.erofs", b"de")]),
+        [INIT, TOOL, TRAILER].concat().as_bytes()
+    );
 }

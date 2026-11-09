@@ -12,12 +12,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use converter::v1alpha1::convert_request::Message;
+use converter::v1alpha1::convert_response::Result as Outcome;
+use converter::v1alpha1::convert_service_client::ConvertServiceClient;
+use converter::v1alpha1::{ConvertRequest, Pass, PassKind, Start};
 use hyper_util::rt::TokioIo;
 use image::{Entry, Result, TAR, UUID, layer, tool};
-use imageconv::v1alpha1::convert_request::Message;
-use imageconv::v1alpha1::convert_response::Result as Outcome;
-use imageconv::v1alpha1::convert_service_client::ConvertServiceClient;
-use imageconv::v1alpha1::{ConvertRequest, Pass, PassKind, Start};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
@@ -39,7 +39,7 @@ impl Converter {
         let dir = tempfile::tempdir()?;
         let socket = dir.path().join("converter.sock");
         let output = image::output_file(dir.path())?;
-        let child = Command::new(env!("CARGO_BIN_EXE_imageconv-channel"))
+        let child = Command::new(env!("CARGO_BIN_EXE_converter-channel"))
             .arg("--mkfs")
             .arg(tool("MKFS_EROFS"))
             .arg("--output")
