@@ -5,10 +5,12 @@ import (
 	"net/netip"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -25,6 +27,20 @@ func defaultRouterVia(t *testing.T, ifindex int, router netip.Addr) bool {
 		}
 	}
 	return false
+}
+
+// ipv6Ready reports whether the kernel has set up IPv6 on the link: it holds a
+// link-local address, tentative or not, and the multicast route that frames to
+// ff02::1 are delivered by.
+func ipv6Ready(t *testing.T, link netlink.Link) bool {
+	t.Helper()
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_V6)
+	require.NoError(t, err)
+	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V6,
+		&netlink.Route{LinkIndex: link.Attrs().Index, Table: unix.RT_TABLE_LOCAL},
+		netlink.RT_FILTER_OIF|netlink.RT_FILTER_TABLE)
+	require.NoError(t, err)
+	return len(addrs) > 0 && len(routes) > 0
 }
 
 func TestGuest_ARouterAdvertisementIsDropped(t *testing.T) {
@@ -49,6 +65,15 @@ func TestGuest_ARouterAdvertisementIsDropped(t *testing.T) {
 		for _, dev := range []string{"bare0", g.tap} {
 			require.NoError(t, os.WriteFile("/proc/sys/net/ipv6/conf/"+dev+"/accept_ra", []byte("2"), 0o644))
 		}
+
+		// The tap has no carrier until the reader attaches, and the kernel sets up
+		// IPv6 on the link only once it has handled the carrier, on a worker of
+		// its own. The multicast route it adds first carries the advertisement's
+		// destination: a frame that arrives before it is discarded, and nothing
+		// sends it again. The link-local address follows the route, so waiting
+		// for both is waiting for the setup.
+		require.True(t, eventuallyWithin(10*time.Second, func() bool { return ipv6Ready(t, bareLink) }),
+			"bare0 never got an IPv6 link-local address and a multicast route, which the kernel sets up once the link has carrier")
 
 		bareMAC := net.HardwareAddr{0x02, 0, 0, 0, 0, 0x42}
 		bareLL := netip.MustParseAddr("fe80::42")
