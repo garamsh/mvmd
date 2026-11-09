@@ -31,10 +31,11 @@ Checked against garamsh/discussions#2 as read on 2026-11-08, §5 image section (
 ### Node image cache
 
 - **Layout.** One OCI image layout, `images/` under mvmd's state directory ([ADR 0007](./adr/0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md)). Blobs are content-addressed by SHA-256, and identical blobs are stored once.
-- **A MachineImage** is an artifact manifest with mvmd's MachineImage type, a config blob (run configuration, the converter it came from, required kernel conditions, none at stage v1) and one EROFS blob whose descriptor carries the fs-verity digest. At stage v1 the format is node-local; the media type names are defined with the code.
-- **What the Image Store tells the application of an image it holds**: the path of its EROFS file, that filesystem's UUID (chosen by mvmd at conversion, [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md)) and its run configuration, with the entrypoint and command already one argument vector, plus environment and working directory. A start sends the last two to the guest in the boot description ([guest.md](./guest.md)). Where the cache records the UUID is the real store's to decide.
+- **A MachineImage** is an artifact manifest with mvmd's MachineImage type, a config blob (run configuration, the converter it came from, required kernel conditions, none at stage v1) and one EROFS blob whose descriptor carries the fs-verity digest. At stage v1 the format is node-local, and the code defines its names: the manifest's `artifactType` is `application/vnd.mvmd.machineimage.v1`, the config's media type `application/vnd.mvmd.machineimage.config.v1+json`, the EROFS's `application/vnd.mvmd.machineimage.erofs.v1`, and the descriptor's fs-verity digest is its annotation `io.mvmd.fsverity.digest`.
+- **What the Image Store tells the application of an image it holds**: the path of its EROFS file, that filesystem's UUID (chosen by mvmd at conversion, [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md)) and its run configuration, with the entrypoint and command already one argument vector, plus environment and working directory. A start sends the last two to the guest in the boot description ([guest.md](./guest.md)). The UUID is recorded in the config blob.
 - **Visibility.** An image exists exactly when `index.json` lists it, under the digest it was pulled by. A pull stages under `images/staging/` and publishes by moving its blobs into place and then replacing `index.json` in one rename. Pulls of one digest are one pull.
-- **Start-up sweep.** Before serving any call, mvmd removes staging directories and blobs no listed manifest reaches.
+- **The index.** Each entry of `index.json` is the manifest's descriptor with the annotation `io.mvmd.image.digest` naming the digest the image was pulled by, which is how `Locate` finds it. `Locate` reads the manifest and config through their content addresses, so a blob that does not match its name is refused.
+- **Start-up sweep.** Before serving any call, mvmd removes staging directories, the temporary file of an interrupted index swap, and blobs no listed manifest reaches. It removes nothing and fails when a listed manifest cannot be read, because what that image reaches is then unknown.
 - **The source image is not kept** after conversion.
 
 ### Pull image
@@ -57,7 +58,8 @@ The use case is `daemon/internal/image/` ([structure.md](./structure.md) §Ports
 - **Set** when a pull enables fs-verity on the output, after the converter's VMM has ended and before publish.
 - **Checked** before every start and restore that boots the image: the Image Store measures the file, in constant time, and a file that is not a verity file or carries another digest fails the call before the boot begins.
 - **Verified on every read** by the host kernel, whatever I/O the VMM uses; a corrupted block reaches the guest as a read error. The guest does nothing for integrity.
-- **Host filesystem.** mvmd's state directory is on ext4 or f2fs with the `verity` feature, or on btrfs; mvmd refuses to start where fs-verity cannot be enabled in its image cache.
+- **Host filesystem.** mvmd's state directory is on ext4 or f2fs with the `verity` feature, or on btrfs; mvmd refuses to start where fs-verity cannot be enabled in its image cache. The Image Store checks this when it opens the cache, by enabling fs-verity on a file it then removes.
+- **The adapter's tests** need such a file system and fail where they find none. They look for one in the directory named by `MVMD_VERITY_DIR`, then in the temporary directory, and then make an ext4 with the `verity` feature in a file and loop-mount it through passwordless sudo, as the GitHub-hosted runner allows.
 
 ## Rationale
 
