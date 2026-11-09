@@ -155,6 +155,7 @@ func (n *node) log() string {
 func (n *node) stop(cmd *exec.Cmd, exited <-chan error) {
 	if n.t.Failed() {
 		n.t.Log(n.log())
+		n.t.Log(n.conversionLogs())
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	select {
@@ -166,6 +167,34 @@ func (n *node) stop(cmd *exec.Cmd, exited <-chan error) {
 	for _, cgroup := range n.cgroups {
 		killCgroup(cgroup)
 	}
+}
+
+// conversionLogs is the tail of what each converter VM left in the state directory: the
+// supervisor's log in the VM's state directory, and vmm.log in its run directory, which holds the
+// VMM's output and the guest's serial console. They say whether the guest never listened or the
+// converter's initrd failed.
+func (n *node) conversionLogs() string {
+	const tail = 6000
+	var b strings.Builder
+	dirs, _ := filepath.Glob(filepath.Join(n.stateDir, "conversions", "*"))
+	if len(dirs) == 0 {
+		return "no converter VM state directory under " + filepath.Join(n.stateDir, "conversions")
+	}
+	for _, dir := range dirs {
+		for _, name := range []string{"supervisor.log", filepath.Join("run", "vmm.log")} {
+			path := filepath.Join(dir, name)
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Fprintf(&b, "%s: %v\n", path, err)
+				continue
+			}
+			if len(raw) > tail {
+				raw = raw[len(raw)-tail:]
+			}
+			fmt.Fprintf(&b, "%s (tail):\n%s\n", path, raw)
+		}
+	}
+	return b.String()
 }
 
 // remove unmounts the state directory and deletes what the node made. It runs after stop.
