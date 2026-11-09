@@ -14,6 +14,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
+	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
 
 // ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect boots a Machine
@@ -49,7 +50,9 @@ func ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t *testing.
 	require.NoError(t, err)
 	consoleOut, vmmOut, err := os.Pipe()
 	require.NoError(t, err)
-	l := listenUnix(t, statedir.ConsoleSocket(state))
+	l, err := unixsock.Listen(statedir.ConsoleSocket(state))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
 	console := supervisor.ServeConsole(l, consoleIn, consoleOut, vmmLog)
 	proc := startVMM(t, s, p.For(spec), Streams{In: vmmIn, Out: vmmOut, Err: vmmLog}, logPath)
 	require.NoError(t, vmmIn.Close())
@@ -69,7 +72,7 @@ func ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t *testing.
 		session = consoleSessions(ctx, t, d)
 	} else {
 		_, err := d.Console(ctx, "m1")
-		assert.Error(t, err, "a Driver that reports no console capability refuses a session")
+		assert.ErrorIs(t, err, machine.ErrUnsupported, "a Driver that reports no console capability refuses a session")
 	}
 
 	// A paused guest runs nothing, so the agent answers nothing until resumed.

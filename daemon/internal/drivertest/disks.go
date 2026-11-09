@@ -41,8 +41,7 @@ func ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T, s Subject) {
 
 	hot, hotRO := diskFile(t, dir, "hot", false), diskFile(t, dir, "hotro", true)
 	if !has(d, machine.CapabilityDiskHotplug) {
-		assert.Empty(t, diskOperationsAccepted(ctx, d, "m1", hot),
-			"a Driver that reports no disk-hotplug capability refuses these")
+		refusesDisks(ctx, t, d, "m1", hot)
 		return
 	}
 	s.check(t, Booted, Machine{ID: "m1", RunDir: run, Devices: boot})
@@ -111,8 +110,7 @@ func AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.T, s Subj
 
 	hot := diskFile(t, dir, "hot", false)
 	if !has(d, machine.CapabilityDiskHotplug) {
-		assert.Empty(t, diskOperationsAccepted(ctx, d, "m1", hot),
-			"a Driver that reports no disk-hotplug capability refuses these")
+		refusesDisks(ctx, t, d, "m1", hot)
 		return
 	}
 
@@ -138,19 +136,13 @@ func AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.T, s Subj
 	assert.NoError(t, within(func(c context.Context) error { return guest.Health(c, "m1") }), "the guest still answers after the unplug")
 }
 
-// diskOperationsAccepted names the disk operations the Driver accepted: the
-// plug of a disk into the running Machine, the unplug, and the read of its
-// drives.
-func diskOperationsAccepted(ctx context.Context, d machine.Driver, id machine.MachineID, dev machine.BlockDevice) []string {
-	var accepted []string
-	if err := d.AttachDisk(ctx, id, dev); err == nil {
-		accepted = append(accepted, "AttachDisk")
-	}
-	if err := d.DetachDisk(ctx, id, dev.Disk); err == nil {
-		accepted = append(accepted, "DetachDisk")
-	}
-	if _, err := d.Drive(ctx, id, dev.Disk); err == nil {
-		accepted = append(accepted, "Drive")
-	}
-	return accepted
+// refusesDisks asserts the Driver refuses the disk operations as one that does
+// not report the capability must: an error wrapping ErrUnsupported (see
+// refusesSnapshot).
+func refusesDisks(ctx context.Context, t *testing.T, d machine.Driver, id machine.MachineID, dev machine.BlockDevice) {
+	t.Helper()
+	assert.ErrorIs(t, d.AttachDisk(ctx, id, dev), machine.ErrUnsupported, "AttachDisk")
+	assert.ErrorIs(t, d.DetachDisk(ctx, id, dev.Disk), machine.ErrUnsupported, "DetachDisk")
+	_, err := d.Drive(ctx, id, dev.Disk)
+	assert.ErrorIs(t, err, machine.ErrUnsupported, "Drive")
 }

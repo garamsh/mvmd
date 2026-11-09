@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +24,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -143,19 +141,6 @@ func longTempDir(t *testing.T, prefix string) string {
 	dir := filepath.Join(tempDir(t, prefix), strings.Repeat("d", 100))
 	require.NoError(t, os.Mkdir(dir, 0o755))
 	return dir
-}
-
-// listenUnix binds a socket at path the way a Driver reaches it, through a
-// descriptor of its directory, so that a path over the 107 bytes an address
-// holds works. The descriptor is held until the test ends.
-func listenUnix(t *testing.T, path string) *net.UnixListener {
-	t.Helper()
-	fd, err := unix.Open(filepath.Dir(path), unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = unix.Close(fd) })
-	l, err := net.Listen("unix", fmt.Sprintf("/proc/self/fd/%d/%s", fd, filepath.Base(path)))
-	require.NoError(t, err)
-	return l.(*net.UnixListener)
 }
 
 // startVMM starts the described process with the streams and ends it when the

@@ -52,8 +52,7 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 
 	if !has(d, machine.CapabilitySnapshot) {
 		require.NoError(t, d.Pause(ctx, "m1"))
-		assert.Empty(t, snapshotOperationsAccepted(ctx, d, "m1", spec),
-			"a Driver that reports no snapshot capability refuses these")
+		refusesSnapshot(ctx, t, d, "m1", spec)
 		return
 	}
 
@@ -109,18 +108,15 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	s.check(t, Restored, Machine{ID: "m2", RunDir: runs["m2"], Devices: spec2.Devices})
 }
 
-// snapshotOperationsAccepted names the snapshot operations the Driver accepted:
-// a Snapshot of the paused Machine, and the two calls that restore a new one.
-func snapshotOperationsAccepted(ctx context.Context, d machine.Driver, id machine.MachineID, spec machine.BootSpec) []string {
-	var accepted []string
-	if _, err := d.Snapshot(ctx, id); err == nil {
-		accepted = append(accepted, "Snapshot")
-	}
-	if _, err := d.DescribeRestore(ctx, "restored", spec, nil); err == nil {
-		accepted = append(accepted, "DescribeRestore")
-	}
-	if err := d.Restore(ctx, "restored", spec); err == nil {
-		accepted = append(accepted, "Restore")
-	}
-	return accepted
+// refusesSnapshot asserts the Driver refuses the snapshot operations as one that
+// does not report the capability must: an error wrapping ErrUnsupported, which
+// is the refusal for the capability and not for another cause such as a Machine
+// that is not running.
+func refusesSnapshot(ctx context.Context, t *testing.T, d machine.Driver, id machine.MachineID, spec machine.BootSpec) {
+	t.Helper()
+	_, err := d.Snapshot(ctx, id)
+	assert.ErrorIs(t, err, machine.ErrUnsupported, "Snapshot")
+	_, err = d.DescribeRestore(ctx, "restored", spec, nil)
+	assert.ErrorIs(t, err, machine.ErrUnsupported, "DescribeRestore")
+	assert.ErrorIs(t, d.Restore(ctx, "restored", spec), machine.ErrUnsupported, "Restore")
 }
