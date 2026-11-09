@@ -73,6 +73,7 @@ func startNode(t *testing.T) *node {
 		"socket":    map[string]any{"path": socket, "mode": "0600"},
 		"state_dir": n.stateDir,
 		"driver":    "firecracker",
+		"disk":      map[string]any{"mkfs": mkfsExt4()},
 		"firecracker": map[string]any{
 			"binary": firecracker, "binary_sha256": os.Getenv(envFirecrackerSHA),
 			"kernel": kernel, "kernel_sha256": os.Getenv(envKernelSHA),
@@ -106,7 +107,9 @@ func startNode(t *testing.T) *node {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	require.NoError(t, cmd.Start())
 	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
+	// Closed after the one error it carries, so a receiver that comes after dial took the error
+	// (stop) returns at once instead of waiting for a second one.
+	go func() { exited <- cmd.Wait(); close(exited) }()
 	t.Cleanup(func() { n.stop(cmd, exited) })
 
 	n.client = n.dial(socket, exited)
