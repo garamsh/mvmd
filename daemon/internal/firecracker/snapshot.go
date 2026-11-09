@@ -14,11 +14,10 @@ const (
 	// files of a failed attempt are written over by the next.
 	stateName  = "snapshot.state"
 	memoryName = "snapshot.mem"
-	// inState and inMemory are where a restored VMM sees the two files in its
-	// root, the same for every Machine, as ADR 0019's paths are. They are this
-	// Driver's own: no other party names them.
-	inState  = "/snapshot/state"
-	inMemory = "/snapshot/memory"
+	// inStateName and inMemoryName are the names of the two files in
+	// machine.InSnapshotDir, where a restored VMM sees them (ADR 0019).
+	inStateName  = "state"
+	inMemoryName = "memory"
 	// netIface is the interface Boot names, and so the one a snapshot records.
 	netIface = "eth0"
 )
@@ -53,9 +52,8 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 // returned, wherever the Snapshot Store holds them now, and are told apart by
 // name. The VMM sees them read-only at their fixed paths beside the Machine's
 // own devices at theirs; it is given no kernel or initrd, since a restored
-// guest is already running one. The tap of the boot description is kept for
-// Restore, which is given the Machine's identifier alone.
-func (d *Driver) DescribeRestore(_ context.Context, id machine.MachineID, spec machine.BootSpec, files []string) (machine.ProcessDescription, error) {
+// guest is already running one.
+func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec machine.BootSpec, files []string) (machine.ProcessDescription, error) {
 	var state, memory string
 	for _, f := range files {
 		switch {
@@ -73,44 +71,29 @@ func (d *Driver) DescribeRestore(_ context.Context, id machine.MachineID, spec m
 		return machine.ProcessDescription{}, fmt.Errorf("a snapshot holds a state file %s and a memory file %s, and %d files were given", stateName, memoryName, len(files))
 	}
 	boot := []machine.File{
-		{Host: state, In: inState, ReadOnly: true},
-		{Host: memory, In: inMemory, ReadOnly: true},
+		{Host: state, In: inSnapshot(inStateName), ReadOnly: true},
+		{Host: memory, In: inSnapshot(inMemoryName), ReadOnly: true},
 	}
-	p, err := d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
-	if err != nil {
-		return machine.ProcessDescription{}, err
-	}
-	d.mu.Lock()
-	d.restoring[id] = spec.Network.Tap
-	d.mu.Unlock()
-	return p, nil
+	return d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
 }
 
 // Restore implements machine.Driver. It loads the snapshot DescribeRestore
 // described into the started VMM and resumes the guest. The snapshot's network
 // interface is attached to the tap the Machine was given, and the guest keeps
-// the MAC the snapshot recorded. The description is spent by the call, whether
-// or not it succeeds: Firecracker takes a load on a fresh process only, and a
-// failed one leaves a VMM the lifecycle ends, so a repeat needs a new
-// DescribeRestore.
-func (d *Driver) Restore(ctx context.Context, id machine.MachineID) error {
-	d.mu.Lock()
-	tap, described := d.restoring[id]
-	delete(d.restoring, id)
-	d.mu.Unlock()
-	if !described {
-		return fmt.Errorf("no restore of Machine %q was described", id)
-	}
+// the MAC the snapshot recorded. Firecracker takes a load on a fresh process
+// only, so after a failed one the lifecycle ends the VMM and a repeat is made
+// on a new process.
+func (d *Driver) Restore(ctx context.Context, id machine.MachineID, spec machine.BootSpec) error {
 	c, err := d.started(ctx, id)
 	if err != nil {
 		return err
 	}
 	load := map[string]any{
-		"snapshot_path": inState,
-		"mem_backend":   map[string]any{"backend_type": "File", "backend_path": inMemory},
+		"snapshot_path": inSnapshot(inStateName),
+		"mem_backend":   map[string]any{"backend_type": "File", "backend_path": inSnapshot(inMemoryName)},
 		"resume_vm":     true,
 	}
-	if tap != "" {
+	if tap := spec.Network.Tap; tap != "" {
 		load["network_overrides"] = []map[string]any{{"iface_id": netIface, "host_dev_name": tap}}
 	}
 	return c.do(ctx, "PUT", "/snapshot/load", load, nil)

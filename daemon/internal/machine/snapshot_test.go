@@ -370,6 +370,7 @@ func TestRestoreSnapshot_OnSuccess(t *testing.T) {
 	assert.Equal(t, []string{e.driver.BootSpec("src").RunDir + "/snapshot.mem", e.driver.BootSpec("src").RunDir + "/snapshot.state"}, e.driver.RestoredFrom("new"))
 	boot := e.driver.BootSpec("new")
 	assert.Equal(t, "tap-new", boot.Network.Tap)
+	assert.Equal(t, boot, e.driver.RestoredWith("new"), "Restore is given the boot description DescribeRestore was")
 	assert.Equal(t, got.Network.MAC, boot.Network.MAC)
 	run, err := e.sup.RunDir("new")
 	require.NoError(t, err)

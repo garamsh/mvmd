@@ -151,10 +151,7 @@ func TestRestore_LoadsTheSnapshotOntoTheNewMachinesTapAndResumesTheGuest(t *test
 	f := &fakeAPI{}
 	f.listen(t, n.apiSocket())
 	ctx := context.Background()
-	_, err := n.driver.DescribeRestore(ctx, "m2", n.restoreSpec("tap-m2"), snapshotFiles())
-	require.NoError(t, err)
-
-	require.NoError(t, n.driver.Restore(ctx, "m2"))
+	require.NoError(t, n.driver.Restore(ctx, "m2", n.restoreSpec("tap-m2")), "no description precedes the call: Restore is given the boot description")
 
 	seen := f.seen()
 	require.Len(t, seen, 2)
@@ -173,23 +170,20 @@ func TestRestore_LoadsTheSnapshotOntoTheNewMachinesTapAndResumesTheGuest(t *test
 	}`, seen[1].Body)
 }
 
-func TestRestore_TakesTheTapOfTheMachineItRestoresAndNoOtherMachinesTap(t *testing.T) {
+func TestRestore_NamesTheTapOfTheBootDescriptionItIsGiven(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{}
 	f.listen(t, n.apiSocket())
 	ctx := context.Background()
-	_, err := n.driver.DescribeRestore(ctx, "m2", n.restoreSpec("tap-m2"), snapshotFiles())
-	require.NoError(t, err)
-	_, err = n.driver.DescribeRestore(ctx, "m3", n.restoreSpec("tap-m3"), snapshotFiles())
-	require.NoError(t, err)
 
-	require.NoError(t, n.driver.Restore(ctx, "m2"))
+	require.NoError(t, n.driver.Restore(ctx, "m2", n.restoreSpec("tap-m2")))
 	seen := f.seen()
 	assert.Contains(t, seen[len(seen)-1].Body, `"host_dev_name":"tap-m2"`)
 
-	require.NoError(t, n.driver.Restore(ctx, "m3"))
+	require.NoError(t, n.driver.Restore(ctx, "m2", n.restoreSpec("tap-m3")))
 	seen = f.seen()
-	assert.Contains(t, seen[len(seen)-1].Body, `"host_dev_name":"tap-m3"`, "the second description was not lost to the first Restore")
+	assert.Contains(t, seen[len(seen)-1].Body, `"host_dev_name":"tap-m3"`, "control: another description names another tap")
+	assert.NotContains(t, seen[len(seen)-1].Body, "tap-m2")
 }
 
 func TestRestore_AMachineWithNoTapOverridesNothing(t *testing.T) {
@@ -197,11 +191,7 @@ func TestRestore_AMachineWithNoTapOverridesNothing(t *testing.T) {
 	f := &fakeAPI{}
 	f.listen(t, n.apiSocket())
 	ctx := context.Background()
-	spec := n.restoreSpec("")
-	_, err := n.driver.DescribeRestore(ctx, "m2", spec, snapshotFiles())
-	require.NoError(t, err)
-
-	require.NoError(t, n.driver.Restore(ctx, "m2"))
+	require.NoError(t, n.driver.Restore(ctx, "m2", n.restoreSpec("")))
 	seen := f.seen()
 	assert.JSONEq(t, `{"snapshot_path":"/snapshot/state","mem_backend":{"backend_type":"File","backend_path":"/snapshot/memory"},"resume_vm":true}`, seen[len(seen)-1].Body)
 }
@@ -213,7 +203,7 @@ func TestRestore_NamesOnlyPathsTheDescriptionMounts(t *testing.T) {
 	ctx := context.Background()
 	p, err := n.driver.DescribeRestore(ctx, "m2", n.restoreSpec("tap-m2"), snapshotFiles())
 	require.NoError(t, err)
-	require.NoError(t, n.driver.Restore(ctx, "m2"))
+	require.NoError(t, n.driver.Restore(ctx, "m2", n.restoreSpec("tap-m2")))
 
 	mounted := map[string]bool{}
 	for _, bf := range p.BootFiles {
@@ -230,22 +220,7 @@ func TestRestore_NamesOnlyPathsTheDescriptionMounts(t *testing.T) {
 	}
 }
 
-func TestRestore_RefusesAMachineWhoseRestoreWasNotDescribed(t *testing.T) {
-	n := newNode(t)
-	f := &fakeAPI{}
-	f.listen(t, n.apiSocket())
-	ctx := context.Background()
-
-	require.Error(t, n.driver.Restore(ctx, "m2"))
-	assert.Empty(t, f.seen(), "nothing reaches the VMM for a Machine no description named")
-
-	_, err := n.driver.DescribeRestore(ctx, "m2", n.restoreSpec("tap-m2"), snapshotFiles())
-	require.NoError(t, err)
-	require.NoError(t, n.driver.Restore(ctx, "m2"), "control: the same call is accepted once described")
-	assert.NotEmpty(t, f.seen())
-}
-
-func TestRestore_SpendsTheDescriptionWhetherTheLoadSucceedsOrNot(t *testing.T) {
+func TestRestore_ReturnsTheVMMsRefusalOfTheLoad(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{answer: func(r request) (int, string) {
 		if r.Path == "/snapshot/load" {
@@ -257,19 +232,11 @@ func TestRestore_SpendsTheDescriptionWhetherTheLoadSucceedsOrNot(t *testing.T) {
 		return http.StatusNoContent, ""
 	}}
 	f.listen(t, n.apiSocket())
-	ctx := context.Background()
-	_, err := n.driver.DescribeRestore(ctx, "m2", n.restoreSpec("tap-m2"), snapshotFiles())
-	require.NoError(t, err)
 
-	err = n.driver.Restore(ctx, "m2")
+	err := n.driver.Restore(context.Background(), "m2", n.restoreSpec("tap-m2"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Error manipulating the backing file")
-	loads := len(f.seen())
-
-	err = n.driver.Restore(ctx, "m2")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "was described", "a repeat is refused for want of a description, not sent again")
-	assert.Len(t, f.seen(), loads, "nothing more reached the VMM")
+	require.Equal(t, "/snapshot/load", f.seen()[len(f.seen())-1].Path, "control: the load was sent, so the refusal is the VMM's")
 }
 
 func TestRestore_RefusesAVMMOfAnotherVersionAndLoadsNothing(t *testing.T) {
@@ -282,10 +249,7 @@ func TestRestore_RefusesAVMMOfAnotherVersionAndLoadsNothing(t *testing.T) {
 	}}
 	f.listen(t, n.apiSocket())
 	ctx := context.Background()
-	_, err := n.driver.DescribeRestore(ctx, "m2", n.restoreSpec("tap-m2"), snapshotFiles())
-	require.NoError(t, err)
-
-	err = n.driver.Restore(ctx, "m2")
+	err := n.driver.Restore(ctx, "m2", n.restoreSpec("tap-m2"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "1.16.0")
 	for _, r := range f.seen() {

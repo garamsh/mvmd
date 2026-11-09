@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -66,11 +65,6 @@ func (c Config) Validate() error {
 type Driver struct {
 	cfg      Config
 	cpuModel string
-
-	// restoring holds the tap each DescribeRestore was given until the Restore
-	// that needs it, since Restore is given the Machine's identifier alone.
-	mu        sync.Mutex
-	restoring map[machine.MachineID]string
 }
 
 // New returns the Driver. It refuses a binary or a kernel whose digest is not
@@ -89,7 +83,7 @@ func New(cfg Config) (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Driver{cfg: cfg, cpuModel: model, restoring: map[machine.MachineID]string{}}, nil
+	return &Driver{cfg: cfg, cpuModel: model}, nil
 }
 
 // Info implements machine.Driver. The optional capabilities reported are the
@@ -108,6 +102,9 @@ func (d *Driver) Observe(func(machine.DriverEvent)) {}
 // what the VMM is told; mvmd itself reaches the file at the run directory's
 // host path.
 func inRun(name string) string { return filepath.Join(machine.InRunDir, name) }
+
+// inSnapshot is the path of a snapshot file in a restored VMM's root.
+func inSnapshot(name string) string { return filepath.Join(machine.InSnapshotDir, name) }
 
 func (d *Driver) socket(id machine.MachineID, name string) (string, error) {
 	dir, err := d.cfg.Dirs.RunDir(id)

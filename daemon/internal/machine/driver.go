@@ -92,6 +92,10 @@ const (
 	// InRunDir is the Machine's run directory, where the VMM creates its API
 	// socket and its vsock socket.
 	InRunDir = "/run"
+	// InSnapshotDir is the directory of a restored VMM's root where the files
+	// of the snapshot are bound, read-only. A Driver names its own files under
+	// it, as it names its sockets under InRunDir.
+	InSnapshotDir = "/snapshot"
 )
 
 // InDisk is the path of the block device at a position of BootSpec.Devices.
@@ -233,8 +237,10 @@ type Driver interface {
 	// snapshot. The boot's network device is the new Machine's tap, not the one
 	// the snapshot recorded.
 	DescribeRestore(ctx context.Context, id MachineID, spec BootSpec, files []string) (ProcessDescription, error)
-	// Restore loads the snapshot into the started VMM and resumes the guest.
-	Restore(ctx context.Context, id MachineID) error
+	// Restore loads the snapshot into the started VMM and resumes the guest. It
+	// is given the boot description DescribeRestore was, as Boot is, so the
+	// Driver keeps nothing between the two calls.
+	Restore(ctx context.Context, id MachineID, spec BootSpec) error
 	// Observe sets the function the Driver calls for each event it raises on
 	// its own, from any goroutine. NewService calls it once.
 	Observe(report func(DriverEvent))

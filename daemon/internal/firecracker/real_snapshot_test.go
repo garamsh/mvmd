@@ -152,7 +152,7 @@ func TestReal_ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testi
 	_, err = d.GuestConn(ctx, "m2", machine.GuestAgentPort)
 	require.Error(t, err, "control: a VMM that has loaded nothing has no guest to reach")
 
-	require.NoError(t, d.Restore(ctx, "m2"))
+	require.NoError(t, d.Restore(ctx, "m2", spec2))
 	require.Eventually(t, answers("m2", 5*time.Second), time.Minute, 500*time.Millisecond, "the Guest Agent never answered on the restored Machine")
 	assert.Eventually(t, answers("m1", 5*time.Second), 10*time.Second, 200*time.Millisecond, "the first Machine is unaffected by its restore")
 

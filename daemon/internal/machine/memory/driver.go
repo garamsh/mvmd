@@ -27,7 +27,9 @@ type Driver struct {
 	devices  map[machine.MachineID][]machine.DiskID
 	sizes    map[machine.MachineID]machine.Resources
 	restored map[machine.MachineID][]string
-	paused   map[machine.MachineID]bool
+	// restoreSpec is the boot description each Machine's Restore was given.
+	restoreSpec map[machine.MachineID]machine.BootSpec
+	paused      map[machine.MachineID]bool
 	// pausedAtSnapshot is what paused was when the Machine was last snapshotted.
 	pausedAtSnapshot map[machine.MachineID]bool
 	hold             chan struct{}
@@ -77,6 +79,7 @@ func NewDriver(info machine.DriverInfo) *Driver {
 		devices:          make(map[machine.MachineID][]machine.DiskID),
 		sizes:            make(map[machine.MachineID]machine.Resources),
 		restored:         make(map[machine.MachineID][]string),
+		restoreSpec:      make(map[machine.MachineID]machine.BootSpec),
 		paused:           make(map[machine.MachineID]bool),
 		pausedAtSnapshot: make(map[machine.MachineID]bool),
 	}
@@ -365,7 +368,23 @@ func (d *Driver) DescribeRestore(_ context.Context, id machine.MachineID, spec m
 }
 
 // Restore implements machine.Driver.
-func (d *Driver) Restore(_ context.Context, _ machine.MachineID) error { return d.Enter("restore") }
+func (d *Driver) Restore(_ context.Context, id machine.MachineID, spec machine.BootSpec) error {
+	if err := d.Enter("restore"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.restoreSpec[id] = spec
+	d.mu.Unlock()
+	return nil
+}
+
+// RestoredWith returns the boot description the last Restore for the Machine
+// was given.
+func (d *Driver) RestoredWith(id machine.MachineID) machine.BootSpec {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.restoreSpec[id]
+}
 
 // RestoredFrom returns the snapshot files the last DescribeRestore for the
 // Machine was given.
