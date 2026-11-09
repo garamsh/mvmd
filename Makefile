@@ -132,6 +132,35 @@ test-firecracker: guest-initrd
 	echo "$@: $$n test(s) passed, selected by -run '^TestReal_' under the firecracker_real tag"; \
 	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
 
+# test-e2e runs the end-to-end tests of e2e/: the built mvmd and mvmd-supervisor on the pinned
+# Firecracker and kernel, with the Guest Agent's and the converter's initrds, against a registry the
+# tests serve themselves. The tests pull images through the runtime API, read what the converter
+# microVM made, and check the pre-boot check of the cache. They run as root, and under passwordless
+# sudo when this user is not; they need read and write access to /dev/kvm and a Linux with
+# fs-verity on ext4 and loop mounts. Like test-firecracker, it is not part of ci and a missing
+# input fails the tests and never skips them.
+.PHONY: converter-initrd test-e2e
+converter-initrd: erofs-utils
+	$(call initrd_twice,imageconv,"$$workspace/target/erofs-utils/mkfs.erofs")
+
+test-e2e: guest-initrd converter-initrd
+	@set -e; \
+	mkdir -p e2e/target; \
+	(cd daemon && go build -o $(CURDIR)/e2e/target/mvmd ./cmd/mvmd && go build -o $(CURDIR)/e2e/target/mvmd-supervisor ./cmd/mvmd-supervisor); \
+	tooling/firecracker/fetch.sh tooling/firecracker/target; \
+	set -a; . tooling/firecracker/target/inputs.env; set +a; \
+	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
+	export MVMD_E2E_CONVERTER_INITRD=$(CURDIR)/imageconv/target/initrd.cpio; \
+	export MVMD_E2E_MVMD=$(CURDIR)/e2e/target/mvmd; \
+	export MVMD_E2E_SUPERVISOR=$(CURDIR)/e2e/target/mvmd-supervisor; \
+	export FSCK_EROFS=$(CURDIR)/$(EROFS_UTILS)/fsck.erofs; \
+	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
+	if ! (cd e2e && go test -tags firecracker_real -count=1 -v -run '^TestE2E_' ./...) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
+	cat "$$log"; \
+	n=$$(grep -c '^--- PASS: TestE2E_' "$$log" || true); \
+	echo "$@: $$n test(s) passed, selected by -run '^TestE2E_' under the firecracker_real tag"; \
+	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
+
 build: rebuild-erofs-utils
 	$(call each_module, $(count_packages); (cd "$$dir" && go build ./...))
 	$(call each_rust, $(count_members); $(CARGO) build --workspace --locked; \
