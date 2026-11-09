@@ -17,8 +17,10 @@ import (
 // pauses it and snapshots it; the snapshot is then restored as a new Machine,
 // with a run directory and a root disk of its own at other host paths than the
 // first's, and the Guest Agent answers on it. The restored VMM's root holds no
-// kernel and no initrd, and the files the snapshot recorded are at the fixed
-// paths of the second Machine's own.
+// kernel, and holds exactly the boot files its VMM opens on restore (the
+// Subject's facts: none for Firecracker, the initrd for Cloud Hypervisor), at
+// the host paths the first Machine booted them from. The files the snapshot
+// recorded are at the fixed paths of the second Machine's own.
 //
 // A Driver that reports no snapshot capability is held to refusing the
 // operations instead.
@@ -43,6 +45,7 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	require.NoError(t, err)
 	startLogged(t, s, p.For(spec), runs["m1"])
 	require.NoError(t, d.Boot(ctx, "m1", spec))
+	booted := p.BootFiles
 
 	guest := s.Guest(d)
 	answers := func(id machine.MachineID, within time.Duration) func() bool {
@@ -65,7 +68,8 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	require.NoError(t, err)
 	assert.Equal(t, first, second, "two snapshots of one Machine name the same files")
 	assert.Equal(t, s.KernelDigest, first.KernelDigest)
-	require.Len(t, first.Files, 2)
+	require.Positive(t, s.Snapshot.Files, "the Subject states how many files its snapshot holds")
+	require.Len(t, first.Files, s.Snapshot.Files)
 	for _, f := range first.Files {
 		assert.Equal(t, runs["m1"], filepath.Dir(f), "the files are in the run directory")
 		info, err := os.Stat(f)
@@ -94,9 +98,17 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 
 	p2, err := d.DescribeRestore(ctx, "m2", spec2, held)
 	require.NoError(t, err)
+	assert.ElementsMatch(t, s.Snapshot.RestoreBootFiles, bootPaths(p2.BootFiles),
+		"the restored root holds the boot files its VMM opens on restore, and no others")
+	for _, in := range s.Snapshot.RestoreBootFiles {
+		assert.NotEmpty(t, hostOf(p2.BootFiles, in), "control: %s is bound", in)
+		assert.Equal(t, hostOf(booted, in), hostOf(p2.BootFiles, in), "%s is the file the first Machine booted from", in)
+	}
 	startLogged(t, s, p2.For(spec2), runs["m2"])
-	_, err = d.GuestConn(ctx, "m2", machine.GuestAgentPort)
-	require.Error(t, err, "control: a VMM that has loaded nothing has no guest to reach")
+	if s.Snapshot.LoadsOnRestore {
+		_, err = d.GuestConn(ctx, "m2", machine.GuestAgentPort)
+		require.Error(t, err, "control: a VMM that has loaded nothing has no guest to reach")
+	}
 
 	require.NoError(t, d.Restore(ctx, "m2", spec2))
 	require.Eventually(t, answers("m2", 5*time.Second), time.Minute, 500*time.Millisecond, "the Guest Agent never answered on the restored Machine")
@@ -106,6 +118,28 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	// VMM's own files can show.
 	s.check(t, Restored, Machine{ID: "m1", RunDir: runs["m1"], Devices: devices})
 	s.check(t, Restored, Machine{ID: "m2", RunDir: runs["m2"], Devices: spec2.Devices})
+}
+
+// bootPaths are the paths in the VMM's root of the boot files among files: the
+// ones in /boot, where the kernel and the initrd are bound.
+func bootPaths(files []machine.File) []string {
+	var in []string
+	for _, f := range files {
+		if filepath.Dir(f.In) == "/boot" {
+			in = append(in, f.In)
+		}
+	}
+	return in
+}
+
+// hostOf is the host path bound at in, or "" for none.
+func hostOf(files []machine.File, in string) string {
+	for _, f := range files {
+		if f.In == in {
+			return f.Host
+		}
+	}
+	return ""
 }
 
 // refusesSnapshot asserts the Driver refuses the snapshot operations as one that

@@ -28,7 +28,7 @@ var wantArgs = []string{
 	"--event-monitor", "fd=7",
 	"--vsock", "cid=3,socket=/run/vsock.sock",
 	"--disk", "path=/disk/0,readonly=on,image_type=raw,id=disk0", "path=/disk/1,readonly=off,image_type=raw,id=disk1",
-	"--net", "fd=[3],mac=02:00:00:00:00:01",
+	"--net", "id=net0,fd=[3],mac=02:00:00:00:00:01",
 }
 
 func TestDescribe_StatesTheProcessAndWhatItNeedsOpen(t *testing.T) {

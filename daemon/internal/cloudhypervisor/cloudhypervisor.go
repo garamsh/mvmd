@@ -88,12 +88,12 @@ func New(cfg Config) (*Driver, error) {
 	return &Driver{cfg: cfg, cpuModel: model}, nil
 }
 
-// Info implements machine.Driver. The one optional capability reported is the
-// console. Snapshot, disk hot-plug and resize are in v54.0 but not yet in this
-// Driver, and the operations that need them refuse (unsupported).
+// Info implements machine.Driver. The optional capabilities reported are the
+// console and snapshot. Disk hot-plug and resize are in v54.0 but not yet in
+// this Driver, and the operations that need them refuse (unsupported).
 func (d *Driver) Info() machine.DriverInfo {
 	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel,
-		Capabilities: []machine.Capability{machine.CapabilityConsole}}
+		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}}
 }
 
 // Observe implements machine.Driver. The Driver raises no event of its own:
@@ -145,19 +145,4 @@ func (d *Driver) Drive(context.Context, machine.MachineID, machine.DiskID) (mach
 // Resize implements machine.Driver and always refuses.
 func (d *Driver) Resize(context.Context, machine.MachineID, machine.Resources) error {
 	return unsupported("resize")
-}
-
-// Snapshot implements machine.Driver and always refuses.
-func (d *Driver) Snapshot(context.Context, machine.MachineID) (machine.DriverSnapshot, error) {
-	return machine.DriverSnapshot{}, unsupported("snapshot")
-}
-
-// DescribeRestore implements machine.Driver and always refuses.
-func (d *Driver) DescribeRestore(context.Context, machine.MachineID, machine.BootSpec, []string) (machine.ProcessDescription, error) {
-	return machine.ProcessDescription{}, unsupported("restore")
-}
-
-// Restore implements machine.Driver and always refuses.
-func (d *Driver) Restore(context.Context, machine.MachineID, machine.BootSpec) error {
-	return unsupported("restore")
 }

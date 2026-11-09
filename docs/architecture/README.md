@@ -57,5 +57,6 @@ Decisions:
 - [ADR 0024](./adr/0024-the-converters-user-holds-the-output-file-only-while-its-vmm-runs.md) — the converter's user holds the output file only while its VMM runs (adds to the steps 6 and 7 of ADR 0007's Pull image)
 - [ADR 0025](./adr/0025-the-supervisor-gives-the-vmm-a-raw-mode-pseudo-terminal-as-its-console.md) — the supervisor gives the VMM a raw-mode pseudo-terminal as its console (supersedes ADR 0020's pipes)
 - [ADR 0026](./adr/0026-the-supervisor-ends-a-vmm-whose-event-pipe-reports-a-guest-reset.md) — the supervisor ends a VMM whose event pipe reports a guest reset (extends what ADR 0015's description carries)
+- [ADR 0027](./adr/0027-a-restored-vmms-root-holds-the-boot-files-its-vmm-opens-on-restore.md) — a restored VMM's root holds the boot files its VMM opens on restore (replaces driver.md's rule that a restored root holds no kernel and no initrd)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
