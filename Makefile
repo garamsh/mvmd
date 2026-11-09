@@ -28,7 +28,7 @@ endef
 
 # The Rust workspaces every check covers, each a directory holding a virtual manifest, and the
 # binary crates of them that ship, as workspace:crate, built for the static musl target.
-RUST_WORKSPACES := guest-agent imageconv
+RUST_WORKSPACES := guest-agent imageconv lib/initrd
 RUST_BINARIES := guest-agent:guest-agent imageconv:imageconv
 RUST_TARGET := $(shell uname -m)-unknown-linux-musl
 # The pinned erofs-utils tools, built by imageconv/mkfs-erofs/build.sh. mkfs.erofs goes into the

@@ -21,11 +21,13 @@ updates:
     directories:
       - /guest-agent
       - /imageconv
+      - /lib/initrd
     schedule:
       interval: weekly
   - package-ecosystem: rust-toolchain
     directories:
       - /guest-agent
       - /imageconv
+      - /lib/initrd
     schedule:
       interval: weekly
