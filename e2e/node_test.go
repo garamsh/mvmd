@@ -159,6 +159,7 @@ func (n *node) stop(cmd *exec.Cmd, exited <-chan error) {
 	if n.t.Failed() {
 		n.t.Log(n.log())
 		n.t.Log(n.conversionLogs())
+		n.t.Log(n.fileOwners())
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	select {
@@ -198,6 +199,14 @@ func (n *node) conversionLogs() string {
 		}
 	}
 	return b.String()
+}
+
+// fileOwners lists, with owner and mode, the files a Machine's VMM is lent from the state
+// directory: the cache's blobs and the root disks. A VMM that is refused a file it was lent is
+// refused by one of these.
+func (n *node) fileOwners() string {
+	out, _ := exec.Command("find", filepath.Join(n.stateDir, "images"), filepath.Join(n.stateDir, "disks"), "-ls").CombinedOutput()
+	return "owners and modes of the cache and the disks:\n" + string(out)
 }
 
 // remove unmounts the state directory and deletes what the node made. It runs after stop.
