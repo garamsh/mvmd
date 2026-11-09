@@ -11,18 +11,6 @@ import (
 // entrypoint (guest.md); a client's Exec under it would run nothing.
 const entrypointExec ExecID = "entrypoint"
 
-// execEntry is what mvmd keeps of one exec: the call that made it, for its
-// repeat, and the record as far as mvmd knows it.
-type execEntry struct {
-	machine MachineID
-	request RequestID
-	spec    ExecSpec
-	record  ExecRecord
-	// answered is whether the guest answered the call. Until it has, there is no
-	// record: whether the command runs is not known.
-	answered bool
-}
-
 // requireRunning refuses a guest access call unless the Machine exists and is
 // Running.
 func (s *service) requireRunning(id MachineID, call string) error {
@@ -68,14 +56,21 @@ func (s *service) Exec(ctx context.Context, id MachineID, exec ExecID, request R
 	defer s.lock(id)()
 
 	s.execMu.Lock()
-	entry, ok := s.execs[exec]
+	stored, ok := s.execs[exec]
+	var held ExecEntry
+	if ok {
+		held = *stored
+	}
 	s.execMu.Unlock()
 	if ok {
-		if entry.machine != id || entry.request != request || !reflect.DeepEqual(entry.spec, spec) {
+		if held.Unreadable != "" {
+			return ExecRecord{}, unreadableExec(held)
+		}
+		if held.Machine != id || held.Request != request || !reflect.DeepEqual(held.Spec, spec) {
 			return ExecRecord{}, fail(ErrConflict, "exec %q exists under another request ID or other parameters", exec)
 		}
-		if entry.answered {
-			return entry.record, nil
+		if held.Answered {
+			return held.Record, nil
 		}
 		// The guest never answered the first call, so the command may or may not
 		// run: ask again. The guest returns the existing record of an exec ID it
@@ -85,20 +80,34 @@ func (s *service) Exec(ctx context.Context, id MachineID, exec ExecID, request R
 		return ExecRecord{}, err
 	}
 
+	if !ok {
+		// The identity of the call is kept before the guest is asked, so a
+		// conflicting repeat is refused after a restart, and a command that may
+		// have started is never forgotten. An outcome is remembered only when
+		// the guest gave one.
+		held = ExecEntry{Machine: id, ID: exec, Request: request, Spec: spec}
+		if err := s.store.SaveExec(ctx, held); err != nil {
+			return ExecRecord{}, fail(ErrFailed, "record exec %q, which was not started: %v", exec, err)
+		}
+		s.execMu.Lock()
+		s.execs[exec] = &held
+		s.execMu.Unlock()
+	}
+
 	started, err := s.guest.Exec(ctx, id, exec, spec)
 	if err != nil {
-		// An outcome is remembered only when the guest gave one; the identity
-		// of the call is kept, so a conflicting repeat is still refused.
-		s.execMu.Lock()
-		if _, ok := s.execs[exec]; !ok {
-			s.execs[exec] = &execEntry{machine: id, request: request, spec: spec}
-		}
-		s.execMu.Unlock()
 		return ExecRecord{}, guestFailure(err, "start the command")
 	}
 	started.ID = exec
+	answered := held
+	answered.Record, answered.Answered = started, true
+	if err := s.store.SaveExec(ctx, answered); err != nil {
+		// The entry stays unanswered in memory as it is in the store, so a repeat
+		// asks the guest again, which answers with the record it has.
+		return ExecRecord{}, fail(ErrFailed, "the command started and its record could not be kept: %v", err)
+	}
 	s.execMu.Lock()
-	s.execs[exec] = &execEntry{machine: id, request: request, spec: spec, record: started, answered: true}
+	s.execs[exec] = &answered
 	s.execMu.Unlock()
 	return started, nil
 }
@@ -109,30 +118,68 @@ func (s *service) dropExecs(id MachineID) {
 	s.execMu.Lock()
 	defer s.execMu.Unlock()
 	for exec, e := range s.execs {
-		if e.machine == id {
+		if e.Machine == id {
 			delete(s.execs, exec)
 		}
 	}
 }
 
-// cutShort marks the commands of a Machine that still run as cut short: its
-// VMM has ended, so nothing in it runs and the guest cannot be asked.
+// unreadableExec is the answer to a call on an exec entry the State Store
+// could not decode: whether its command ran is not known, so nothing is run or
+// answered under it.
+func unreadableExec(e ExecEntry) *Error {
+	return fail(ErrFailed, "the record of exec %q could not be read: %s", e.ID, e.Unreadable)
+}
+
+// endedWith is the reason a state that ends the run gives for the commands it
+// cuts short.
+func endedWith(state State) string { return "the Machine is " + state.String() }
+
+// cutShortEntry is the entry of a command whose Machine's VMM has ended, so
+// nothing in it runs and the guest cannot be asked; changed is false for an
+// entry that is already final.
+func cutShortEntry(e ExecEntry, why string) (cut ExecEntry, changed bool) {
+	switch {
+	case e.Unreadable != "":
+		// Nothing of it is known, and it is not rewritten.
+	case !e.Answered:
+		// The guest never answered the start, so whether the command ran is
+		// not known; with its Machine gone it never will be.
+		e.Record = ExecRecord{ID: e.ID, Status: ExecCutShort,
+			Reason: "the guest never answered the start, so whether the command ran is not known; the Machine is gone: " + why}
+		e.Answered = true
+		return e, true
+	case e.Record.Status == ExecStarted:
+		e.Record.Status = ExecCutShort
+		e.Record.Reason = "the command ended with its Machine: " + why
+		return e, true
+	}
+	return e, false
+}
+
+// cutShortOf returns the entries of the Machine that a run's end cuts short,
+// as they become. The caller holds execMu.
+func (s *service) cutShortOf(id MachineID, why string) []ExecEntry {
+	var cut []ExecEntry
+	for _, e := range s.execs {
+		if e.Machine != id {
+			continue
+		}
+		if next, changed := cutShortEntry(*e, why); changed {
+			cut = append(cut, next)
+		}
+	}
+	return cut
+}
+
+// cutShort marks the commands of a Machine that still run as cut short in
+// memory. commit has recorded them with the state that cut them.
 func (s *service) cutShort(id MachineID, why string) {
 	s.execMu.Lock()
 	defer s.execMu.Unlock()
-	for execID, e := range s.execs {
-		switch {
-		case e.machine != id:
-		case !e.answered:
-			// The guest never answered the start, so whether the command ran is
-			// not known; with its Machine gone it never will be.
-			e.record = ExecRecord{ID: execID, Status: ExecCutShort,
-				Reason: "the guest never answered the start, so whether the command ran is not known; the Machine is gone: " + why}
-			e.answered = true
-		case e.record.Status == ExecStarted:
-			e.record.Status = ExecCutShort
-			e.record.Reason = "the command ended with its Machine: " + why
-		}
+	for _, e := range s.cutShortOf(id, why) {
+		next := e
+		s.execs[e.ID] = &next
 	}
 }
 
@@ -141,16 +188,19 @@ func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID,
 	entry, ok := s.execs[exec]
 	var held ExecRecord
 	if ok {
-		held = entry.record
-		if !entry.answered {
+		held = entry.Record
+		if !entry.Answered {
 			// The guest never answered the start, so the command is taken to run
 			// until the guest says otherwise.
 			held = ExecRecord{ID: exec, Status: ExecStarted}
 		}
 	}
 	s.execMu.Unlock()
-	if !ok || entry.machine != id {
+	if !ok || entry.Machine != id {
 		return ExecRecord{}, fail(ErrNotFound, "no exec %q on Machine %q", exec, id)
+	}
+	if entry.Unreadable != "" {
+		return ExecRecord{}, unreadableExec(*entry)
 	}
 	if err := s.requireRunning(id, "read exec output"); err != nil {
 		// A stopped Machine's guest cannot be asked: the record is all there is.
@@ -173,13 +223,23 @@ func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID,
 	}
 	record.ID = exec
 	if record.Status == ExecExited {
+		// The save is made under execMu, so the store sees the entry's changes in
+		// the order memory does, and a cut-short entry is not overwritten.
 		s.execMu.Lock()
-		if entry.record.Status == ExecStarted {
-			entry.record = record
+		defer s.execMu.Unlock()
+		current, ok := s.execs[exec]
+		if !ok {
+			return ExecRecord{}, fail(ErrNotFound, "no exec %q on Machine %q", exec, id)
 		}
-		held = entry.record
-		s.execMu.Unlock()
-		return held, nil
+		if !current.Answered || current.Record.Status == ExecStarted {
+			final := *current
+			final.Record, final.Answered = record, true
+			if err := s.store.SaveExec(ctx, final); err != nil {
+				return ExecRecord{}, fail(ErrFailed, "the command ended and its record could not be kept: %v", err)
+			}
+			s.execs[exec] = &final
+		}
+		return s.execs[exec].Record, nil
 	}
 	return record, nil
 }

@@ -15,7 +15,7 @@ const (
 )
 
 // Restore rebuilds the lifecycle from the State Store after a restart: the
-// records, the request-ID memory and the disk-holder index. It then checks each
+// records, the request-ID memory, the exec entries and the disk-holder index. It then checks each
 // Machine recorded as Running or Paused against the live supervisors. It runs
 // once, before any other call.
 //
@@ -44,6 +44,12 @@ func (s *service) Restore(ctx context.Context) error {
 				FailureReason: "the Machine's record could not be read: " + rec.Unreadable,
 			}
 		}
+		s.execMu.Lock()
+		for _, e := range rec.Execs {
+			s.execs[e.ID] = &e
+		}
+		s.execMu.Unlock()
+		rec.Execs = nil // the entries are held in s.execs
 		s.records[rec.ID] = &rec
 		if m := rec.Machine; m != nil && rec.Unreadable == "" {
 			s.held[m.RootDisk] = m.ID
