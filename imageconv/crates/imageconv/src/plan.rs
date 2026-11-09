@@ -129,14 +129,11 @@ pub fn read(layer: impl Read, limit_bytes: u64) -> Result<Plan, Error> {
     let mut actions = HashMap::new();
     for (path, target) in whiteouts {
         match names.held.get(&target) {
-            Some(true) => {
+            Some(_) => {
                 let mut marker = target;
                 marker.push(b'/');
                 marker.extend_from_slice(OPAQUE);
                 actions.insert(path, Action::Opaque(marker));
-            }
-            Some(false) => {
-                actions.insert(path, Action::Drop);
             }
             None => {}
         }
