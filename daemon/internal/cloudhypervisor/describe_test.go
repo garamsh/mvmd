@@ -136,8 +136,5 @@ func TestCmdline_NamesTheSerialPortOfTheArchitecture(t *testing.T) {
 
 func TestCPUReadFiles_AreNamedOnAarch64Only(t *testing.T) {
 	assert.Empty(t, cloudhypervisor.CPUReadFiles("amd64"))
-	assert.Equal(t, []string{
-		"/sys/devices/system/cpu/cpu0/cache",
-		"/sys/devices/system/cpu/cpu0/regs/identification/midr_el1",
-	}, cloudhypervisor.CPUReadFiles("arm64"))
+	assert.Equal(t, []string{"/sys/devices/system/cpu/cpu0/cache"}, cloudhypervisor.CPUReadFiles("arm64"))
 }

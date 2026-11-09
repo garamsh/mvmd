@@ -23,8 +23,8 @@ const (
 	// the figure the Firecracker Driver measured, not one measured for Cloud
 	// Hypervisor (ADR 0015: the peak, not the average).
 	overheadMemory = 128 * mib
-	// overheadTasks is the VMM's tasks beside its vCPUs: its main, API, HTTP
-	// and signal threads, one per virtio device, and a margin.
+	// overheadTasks is an estimate of the VMM's tasks beside its vCPUs, not
+	// measured for Cloud Hypervisor.
 	overheadTasks = 16
 	// overheadCPUs is the CPU the main thread takes for device emulation.
 	overheadCPUs = 1.0
@@ -140,12 +140,12 @@ func args(spec machine.BootSpec, goarch string) []string {
 }
 
 // cpuReadFiles are the host files the VMM reads beyond the boot files: on
-// aarch64 the CPU cache description and the MIDR register (ADR 0015).
+// aarch64 the CPU cache description (ADR 0015).
 func cpuReadFiles(goarch string) []string {
 	if goarch != "arm64" {
 		return nil
 	}
-	return []string{"/sys/devices/system/cpu/cpu0/cache", "/sys/devices/system/cpu/cpu0/regs/identification/midr_el1"}
+	return []string{"/sys/devices/system/cpu/cpu0/cache"}
 }
 
 // maxTapName is the longest interface name Linux holds: IFNAMSIZ less the NUL.

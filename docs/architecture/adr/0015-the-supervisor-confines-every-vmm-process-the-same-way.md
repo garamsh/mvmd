@@ -110,3 +110,7 @@ A Driver's description of the VMM process ([ADR 0003](./0003-a-per-machine-super
 - Building the mount namespace is a noticeable share of Start or Restore at the node's Machine density; Firecracker's jailer documents jail creation slowing with the number of mount points and concurrent jails (`docs/jailer.md`, Known limitations).
 - Machines are OOM-killed under normal load because the Driver's overhead figures are too low, or the figures are set so high that the limit protects nothing.
 - Nodes that mvmd must serve cannot provide Landlock ABI 6.
+
+## Errata
+
+- 2026-11-10. The decision stands. Context, "Cloud Hypervisor's devices", and the table in §What each VMM needs open give `/dev/kvm` as the one device node Cloud Hypervisor opens, and give no node it is not handed. That was incomplete: it also opens `/dev/urandom`, the source of the virtio-rng device it adds by default (at v54.0: `vmm/src/vm_config.rs`, `RngConfig::DEFAULT_RNG_SOURCE`; `vmm/src/device_manager.rs`, where the device is created with that path; `virtio-devices/src/rng.rs`, `Rng::new`, `File::open`). A boot of v54.0 in a root without the node failed with "Cannot create virtio-rng device" (#140). The Cloud Hypervisor Driver names `/dev/kvm` and `/dev/urandom` as the device nodes the VMM opens.
