@@ -5,7 +5,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use imageconv::{Console, Mounts, Power, System};
+use converter::{Console, Mounts, Power, System};
 
 type Log = Arc<Mutex<Vec<String>>>;
 
@@ -59,7 +59,7 @@ fn entries(log: &Log) -> Vec<String> {
 #[test]
 fn a_panic_on_any_thread_ends_the_vm_through_the_end_path() {
     let log = Log::default();
-    imageconv::end_on_panic(System {
+    converter::end_on_panic(System {
         mounts: Arc::new(Unused),
         power: Arc::new(Recorder(log.clone())),
         console: Arc::new(Recorder(log.clone())),
@@ -80,7 +80,7 @@ fn a_panic_on_any_thread_ends_the_vm_through_the_end_path() {
     let entries = entries(&log);
     assert_eq!(entries.len(), 6, "{entries:?}");
     assert!(
-        entries[0].starts_with("console: mvmd-imageconv: panic: ")
+        entries[0].starts_with("console: mvmd-converter: panic: ")
             && entries[0].contains("a thread of the converter failed"),
         "{entries:?}"
     );
@@ -88,9 +88,9 @@ fn a_panic_on_any_thread_ends_the_vm_through_the_end_path() {
         entries[1..],
         [
             "power_off",
-            "console: mvmd-imageconv: failed to power off: injected failure",
+            "console: mvmd-converter: failed to power off: injected failure",
             "restart",
-            "console: mvmd-imageconv: failed to restart: injected failure",
+            "console: mvmd-converter: failed to restart: injected failure",
             "halt",
         ]
     );

@@ -19,4 +19,4 @@ plugins:
 inputs:
   - directory: .
   - directory: ../guest-agent/proto
-  - directory: ../imageconv/proto
+  - directory: ../converter/proto

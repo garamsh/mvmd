@@ -3,7 +3,7 @@
 //! the `mkfs.erofs` and into the output file the caller names, and serves one conversion, as the
 //! converter does.
 //!
-//! `imageconv-channel --mkfs <program> --output <file> [--handshake-port <port>] <socket>`. With
+//! `converter-channel --mkfs <program> --output <file> [--handshake-port <port>] <socket>`. With
 //! the flag, each connection must open with `CONNECT <port>\n`, which is answered `OK <port>\n`
 //! before the gRPC stream begins: the handshake a Firecracker host-side vsock socket speaks. A
 //! connection that opens with anything else is closed. This binary is not shipped and is not in
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use imageconv::{Converter, Mkfs};
+use converter::{Converter, Mkfs};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::mpsc;
@@ -27,7 +27,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_LINE: usize = 64;
 
 const USAGE: &str =
-    "usage: imageconv-channel --mkfs <program> --output <file> [--handshake-port <port>] <socket>";
+    "usage: converter-channel --mkfs <program> --output <file> [--handshake-port <port>] <socket>";
 
 struct Arguments {
     socket: String,
@@ -127,7 +127,7 @@ async fn run(arguments: Arguments) -> io::Result<()> {
         mkfs: Mkfs::new(arguments.mkfs),
         output: arguments.output,
     };
-    let served = imageconv::serve(ReceiverStream::new(incoming), converter);
+    let served = converter::serve(ReceiverStream::new(incoming), converter);
     let outcome = tokio::select! {
         served = served => served.map_err(io::Error::other),
         stopped = &mut accept => Err(match stopped {
@@ -144,7 +144,7 @@ async fn run(arguments: Arguments) -> io::Result<()> {
     };
     match (outcome, removed) {
         (Err(earlier), Err(error)) => {
-            eprintln!("imageconv-channel: remove the socket: {error}");
+            eprintln!("converter-channel: remove the socket: {error}");
             Err(earlier)
         }
         (outcome, removed) => outcome.and(removed),
@@ -155,7 +155,7 @@ fn main() -> ExitCode {
     let arguments = match parse(std::env::args().skip(1)) {
         Ok(arguments) => arguments,
         Err(message) => {
-            eprintln!("imageconv-channel: {message}\n{USAGE}");
+            eprintln!("converter-channel: {message}\n{USAGE}");
             return ExitCode::from(2);
         }
     };
@@ -166,7 +166,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("imageconv-channel: {error}");
+            eprintln!("converter-channel: {error}");
             ExitCode::FAILURE
         }
     }

@@ -28,13 +28,13 @@ endef
 
 # The Rust workspaces every check covers, each a directory holding a virtual manifest, and the
 # binary crates of them that ship, as workspace:crate, built for the static musl target.
-RUST_WORKSPACES := guest-agent imageconv lib/initrd
-RUST_BINARIES := guest-agent:guest-agent imageconv:imageconv
+RUST_WORKSPACES := guest-agent converter lib/initrd
+RUST_BINARIES := guest-agent:guest-agent converter:converter
 RUST_TARGET := $(shell uname -m)-unknown-linux-musl
-# The pinned erofs-utils tools, built by imageconv/mkfs-erofs/build.sh. mkfs.erofs goes into the
+# The pinned erofs-utils tools, built by converter/mkfs-erofs/build.sh. mkfs.erofs goes into the
 # converter's initrd; the tests read what it writes with fsck.erofs.
-EROFS_UTILS := imageconv/target/erofs-utils
-EROFS_UTILS_BUILD := imageconv/target/erofs-utils-build
+EROFS_UTILS := converter/target/erofs-utils
+EROFS_UTILS_BUILD := converter/target/erofs-utils-build
 # A RUSTFLAGS that caps lints would let a denied lint pass, so no cargo call inherits one.
 CARGO = env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo
 
@@ -91,10 +91,10 @@ format-apply:
 # unchanged since the last build, and `rebuild` forces it.
 .PHONY: erofs-utils rebuild-erofs-utils
 erofs-utils:
-	@imageconv/mkfs-erofs/build.sh $(EROFS_UTILS_BUILD) $(EROFS_UTILS)
+	@converter/mkfs-erofs/build.sh $(EROFS_UTILS_BUILD) $(EROFS_UTILS)
 
 rebuild-erofs-utils:
-	@imageconv/mkfs-erofs/build.sh $(EROFS_UTILS_BUILD) $(EROFS_UTILS) --rebuild
+	@converter/mkfs-erofs/build.sh $(EROFS_UTILS_BUILD) $(EROFS_UTILS) --rebuild
 
 # The converter's tests convert with the pinned mkfs.erofs and read the result with fsck.erofs.
 test: export MKFS_EROFS := $(CURDIR)/$(EROFS_UTILS)/mkfs.erofs
@@ -104,11 +104,11 @@ test: export FSCK_EROFS := $(CURDIR)/$(EROFS_UTILS)/fsck.erofs
 test: export GUEST_AGENT_CHANNEL := $(CURDIR)/guest-agent/target/debug/guest-agent-channel
 # The daemon's Converter channel tests run the host-side converter binary, built and named the same
 # way.
-test: export CONVERTER_CHANNEL := $(CURDIR)/imageconv/target/debug/imageconv-channel
+test: export CONVERTER_CHANNEL := $(CURDIR)/converter/target/debug/converter-channel
 test: erofs-utils
 	$(call each_rust, $(count_members); $(CARGO) test --workspace --locked)
 	cd guest-agent && $(CARGO) build --locked -p guest-agent --bin guest-agent-channel
-	cd imageconv && $(CARGO) build --locked -p imageconv --bin imageconv-channel
+	cd converter && $(CARGO) build --locked -p converter --bin converter-channel
 	$(call each_module, $(count_packages); (cd "$$dir" && go test -v ./...))
 
 # test-firecracker boots the pinned Firecracker on the pinned kernel with the Guest Agent's initrd,
@@ -157,7 +157,7 @@ test-cloud-hypervisor: guest-initrd
 # input fails the tests and never skips them.
 .PHONY: converter-initrd test-e2e
 converter-initrd: erofs-utils
-	$(call initrd_twice,imageconv,"$$workspace/target/erofs-utils/mkfs.erofs")
+	$(call initrd_twice,converter,"$$workspace/target/erofs-utils/mkfs.erofs")
 
 test-e2e: guest-initrd converter-initrd
 	@set -e; \
@@ -166,7 +166,7 @@ test-e2e: guest-initrd converter-initrd
 	tooling/firecracker/fetch.sh tooling/firecracker/target; \
 	set -a; . tooling/firecracker/target/inputs.env; set +a; \
 	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
-	export MVMD_E2E_CONVERTER_INITRD=$(CURDIR)/imageconv/target/initrd.cpio; \
+	export MVMD_E2E_CONVERTER_INITRD=$(CURDIR)/converter/target/initrd.cpio; \
 	export MVMD_E2E_MVMD=$(CURDIR)/e2e/target/mvmd; \
 	export MVMD_E2E_SUPERVISOR=$(CURDIR)/e2e/target/mvmd-supervisor; \
 	export FSCK_EROFS=$(CURDIR)/$(EROFS_UTILS)/fsck.erofs; \
@@ -188,7 +188,7 @@ build: rebuild-erofs-utils
 	    fi; \
 	  done)
 	$(call initrd_twice,guest-agent,)
-	$(call initrd_twice,imageconv,"$$workspace/target/erofs-utils/mkfs.erofs")
+	$(call initrd_twice,converter,"$$workspace/target/erofs-utils/mkfs.erofs")
 
 # Each initrd is part of build: it is written to <workspace>/target/initrd.cpio and its digest
 # printed. The binary is built a second time in a fresh target directory, and build fails unless

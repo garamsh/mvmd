@@ -14,7 +14,7 @@ use crate::service::{Converter, serve};
 use crate::system::System;
 
 fn failure_line(context: &str, error: impl std::fmt::Display) -> String {
-    format!("mvmd-imageconv: failed to {context}: {error}")
+    format!("mvmd-converter: failed to {context}: {error}")
 }
 
 /// Run as the VM's init, and never return.
@@ -114,7 +114,7 @@ pub fn end_on_panic(system: System) {
     std::panic::set_hook(Box::new(move |info| {
         system
             .console
-            .line(&format!("mvmd-imageconv: panic: {info}"));
+            .line(&format!("mvmd-converter: panic: {info}"));
         end_now(&system);
     }));
 }

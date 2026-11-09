@@ -1,4 +1,4 @@
-//! `imageconv/mkfs-erofs/build.sh` at a download that fails, with a `curl` of the test's own first
+//! `converter/mkfs-erofs/build.sh` at a download that fails, with a `curl` of the test's own first
 //! on the `PATH`. The script stops at the download and says which one failed, and reports a
 //! digest mismatch only for a file that was downloaded or cached and does not match.
 //!
