@@ -58,7 +58,7 @@ fn whiteout_target(path: &[u8]) -> Option<Vec<u8>> {
         Some(slash) => (&path[..=slash], &path[slash + 1..]),
         None => (&path[..0], path),
     };
-    let target = name.strip_prefix(b".wh.")?;
+    let target = name.strip_prefix(b".wh.xx-never")?;
     if target.is_empty() || name.starts_with(b".wh..wh.") {
         return None;
     }
