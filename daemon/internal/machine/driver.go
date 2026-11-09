@@ -26,6 +26,9 @@ const (
 	// CapabilityResize changes the CPU and memory of a Running or Paused
 	// Machine.
 	CapabilityResize Capability = "resize"
+	// CapabilityConsole opens sessions to the console of a Running or Paused
+	// Machine. The console log is not part of it.
+	CapabilityConsole Capability = "console"
 	// CapabilitySnapshot snapshots a Running or Paused Machine and restores
 	// a Machine from a snapshot.
 	CapabilitySnapshot Capability = "snapshot"

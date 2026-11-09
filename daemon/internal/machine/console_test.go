@@ -77,6 +77,39 @@ func TestConsole_Needs(t *testing.T) {
 	})
 }
 
+// Row "Console", column Needs: the Driver's capability, which is a different
+// outcome from the Machine's state: a Running Machine of a Driver that cannot
+// open a console is unsupported, not precondition failed.
+func TestConsole_ADriverWithoutTheCapabilityIsUnsupportedWhateverTheState(t *testing.T) {
+	ctx := context.Background()
+	for _, from := range []machine.State{machine.StateRunning, machine.StateStopped} {
+		t.Run(from.String(), func(t *testing.T) {
+			e := newEnv()
+			e.inState(t, "m", from)
+			serveEcho(e, "m", "hello")
+
+			// Control: a Driver with the capability serves the Machine it can, so
+			// the refusal below is the capability's.
+			if from == machine.StateRunning {
+				s, err := e.svc.Console(ctx, "m")
+				require.NoError(t, err)
+				_ = s.Close()
+			}
+
+			e.driver.WithoutConsole()
+			_, err := e.svc.Console(ctx, "m")
+			requireKind(t, err, machine.ErrUnsupported)
+			e.requireState(t, "m", from)
+		})
+	}
+	t.Run("an absent Machine is still not found", func(t *testing.T) {
+		e := newEnv()
+		e.driver.WithoutConsole()
+		_, err := e.svc.Console(ctx, "m")
+		requireKind(t, err, machine.ErrNotFound)
+	})
+}
+
 // Row "Console", column On success: a session that reads the console's output
 // and writes its input.
 func TestConsole_OnSuccessASessionReadsAndWrites(t *testing.T) {

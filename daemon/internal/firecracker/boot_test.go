@@ -334,14 +334,16 @@ func TestShutdown_AnyOtherFailureToReachTheSocketIsReportedNotTakenForAnEnd(t *t
 	n := newNode(t)
 	f := &fakeAPI{}
 	n.booted(f)
-	// The run directory becomes a file, so the socket's path fails with ENOTDIR.
+	// The socket file is replaced, in one rename, by a link to itself, so the
+	// path fails with ELOOP. Removing it first would leave a moment with no
+	// file, which reads as an ended VMM.
 	afterTheAction(f, func() {
-		f.stop()
-		_ = os.RemoveAll(n.run)
-		_ = os.WriteFile(n.run, nil, 0o600)
+		tmp := filepath.Join(n.run, "loop")
+		_ = os.Symlink("api.sock", tmp)
+		_ = os.Rename(tmp, n.apiSocket())
 	})
 	err := n.driver.Shutdown(context.Background(), "m1", 5*time.Second)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, syscall.ENOTDIR)
+	assert.ErrorIs(t, err, syscall.ELOOP)
 	assert.NotContains(t, err.Error(), "did not stop")
 }

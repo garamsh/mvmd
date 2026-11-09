@@ -13,7 +13,9 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// Console implements machine.Driver. Firecracker's serial device is the VMM's
+// Console implements machine.Driver. The Driver does not report
+// machine.CapabilityConsole, so the lifecycle refuses the call as unsupported
+// before it gets here (#91). Firecracker's serial device is the VMM's
 // standard input and output, and the supervisor gives the VMM no standard input
 // that reaches a session, so a session that writes to the guest's console
 // cannot be opened yet: it is unavailable, and nothing is faked.
