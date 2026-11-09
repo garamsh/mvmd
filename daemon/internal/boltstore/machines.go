@@ -18,26 +18,8 @@ type MachineStore struct {
 	db *bolt.DB
 }
 
-// recordJSON is the stored form of machine.Record. The outcome of a failed
-// creating call is kept as the name of its kind and its reason.
-type recordJSON struct {
-	ID      machine.MachineID
-	Machine *machine.Machine
-	Request requestJSON
-}
-
-type requestJSON struct {
-	ID       machine.RequestID
-	Snapshot machine.SnapshotID
-	Spec     machine.Spec
-	Failure  *failureJSON
-}
-
-type failureJSON struct {
-	Kind   string
-	Reason string
-}
-
+// The outcome of a failed creating call is stored as the name of its kind and
+// its reason.
 var kinds = map[string]error{
 	"invalid":      machine.ErrInvalid,
 	"not-found":    machine.ErrNotFound,
@@ -58,7 +40,15 @@ func kindName(kind error) (string, bool) {
 
 // Save implements machine.StateStore.
 func (s *MachineStore) Save(ctx context.Context, r machine.Record) error {
-	j := recordJSON{ID: r.ID, Machine: r.Machine, Request: requestJSON{ID: r.Request.ID, Snapshot: r.Request.Snapshot, Spec: r.Request.Spec}}
+	stored, err := storeMachine(r.Machine)
+	if err != nil {
+		return fmt.Errorf("record %q: %w", r.ID, err)
+	}
+	spec, err := storeSpec(r.Request.Spec)
+	if err != nil {
+		return fmt.Errorf("record %q: %w", r.ID, err)
+	}
+	j := storedRecord{ID: r.ID, Machine: stored, Request: storedRequest{ID: r.Request.ID, Snapshot: r.Request.Snapshot, Spec: spec}}
 	if f := r.Request.Failure; f != nil {
 		name, ok := kindName(f.Kind)
 		if !ok {
@@ -72,8 +62,8 @@ func (s *MachineStore) Save(ctx context.Context, r machine.Record) error {
 	}
 	entries := make(map[machine.ExecID][]byte, len(r.Execs))
 	for _, e := range r.Execs {
-		if entries[e.ID], err = json.Marshal(e); err != nil {
-			return err
+		if entries[e.ID], err = marshalExec(e); err != nil {
+			return fmt.Errorf("record %q: %w", r.ID, err)
 		}
 	}
 	return update(ctx, s.db, func(tx *bolt.Tx) error {
@@ -100,7 +90,7 @@ func putExec(tx *bolt.Tx, machineID machine.MachineID, id machine.ExecID, entry 
 
 // SaveExec implements machine.StateStore.
 func (s *MachineStore) SaveExec(ctx context.Context, e machine.ExecEntry) error {
-	raw, err := json.Marshal(e)
+	raw, err := marshalExec(e)
 	if err != nil {
 		return err
 	}
@@ -156,8 +146,8 @@ func loadExecs(tx *bolt.Tx, id machine.MachineID) ([]machine.ExecEntry, error) {
 	}
 	var out []machine.ExecEntry
 	err := b.ForEach(func(k, v []byte) error {
-		var e machine.ExecEntry
-		if err := json.Unmarshal(v, &e); err != nil {
+		e, err := decodeExec(v)
+		if err != nil {
 			// The bucket names say whose entry it is; nothing else is known.
 			e = machine.ExecEntry{Machine: id, ID: machine.ExecID(k), Unreadable: fmt.Sprintf("decode the exec entry: %v", err)}
 		}
@@ -167,12 +157,36 @@ func loadExecs(tx *bolt.Tx, id machine.MachineID) ([]machine.ExecEntry, error) {
 	return out, err
 }
 
+func marshalExec(e machine.ExecEntry) ([]byte, error) {
+	stored, err := storeExec(e)
+	if err != nil {
+		return nil, fmt.Errorf("exec %q: %w", e.ID, err)
+	}
+	return json.Marshal(stored)
+}
+
+func decodeExec(raw []byte) (machine.ExecEntry, error) {
+	var j storedExec
+	if err := json.Unmarshal(raw, &j); err != nil {
+		return machine.ExecEntry{}, err
+	}
+	return j.load()
+}
+
 func decode(raw []byte) (machine.Record, error) {
-	var j recordJSON
+	var j storedRecord
 	if err := json.Unmarshal(raw, &j); err != nil {
 		return machine.Record{}, fmt.Errorf("decode the record: %w", err)
 	}
-	r := machine.Record{ID: j.ID, Machine: j.Machine, Request: machine.Request{ID: j.Request.ID, Snapshot: j.Request.Snapshot, Spec: j.Request.Spec}}
+	m, err := j.Machine.load()
+	if err != nil {
+		return machine.Record{}, fmt.Errorf("decode the record: %w", err)
+	}
+	spec, err := j.Request.Spec.load()
+	if err != nil {
+		return machine.Record{}, fmt.Errorf("decode the record: %w", err)
+	}
+	r := machine.Record{ID: j.ID, Machine: m, Request: machine.Request{ID: j.Request.ID, Snapshot: j.Request.Snapshot, Spec: spec}}
 	if f := j.Request.Failure; f != nil {
 		kind, ok := kinds[f.Kind]
 		if !ok {
