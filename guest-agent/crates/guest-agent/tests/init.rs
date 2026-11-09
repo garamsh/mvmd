@@ -15,9 +15,10 @@ use std::time::Duration;
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
-    BootRequest, CatchUpRequest, ExecRecord, ExecRequest, ExecStatus, HealthRequest, Ipv4Config,
-    Ipv6Config, ListFilesRequest, NetworkConfig as WireNetworkConfig, ReadExecOutputRequest,
-    RunConfig, UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
+    BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, ExecRecord,
+    ExecRequest, ExecStatus, HealthRequest, Ipv4Config, Ipv6Config, ListFilesRequest,
+    NetworkConfig as WireNetworkConfig, NotBooted, ReadExecOutputRequest, RunConfig,
+    UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
     write_file_request,
 };
 use guest_agent::{
@@ -35,6 +36,9 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Code, Streaming};
 use tower::service_fn;
+
+#[path = "support/details.rs"]
+mod details;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -511,15 +515,40 @@ async fn boot_hands_the_network_the_parsed_description() -> Result {
 #[tokio::test]
 async fn each_step_that_fails_is_named_over_the_channel_and_ends_the_boot() -> Result {
     // The operations that fail, with the step each is reported as and what must not have run.
-    let cases: [(&str, BootStep, &[&str]); 6] = [
-        ("find", BootStep::Check, &["mount_image", "network"]),
-        ("mount_image", BootStep::MountImage, &["mount_root_disk"]),
-        ("mount_root_disk", BootStep::MountRootDisk, &["overlay"]),
-        ("overlay", BootStep::Overlay, &["switch_root"]),
-        ("switch_root", BootStep::SwitchRoot, &["network"]),
-        ("network", BootStep::Network, &[]),
+    let cases: [(&str, BootStep, WireStep, &[&str]); 6] = [
+        (
+            "find",
+            BootStep::Check,
+            WireStep::Check,
+            &["mount_image", "network"],
+        ),
+        (
+            "mount_image",
+            BootStep::MountImage,
+            WireStep::MountImage,
+            &["mount_root_disk"],
+        ),
+        (
+            "mount_root_disk",
+            BootStep::MountRootDisk,
+            WireStep::MountRootDisk,
+            &["overlay"],
+        ),
+        (
+            "overlay",
+            BootStep::Overlay,
+            WireStep::Overlay,
+            &["switch_root"],
+        ),
+        (
+            "switch_root",
+            BootStep::SwitchRoot,
+            WireStep::SwitchRoot,
+            &["network"],
+        ),
+        ("network", BootStep::Network, WireStep::Network, &[]),
     ];
-    for (operation, step, never_ran) in cases {
+    for (operation, step, wire_step, never_ran) in cases {
         let mut agent = Agent::start_with(Setup {
             fail_mount: Some(operation).filter(|name| *name != "network"),
             fail_network: operation == "network",
@@ -530,6 +559,11 @@ async fn each_step_that_fails_is_named_over_the_channel_and_ends_the_boot() -> R
         let failure = agent.boot("sleep 30").await.unwrap_err();
 
         assert_eq!(failure.code(), Code::Internal, "{operation}");
+        // The step and its detail are read from the status detail and not from the message.
+        let failed: BootFailed =
+            details::detail(&failure, "BootFailed").ok_or("no BootFailed detail")?;
+        assert_eq!(failed.step(), wire_step, "{operation}");
+        assert_eq!(failed.detail, "injected failure", "{operation}");
         // The console carries the same failure, once, in the form the daemon reads.
         assert_eq!(
             agent.console(),
@@ -565,8 +599,14 @@ async fn each_step_that_fails_is_named_over_the_channel_and_ends_the_boot() -> R
             exec.message().contains(&format!("boot step {step}")),
             "{operation}"
         );
+        let not_booted: NotBooted =
+            details::detail(&exec, "NotBooted").ok_or("no NotBooted detail")?;
+        assert_eq!(not_booted.state(), BootState::Failed, "{operation}");
         let repeat = agent.boot("sleep 30").await.unwrap_err();
         assert_eq!(repeat.message(), failure.message(), "{operation}");
+        let again: BootFailed =
+            details::detail(&repeat, "BootFailed").ok_or("no BootFailed detail on a repeat")?;
+        assert_eq!(again, failed, "{operation}");
         assert_eq!(agent.log.count(operation), 1, "{operation} was tried again");
         assert!(!agent.is_powered_off(), "{operation} powered off");
     }
@@ -591,6 +631,14 @@ async fn an_entrypoint_that_cannot_start_fails_the_boot_at_its_step() -> Result 
             .contains(&format!("boot step {}", BootStep::Entrypoint))
     );
     assert!(failure.message().contains("/no/such/program"));
+    let failed: BootFailed =
+        details::detail(&failure, "BootFailed").ok_or("no BootFailed detail")?;
+    assert_eq!(failed.step(), WireStep::Entrypoint);
+    assert!(
+        failed.detail.contains("/no/such/program"),
+        "{}",
+        failed.detail
+    );
     Ok(())
 }
 
@@ -740,6 +788,9 @@ async fn a_catch_up_before_the_boot_is_refused() -> Result {
         .unwrap_err();
 
     assert_eq!(refused.code(), Code::FailedPrecondition);
+    let not_booted: NotBooted =
+        details::detail(&refused, "NotBooted").ok_or("no NotBooted detail")?;
+    assert_eq!(not_booted.state(), BootState::Pending);
     assert!(lock(&agent.entropy.mixed).is_empty());
     // The control: after the boot the same request is served.
     agent.boot("sleep 30").await?;
@@ -866,7 +917,12 @@ async fn the_guest_is_served_only_once_it_has_booted_except_health_and_info() ->
             .map(|_| ()),
     ];
     for result in refused {
-        assert_eq!(result.unwrap_err().code(), Code::FailedPrecondition);
+        let refusal = result.unwrap_err();
+        assert_eq!(refusal.code(), Code::FailedPrecondition);
+        // Boot has not been called: the boot is pending, not failed.
+        let not_booted: NotBooted =
+            details::detail(&refusal, "NotBooted").ok_or("no NotBooted detail")?;
+        assert_eq!(not_booted.state(), BootState::Pending);
     }
 
     // The control: the same calls are served once Boot has succeeded.
@@ -899,6 +955,8 @@ async fn a_description_that_is_not_valid_is_refused_and_the_agent_still_waits() 
 
     assert_eq!(refused.code(), Code::InvalidArgument);
     assert_eq!(agent.log.count("find"), 0);
+    // A description that does not parse is not a boot step that failed: no detail.
+    assert!(details::detail_types(&refused).is_empty());
     // The control: the agent has not given up, and the valid description boots it.
     agent.boot("sleep 30").await?;
     Ok(())

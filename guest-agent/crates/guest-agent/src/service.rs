@@ -3,24 +3,25 @@
 
 use std::sync::Arc;
 
+use prost::Message;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::boot::Boot;
 use crate::description::{BootDescription, CatchUp, NetworkConfig};
-use crate::error::Error;
+use crate::error::{BootStep, Error, Expected, Unbooted};
 use crate::exec::Execs;
 use crate::files::{self, Locks, Reader, Upload};
 use crate::v1alpha1::guest_service_server::GuestService;
 use crate::v1alpha1::{
-    BootRequest, BootResponse, CatchUpRequest, CatchUpResponse, ExecRequest, ExecResponse,
-    FileEntry, HealthRequest, HealthResponse, InfoRequest, InfoResponse, ListFilesRequest,
-    ListFilesResponse, PatchFileRequest, PatchFileResponse, ReadExecOutputRequest,
-    ReadExecOutputResponse, ReadFileRequest, ReadFileResponse, SearchFilesRequest,
-    SearchFilesResponse, SignalRequest, SignalResponse, UpdateNetworkRequest,
-    UpdateNetworkResponse, WriteFileRequest, WriteFileResponse, read_exec_output_response,
-    write_file_request,
+    BootFailed, BootRequest, BootResponse, BootState, BootStep as ProtoStep, CatchUpRequest,
+    CatchUpResponse, EntryKind, ExecOutputGone, ExecRequest, ExecResponse, FileEntry,
+    HealthRequest, HealthResponse, InfoRequest, InfoResponse, ListFilesRequest, ListFilesResponse,
+    NotBooted, PatchFileRequest, PatchFileResponse, ReadExecOutputRequest, ReadExecOutputResponse,
+    ReadFileRequest, ReadFileResponse, SearchFilesRequest, SearchFilesResponse, SignalRequest,
+    SignalResponse, UpdateNetworkRequest, UpdateNetworkResponse, WriteFileRequest,
+    WriteFileResponse, WrongFileKind, read_exec_output_response, write_file_request,
 };
 
 /// The contract versions the agent serves.
@@ -56,17 +57,93 @@ pub(crate) struct Guest {
     pub(crate) boot: Arc<Boot>,
 }
 
+/// A `google.rpc.Status`, the message the `grpc-status-details-bin` trailer carries. It is spelled
+/// out here because a detail of the agent's own is a message tonic's standard error types do not
+/// cover.
+#[derive(Clone, PartialEq, prost::Message)]
+struct RpcStatus {
+    #[prost(int32, tag = "1")]
+    code: i32,
+    #[prost(string, tag = "2")]
+    message: String,
+    #[prost(message, repeated, tag = "3")]
+    details: Vec<Any>,
+}
+
+/// A `google.protobuf.Any`.
+#[derive(Clone, PartialEq, prost::Message)]
+struct Any {
+    #[prost(string, tag = "1")]
+    type_url: String,
+    #[prost(bytes = "vec", tag = "2")]
+    value: Vec<u8>,
+}
+
+/// `status` with `detail` in its details, named by the full name of the message type.
+fn with_detail<M: Message>(status: Status, name: &str, detail: &M) -> Status {
+    let rpc = RpcStatus {
+        code: status.code() as i32,
+        message: status.message().to_owned(),
+        details: vec![Any {
+            type_url: format!("type.googleapis.com/mvmd.guest.v1alpha1.{name}"),
+            value: detail.encode_to_vec(),
+        }],
+    };
+    Status::with_details(status.code(), status.message(), rpc.encode_to_vec().into())
+}
+
 impl From<Error> for Status {
     fn from(error: Error) -> Self {
         let message = error.to_string();
         match error {
             Error::Invalid(_) => Status::invalid_argument(message),
-            Error::OutOfRange(_) => Status::out_of_range(message),
+            Error::WrongKind { path, expected } => with_detail(
+                Status::invalid_argument(message),
+                "WrongFileKind",
+                &WrongFileKind {
+                    path,
+                    expected: match expected {
+                        Expected::File => EntryKind::File,
+                        Expected::Directory => EntryKind::Directory,
+                    } as i32,
+                },
+            ),
+            Error::OutOfRange { earliest_offset } => with_detail(
+                Status::out_of_range(message),
+                "ExecOutputGone",
+                &ExecOutputGone { earliest_offset },
+            ),
             Error::NotFound(_) => Status::not_found(message),
             Error::PermissionDenied(_) => Status::permission_denied(message),
             Error::PreconditionFailed(_) => Status::failed_precondition(message),
+            Error::NotBooted { state, .. } => with_detail(
+                Status::failed_precondition(message),
+                "NotBooted",
+                &NotBooted {
+                    state: match state {
+                        Unbooted::Pending => BootState::Pending,
+                        Unbooted::Failed => BootState::Failed,
+                    } as i32,
+                },
+            ),
             Error::DigestMismatch(_) => Status::data_loss(message),
-            Error::Boot { .. } | Error::Io { .. } | Error::Serve(_) => Status::internal(message),
+            Error::Boot { step, detail } => with_detail(
+                Status::internal(message),
+                "BootFailed",
+                &BootFailed {
+                    step: match step {
+                        BootStep::Check => ProtoStep::Check,
+                        BootStep::MountImage => ProtoStep::MountImage,
+                        BootStep::MountRootDisk => ProtoStep::MountRootDisk,
+                        BootStep::Overlay => ProtoStep::Overlay,
+                        BootStep::SwitchRoot => ProtoStep::SwitchRoot,
+                        BootStep::Network => ProtoStep::Network,
+                        BootStep::Entrypoint => ProtoStep::Entrypoint,
+                    } as i32,
+                    detail,
+                },
+            ),
+            Error::Io { .. } | Error::Serve(_) => Status::internal(message),
         }
     }
 }

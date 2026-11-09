@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
-    EntryKind, ExecRecord, ExecRequest, ExecStatus, FileEntry, HealthRequest, InfoRequest,
-    ListFilesRequest, OutputChunk, OutputStream, PatchFileRequest, PatchOutcome,
+    EntryKind, ExecOutputGone, ExecRecord, ExecRequest, ExecStatus, FileEntry, HealthRequest,
+    InfoRequest, ListFilesRequest, OutputChunk, OutputStream, PatchFileRequest, PatchOutcome,
     ReadExecOutputRequest, ReadFileRequest, SearchFilesRequest, SignalRequest, WriteFileEnd,
-    WriteFileRequest, WriteFileStart, read_exec_output_response, write_file_request,
+    WriteFileRequest, WriteFileStart, WrongFileKind, read_exec_output_response, write_file_request,
 };
 use hyper_util::rt::TokioIo;
 use sha2::{Digest, Sha256};
@@ -22,6 +22,9 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Code, Streaming};
 use tower::service_fn;
+
+#[path = "support/details.rs"]
+mod details;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -422,6 +425,8 @@ async fn exec_refuses_a_request_that_names_no_command_or_no_id() -> Result {
     assert_eq!(code(&*no_command), Some(Code::InvalidArgument));
     assert_eq!(code(&*no_id), Some(Code::InvalidArgument));
     assert_eq!(unknown.code(), Code::NotFound);
+    // None of these is a condition a client acts on beyond its code.
+    assert!(details::detail_types(&unknown).is_empty());
     // Control: the same ID with a command is started, and its output is then readable.
     let accepted = h.exec("e1", &["/bin/true"]).await?;
     assert_eq!(accepted.status(), ExecStatus::Started);
@@ -535,7 +540,14 @@ async fn output_older_than_the_retention_is_refused_with_the_earliest_offset_hel
         .ok_or("a read of dropped output was accepted")?;
 
     assert_eq!(old.code(), Code::OutOfRange);
-    assert!(old.message().contains("900"), "{}", old.message());
+    // The earliest offset is read from the detail and not from the message.
+    let gone: ExecOutputGone =
+        details::detail(&old, "ExecOutputGone").ok_or("no ExecOutputGone detail")?;
+    assert_eq!(gone.earliest_offset, 900);
+    assert_eq!(
+        details::detail_types(&old),
+        ["mvmd.guest.v1alpha1.ExecOutputGone"]
+    );
     // Control: a read at the earliest held offset, and one inside the held range, succeed.
     let (chunks, record) = h.output("e1", 900).await?;
     assert_eq!(chunks.iter().map(|c| c.data.len()).sum::<usize>(), 100);
@@ -863,10 +875,40 @@ async fn read_file_refuses_a_missing_file_a_directory_and_a_relative_path() -> R
     assert_eq!(missing.code(), Code::NotFound);
     assert_eq!(directory.code(), Code::InvalidArgument);
     assert_eq!(relative.code(), Code::InvalidArgument);
+    // The directory is a file of the wrong kind; a missing file and a relative path are not.
+    let wrong: WrongFileKind =
+        details::detail(&directory, "WrongFileKind").ok_or("no WrongFileKind detail")?;
+    assert_eq!(wrong.path, dir_path.to_str().ok_or("path")?);
+    assert_eq!(wrong.expected(), EntryKind::File);
+    assert_eq!(
+        details::detail_types(&directory),
+        ["mvmd.guest.v1alpha1.WrongFileKind"]
+    );
+    assert!(details::detail_types(&missing).is_empty());
+    assert!(details::detail_types(&relative).is_empty());
     // Control: a regular file at an absolute path is read.
     let regular = h.path("regular");
     std::fs::write(&regular, b"content")?;
     assert_eq!(h.read(&regular).await?.concat(), b"content");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_listing_of_a_regular_file_names_a_directory_as_the_kind_expected() -> Result {
+    let mut h = Harness::start().await?;
+    let file = h.path("regular");
+    std::fs::write(&file, b"content")?;
+
+    let listed = h.list(&file).await.err().ok_or("a file was listed")?;
+
+    assert_eq!(listed.code(), Code::InvalidArgument);
+    let wrong: WrongFileKind =
+        details::detail(&listed, "WrongFileKind").ok_or("no WrongFileKind detail")?;
+    assert_eq!(wrong.path, file.to_str().ok_or("path")?);
+    assert_eq!(wrong.expected(), EntryKind::Directory);
+    // Control: the directory itself is listed.
+    let dir = h.dir.path().to_path_buf();
+    assert_eq!(h.list(&dir).await?.concat().len(), 1);
     Ok(())
 }
 
@@ -951,6 +993,9 @@ async fn write_and_patch_refuse_a_target_that_is_not_a_regular_file() -> Result 
             "{}",
             target.display()
         );
+        let wrong: WrongFileKind =
+            details::detail(&patched, "WrongFileKind").ok_or("no WrongFileKind detail")?;
+        assert_eq!(wrong.expected(), EntryKind::File, "{}", target.display());
     }
 
     assert_eq!(std::fs::read(directory.join("inside"))?, b"kept");
@@ -1050,6 +1095,8 @@ async fn a_request_over_the_size_limit_is_refused_and_one_under_it_is_served() -
         .ok_or("a junk patch was applied")?;
 
     assert_eq!(over.code(), Code::OutOfRange, "{}", over.message());
+    // The size limit is tonic's own OUT_OF_RANGE, which is not an output read: no detail.
+    assert!(details::detail_types(&over).is_empty());
     // The smaller one reached the service, which refused the patch itself.
     assert!(
         matches!(

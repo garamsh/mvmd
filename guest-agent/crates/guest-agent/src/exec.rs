@@ -331,9 +331,9 @@ impl Exec {
 fn check_held(state: &State, after: u64) -> Result<(), Error> {
     let earliest = state.record.earliest_offset;
     if after < earliest {
-        return Err(Error::OutOfRange(format!(
-            "output before offset {earliest} is no longer held; the earliest held offset is {earliest}"
-        )));
+        return Err(Error::OutOfRange {
+            earliest_offset: earliest,
+        });
     }
     Ok(())
 }
