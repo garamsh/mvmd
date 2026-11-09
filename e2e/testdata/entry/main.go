@@ -8,6 +8,6 @@ import (
 )
 
 func main() {
-	fmt.Println("hello from the entrypoint")
+	fmt.Println("hello from a mutated entrypoint")
 	time.Sleep(time.Hour)
 }
