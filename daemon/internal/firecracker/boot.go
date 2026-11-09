@@ -29,16 +29,8 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 		{"/boot-source", map[string]any{"kernel_image_path": machine.InKernel, "initrd_path": machine.InInitrd, "boot_args": bootArgs(runtime.GOARCH)}},
 	}
 	for i, dev := range spec.Devices {
-		// Writeback makes the guest's flushes reach the file; the default
-		// ignores them.
-		drive := map[string]any{
-			"drive_id": fmt.Sprintf("disk%d", i), "path_on_host": machine.InDisk(i),
-			"is_root_device": false, "is_read_only": dev.ReadOnly,
-		}
-		if !dev.ReadOnly {
-			drive["cache_type"] = "Writeback"
-		}
-		steps = append(steps, put{"/drives/" + fmt.Sprintf("disk%d", i), drive})
+		name := driveID(i, dev.Disk)
+		steps = append(steps, put{"/drives/" + name, drive(name, machine.InDisk(i), dev.ReadOnly)})
 	}
 	if spec.Network.Tap != "" {
 		steps = append(steps, put{"/network-interfaces/" + netIface, map[string]any{
