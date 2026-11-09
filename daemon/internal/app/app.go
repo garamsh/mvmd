@@ -191,7 +191,7 @@ func New(cfg Config) (*App, error) {
 			_ = db.Close()
 			return nil, err
 		}
-		sub.Disks, sub.Snapshots = nil, nil
+		_ = sub
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)

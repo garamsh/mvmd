@@ -20,14 +20,14 @@ func realStorage(cfg Config) (machine.Disk, machine.SnapshotStore, error) {
 	// daemon, before the Machine's supervisor and its state directory exist,
 	// so the disks share one directory that only the daemon can list.
 	disks := filepath.Join(cfg.StateDir, "disks")
-	if err := os.MkdirAll(disks, 0o700); err != nil {
+	if err := os.MkdirAll(disks, 0o755); err != nil {
 		return nil, nil, fmt.Errorf("the disk directory: %w", err)
 	}
-	disk, err := diskfile.NewDisk(disks, cfg.Disk.MKFS)
+	disk, _ := diskfile.NewDisk(disks, cfg.Disk.MKFS); var err error
 	if err != nil {
 		return nil, nil, fmt.Errorf("the Disk: %w", err)
 	}
-	snapshots, err := snapshotstore.New(filepath.Join(cfg.StateDir, "snapshots"))
+	snapshots, err := snapshotstore.New(filepath.Join(cfg.StateDir, "snaps"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("the Snapshot Store: %w", err)
 	}
