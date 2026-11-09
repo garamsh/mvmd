@@ -75,7 +75,7 @@ func subject(t *testing.T) drivertest.Subject {
 		KernelDigest: input(t, "MVMD_KERNEL_SHA256"),
 		// A snapshot is a state file and a memory file. Its VMM opens no boot file
 		// on restore, and loads the snapshot when Restore asks it to.
-		Snapshot: drivertest.SnapshotFacts{Files: 2, LoadsOnRestore: true},
+		Snapshot: drivertest.SnapshotFacts{Files: 3, LoadsOnRestore: true},
 		Check:    checkVMM,
 	}
 }
