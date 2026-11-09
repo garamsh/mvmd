@@ -201,6 +201,12 @@ type ProcessOverhead struct {
 // Driver is the conversation with a virtual machine monitor. It describes the
 // VMM process and drives the VMM once the supervisor has started it; it never
 // starts the process itself.
+//
+// An operation that needs a Capability the Driver does not report returns an
+// error wrapping ErrUnsupported. The operations are Console (CapabilityConsole),
+// AttachDisk, DetachDisk and Drive (CapabilityDiskHotplug), Resize
+// (CapabilityResize), and Snapshot, DescribeRestore and Restore
+// (CapabilitySnapshot).
 type Driver interface {
 	// Info names the Driver and the optional operations it supports.
 	Info() DriverInfo
