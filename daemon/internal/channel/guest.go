@@ -12,8 +12,11 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync/atomic"
+	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
@@ -63,6 +66,27 @@ const (
 // broke between messages. A repeat is safe.
 var errCut = errors.New("the stream ended before its last message")
 
+// reconnect is the client's backoff between dials for opBoot. A refused dial
+// costs one local socket exchange, and a guest boots in seconds, so the
+// longest wait is one second: that is all a listening agent waits to be
+// found, against a boot timeout of minutes.
+var reconnect = backoff.Config{
+	BaseDelay:  100 * time.Millisecond,
+	Multiplier: 1.6,
+	Jitter:     0.2,
+	MaxDelay:   time.Second,
+}
+
+// dialError marks the ErrVMMEnded a Boot's dial returned. Its Internal status
+// ends the dial's backoff at once, and mapError recognizes it by type.
+type dialError struct{ err error }
+
+func (e *dialError) Error() string { return e.err.Error() }
+func (e *dialError) Unwrap() error { return e.err }
+func (e *dialError) GRPCStatus() *status.Status {
+	return status.New(codes.Internal, e.err.Error())
+}
+
 // run calls f with a client of the Machine's agent, and repeats it once, on a
 // connection of its own, when the first connection broke before the call was
 // answered. f is called again from the same variables, so a stream resumes
@@ -70,7 +94,7 @@ var errCut = errors.New("the stream ended before its last message")
 func (g *Guest) run(ctx context.Context, id machine.MachineID, op operation, f func(guestv1alpha1.GuestServiceClient) error) error {
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
-		err = g.once(ctx, id, f)
+		err = g.once(ctx, id, op, f)
 		if err == nil || ctx.Err() != nil || !reset(err) {
 			break
 		}
@@ -78,17 +102,39 @@ func (g *Guest) run(ctx context.Context, id machine.MachineID, op operation, f f
 	return mapError(op, err)
 }
 
-func (g *Guest) once(ctx context.Context, id machine.MachineID, f func(guestv1alpha1.GuestServiceClient) error) error {
-	cc, err := grpc.NewClient("passthrough:///guest",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithContextDialer(func(dial context.Context, _ string) (net.Conn, error) {
-			return g.conn.GuestConn(dial, id, machine.GuestAgentPort)
-		}))
+func (g *Guest) once(ctx context.Context, id machine.MachineID, op operation, f func(guestv1alpha1.GuestServiceClient) error) error {
+	var dialed atomic.Bool
+	dialer := func(dial context.Context, _ string) (net.Conn, error) {
+		return g.conn.GuestConn(dial, id, machine.GuestAgentPort)
+	}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	if op == opBoot {
+		// Boot waits for the agent to listen: it redials with backoff until
+		// the context ends, unless the VMM has ended.
+		dialer = func(dial context.Context, _ string) (net.Conn, error) {
+			conn, err := g.conn.GuestConn(dial, id, machine.GuestAgentPort)
+			switch {
+			case err == nil:
+				dialed.Store(true)
+			case errors.Is(err, machine.ErrVMMEnded):
+				return nil, &dialError{err}
+			}
+			return conn, err
+		}
+		opts = append(opts, grpc.WithConnectParams(grpc.ConnectParams{Backoff: reconnect}))
+	}
+	cc, err := grpc.NewClient("passthrough:///guest", append(opts, grpc.WithContextDialer(dialer))...)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = cc.Close() }()
-	return f(guestv1alpha1.NewGuestServiceClient(cc))
+	err = f(guestv1alpha1.NewGuestServiceClient(cc))
+	var ended *dialError
+	if op == opBoot && err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && !dialed.Load() && !errors.As(err, &ended) {
+		return fmt.Errorf("%w: the agent did not listen before the boot's time ended: %w",
+			machine.ErrGuestUnreachable, ctx.Err())
+	}
+	return err
 }
 
 // reset reports whether the error is a connection that broke or never opened.
@@ -123,6 +169,10 @@ func mapError(op operation, err error) error {
 	}
 	if errors.Is(err, errCut) {
 		return fmt.Errorf("%w: %v", machine.ErrGuestUnreachable, err)
+	}
+	var ended *dialError
+	if errors.As(err, &ended) {
+		return fmt.Errorf("%w: the agent VMM has ended: %w", machine.ErrGuestUnreachable, machine.ErrVMMEnded)
 	}
 	st, ok := status.FromError(err)
 	if !ok {
@@ -254,7 +304,7 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 		Network: networkConfig(boot.Network),
 	}
 	return g.run(ctx, id, opBoot, func(c guestv1alpha1.GuestServiceClient) error {
-		_, err := c.Boot(ctx, req)
+		_, err := c.Boot(ctx, req, grpc.WaitForReady(true))
 		return err
 	})
 }
