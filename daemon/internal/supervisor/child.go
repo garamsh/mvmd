@@ -140,13 +140,13 @@ func enterNamespaces(newroot string, req *pb.StartRequest) error {
 // run directory to use.
 func landlockRules(req *pb.StartRequest) []fsRule {
 	p := req.GetProcess()
-	rules := []fsRule{{p.GetExecutable(), accessExecutable}, {req.GetRunDir(), accessRunDir}}
+	rules := []fsRule{{p.GetExecutable(), accessExecutable}, {req.GetRunDirInPath(), accessRunDir}}
 	for _, f := range p.GetBootFiles() {
 		access := uint64(accessFile)
 		if f.GetReadOnly() {
 			access = accessRead
 		}
-		rules = append(rules, fsRule{f.GetPath(), access})
+		rules = append(rules, fsRule{f.GetInPath(), access})
 	}
 	for _, f := range p.GetReadFiles() {
 		rules = append(rules, fsRule{f, accessRead})

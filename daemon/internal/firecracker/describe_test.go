@@ -3,7 +3,6 @@ package firecracker_test
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,18 +19,21 @@ func TestDescribe_StatesTheProcessAndWhatItNeedsOpen(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, n.cfg.Binary, p.Executable)
-	assert.Equal(t, []string{"--api-sock", n.apiSocket(), "--enable-pci", "--log-path", filepath.Join(n.run, "firecracker.log")}, p.Args,
-		"Firecracker's own log goes to a file of its own, so vmm.log holds the console")
+	assert.Equal(t, []string{"--api-sock", "/run/api.sock", "--enable-pci", "--log-path", "/run/firecracker.log"}, p.Args,
+		"the VMM names its files by their paths in its root; Firecracker's own log goes to a file of its own, so vmm.log holds the console")
+	assert.NotContains(t, strings.Join(p.Args, " "), n.run, "no argument names a host path")
 	assert.NotContains(t, strings.Join(p.Args, " "), "seccomp", "the VMM's own filter stays on (driver.md)")
 	assert.False(t, p.TapByDescriptor)
 	assert.Equal(t, []string{"/dev/kvm", "/dev/net/tun"}, p.DeviceNodes)
-	// The kernel and the initrd are read-only, then the Machine's devices as given.
-	assert.Equal(t, []machine.BlockDevice{
-		{Path: n.cfg.Kernel, ReadOnly: true},
-		{Path: n.cfg.Initrd, ReadOnly: true},
-		{Disk: "image", Path: "/images/erofs", ReadOnly: true},
-		{Disk: "root", Path: "/disks/root.img"},
+	// The kernel and the initrd are read-only, then the Machine's devices as
+	// given, each at its fixed path. The kernel carries its pin.
+	assert.Equal(t, []machine.File{
+		{Host: n.cfg.Kernel, In: "/boot/kernel", ReadOnly: true, SHA256: n.cfg.KernelSHA256},
+		{Host: n.cfg.Initrd, In: "/boot/initrd", ReadOnly: true},
+		{Host: "/images/erofs", In: "/disk/0", ReadOnly: true},
+		{Host: "/disks/root.img", In: "/disk/1"},
 	}, p.BootFiles)
+	assert.Equal(t, n.cfg.BinarySHA256, p.ExecutableSHA256)
 	assert.Equal(t, machine.ProcessOverhead{MemoryBytes: 128 << 20, Tasks: 2 + 8, CPUs: 1}, p.Overhead)
 }
 
@@ -88,39 +90,23 @@ func TestDescribe_RefusesWhatTheVMMWould(t *testing.T) {
 	}
 }
 
-func TestDescribe_ChecksTheDigestsBeforeEveryBoot(t *testing.T) {
-	for _, file := range []string{"binary", "kernel"} {
-		t.Run(file, func(t *testing.T) {
-			n := newNode(t)
-			_, err := n.driver.Describe(context.Background(), "m1", n.spec())
-			require.NoError(t, err, "control: the pinned file is accepted")
-
-			path := map[string]string{"binary": n.cfg.Binary, "kernel": n.cfg.Kernel}[file]
-			require.NoError(t, os.WriteFile(path, []byte("another file"), 0o644))
-			_, err = n.driver.Describe(context.Background(), "m1", n.spec())
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "digest")
-			assert.Contains(t, err.Error(), file)
-		})
-	}
-}
-
-func TestDescribe_StopsHashingWhenTheContextEnds(t *testing.T) {
+// The digests are checked by the supervisor, on the file it presents to the
+// VMM, and not here: a file this Driver hashed by its path could be replaced
+// before the supervisor opened the path (ADR 0019). So the description carries
+// the pins and Describe reads neither file.
+func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T) {
 	n := newNode(t)
-	// A kernel of several chunks, so the hash has a point to stop at.
-	big := strings.Repeat("k", 8<<20)
-	require.NoError(t, os.WriteFile(n.cfg.Kernel, []byte(big), 0o644))
-	n.cfg.KernelSHA256 = sum([]byte(big))
-	d, err := firecracker.New(n.cfg)
-	require.NoError(t, err)
+	pinnedKernel, pinnedBinary := n.cfg.KernelSHA256, n.cfg.BinarySHA256
+	for _, path := range []string{n.cfg.Kernel, n.cfg.Binary} {
+		require.NoError(t, os.WriteFile(path, []byte("another file"), 0o644))
+	}
 
-	_, err = d.Describe(context.Background(), "m1", n.spec())
-	require.NoError(t, err, "control: a live context hashes the whole kernel")
+	p, err := n.driver.Describe(context.Background(), "m1", n.spec())
+	require.NoError(t, err, "a file that is no longer the pinned one is the supervisor's to refuse, as it opens it")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err = d.Describe(ctx, "m1", n.spec())
-	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, pinnedBinary, p.ExecutableSHA256, "the pin, not the digest of what the file holds now")
+	assert.Equal(t, pinnedKernel, p.BootFiles[0].SHA256)
+	assert.NotEqual(t, sum([]byte("another file")), p.BootFiles[0].SHA256)
 }
 
 func TestBootArgs_SkipTheKeyboardProbeOnX86Only(t *testing.T) {

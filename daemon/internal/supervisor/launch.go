@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -18,8 +19,9 @@ import (
 )
 
 // checkRequest refuses a request whose description is not one the confinement
-// can apply: every path is absolute and clean, a device node is under /dev, and
-// a tap passed by descriptor is named.
+// can apply: every path is absolute and clean, which keeps a path in the root
+// from leaving it, a device node is under /dev, a tap passed by descriptor is
+// named, a digest is well formed, and no two paths in the root collide.
 func checkRequest(req *pb.StartRequest) error {
 	p := req.GetProcess()
 	check := func(what, path string) error {
@@ -37,10 +39,22 @@ func checkRequest(req *pb.StartRequest) error {
 	if err := check("cgroup", req.GetCgroup()); err != nil {
 		return err
 	}
+	if err := check("run directory's path in the root", req.GetRunDirInPath()); err != nil {
+		return err
+	}
 	for _, f := range p.GetBootFiles() {
 		if err := check("boot file", f.GetPath()); err != nil {
 			return err
 		}
+		if err := check("path of a boot file in the root", f.GetInPath()); err != nil {
+			return err
+		}
+		if err := checkDigest("boot file", f.GetPath(), f.GetSha256()); err != nil {
+			return err
+		}
+	}
+	if err := checkDigest("executable", p.GetExecutable(), p.GetExecutableSha256()); err != nil {
+		return err
 	}
 	for _, f := range p.GetReadFiles() {
 		if err := check("host file", f); err != nil {
@@ -57,6 +71,19 @@ func checkRequest(req *pb.StartRequest) error {
 	}
 	if p.GetTapByDescriptor() && req.GetTap() == "" {
 		return errors.New("the process takes its tap by descriptor and no tap was named")
+	}
+	// The root's layout is refused here, before anything is made for the start.
+	_, err := mountsFor(req)
+	return err
+}
+
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// checkDigest refuses a pinned file whose digest is not 64 lowercase hex digits;
+// an empty digest is a file that is not pinned.
+func checkDigest(what, path, digest string) error {
+	if digest != "" && !sha256Hex.MatchString(digest) {
+		return fmt.Errorf("the digest %q of the %s %s is not 64 lowercase hex digits", digest, what, path)
 	}
 	return nil
 }

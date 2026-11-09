@@ -62,7 +62,7 @@ func TestSupervisorKilled_EndsTheProcessTreeAtOnce(t *testing.T) {
 
 	// Control: killing the daemonized process, which is not the supervisor and
 	// not the VMM, leaves the supervisor and the rest of the tree running.
-	sleepers := processes("sleeper", runDir(n.dir, "m"))
+	sleepers := inCgroup("m", " sleeper ")
 	require.Len(t, sleepers, 1)
 	require.NoError(t, syscall.Kill(sleepers[0], syscall.SIGKILL))
 	time.Sleep(100 * time.Millisecond)
@@ -279,14 +279,13 @@ func TestStart_RefusesRootAsTheMachinesUser(t *testing.T) {
 func TestVMMPidfd_TerminateWaitsForTheVMM(t *testing.T) {
 	n := newNode(t)
 	_, ns := n.run(t, "m", time.Hour)
-	work := runDir(n.dir, "m")
-	require.Len(t, processes("vmm", work), 1, "control: the VMM runs before Terminate")
+	require.Len(t, inCgroup("m", " vmm "), 1, "control: the VMM runs before Terminate")
 	require.NotEmpty(t, members(ns), "control: the namespace is occupied before Terminate")
 
 	again, err := supervision.New(adapterConfig(n.dir))
 	require.NoError(t, err)
 	require.NoError(t, again.Terminate(ctx, "m"))
-	assert.Empty(t, processes("vmm", work), "the VMM has ended when Terminate returns")
+	assert.Empty(t, inCgroup("m", " vmm "), "the VMM has ended when Terminate returns")
 	assert.Empty(t, members(ns))
 }
 

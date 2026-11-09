@@ -208,6 +208,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 			GuestMemoryBytes: process.Guest.MemoryBytes,
 			GuestVcpus:       process.Guest.VCPUs,
 			RunDir:           runDir,
+			RunDirInPath:     machine.InRunDir,
 			Cgroup:           vmmCgroup,
 		})
 		return err
@@ -378,9 +379,10 @@ func toProcess(p machine.ProcessDescription) *pb.Process {
 		OverheadMemoryBytes: p.Overhead.MemoryBytes,
 		OverheadTasks:       p.Overhead.Tasks,
 		OverheadCpus:        p.Overhead.CPUs,
+		ExecutableSha256:    p.ExecutableSHA256,
 	}
-	for _, b := range p.BootFiles {
-		out.BootFiles = append(out.BootFiles, &pb.BlockDevice{DiskId: string(b.Disk), Path: b.Path, ReadOnly: b.ReadOnly})
+	for _, f := range p.BootFiles {
+		out.BootFiles = append(out.BootFiles, &pb.BlockDevice{Path: f.Host, InPath: f.In, ReadOnly: f.ReadOnly, Sha256: f.SHA256})
 	}
 	return out
 }

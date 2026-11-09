@@ -78,7 +78,7 @@ func New(cfg Config) (*Driver, error) {
 	if cfg.Dirs == nil {
 		return nil, fmt.Errorf("firecracker needs the run directories of Machines")
 	}
-	if err := verify(context.Background(), cfg); err != nil {
+	if err := verify(cfg); err != nil {
 		return nil, err
 	}
 	model, err := hostCPUModel()
@@ -97,6 +97,11 @@ func (d *Driver) Info() machine.DriverInfo {
 // Observe implements machine.Driver. The Driver raises no event of its own:
 // the supervisor's pidfds tell the lifecycle when a VMM has ended.
 func (d *Driver) Observe(func(machine.DriverEvent)) {}
+
+// inRun is the path of a file of the run directory in the VMM's root, which is
+// what the VMM is told; mvmd itself reaches the file at the run directory's
+// host path.
+func inRun(name string) string { return filepath.Join(machine.InRunDir, name) }
 
 func (d *Driver) socket(id machine.MachineID, name string) (string, error) {
 	dir, err := d.cfg.Dirs.RunDir(id)

@@ -7,11 +7,15 @@
 //	probe check <dir> <try>...    write <dir>/report.json and exit
 //	probe pids <dir> <n>          start up to n processes, write <dir>/pids.json, run on
 //
-// A try is one of: open:PATH, opendir:PATH, write:PATH, ioctl:PATH,
-// abstract:NAME, unshare, setns, clone3, userns-clone, fork, fd3, ifaces.
+// A try is one of: open:PATH, opendir:PATH, openw:PATH (open for writing, never
+// creating), write:PATH, sha256:PATH (the SHA-256 in hex of what PATH holds),
+// ioctl:PATH, abstract:NAME, unshare, setns, clone3, userns-clone, fork, fd3,
+// ifaces.
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -150,6 +154,15 @@ func attempt(kind, arg string) string {
 		return errName(closing(unix.Open(arg, unix.O_RDONLY, 0)))
 	case "opendir":
 		return errName(closing(unix.Open(arg, unix.O_RDONLY|unix.O_DIRECTORY, 0)))
+	case "openw":
+		return errName(closing(unix.Open(arg, unix.O_WRONLY, 0)))
+	case "sha256":
+		raw, err := os.ReadFile(arg)
+		if err != nil {
+			return errName(unwrap(err))
+		}
+		sum := sha256.Sum256(raw)
+		return hex.EncodeToString(sum[:])
 	case "write":
 		return errName(closing(unix.Open(arg, unix.O_WRONLY|unix.O_CREAT, 0o600)))
 	case "ioctl":

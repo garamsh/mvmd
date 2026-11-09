@@ -19,10 +19,6 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 	if err != nil {
 		return err
 	}
-	vsock, err := d.socket(id, vsockSocketName)
-	if err != nil {
-		return err
-	}
 	if err := await(ctx, sock); err != nil {
 		return err
 	}
@@ -44,13 +40,13 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 	}
 	steps := []put{
 		{"/machine-config", map[string]any{"vcpu_count": spec.Resources.VCPUs, "mem_size_mib": spec.Resources.MemoryBytes / mib}},
-		{"/boot-source", map[string]any{"kernel_image_path": d.cfg.Kernel, "initrd_path": d.cfg.Initrd, "boot_args": bootArgs(runtime.GOARCH)}},
+		{"/boot-source", map[string]any{"kernel_image_path": machine.InKernel, "initrd_path": machine.InInitrd, "boot_args": bootArgs(runtime.GOARCH)}},
 	}
 	for i, dev := range spec.Devices {
 		// Writeback makes the guest's flushes reach the file; the default
 		// ignores them.
 		drive := map[string]any{
-			"drive_id": fmt.Sprintf("disk%d", i), "path_on_host": dev.Path,
+			"drive_id": fmt.Sprintf("disk%d", i), "path_on_host": machine.InDisk(i),
 			"is_root_device": false, "is_read_only": dev.ReadOnly,
 		}
 		if !dev.ReadOnly {
@@ -64,7 +60,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 		}})
 	}
 	steps = append(steps,
-		put{"/vsock", map[string]any{"guest_cid": guestCID, "uds_path": vsock}},
+		put{"/vsock", map[string]any{"guest_cid": guestCID, "uds_path": inRun(vsockSocketName)}},
 		put{"/actions", map[string]any{"action_type": "InstanceStart"}},
 	)
 	for _, s := range steps {

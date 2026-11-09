@@ -24,11 +24,22 @@ service SupervisorService {
   rpc Inspect(InspectRequest) returns (InspectResponse);
 }
 
-// BlockDevice is a file a VMM is given and the mode it is given in.
+// BlockDevice is a host file a VMM is given, where in its root it is given
+// and the mode it is given in.
 message BlockDevice {
+  // Not read by the supervisor.
   string disk_id = 1;
+  // The file's path on the host.
   string path = 2;
   bool read_only = 3;
+  // The path the file has in the process's root: absolute and clean, and not
+  // inside another file's path or under /dev (ADR 0019). A request without it
+  // is refused.
+  string in_path = 4;
+  // The file's SHA-256, in hex, or empty when the file is not pinned. The
+  // supervisor hashes the file it opens and mounts the file it hashed, and
+  // refuses the start when the digest differs.
+  string sha256 = 5;
 }
 
 // Process is the Driver's description of the VMM process, in full.
@@ -42,6 +53,9 @@ message Process {
   uint64 overhead_memory_bytes = 7;
   uint32 overhead_tasks = 8;
   double overhead_cpus = 9;
+  // The executable's SHA-256, in hex, or empty when it is not pinned. Checked
+  // as BlockDevice.sha256 is. The executable is at its host path in the root.
+  string executable_sha256 = 10;
 }
 
 message StartRequest {
@@ -63,12 +77,15 @@ message StartRequest {
   // cgroup's memory.max and cpu.max.
   uint64 guest_memory_bytes = 5;
   uint32 guest_vcpus = 6;
-  // The Machine's run directory: absolute, owned by the Machine's user, and
-  // mounted read-write at its own path in the process's root.
+  // The Machine's run directory on the host: absolute and owned by the
+  // Machine's user.
   string run_dir = 7;
   // The cgroup v2 directory mvmd created for this process, with the memory,
   // pids and cpu controllers enabled for it. The process starts in it.
   string cgroup = 8;
+  // The path the run directory has in the process's root, where it is mounted
+  // read-write (ADR 0019). A request without it is refused.
+  string run_dir_in_path = 9;
 }
 
 message StartResponse {}
