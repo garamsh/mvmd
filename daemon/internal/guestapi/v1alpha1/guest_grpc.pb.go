@@ -99,8 +99,9 @@ type GuestServiceClient interface {
 	// records disk_id against that device and returns it. A repeat for a
 	// disk_id the agent holds returns the record without rescanning, and for
 	// one it has released rescans as for a new one. No new device within the
-	// agent's bound, or more than one, fails the call and records nothing. The agent does nothing else with the device. It is served before
-	// Boot has succeeded, and the calls of one Machine are serialised.
+	// agent's bound, or more than one, fails the call and records nothing. The
+	// agent does nothing else with the device. It is served before Boot has
+	// succeeded, and the calls of one Machine are serialised.
 	FindDisk(ctx context.Context, in *FindDiskRequest, opts ...grpc.CallOption) (*FindDiskResponse, error)
 	// Release the device FindDisk recorded under disk_id so that mvmd can
 	// unplug it: the agent opens the block device exclusively, which the kernel
@@ -382,8 +383,9 @@ type GuestServiceServer interface {
 	// records disk_id against that device and returns it. A repeat for a
 	// disk_id the agent holds returns the record without rescanning, and for
 	// one it has released rescans as for a new one. No new device within the
-	// agent's bound, or more than one, fails the call and records nothing. The agent does nothing else with the device. It is served before
-	// Boot has succeeded, and the calls of one Machine are serialised.
+	// agent's bound, or more than one, fails the call and records nothing. The
+	// agent does nothing else with the device. It is served before Boot has
+	// succeeded, and the calls of one Machine are serialised.
 	FindDisk(context.Context, *FindDiskRequest) (*FindDiskResponse, error)
 	// Release the device FindDisk recorded under disk_id so that mvmd can
 	// unplug it: the agent opens the block device exclusively, which the kernel
