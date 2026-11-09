@@ -86,6 +86,16 @@ func verify(cfg Config) error {
 // check; it reads neither file. It keeps nothing: Boot is given the boot
 // description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
+	boot := []machine.File{
+		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
+		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true},
+	}
+	return d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
+}
+
+// process states the VMM process for a boot description, given the files the
+// VMM is to see: those of a boot, or those of a restore.
+func (d *Driver) process(spec machine.BootSpec, files []machine.File) (machine.ProcessDescription, error) {
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
@@ -98,10 +108,6 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		}
 	}
 
-	boot := []machine.File{
-		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
-		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true},
-	}
 	nodes := []string{"/dev/kvm"}
 	if spec.Network.Tap != "" {
 		nodes = append(nodes, "/dev/net/tun")
@@ -110,7 +116,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		Executable:       d.cfg.Binary,
 		ExecutableSHA256: d.cfg.BinarySHA256,
 		Args:             []string{"--api-sock", inRun(apiSocketName), "--enable-pci", "--log-path", inRun(logName)},
-		BootFiles:        append(boot, machine.DeviceFiles(spec.Devices)...),
+		BootFiles:        files,
 		ReadFiles:        cpuReadFiles(runtime.GOARCH),
 		DeviceNodes:      nodes,
 		Overhead: machine.ProcessOverhead{

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -65,6 +66,11 @@ func (c Config) Validate() error {
 type Driver struct {
 	cfg      Config
 	cpuModel string
+
+	// restoring holds the tap each DescribeRestore was given until the Restore
+	// that needs it, since Restore is given the Machine's identifier alone.
+	mu        sync.Mutex
+	restoring map[machine.MachineID]string
 }
 
 // New returns the Driver. It refuses a binary or a kernel whose digest is not
@@ -83,14 +89,15 @@ func New(cfg Config) (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Driver{cfg: cfg, cpuModel: model}, nil
+	return &Driver{cfg: cfg, cpuModel: model, restoring: map[machine.MachineID]string{}}, nil
 }
 
-// Info implements machine.Driver. The one optional capability reported is the
-// console: this Driver does not yet snapshot, restore, hot-plug or resize.
+// Info implements machine.Driver. The optional capabilities reported are the
+// console and snapshot, which covers restore: this Driver does not yet
+// hot-plug or resize.
 func (d *Driver) Info() machine.DriverInfo {
 	return machine.DriverInfo{Name: "firecracker", Version: Version, CPUModel: d.cpuModel,
-		Capabilities: []machine.Capability{machine.CapabilityConsole}}
+		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot}}
 }
 
 // Observe implements machine.Driver. The Driver raises no event of its own:
@@ -136,19 +143,4 @@ func (d *Driver) DetachDisk(context.Context, machine.MachineID, machine.DiskID) 
 // only before boot.
 func (d *Driver) Resize(context.Context, machine.MachineID, machine.Resources) error {
 	return unsupported("resize a running Machine")
-}
-
-// Snapshot implements machine.Driver.
-func (d *Driver) Snapshot(context.Context, machine.MachineID) (machine.DriverSnapshot, error) {
-	return machine.DriverSnapshot{}, unsupported("snapshot a Machine")
-}
-
-// DescribeRestore implements machine.Driver.
-func (d *Driver) DescribeRestore(context.Context, machine.MachineID, machine.BootSpec, []string) (machine.ProcessDescription, error) {
-	return machine.ProcessDescription{}, unsupported("restore a Machine")
-}
-
-// Restore implements machine.Driver.
-func (d *Driver) Restore(context.Context, machine.MachineID) error {
-	return unsupported("restore a Machine")
 }
