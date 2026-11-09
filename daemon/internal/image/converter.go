@@ -6,6 +6,10 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
+// ConverterPort is the port the converter listens on in its microVM
+// (image.md §Conversion), the one a caller of Driver.GuestConn names for it.
+const ConverterPort uint32 = 1025
+
 // StagedLayer is a verified layer in staging.
 type StagedLayer struct {
 	Path      string
@@ -25,7 +29,32 @@ type ConversionJob struct {
 type Converter interface {
 	// Convert has the converter of the booted VM of the given identifier
 	// convert the layers into the EROFS on its output device, and returns the
-	// EROFS's length. A conversion the converter reports as failed is an error
-	// naming its step.
+	// EROFS's length. A conversion the converter reports as failed is a
+	// *ConversionFailure naming its step.
 	Convert(ctx context.Context, id machine.MachineID, job ConversionJob) (length uint64, err error)
+}
+
+// ConversionStep is the step of a conversion the converter reports as failed
+// (ADR 0017), the one the pull branches on.
+type ConversionStep string
+
+const (
+	StepStart       ConversionStep = "start"
+	StepLayerType   ConversionStep = "layer type"
+	StepStreamOrder ConversionStep = "stream order"
+	StepNames       ConversionStep = "names"
+	StepNameLimit   ConversionStep = "name limit"
+	StepConvert     ConversionStep = "convert"
+	StepOutput      ConversionStep = "output"
+)
+
+// ConversionFailure is a conversion the converter reported as failed: the
+// step that failed and the converter's message, which is for people.
+type ConversionFailure struct {
+	Step    ConversionStep
+	Message string
+}
+
+func (e *ConversionFailure) Error() string {
+	return "the converter failed at step " + string(e.Step) + ": " + e.Message
 }

@@ -6,6 +6,9 @@ managed:
     - file_option: go_package
       path: guest/v1alpha1/guest.proto
       value: github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1;guestv1alpha1
+    - file_option: go_package
+      path: mvmd/convert/v1alpha1/convert.proto
+      value: github.com/garamsh/mvmd/daemon/internal/convertapi/v1alpha1;convertv1alpha1
 plugins:
   - local: [go, tool, -modfile=../tooling/protogen/go.mod, protoc-gen-go]
     out: .
@@ -16,3 +19,4 @@ plugins:
 inputs:
   - directory: .
   - directory: ../guest-agent/proto
+  - directory: ../imageconv/proto
