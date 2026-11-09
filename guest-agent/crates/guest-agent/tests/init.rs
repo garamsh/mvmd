@@ -15,15 +15,15 @@ use std::time::Duration;
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
-    BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, ExecRecord,
-    ExecRequest, ExecStatus, HealthRequest, Ipv4Config, Ipv6Config, ListFilesRequest,
-    NetworkConfig as WireNetworkConfig, NotBooted, ReadExecOutputRequest, RunConfig,
-    TerminateRequest, UpdateNetworkRequest, WriteFileRequest, WriteFileStart,
-    read_exec_output_response, write_file_request,
+    BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, DiskInUse,
+    ExecRecord, ExecRequest, ExecStatus, FindDiskRequest, HealthRequest, Ipv4Config, Ipv6Config,
+    ListFilesRequest, NetworkConfig as WireNetworkConfig, NotBooted, ReadExecOutputRequest,
+    ReleaseDiskRequest, RunConfig, TerminateRequest, UpdateNetworkRequest, WriteFileRequest,
+    WriteFileStart, read_exec_output_response, write_file_request,
 };
 use guest_agent::{
-    BootStep, Clock, Console, Entropy, Filesystem, Mounts, Network, NetworkConfig, Power, System,
-    Uuid,
+    BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, Mounts, Network,
+    NetworkConfig, Power, System, Uuid,
 };
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
@@ -236,6 +236,41 @@ impl Clock for TestClock {
     }
 }
 
+/// Disks that remember what was found, refuse to release one that is in use and log each call.
+struct TestDisks {
+    log: Log,
+    found: Mutex<std::collections::HashSet<String>>,
+    in_use: AtomicBool,
+    no_device: AtomicBool,
+}
+
+impl Disks for TestDisks {
+    fn find(&self, disk_id: &str) -> std::result::Result<DiskDevice, DiskError> {
+        self.log.push(format!("disk find {disk_id}"));
+        if self.no_device.load(Ordering::SeqCst) {
+            return Err(DiskError::Failed(io::Error::other("no new device")));
+        }
+        lock(&self.found).insert(disk_id.to_owned());
+        Ok(DiskDevice {
+            name: "vdb".into(),
+            size_bytes: 1 << 20,
+            read_only: true,
+        })
+    }
+
+    fn release(&self, disk_id: &str) -> std::result::Result<(), DiskError> {
+        self.log.push(format!("disk release {disk_id}"));
+        if !lock(&self.found).contains(disk_id) {
+            return Err(DiskError::Unknown);
+        }
+        if self.in_use.load(Ordering::SeqCst) {
+            return Err(DiskError::InUse);
+        }
+        lock(&self.found).remove(disk_id);
+        Ok(())
+    }
+}
+
 /// A console that keeps its lines in the log, as `console: <line>`.
 struct TestConsole(Log);
 
@@ -264,6 +299,7 @@ struct Agent {
     network: Arc<TestNetwork>,
     entropy: Arc<TestEntropy>,
     clock: Arc<TestClock>,
+    disks: Arc<TestDisks>,
     terminate: mpsc::Sender<Signal>,
     powered_off: oneshot::Receiver<()>,
     /// The agent never returns, so this task never finishes.
@@ -298,6 +334,12 @@ impl Agent {
             log: log.clone(),
             set: Mutex::default(),
         });
+        let disks = Arc::new(TestDisks {
+            log: log.clone(),
+            found: Mutex::default(),
+            in_use: AtomicBool::new(false),
+            no_device: AtomicBool::new(false),
+        });
         let system = System {
             mounts: Arc::new(TestMounts {
                 log: log.clone(),
@@ -314,6 +356,7 @@ impl Agent {
             console: Arc::new(TestConsole(log.clone())),
             entropy: entropy.clone(),
             clock: clock.clone(),
+            disks: disks.clone(),
         };
         let socket_dir = tempfile::tempdir()?;
         let socket = socket_dir.path().join("agent.sock");
@@ -340,6 +383,7 @@ impl Agent {
             network,
             entropy,
             clock,
+            disks,
             terminate,
             powered_off,
             run,
@@ -1243,6 +1287,101 @@ async fn a_terminate_call_before_the_entrypoint_runs_powers_the_machine_off() ->
         agent.console(),
         ["mvmd-guest-agent: terminated before the entrypoint ran".to_owned()]
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_disk_is_found_and_released_before_the_guest_has_booted() -> Result {
+    let mut agent = Agent::start().await?;
+
+    let found = agent
+        .client
+        .find_disk(FindDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await?
+        .into_inner();
+    agent
+        .client
+        .release_disk(ReleaseDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await?;
+
+    assert_eq!(
+        (found.device.as_str(), found.size_bytes, found.read_only),
+        ("vdb", 1 << 20, true)
+    );
+    assert_eq!(agent.log.count("disk find data"), 1);
+    assert_eq!(agent.log.count("disk release data"), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_release_of_a_disk_in_use_is_refused_with_the_disk_named() -> Result {
+    let mut agent = Agent::start().await?;
+    agent
+        .client
+        .find_disk(FindDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await?;
+    agent.disks.in_use.store(true, Ordering::SeqCst);
+
+    let refusal = agent
+        .client
+        .release_disk(ReleaseDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(refusal.code(), Code::FailedPrecondition);
+    let in_use: DiskInUse = details::detail(&refusal).ok_or("no DiskInUse detail")?;
+    assert_eq!(in_use.disk_id, "data");
+    // The control: once nothing uses it, the same call releases it.
+    agent.disks.in_use.store(false, Ordering::SeqCst);
+    agent
+        .client
+        .release_disk(ReleaseDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_disk_the_agent_has_no_record_of_is_not_found_and_a_failed_find_is_not_ok() -> Result {
+    let mut agent = Agent::start().await?;
+
+    let unknown = agent
+        .client
+        .release_disk(ReleaseDiskRequest {
+            disk_id: "never".into(),
+        })
+        .await
+        .unwrap_err();
+    let unnamed = agent
+        .client
+        .find_disk(FindDiskRequest {
+            disk_id: String::new(),
+        })
+        .await
+        .unwrap_err();
+    agent.disks.no_device.store(true, Ordering::SeqCst);
+    let failed = agent
+        .client
+        .find_disk(FindDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(unknown.code(), Code::NotFound);
+    assert_eq!(unnamed.code(), Code::InvalidArgument);
+    assert_eq!(failed.code(), Code::Internal);
+    // Only the call that named a disk reached the disks.
+    assert_eq!(agent.log.count("disk find "), 1);
     Ok(())
 }
 

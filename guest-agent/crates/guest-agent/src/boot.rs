@@ -9,7 +9,7 @@ use tokio::sync::watch;
 use crate::description::{BootDescription, CatchUp, NetworkConfig};
 use crate::error::{BootStep, Error, Unbooted};
 use crate::exec::Execs;
-use crate::system::System;
+use crate::system::{Disks, System};
 use crate::uuid::Filesystem;
 use crate::v1alpha1::{ExecRequest, ExecStatus};
 
@@ -109,6 +109,19 @@ impl Boot {
                 reason: format!("the guest did not boot: boot step {step}: {detail}"),
             }),
         }
+    }
+
+    /// The disks of this guest, or why there are none: the agent that only serves the channel is
+    /// not a guest, and its `/sys` is not one's.
+    pub(crate) fn disks(&self) -> Result<Arc<dyn Disks>, Error> {
+        self.system
+            .as_ref()
+            .map(|system| system.disks.clone())
+            .ok_or_else(|| {
+                Error::PreconditionFailed(
+                    "this agent is not the guest's init and has no disks".into(),
+                )
+            })
     }
 
     /// The refusal of a call that needs a booted guest, or `None` when the guest has booted.

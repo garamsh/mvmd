@@ -35,6 +35,8 @@ const (
 	GuestService_ListFiles_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/ListFiles"
 	GuestService_SearchFiles_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/SearchFiles"
 	GuestService_Terminate_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/Terminate"
+	GuestService_FindDisk_FullMethodName       = "/mvmd.guest.v1alpha1.GuestService/FindDisk"
+	GuestService_ReleaseDisk_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/ReleaseDisk"
 	GuestService_Health_FullMethodName         = "/mvmd.guest.v1alpha1.GuestService/Health"
 	GuestService_Info_FullMethodName           = "/mvmd.guest.v1alpha1.GuestService/Info"
 )
@@ -91,6 +93,25 @@ type GuestServiceClient interface {
 	// agent has taken the request, not when the Machine has ended. A repeat
 	// sends SIGTERM again.
 	Terminate(ctx context.Context, in *TerminateRequest, opts ...grpc.CallOption) (*TerminateResponse, error)
+	// Find the block device of a disk mvmd has just hot-plugged: the agent asks
+	// the kernel to rescan the PCI bus, since the VMM sends no hotplug
+	// notification, and takes the one virtio block device that appears. It
+	// records disk_id against that device and returns it. A repeat for a
+	// disk_id the agent holds returns the record without rescanning, and for
+	// one it has released rescans as for a new one. No new device within the
+	// agent's bound, or more than one, fails the call and records nothing. The
+	// agent does nothing else with the device. It is served before Boot has
+	// succeeded, and the calls of one Machine are serialised.
+	FindDisk(ctx context.Context, in *FindDiskRequest, opts ...grpc.CallOption) (*FindDiskResponse, error)
+	// Release the device FindDisk recorded under disk_id so that mvmd can
+	// unplug it: the agent opens the block device exclusively, which the kernel
+	// refuses while the device or a partition of it is mounted or otherwise
+	// claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
+	// otherwise it removes the device from the PCI bus, still holding the
+	// device. The agent keeps the record as released, so a repeat after a
+	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
+	// served before Boot has succeeded.
+	ReleaseDisk(ctx context.Context, in *ReleaseDiskRequest, opts ...grpc.CallOption) (*ReleaseDiskResponse, error)
 	// Whether the agent serves.
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
 	// The agent version and the contract versions it serves.
@@ -264,6 +285,26 @@ func (c *guestServiceClient) Terminate(ctx context.Context, in *TerminateRequest
 	return out, nil
 }
 
+func (c *guestServiceClient) FindDisk(ctx context.Context, in *FindDiskRequest, opts ...grpc.CallOption) (*FindDiskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FindDiskResponse)
+	err := c.cc.Invoke(ctx, GuestService_FindDisk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *guestServiceClient) ReleaseDisk(ctx context.Context, in *ReleaseDiskRequest, opts ...grpc.CallOption) (*ReleaseDiskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseDiskResponse)
+	err := c.cc.Invoke(ctx, GuestService_ReleaseDisk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *guestServiceClient) Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthResponse)
@@ -336,6 +377,25 @@ type GuestServiceServer interface {
 	// agent has taken the request, not when the Machine has ended. A repeat
 	// sends SIGTERM again.
 	Terminate(context.Context, *TerminateRequest) (*TerminateResponse, error)
+	// Find the block device of a disk mvmd has just hot-plugged: the agent asks
+	// the kernel to rescan the PCI bus, since the VMM sends no hotplug
+	// notification, and takes the one virtio block device that appears. It
+	// records disk_id against that device and returns it. A repeat for a
+	// disk_id the agent holds returns the record without rescanning, and for
+	// one it has released rescans as for a new one. No new device within the
+	// agent's bound, or more than one, fails the call and records nothing. The
+	// agent does nothing else with the device. It is served before Boot has
+	// succeeded, and the calls of one Machine are serialised.
+	FindDisk(context.Context, *FindDiskRequest) (*FindDiskResponse, error)
+	// Release the device FindDisk recorded under disk_id so that mvmd can
+	// unplug it: the agent opens the block device exclusively, which the kernel
+	// refuses while the device or a partition of it is mounted or otherwise
+	// claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
+	// otherwise it removes the device from the PCI bus, still holding the
+	// device. The agent keeps the record as released, so a repeat after a
+	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
+	// served before Boot has succeeded.
+	ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error)
 	// Whether the agent serves.
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
 	// The agent version and the contract versions it serves.
@@ -385,6 +445,12 @@ func (UnimplementedGuestServiceServer) SearchFiles(*SearchFilesRequest, grpc.Ser
 }
 func (UnimplementedGuestServiceServer) Terminate(context.Context, *TerminateRequest) (*TerminateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Terminate not implemented")
+}
+func (UnimplementedGuestServiceServer) FindDisk(context.Context, *FindDiskRequest) (*FindDiskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindDisk not implemented")
+}
+func (UnimplementedGuestServiceServer) ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseDisk not implemented")
 }
 func (UnimplementedGuestServiceServer) Health(context.Context, *HealthRequest) (*HealthResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Health not implemented")
@@ -590,6 +656,42 @@ func _GuestService_Terminate_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GuestService_FindDisk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindDiskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GuestServiceServer).FindDisk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GuestService_FindDisk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GuestServiceServer).FindDisk(ctx, req.(*FindDiskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GuestService_ReleaseDisk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseDiskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GuestServiceServer).ReleaseDisk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GuestService_ReleaseDisk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GuestServiceServer).ReleaseDisk(ctx, req.(*ReleaseDiskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GuestService_Health_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthRequest)
 	if err := dec(in); err != nil {
@@ -660,6 +762,14 @@ var GuestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Terminate",
 			Handler:    _GuestService_Terminate_Handler,
+		},
+		{
+			MethodName: "FindDisk",
+			Handler:    _GuestService_FindDisk_Handler,
+		},
+		{
+			MethodName: "ReleaseDisk",
+			Handler:    _GuestService_ReleaseDisk_Handler,
 		},
 		{
 			MethodName: "Health",

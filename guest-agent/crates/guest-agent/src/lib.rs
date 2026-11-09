@@ -5,6 +5,7 @@
 mod boot;
 mod description;
 mod digest;
+mod disks;
 mod error;
 mod exec;
 mod files;
@@ -31,13 +32,15 @@ use tonic::transport::server::Connected;
 
 pub use boot::ENTRYPOINT;
 pub use description::{Addressing, NetworkConfig};
+pub use disks::LinuxDisks;
 pub use error::{BootStep, Error};
 pub use init::{end_on_panic, fail, run};
 pub use mounts::LinuxMounts;
 pub use network::LinuxNetwork;
 pub use restore::{LinuxClock, LinuxEntropy};
 pub use system::{
-    Clock, Console, Entropy, LinuxConsole, LinuxPower, Mounts, Network, Power, System,
+    Clock, Console, DiskDevice, DiskError, Disks, Entropy, LinuxConsole, LinuxPower, Mounts,
+    Network, Power, System,
 };
 pub use uuid::{Filesystem, Uuid};
 

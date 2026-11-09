@@ -1,6 +1,7 @@
 //! The generated `GuestService`, implemented over `exec` and `files`. This is the one module that
 //! names a gRPC status.
 
+use std::io;
 use std::sync::Arc;
 
 use nix::sys::signal::Signal;
@@ -14,14 +15,16 @@ use crate::description::{BootDescription, CatchUp, NetworkConfig};
 use crate::error::{BootStep, Error, Expected, Unbooted};
 use crate::exec::Execs;
 use crate::files::{self, Locks, Reader, Upload};
+use crate::system::DiskError;
 use crate::v1alpha1::guest_service_server::GuestService;
 use crate::v1alpha1::{
     BootFailed, BootRequest, BootResponse, BootState, BootStep as ProtoStep, CatchUpRequest,
-    CatchUpResponse, EntryKind, ExecOutputGone, ExecRequest, ExecResponse, FileEntry,
-    HealthRequest, HealthResponse, InfoRequest, InfoResponse, ListFilesRequest, ListFilesResponse,
-    NotBooted, PatchFileRequest, PatchFileResponse, ReadExecOutputRequest, ReadExecOutputResponse,
-    ReadFileRequest, ReadFileResponse, SearchFilesRequest, SearchFilesResponse, SignalRequest,
-    SignalResponse, TerminateRequest, TerminateResponse, UpdateNetworkRequest,
+    CatchUpResponse, DiskInUse, EntryKind, ExecOutputGone, ExecRequest, ExecResponse, FileEntry,
+    FindDiskRequest, FindDiskResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
+    ListFilesRequest, ListFilesResponse, NotBooted, PatchFileRequest, PatchFileResponse,
+    ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest, ReadFileResponse,
+    ReleaseDiskRequest, ReleaseDiskResponse, SearchFilesRequest, SearchFilesResponse,
+    SignalRequest, SignalResponse, TerminateRequest, TerminateResponse, UpdateNetworkRequest,
     UpdateNetworkResponse, WriteFileRequest, WriteFileResponse, WrongFileKind,
     read_exec_output_response, write_file_request,
 };
@@ -50,6 +53,26 @@ fn batches<M>(entries: Vec<FileEntry>, message: impl Fn(Vec<FileEntry>) -> M) ->
         .map(|run| Ok(message(run.to_vec())))
         .collect();
     tokio_stream::iter(messages)
+}
+
+/// The disk ID of a request, refused when it names none.
+fn named(disk_id: String) -> Result<String, Error> {
+    if disk_id.is_empty() {
+        return Err(Error::Invalid("disk_id is empty".into()));
+    }
+    Ok(disk_id)
+}
+
+/// The failure a disk call's error is.
+fn disk_error(context: &str, error: DiskError) -> Error {
+    match error {
+        DiskError::InUse => Error::PreconditionFailed("the disk is in use".into()),
+        DiskError::Unknown => Error::NotFound("the disk is not known to the guest".into()),
+        DiskError::Failed(source) => Error::Io {
+            context: context.into(),
+            source,
+        },
+    }
 }
 
 /// The guest channel's service.
@@ -128,6 +151,9 @@ impl From<Error> for Status {
                     } as i32,
                 },
             ),
+            Error::DiskInUse { disk_id } => {
+                with_detail(Status::failed_precondition(message), &DiskInUse { disk_id })
+            }
             Error::DigestMismatch(_) => Status::data_loss(message),
             Error::Boot { step, detail } => with_detail(
                 Status::internal(message),
@@ -355,6 +381,47 @@ impl GuestService for Guest {
             Error::PreconditionFailed("the agent is already ending the Machine".into())
         })?;
         Ok(Response::new(TerminateResponse {}))
+    }
+
+    async fn find_disk(
+        &self,
+        request: Request<FindDiskRequest>,
+    ) -> Result<Response<FindDiskResponse>, Status> {
+        // Not gated on the boot: the calls act on the kernel's device tree.
+        let disk_id = named(request.into_inner().disk_id)?;
+        let disks = self.boot.disks()?;
+        let device = tokio::task::spawn_blocking(move || disks.find(&disk_id))
+            .await
+            .map_err(|joined| Error::Io {
+                context: "find the disk".into(),
+                source: io::Error::other(joined),
+            })?
+            .map_err(|error| disk_error("find the disk", error))?;
+        Ok(Response::new(FindDiskResponse {
+            device: device.name,
+            size_bytes: device.size_bytes,
+            read_only: device.read_only,
+        }))
+    }
+
+    async fn release_disk(
+        &self,
+        request: Request<ReleaseDiskRequest>,
+    ) -> Result<Response<ReleaseDiskResponse>, Status> {
+        let disk_id = named(request.into_inner().disk_id)?;
+        let disks = self.boot.disks()?;
+        let target = disk_id.clone();
+        tokio::task::spawn_blocking(move || disks.release(&target))
+            .await
+            .map_err(|joined| Error::Io {
+                context: "release the disk".into(),
+                source: io::Error::other(joined),
+            })?
+            .map_err(|error| match error {
+                DiskError::InUse => Error::DiskInUse { disk_id },
+                other => disk_error("release the disk", other),
+            })?;
+        Ok(Response::new(ReleaseDiskResponse {}))
     }
 
     async fn health(

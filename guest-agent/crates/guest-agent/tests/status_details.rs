@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use guest_agent::v1alpha1::{BootFailed, ExecOutputGone, NotBooted, WrongFileKind};
+use guest_agent::v1alpha1::{BootFailed, DiskInUse, ExecOutputGone, NotBooted, WrongFileKind};
 use prost::Name;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -26,6 +26,7 @@ fn each_detail_type_url_is_the_full_name_in_the_compiled_descriptor() -> Result 
 
     let urls = [
         (BootFailed::full_name(), BootFailed::type_url()),
+        (DiskInUse::full_name(), DiskInUse::type_url()),
         (ExecOutputGone::full_name(), ExecOutputGone::type_url()),
         (NotBooted::full_name(), NotBooted::type_url()),
         (WrongFileKind::full_name(), WrongFileKind::type_url()),
