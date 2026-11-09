@@ -77,6 +77,15 @@ jobs:
           rust-src-dir: guest-agent
           cache: false
           build-warnings: ""
+      # The downloads of fetch.sh are kept between runs under a key made of its pinned digests, so a
+      # new pin fetches anew; fetch.sh checks each file's digest on every use, a hit included.
+      - name: Name the pinned downloads
+        id: pins
+        run: echo "key=$(grep -E '^[A-Za-z0-9_]+=[0-9a-f]{64}$' tooling/firecracker/fetch.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tooling/firecracker/target/dl
+          key: firecracker-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
       # Gives every user access to /dev/kvm, the udev rule the runner images' KVM support documents,
       # then records what the runner has.
       - name: Make /dev/kvm usable

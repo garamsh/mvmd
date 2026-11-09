@@ -9,7 +9,7 @@
 # advisories, and at once when an advisory names a pinned version (driver.md). No bot proposes it.
 #
 # Usage: fetch.sh <output-dir>
-# <output-dir> receives firecracker, vmlinux and inputs.env, which names both with the digests
+# <output-dir> keeps the downloads in dl/ and receives firecracker, vmlinux and inputs.env, which names both with the digests
 # pinned here and not the ones read back from the files, so a test that checks a file against
 # them checks it against the pin. Files already there that match their pins are not fetched again.
 set -euo pipefail
@@ -66,14 +66,33 @@ verified() {
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# download <url> <sha256> puts the file the digest names at $downloaded: the copy kept in
+# <output-dir>/dl when its digest matches, else a fresh download kept there once its digest
+# matches. The digest is checked on every use, cache hits included. A download that fails is retried
+# by curl, which waits 1, 2, 4 and 8 seconds between at most 5 attempts (15 seconds of waiting),
+# --retry-all-errors including an HTTP 5xx, which GitHub's release host returns now and then; each
+# attempt gives up connecting after 30 seconds. Neither project publishes a second official URL for
+# these files, so there is none to fall back to; the pipeline keeps <output-dir>/dl between runs.
+download() {
+  local file="$out/dl/${1##*/}"
+  mkdir -p "$out/dl"
+  if ! digest_is "$file" "$2"; then
+    rm -f "$file" "$file.part"
+    curl --fail --silent --show-error --location --connect-timeout 30 --retry 4 --retry-all-errors \
+      --output "$file.part" "$1" || { echo "fetch.sh: downloading $1 failed" >&2; exit 1; }
+    verified "$file.part" "$2"
+    mv "$file.part" "$file"
+  fi
+  downloaded=$file
+}
+
 fc_bin_sha256=$(pin FIRECRACKER_BIN_SHA256)
 if digest_is "$out/firecracker" "$fc_bin_sha256"; then
   echo "fetch.sh: $out/firecracker is the pinned Firecracker $FIRECRACKER_VERSION"
 else
   tgz=firecracker-$FIRECRACKER_VERSION-$arch.tgz
-  curl --fail --silent --show-error --location --output "$work/$tgz" "$FIRECRACKER_URL_BASE/$tgz"
-  verified "$work/$tgz" "$(pin FIRECRACKER_TGZ_SHA256)"
-  tar -xzf "$work/$tgz" -C "$work" "release-$FIRECRACKER_VERSION-$arch/firecracker-$FIRECRACKER_VERSION-$arch"
+  download "$FIRECRACKER_URL_BASE/$tgz" "$(pin FIRECRACKER_TGZ_SHA256)"
+  tar -xzf "$downloaded" -C "$work" "release-$FIRECRACKER_VERSION-$arch/firecracker-$FIRECRACKER_VERSION-$arch"
   verified "$work/release-$FIRECRACKER_VERSION-$arch/firecracker-$FIRECRACKER_VERSION-$arch" "$fc_bin_sha256"
   install -m 0755 "$work/release-$FIRECRACKER_VERSION-$arch/firecracker-$FIRECRACKER_VERSION-$arch" "$out/firecracker"
   echo "fetch.sh: fetched Firecracker $FIRECRACKER_VERSION, SHA-256 $fc_bin_sha256"
@@ -84,10 +103,9 @@ if digest_is "$out/vmlinux" "$kernel_sha256"; then
   echo "fetch.sh: $out/vmlinux is the pinned kernel"
 else
   tar_name=kata-static-4.3.1-$kata_arch.tar.zst
-  curl --fail --silent --show-error --location --output "$work/$tar_name" "$KATA_URL_BASE/$tar_name"
-  verified "$work/$tar_name" "$(pin KATA_TAR_SHA256)"
+  download "$KATA_URL_BASE/$tar_name" "$(pin KATA_TAR_SHA256)"
   mkdir "$work/kata"
-  zstd --decompress --stdout "$work/$tar_name" | tar -x -C "$work/kata" "$KATA_KERNEL_PATH"
+  zstd --decompress --stdout "$downloaded" | tar -x -C "$work/kata" "$KATA_KERNEL_PATH"
   verified "$work/kata/$KATA_KERNEL_PATH" "$kernel_sha256"
   install -m 0644 "$work/kata/$KATA_KERNEL_PATH" "$out/vmlinux"
   echo "fetch.sh: fetched the Kata Containers 4.3.1 kernel, SHA-256 $kernel_sha256"
