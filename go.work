@@ -5,3 +5,4 @@ toolchain go1.26.10
 
 use ./lib/runtimeapi
 use ./daemon
+use ./e2e
