@@ -47,11 +47,12 @@ func (wallClock) Now() time.Time { return time.Now() }
 // configuration selects the memory driver, so that what a Machine needs on the
 // node can be provided: images and disks. Supervisors is nil when the
 // configuration names real supervision, and Driver and Guest are nil when it
-// names the Firecracker Driver. Images, the Registry, the Converter, the Cache
-// and the conversion Driver and Supervision are nil under it too: they are the
-// real adapters then. Images is what a Machine's start locates an image in and
-// Cache is where a pull publishes, so under the memory driver a pulled image is
-// not one a Machine can boot; a test provides the one it boots.
+// names the Firecracker Driver. Disks, Snapshots, Images, the Registry, the
+// Converter, the Cache and the conversion Driver and Supervision are nil under
+// it too: they are the real adapters then. Images is what a Machine's start
+// locates an image in and Cache is where a pull publishes, so under the memory
+// driver a pulled image is not one a Machine can boot; a test provides the one
+// it boots.
 type Substitutes struct {
 	Driver                *machinememory.Driver
 	Network               *machinememory.Network
@@ -180,9 +181,21 @@ func New(cfg Config) (*App, error) {
 	} else {
 		imgs = memoryImages(sub, uids, pullTimeout)
 	}
+	// Disks and Snapshots: the real Disk and Snapshot Store replace the
+	// substitutes under the Firecracker Driver.
+	var disks machine.Disk = sub.Disks
+	var snapshots machine.SnapshotStore = sub.Snapshots
+	if cfg.Disk != nil {
+		disks, snapshots, err = realStorage(cfg)
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		sub.Disks, sub.Snapshots = nil, nil
+	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, sub.Disks, located, sub.Snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
 
 	return &App{
 		cfg:         cfg,
