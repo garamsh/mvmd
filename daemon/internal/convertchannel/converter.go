@@ -226,11 +226,9 @@ func mapError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
-	// The context dialer returns ErrVMMEnded as a gRPC Internal status
-	// error so grpc's retry stops immediately.  grpc.NewClient wraps that
-	// in a *url.Error; converse wraps it in notListeningError.  We must
-	// look through the chain before the generic errors.Is check below,
-	// because ErrVMMEnded was replaced by the status error at the dialer.
+	// The dialer turns ErrVMMEnded into an Internal status so gRPC ends the
+	// wait at once; an Internal status that reaches here through
+	// notListeningError maps back to ErrVMMEnded.
 	var notListening *notListeningError
 	if errors.As(err, &notListening) {
 		st, ok := status.FromError(notListening)

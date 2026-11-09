@@ -382,8 +382,6 @@ func TestConvert_AMissingLayerFileIsAReadFailureAndNotAStatus(t *testing.T) {
 // has ended does. It counts the dials to prove the converter fails at once
 // and does not wait for backoff.
 type vmmEndedConnector struct {
-	to    *dialer
-	ended bool
 	mu    sync.Mutex
 	dials int
 }
@@ -392,9 +390,6 @@ func (c *vmmEndedConnector) GuestConn(ctx context.Context, id machine.MachineID,
 	c.mu.Lock()
 	c.dials++
 	c.mu.Unlock()
-	if !c.ended {
-		return c.to.GuestConn(ctx, id, port)
-	}
 	return nil, machine.ErrVMMEnded
 }
 
@@ -408,11 +403,10 @@ func (c *vmmEndedConnector) count() int {
 // dials, then connects through the dialer. It is a control that isolates
 // ErrVMMEnded from generic connection refusal.
 type vmmEndedUnreachableConnector struct {
-	to        *dialer
-	refused   int
-	mu        sync.Mutex
-	dials     int
-	connected bool
+	to      *dialer
+	refused int
+	mu      sync.Mutex
+	dials   int
 }
 
 func (c *vmmEndedUnreachableConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
@@ -423,7 +417,6 @@ func (c *vmmEndedUnreachableConnector) GuestConn(ctx context.Context, id machine
 	if n <= c.refused {
 		return nil, errors.Join(machine.ErrGuestUnreachable, io.EOF)
 	}
-	c.connected = true
 	return c.to.GuestConn(ctx, id, port)
 }
 
@@ -440,7 +433,7 @@ func TestConvert_FailsAtOnceWhenTheConnectorReturnsErrVMMEnded(t *testing.T) {
 	f := &fakeConverter{}
 	f.answer = f.readAll(99)
 	_, d := serve(t, f)
-	v := &vmmEndedConnector{to: d, ended: true}
+	v := &vmmEndedConnector{}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	start := time.Now()
