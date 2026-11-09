@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -152,7 +153,17 @@ func TestCreateRootFrom_LeavesNothingWhenTheChownFails(t *testing.T) {
 
 func TestCreateRootFrom_IsOwnedByTheOwner(t *testing.T) {
 	if os.Geteuid() != 0 {
-		t.Skip("giving a file to another user needs root")
+		// Giving a file to another user needs root. A binary that is not root
+		// runs this test alone again under passwordless sudo, which the
+		// GitHub-hosted runner provides; where it can get neither, the test
+		// fails and is not skipped.
+		self, err := os.Executable()
+		require.NoError(t, err)
+		out, err := exec.Command("sudo", "-n", self, "-test.v", "-test.count=1",
+			"-test.run", "^TestCreateRootFrom_IsOwnedByTheOwner$").CombinedOutput()
+		require.NoError(t, err, "this test needs root or passwordless sudo, and this host gives neither: %s", out)
+		require.Contains(t, string(out), "--- PASS: TestCreateRootFrom_IsOwnedByTheOwner", "the run under sudo did not run the test: %s", out)
+		return
 	}
 	dir := t.TempDir()
 	d, err := diskfile.NewDisk(dir, mkfsPath)
