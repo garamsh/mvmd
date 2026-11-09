@@ -96,9 +96,14 @@ func startNode(t *testing.T) *node {
 		},
 		"supervision":   map[string]any{"binary": supervisor, "cgroup": supervisors, "vmm_cgroup": base},
 		"vmm_uid_range": map[string]any{"first": 100000, "count": 1000},
-		"pull_timeout":  "8m",
-		"boot_timeout":  "2m",
-		"call_timeout":  "10m",
+		// Without a network section the node names a tap that was never made, and the VMM is
+		// refused it. The prefix is one a runner does not route.
+		"network": map[string]any{
+			"ipv4_prefix": "10.77.0.0/24", "ipv4_gateway": "10.77.0.1", "resolvers": []string{"10.77.0.1"},
+		},
+		"pull_timeout": "8m",
+		"boot_timeout": "2m",
+		"call_timeout": "10m",
 	}
 	raw, err := json.Marshal(config)
 	require.NoError(t, err)
