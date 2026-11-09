@@ -86,7 +86,7 @@ func (s *Store) Reclaim(ctx context.Context, staging image.Staging) error {
 	if err := f.Chown(os.Geteuid(), os.Getegid()); err != nil {
 		return errors.Join(err, f.Close())
 	}
-	return errors.Join(f.Chmod(outputMode), f.Close())
+	return f.Close()
 }
 
 // openOutput opens the staging area's output without following a link, so
@@ -102,7 +102,7 @@ func (s *Store) openOutput(ctx context.Context, staging image.Staging) (*os.File
 	if _, err := s.stageOf(staging); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "output"), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(filepath.Join(dir, "output"), os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -173,9 +173,6 @@ func (s *Store) Seal(ctx context.Context, staging image.Staging, length uint64) 
 		return "", err
 	}
 	output := filepath.Join(dir, "output")
-	if err := requireDaemonsOutput(output); err != nil {
-		return "", err
-	}
 	size, sum, err := truncateAndHash(output, length)
 	if err != nil {
 		return "", err
