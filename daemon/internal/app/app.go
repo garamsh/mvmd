@@ -79,6 +79,10 @@ func New(cfg Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
+	callTimeout, err := cfg.callTimeout()
+	if err != nil {
+		return nil, fmt.Errorf("configuration: %w", err)
+	}
 	clock, err := bootclock.New()
 	if err != nil {
 		return nil, err
@@ -128,7 +132,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log, machine.WithBootTimeout(bootTimeout))
+	machines := machine.NewService(sub.Driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
 
 	return &App{
 		cfg:         cfg,

@@ -12,6 +12,8 @@ func hot(m Machine) bool {
 
 func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -52,6 +54,8 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	if hot(m) {
 		dev := BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}
 		if err := s.driver.AttachDisk(ctx, id, dev); err != nil {
+			ctx, cancel := s.compensating(ctx)
+			defer cancel()
 			if cerr := s.commit(ctx, rec, m); cerr != nil {
 				return s.unrecorded(rec, cerr)
 			}
@@ -64,6 +68,8 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 
 func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -102,6 +108,8 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 
 func (s *service) SetResources(ctx context.Context, id MachineID, target Resources) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err

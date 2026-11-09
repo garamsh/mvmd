@@ -11,7 +11,8 @@ import (
 )
 
 // StateStore is an in-memory machine.StateStore. Its steps are "save",
-// "save-exec", "remove" and "load".
+// "save-exec", "remove" and "load". Like the real store, a write whose context
+// has ended by the time it is made writes nothing.
 type StateStore struct {
 	Failures
 
@@ -29,8 +30,11 @@ func NewStateStore() *StateStore {
 }
 
 // Save implements machine.StateStore.
-func (s *StateStore) Save(_ context.Context, record machine.Record) error {
+func (s *StateStore) Save(ctx context.Context, record machine.Record) error {
 	if err := s.Enter("save"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -66,8 +70,11 @@ func (s *StateStore) putExec(id machine.MachineID, e machine.ExecEntry) {
 }
 
 // Remove implements machine.StateStore.
-func (s *StateStore) Remove(_ context.Context, id machine.MachineID) error {
+func (s *StateStore) Remove(ctx context.Context, id machine.MachineID) error {
 	if err := s.Enter("remove"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	s.mu.Lock()

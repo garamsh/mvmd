@@ -31,11 +31,15 @@ func NewSnapshotStore() *SnapshotStore {
 }
 
 // Put implements machine.SnapshotStore.
-func (s *SnapshotStore) Put(_ context.Context, snapshot machine.Snapshot, files machine.SnapshotFiles) error {
+func (s *SnapshotStore) Put(ctx context.Context, snapshot machine.Snapshot, files machine.SnapshotFiles) error {
 	s.mu.Lock()
 	s.offered = append(s.offered, slices.Clone(files.State))
 	s.mu.Unlock()
 	if err := s.Enter("put"); err != nil {
+		return err
+	}
+	// A Put whose context has ended by the time it is made stores nothing.
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	s.mu.Lock()

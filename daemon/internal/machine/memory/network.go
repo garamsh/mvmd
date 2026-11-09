@@ -67,8 +67,11 @@ func (n *Network) Apply(_ context.Context, id machine.MachineID, _ machine.User,
 }
 
 // Withdraw implements machine.Network.
-func (n *Network) Withdraw(_ context.Context, id machine.MachineID) error {
+func (n *Network) Withdraw(ctx context.Context, id machine.MachineID) error {
 	if err := n.Enter("withdraw"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	n.mu.Lock()
@@ -78,8 +81,11 @@ func (n *Network) Withdraw(_ context.Context, id machine.MachineID) error {
 }
 
 // Release implements machine.Network.
-func (n *Network) Release(_ context.Context, id machine.MachineID) error {
+func (n *Network) Release(ctx context.Context, id machine.MachineID) error {
 	if err := n.Enter("release"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	n.mu.Lock()
