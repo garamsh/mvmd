@@ -184,6 +184,9 @@ func (s *service) cutShort(id MachineID, why string) {
 }
 
 func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error) {
+	if exec == entrypointExec {
+		return s.readEntrypoint(ctx, id, after, send)
+	}
 	s.execMu.Lock()
 	entry, ok := s.execs[exec]
 	var held ExecRecord

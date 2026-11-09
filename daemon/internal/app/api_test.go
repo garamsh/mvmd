@@ -268,25 +268,13 @@ func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
 	unary := map[string]func() error{
 		"PullImage": func() error { _, err := c.PullImage(ctx, pull); return err },
 	}
-	streams := map[string]func() error{
-		"Console": func() error {
-			s, err := c.Console(ctx)
-			require.NoError(t, err)
-			_ = s.Send(&v1alpha1.ConsoleRequest{MachineId: "m"})
-			_, err = s.Recv()
-			return err
-		},
-	}
-	for _, calls := range []map[string]func() error{unary, streams} {
-		for name, call := range calls {
-			t.Run(name, func(t *testing.T) {
-				err := call()
-				requireKind(t, err, unsupported)
-				assert.Equal(t, codes.Unimplemented, status.Code(err))
-				assert.Contains(t, status.Convert(err).Message(), name)
-			})
-		}
+	for name, call := range unary {
+		t.Run(name, func(t *testing.T) {
+			err := call()
+			requireKind(t, err, unsupported)
+			assert.Equal(t, codes.Unimplemented, status.Code(err))
+			assert.Contains(t, status.Convert(err).Message(), name)
+		})
 	}
 	assert.Len(t, unary, 1)
-	assert.Len(t, streams, 1)
 }

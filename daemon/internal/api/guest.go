@@ -118,6 +118,81 @@ func (s *Server) WriteFile(stream grpc.ClientStreamingServer[v1alpha1.WriteFileR
 	return stream.SendAndClose(&v1alpha1.WriteFileResponse{})
 }
 
+// consoleReadSize is the most output one response carries.
+const consoleReadSize = 32 << 10
+
+// Console serves a console session as a bidirectional stream of bytes: the
+// first message names the Machine (and may carry input), each later message
+// carries input, and each response carries output. The session ends, and the
+// call with it, when the client ends its side of the stream, when the Machine's
+// VMM ends the console, or when either side fails.
+func (s *Server) Console(stream grpc.BidiStreamingServer[v1alpha1.ConsoleRequest, v1alpha1.ConsoleResponse]) error {
+	first, err := stream.Recv()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return rejected("the stream is empty: the first message names the Machine")
+		}
+		return err
+	}
+	id, err := target(first.GetMachineId())
+	if err != nil {
+		return err
+	}
+	session, err := s.machines.Console(stream.Context(), id)
+	if err != nil {
+		return status(err)
+	}
+	defer session.Close()
+
+	// The result is sent before the session is closed, so the loop below that
+	// reads it after the session ends never misses it.
+	inputEnded := make(chan error, 1)
+	go func() {
+		input := first.GetInput()
+		for {
+			if len(input) > 0 {
+				if _, err := session.Write(input); err != nil {
+					inputEnded <- nil // the session has ended: the read side says why
+					_ = session.Close()
+					return
+				}
+			}
+			msg, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					err = nil
+				}
+				inputEnded <- err
+				_ = session.Close()
+				return
+			}
+			input = msg.GetInput()
+		}
+	}()
+
+	buf := make([]byte, consoleReadSize)
+	for {
+		n, readErr := session.Read(buf)
+		if n > 0 {
+			if err := stream.Send(&v1alpha1.ConsoleResponse{Output: buf[:n]}); err != nil {
+				return err
+			}
+		}
+		if readErr == nil {
+			continue
+		}
+		select {
+		case err := <-inputEnded:
+			return err
+		default:
+		}
+		if errors.Is(readErr, io.EOF) || stream.Context().Err() != nil {
+			return nil
+		}
+		return status(readErr)
+	}
+}
+
 func (s *Server) PatchFile(ctx context.Context, req *v1alpha1.PatchFileRequest) (*v1alpha1.PatchFileResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {

@@ -3,7 +3,9 @@ package memory
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,7 +13,7 @@ import (
 )
 
 // Driver is an in-memory machine.Driver. Its steps are "describe", "boot",
-// "guest-conn",
+// "guest-conn", "console", "console-log",
 // "shutdown", "pause", "resume", "attach", "detach", "resize", "snapshot",
 // "describe-restore" and "restore".
 type Driver struct {
@@ -32,6 +34,8 @@ type Driver struct {
 	process          *machine.ProcessDescription
 	report           func(machine.DriverEvent)
 	guests           map[guestPort]func(net.Conn)
+	consoles         map[machine.MachineID]func(io.ReadWriteCloser)
+	logs             map[machine.MachineID]string
 }
 
 // Observe implements machine.Driver.
@@ -109,6 +113,66 @@ func (d *Driver) GuestConn(_ context.Context, id machine.MachineID, port uint32)
 	host, guest := net.Pipe()
 	go serve(guest)
 	return host, nil
+}
+
+// ServeConsole makes the console of the Machine answer with serve: each Console
+// of it runs serve on its own goroutine, with the guest's end of a new
+// in-process stream, which serve owns and closes. It stands in for a guest
+// whose console is attached to the session.
+func (d *Driver) ServeConsole(id machine.MachineID, serve func(io.ReadWriteCloser)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.consoles == nil {
+		d.consoles = make(map[machine.MachineID]func(io.ReadWriteCloser))
+	}
+	d.consoles[id] = serve
+}
+
+// Console implements machine.Driver. Its step is "console". A Machine nothing
+// serves is machine.ErrConsoleUnavailable; an injected failure is returned as
+// it was told, so a test names machine.ErrConsoleUnavailable to inject that one.
+func (d *Driver) Console(ctx context.Context, id machine.MachineID) (io.ReadWriteCloser, error) {
+	if err := d.Enter("console"); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	d.mu.Lock()
+	serve, ok := d.consoles[id]
+	d.mu.Unlock()
+	if !ok {
+		return nil, machine.ErrConsoleUnavailable
+	}
+	host, guest := net.Pipe()
+	go serve(guest)
+	return host, nil
+}
+
+// WriteConsoleLog sets what the console log of the Machine holds.
+func (d *Driver) WriteConsoleLog(id machine.MachineID, content string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.logs == nil {
+		d.logs = make(map[machine.MachineID]string)
+	}
+	d.logs[id] = content
+}
+
+// ConsoleLog implements machine.Driver. Its step is "console-log". A Machine
+// whose log was never written is machine.ErrConsoleUnavailable, and so is an
+// injected failure, unless it is told another error.
+func (d *Driver) ConsoleLog(_ context.Context, id machine.MachineID) (io.ReadCloser, error) {
+	if err := d.Enter("console-log"); err != nil {
+		return nil, errors.Join(machine.ErrConsoleUnavailable, err)
+	}
+	d.mu.Lock()
+	content, ok := d.logs[id]
+	d.mu.Unlock()
+	if !ok {
+		return nil, machine.ErrConsoleUnavailable
+	}
+	return io.NopCloser(strings.NewReader(content)), nil
 }
 
 // Info implements machine.Driver.

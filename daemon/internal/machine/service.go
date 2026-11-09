@@ -44,13 +44,23 @@ type Service interface {
 	Exec(ctx context.Context, id MachineID, exec ExecID, request RequestID, spec ExecSpec) (ExecRecord, error)
 	// ReadExecOutput sends the output after the offset, and returns the exec's
 	// record, whose Status is ExecStarted while the command runs. An offset the
-	// guest no longer holds is an *OutputGoneError.
+	// guest no longer holds is an *OutputGoneError. The exec "entrypoint" is the
+	// guest's own: Running it is asked of the guest; Stopped, Faulted, or
+	// Running with a guest that no longer answers, its record is what the
+	// Guest Agent wrote to the console log, and no output is sent.
 	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error)
 	ReadFile(ctx context.Context, id MachineID, path string, send func(chunk []byte) error) error
 	// WriteFile commits the whole content or leaves the old.
 	WriteFile(ctx context.Context, id MachineID, path string, content io.Reader) error
 	PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) error
 	SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error)
+
+	// Console opens a session to the console of a Running or Paused Machine,
+	// otherwise ErrPreconditionFailed. What the guest writes to its console is
+	// read from the session and what is written to it is the console's input.
+	// Any number of sessions may be open at once and none changes the Machine.
+	// The caller closes the session, and its context ending closes it too.
+	Console(ctx context.Context, id MachineID) (io.ReadWriteCloser, error)
 
 	// Snapshot holds the Running or Paused Machine's guest paused while the
 	// Driver and the Snapshot Store take it, and returns it to its state.

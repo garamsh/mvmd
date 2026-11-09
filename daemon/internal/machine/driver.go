@@ -2,9 +2,15 @@ package machine
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"time"
 )
+
+// ErrConsoleUnavailable is a console, or the log of one, that a Driver cannot
+// open.
+var ErrConsoleUnavailable = errors.New("the console is not available")
 
 // GuestAgentPort is the port the Guest Agent listens on in every guest
 // (guest.md), the one a caller of Driver.GuestConn names for it.
@@ -137,6 +143,20 @@ type Driver interface {
 	// after a break. A Machine whose VMM is not running, or a guest that
 	// refuses the port, is ErrGuestUnreachable.
 	GuestConn(ctx context.Context, id MachineID, port uint32) (net.Conn, error)
+	// Console opens a new session to the console of the Machine and returns it:
+	// what the guest writes to its console is read from it, and what is written
+	// to it reaches the guest's console as input. Each call opens its own
+	// session, and sessions do not affect one another or the Machine. The
+	// caller closes the session; a session also ends when the Machine's VMM
+	// does, reading to io.EOF. A Machine whose VMM is not running is
+	// ErrConsoleUnavailable.
+	Console(ctx context.Context, id MachineID) (io.ReadWriteCloser, error)
+	// ConsoleLog returns what the Machine's console has written, from the
+	// start of its run, up to the moment of the call. After the Machine's VMM
+	// has ended, it is all the console ever wrote: establishing that nothing is
+	// still on its way to the log is the Driver's. A Machine with no log is
+	// ErrConsoleUnavailable.
+	ConsoleLog(ctx context.Context, id MachineID) (io.ReadCloser, error)
 	// Shutdown asks the guest to stop and waits up to grace for it to do so.
 	Shutdown(ctx context.Context, id MachineID, grace time.Duration) error
 	Pause(ctx context.Context, id MachineID) error
