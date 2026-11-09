@@ -145,7 +145,11 @@ func TestOpen_RefusesALinkAndAFile(t *testing.T) {
 	file := filepath.Join(dir, "file")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
 
-	_, err := unixsock.Open(link)
+	d, err := unixsock.Open(dir)
+	require.NoError(t, err, "the directory the link points at opens, so the refusals below are not Open refusing everything")
+	require.NoError(t, d.Close())
+
+	_, err = unixsock.Open(link)
 	assert.Error(t, err)
 	_, err = unixsock.Open(file)
 	assert.Error(t, err)
