@@ -72,7 +72,7 @@ func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machi
 	if err := os.Link(dev.Path, link); err != nil {
 		return fmt.Errorf("link the disk into the run directory: %w", err)
 	}
-	body := map[string]any{"id": name, "path": inRun(name), "readonly": dev.ReadOnly, "image_type": "Raw"}
+	body := map[string]any{"id": name, "path": dev.Path, "readonly": dev.ReadOnly, "image_type": "Raw"}
 	if err := newClient(filepath.Join(dir, apiSocketName)).do(ctx, "PUT", "/vm.add-disk", body, nil); err != nil {
 		return errors.Join(err, removeLink(link))
 	}
