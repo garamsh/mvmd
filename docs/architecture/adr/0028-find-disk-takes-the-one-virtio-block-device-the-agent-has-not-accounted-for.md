@@ -24,7 +24,7 @@ Candidates weighed:
 
 ## Decision
 
-- **The agent records the virtio block devices present when it starts as accounted for.** The record is by device name with its PCI address, and it is taken once, before the agent listens.
+- **The agent records the virtio block devices present when it starts as accounted for.** The record is by device name with its PCI address, and it is taken once, after the agent has mounted `/sys` and before it listens.
 - **`FindDisk` takes the one virtio block device that is neither among those nor held by a record.** It still writes `1` to `/sys/bus/pci/rescan`, so a VMM that sends no notification still shows the device, and then waits up to the existing bound for exactly one unaccounted device, whichever order the kernel's own add and the rescan came in.
 - **Two or more unaccounted devices, or none within the bound, fail the call and record nothing,** as in ADR 0022.
 - **A released record's device is accounted for while it is present.** `ReleaseDisk` marks a record released only once the device is gone, so the case does not arise: a released record holds nothing, and a device that later appears under the same name at the same address is a new one.

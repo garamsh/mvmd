@@ -85,6 +85,8 @@ impl Clock for Unused {
 }
 
 impl Disks for Unused {
+    fn account_for_boot(&self) {}
+
     fn find(&self, _: &str) -> Result<DiskDevice, DiskError> {
         Err(DiskError::Unknown)
     }

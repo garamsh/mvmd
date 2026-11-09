@@ -8,7 +8,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -46,8 +46,9 @@ pub struct LinuxDisks {
     dev: PathBuf,
     wait: Duration,
     claim: Claim,
-    /// The virtio block devices present when the agent started, by name with their PCI address.
-    boot: HashMap<String, String>,
+    /// The virtio block devices present when the agent started, by name with their PCI address,
+    /// set once by `account_for_boot`.
+    boot: OnceLock<HashMap<String, String>>,
     /// Held for the whole of a call, which serialises the calls and so keeps one rescan's new
     /// device from being taken for another's.
     records: Mutex<HashMap<String, Record>>,
@@ -63,17 +64,14 @@ impl LinuxDisks {
     /// Disks found under `sys` and `dev`, each wait lasting up to `wait`. Tests point it at a
     /// tree of their own.
     pub fn at(sys: impl Into<PathBuf>, dev: impl Into<PathBuf>, wait: Duration) -> Self {
-        let mut disks = Self {
+        Self {
             sys: sys.into(),
             dev: dev.into(),
             wait,
             claim: open_exclusive,
-            boot: HashMap::new(),
+            boot: OnceLock::new(),
             records: Mutex::default(),
-        };
-        // A listing that fails leaves nothing accounted for, so a find then refuses.
-        disks.boot = disks.block_devices().unwrap_or_default();
-        disks
+        }
     }
 
     /// The same disks, claimed through `claim`, for a tree whose device nodes are not block
@@ -149,6 +147,11 @@ fn failed(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> DiskErr
 }
 
 impl Disks for LinuxDisks {
+    fn account_for_boot(&self) {
+        // A listing that fails leaves nothing accounted for, so a find then refuses.
+        let _ = self.boot.set(self.block_devices().unwrap_or_default());
+    }
+
     fn find(&self, disk_id: &str) -> Result<DiskDevice, DiskError> {
         let mut records = self
             .records
@@ -166,7 +169,7 @@ impl Disks for LinuxDisks {
                 .block_devices()?
                 .into_iter()
                 .filter(|(name, address)| {
-                    self.boot.get(name) != Some(address)
+                    self.boot.get().and_then(|boot| boot.get(name)) != Some(address)
                         && !records.values().any(|record| {
                             !record.released && record.name == *name && record.address == *address
                         })
@@ -262,7 +265,10 @@ mod tests {
         }
 
         fn disks(&self) -> LinuxDisks {
-            LinuxDisks::at(self.sys(), self.dev(), Duration::from_millis(400)).claiming(claim)
+            let disks =
+                LinuxDisks::at(self.sys(), self.dev(), Duration::from_millis(400)).claiming(claim);
+            disks.account_for_boot();
+            disks
         }
 
         /// A virtio block device at a PCI address, as the kernel lays it out.
@@ -734,6 +740,7 @@ mod tests {
             // real one.
             let tree = Tree::new()?;
             let disks = LinuxDisks::at(tree.sys(), "/dev", Duration::from_millis(400));
+            disks.account_for_boot();
             let sys = tree.sys();
             let (new_name, new_address) = (name.clone(), "0000:00:05.0");
             let appear = std::thread::spawn(move || {

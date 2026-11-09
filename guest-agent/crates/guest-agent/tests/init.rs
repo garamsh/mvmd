@@ -245,6 +245,10 @@ struct TestDisks {
 }
 
 impl Disks for TestDisks {
+    fn account_for_boot(&self) {
+        self.log.push("disk account_for_boot");
+    }
+
     fn find(&self, disk_id: &str) -> std::result::Result<DiskDevice, DiskError> {
         self.log.push(format!("disk find {disk_id}"));
         if self.no_device.load(Ordering::SeqCst) {
@@ -518,6 +522,7 @@ async fn boot_takes_the_steps_in_order_and_runs_the_entrypoint_as_described() ->
         steps,
         [
             "prepare".to_owned(),
+            "disk account_for_boot".to_owned(),
             format!("find Erofs {IMAGE_UUID}"),
             format!("find Ext4 {DISK_UUID}"),
             format!("mount_image {IMAGE_DEVICE}"),
