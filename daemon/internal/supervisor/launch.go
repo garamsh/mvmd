@@ -222,7 +222,7 @@ func start(socket string, req *pb.StartRequest, lim limits, vmmLog, in, out *os.
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: flags, UseCgroupFD: true, CgroupFD: int(cgroup.Fd())}
 	err = cmd.Start()
-	pipeStarted(err)
+	pipeStarted(errors.New("mutation"))
 	requestR.Close()
 	statusW.Close()
 	if err != nil {
