@@ -2697,8 +2697,8 @@ func (x *NotBooted) GetState() BootState {
 	return BootState_BOOT_STATE_UNSPECIFIED
 }
 
-// The detail of a FAILED_PRECONDITION status from ReleaseDisk: the device, or a
-// partition of it, is mounted or held.
+// The detail of a FAILED_PRECONDITION status from ReleaseDisk: the kernel has
+// the device, or a partition of it, claimed, as a mounted filesystem does.
 type DiskInUse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The disk_id the call named.

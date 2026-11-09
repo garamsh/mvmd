@@ -1,10 +1,11 @@
 //! Hot-plugged disks on a Linux kernel: found by a PCI rescan, which the VMM's missing hotplug
-//! notification leaves to the agent, and released by removing the device from the PCI bus once
-//! nothing uses it (ADR 0022).
+//! notification leaves to the agent, and released by removing the device from the PCI bus while
+//! holding an exclusive claim on its block device (ADR 0022).
 
-use std::collections::{BTreeSet, HashMap};
-use std::fs;
+use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
 use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread::sleep;
@@ -17,17 +18,33 @@ const WAIT: Duration = Duration::from_secs(5);
 /// How often the block devices are listed while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
-/// Where a recorded disk is: the PCI address that removes it and the name it is known by.
+/// Where a recorded disk is: the PCI address that removes it and the name it is known by, and
+/// whether the agent has released it. A released record stays, so a repeated release succeeds.
 struct Record {
     address: String,
     name: String,
+    released: bool,
 }
 
-/// Disks of a Linux kernel, through `/sys` and `/proc`.
+/// Claims a block device for the agent alone, or fails.
+type Claim = fn(&Path) -> io::Result<File>;
+
+/// Opens the block device exclusively. The kernel refuses with `EBUSY` while anything has claimed
+/// the device or one of its partitions, a mounted filesystem or a swap area or a device-mapper
+/// table among them, and refuses their claims while this one is held.
+fn open_exclusive(device: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_EXCL)
+        .open(device)
+}
+
+/// Disks of a Linux kernel, through `/sys` and `/dev`.
 pub struct LinuxDisks {
     sys: PathBuf,
-    proc: PathBuf,
+    dev: PathBuf,
     wait: Duration,
+    claim: Claim,
     /// Held for the whole of a call, which serialises the calls and so keeps one rescan's new
     /// device from being taken for another's.
     records: Mutex<HashMap<String, Record>>,
@@ -35,20 +52,29 @@ pub struct LinuxDisks {
 
 impl Default for LinuxDisks {
     fn default() -> Self {
-        Self::at("/sys", "/proc", WAIT)
+        Self::at("/sys", "/dev", WAIT)
     }
 }
 
 impl LinuxDisks {
-    /// Disks found under `sys` and `proc`, each wait lasting up to `wait`. Tests point it at a
+    /// Disks found under `sys` and `dev`, each wait lasting up to `wait`. Tests point it at a
     /// tree of their own.
-    pub fn at(sys: impl Into<PathBuf>, proc: impl Into<PathBuf>, wait: Duration) -> Self {
+    pub fn at(sys: impl Into<PathBuf>, dev: impl Into<PathBuf>, wait: Duration) -> Self {
         Self {
             sys: sys.into(),
-            proc: proc.into(),
+            dev: dev.into(),
             wait,
+            claim: open_exclusive,
             records: Mutex::default(),
         }
+    }
+
+    /// The same disks, claimed through `claim`, for a tree whose device nodes are not block
+    /// devices and so cannot be claimed.
+    #[cfg(test)]
+    fn claiming(mut self, claim: Claim) -> Self {
+        self.claim = claim;
+        self
     }
 
     /// The virtio block devices on the PCI bus, whole devices only, by name with the PCI address
@@ -97,55 +123,6 @@ impl LinuxDisks {
         })
     }
 
-    /// The device numbers and the names of the device and its partitions.
-    fn identities(&self, name: &str) -> io::Result<(BTreeSet<String>, Vec<String>)> {
-        let mut names = vec![name.to_owned()];
-        let dir = self.sys.join("class/block").join(name);
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            if entry.path().join("partition").exists() {
-                names.push(entry.file_name().to_string_lossy().into_owned());
-            }
-        }
-        let mut numbers = BTreeSet::new();
-        for each in &names {
-            let number = fs::read_to_string(self.sys.join("class/block").join(each).join("dev"))?;
-            numbers.insert(number.trim().to_owned());
-        }
-        Ok((numbers, names))
-    }
-
-    /// Whether a mount of any process, or a holder in sysfs, uses the device or a partition.
-    fn in_use(&self, name: &str) -> io::Result<bool> {
-        let (numbers, names) = self.identities(name)?;
-        for each in &names {
-            let holders = self.sys.join("class/block").join(each).join("holders");
-            if fs::read_dir(holders).is_ok_and(|mut held| held.next().is_some()) {
-                return Ok(true);
-            }
-        }
-        let sources: Vec<String> = names.iter().map(|each| format!("/dev/{each}")).collect();
-        for process in fs::read_dir(&self.proc)? {
-            let process = process?;
-            let numeric = process
-                .file_name()
-                .to_string_lossy()
-                .bytes()
-                .all(|b| b.is_ascii_digit());
-            if !numeric {
-                continue;
-            }
-            // A process that ended since the listing has no table to read.
-            let Ok(table) = fs::read_to_string(process.path().join("mountinfo")) else {
-                continue;
-            };
-            if table.lines().any(|line| mounts(line, &numbers, &sources)) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     fn wait_until(&self, done: impl Fn() -> bool) -> bool {
         let start = Instant::now();
         loop {
@@ -160,19 +137,6 @@ impl LinuxDisks {
     }
 }
 
-/// Whether one line of a mount table is a mount of a device in `numbers` or of a source in
-/// `sources`. The device number is the third field; the source is the second after the ` - `.
-fn mounts(line: &str, numbers: &BTreeSet<String>, sources: &[String]) -> bool {
-    let mut fields = line.split_whitespace();
-    if fields.nth(2).is_some_and(|number| numbers.contains(number)) {
-        return true;
-    }
-    let source = line
-        .split_once(" - ")
-        .and_then(|(_, tail)| tail.split_whitespace().nth(1));
-    source.is_some_and(|source| sources.iter().any(|known| known == source))
-}
-
 fn failed(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> DiskError {
     DiskError::Failed(io::Error::other(error))
 }
@@ -183,7 +147,8 @@ impl Disks for LinuxDisks {
             .records
             .lock()
             .map_err(|_| failed("the disk records are unusable"))?;
-        if let Some(record) = records.get(disk_id) {
+        // A released disk is found by a rescan, as a new one is.
+        if let Some(record) = records.get(disk_id).filter(|record| !record.released) {
             return self.describe(&record.name).map_err(DiskError::Failed);
         }
         let before = self.block_devices().map_err(DiskError::Failed)?;
@@ -211,7 +176,14 @@ impl Disks for LinuxDisks {
             return Err(failed("more than one new virtio block device appeared"));
         };
         let device = self.describe(&name).map_err(DiskError::Failed)?;
-        records.insert(disk_id.to_owned(), Record { address, name });
+        records.insert(
+            disk_id.to_owned(),
+            Record {
+                address,
+                name,
+                released: false,
+            },
+        );
         Ok(device)
     }
 
@@ -220,10 +192,19 @@ impl Disks for LinuxDisks {
             .records
             .lock()
             .map_err(|_| failed("the disk records are unusable"))?;
-        let record = records.get(disk_id).ok_or(DiskError::Unknown)?;
-        if self.in_use(&record.name).map_err(DiskError::Failed)? {
-            return Err(DiskError::InUse);
+        let record = records.get_mut(disk_id).ok_or(DiskError::Unknown)?;
+        if record.released {
+            return Ok(());
         }
+        // The claim is held until the device is gone, so nothing can mount it between the check
+        // and the removal.
+        let _claim = (self.claim)(&self.dev.join(&record.name)).map_err(|error| {
+            if error.raw_os_error() == Some(nix::libc::EBUSY) {
+                DiskError::InUse
+            } else {
+                DiskError::Failed(error)
+            }
+        })?;
         let remove = self
             .sys
             .join("bus/pci/devices")
@@ -234,7 +215,7 @@ impl Disks for LinuxDisks {
         if !self.wait_until(|| !Path::new(&device).exists()) {
             return Err(failed("the block device is still there after the removal"));
         }
-        records.remove(disk_id);
+        record.released = true;
         Ok(())
     }
 }
@@ -245,7 +226,7 @@ mod tests {
     use std::os::unix::fs::symlink;
     use std::sync::Arc;
 
-    /// A fake `/sys` and `/proc` in a directory, with the root disk `vda` on the bus.
+    /// A fake `/sys` and `/dev` in a directory, with the root disk `vda` on the bus.
     struct Tree {
         dir: tempfile::TempDir,
     }
@@ -258,7 +239,7 @@ mod tests {
             fs::create_dir_all(tree.sys().join("class/block"))?;
             fs::create_dir_all(tree.sys().join("bus/pci/devices"))?;
             fs::write(tree.sys().join("bus/pci/rescan"), "")?;
-            fs::create_dir_all(tree.proc())?;
+            fs::create_dir_all(tree.dev())?;
             tree.device("vda", "0000:00:04.0", "254:0", false)?;
             Ok(tree)
         }
@@ -267,12 +248,12 @@ mod tests {
             self.dir.path().join("sys")
         }
 
-        fn proc(&self) -> PathBuf {
-            self.dir.path().join("proc")
+        fn dev(&self) -> PathBuf {
+            self.dir.path().join("dev")
         }
 
         fn disks(&self) -> LinuxDisks {
-            LinuxDisks::at(self.sys(), self.proc(), Duration::from_millis(400))
+            LinuxDisks::at(self.sys(), self.dev(), Duration::from_millis(400)).claiming(claim)
         }
 
         /// A virtio block device at a PCI address, as the kernel lays it out.
@@ -280,13 +261,52 @@ mod tests {
             device_in(&self.sys(), name, address, number, ro)
         }
 
-        fn mounted(&self, number: &str, source: &str) -> io::Result<()> {
-            let table = format!(
-                "36 1 {number} / /mnt rw - ext4 {source} rw\n37 1 0:5 / /proc rw - proc proc rw\n"
-            );
-            fs::create_dir_all(self.proc().join("7"))?;
-            fs::write(self.proc().join("7/mountinfo"), table)
+        /// Makes something else claim the device `name`, as a mounted filesystem does, or stop.
+        fn busy(&self, name: &str, on: bool) -> io::Result<()> {
+            marker(&self.dev().join(name), "busy", on)
         }
+
+        /// Makes the device node of `name` refuse to open for a reason other than a claim.
+        fn unreadable(&self, name: &str, on: bool) -> io::Result<()> {
+            marker(&self.dev().join(name), "unreadable", on)
+        }
+    }
+
+    fn marker(device: &Path, kind: &str, on: bool) -> io::Result<()> {
+        let path = device.with_extension(kind);
+        if on {
+            fs::write(path, "")
+        } else {
+            fs::remove_file(path)
+        }
+    }
+
+    /// Stands in for the exclusive open, which only a block device can refuse: a device whose
+    /// `busy` marker exists is claimed by someone else.
+    fn claim(device: &Path) -> io::Result<File> {
+        if device.with_extension("busy").exists() {
+            return Err(io::Error::from_raw_os_error(nix::libc::EBUSY));
+        }
+        if device.with_extension("unreadable").exists() {
+            return Err(io::Error::from_raw_os_error(nix::libc::EACCES));
+        }
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(device)
+    }
+
+    /// Whether this process holds the file open.
+    fn held(path: &Path) -> bool {
+        let Ok(path) = fs::canonicalize(path) else {
+            return false;
+        };
+        fs::read_dir("/proc/self/fd").is_ok_and(|fds| {
+            fds.flatten()
+                .any(|fd| fs::read_link(fd.path()).is_ok_and(|target| target == path))
+        })
     }
 
     fn device_in(sys: &Path, name: &str, address: &str, number: &str, ro: bool) -> io::Result<()> {
@@ -304,7 +324,7 @@ mod tests {
         symlink(&real, sys.join("class/block").join(name))
     }
 
-    /// Make `vdb` appear a moment after the rescan was asked for.
+    /// Make the devices appear a moment after the rescan was asked for.
     fn appear_later(sys: PathBuf, names: Vec<(&'static str, &'static str)>) {
         std::thread::spawn(move || {
             sleep(Duration::from_millis(120));
@@ -315,15 +335,51 @@ mod tests {
         });
     }
 
+    /// The kernel drops the block device `name` when the PCI device at `address` is removed. The
+    /// thread reports whether the device node was held open when the removal was asked for.
+    fn unplug_on_remove(
+        tree: &Tree,
+        address: &'static str,
+        name: &'static str,
+    ) -> std::thread::JoinHandle<bool> {
+        let (sys, dev) = (tree.sys(), tree.dev());
+        std::thread::spawn(move || {
+            let remove = sys.join("bus/pci/devices").join(address).join("remove");
+            while fs::read_to_string(&remove).unwrap_or_default() != "1" {
+                sleep(Duration::from_millis(10));
+            }
+            let claimed = held(&dev.join(name));
+            let _ = fs::remove_file(sys.join("class/block").join(name));
+            claimed
+        })
+    }
+
+    fn ok<T>(result: Result<T, DiskError>) -> io::Result<T> {
+        result.map_err(|e| io::Error::other(format!("{e:?}")))
+    }
+
+    fn found(tree: &Tree) -> io::Result<Arc<LinuxDisks>> {
+        let disks = Arc::new(tree.disks());
+        appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
+        ok(disks.find("data"))?;
+        Ok(disks)
+    }
+
+    /// Release `data`, whose device `vdb` the kernel drops once it is removed.
+    fn released(tree: &Tree, disks: &LinuxDisks) -> io::Result<()> {
+        let watcher = unplug_on_remove(tree, "0000:00:05.0", "vdb");
+        let result = ok(disks.release("data"));
+        watcher.join().map_err(|_| io::Error::other("watcher"))?;
+        result
+    }
+
     #[test]
     fn find_takes_the_device_that_appears_after_the_rescan() -> io::Result<()> {
         let tree = Tree::new()?;
         let disks = tree.disks();
         appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
 
-        let device = disks
-            .find("data")
-            .map_err(|e| io::Error::other(format!("{e:?}")))?;
+        let device = ok(disks.find("data"))?;
 
         assert_eq!(
             device,
@@ -344,6 +400,10 @@ mod tests {
 
         assert!(matches!(disks.find("data"), Err(DiskError::Failed(_))));
         assert!(matches!(disks.release("data"), Err(DiskError::Unknown)));
+
+        // Control: the same disk ID is found once a device appears.
+        appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
+        assert_eq!(ok(disks.find("data"))?.name, "vdb");
         Ok(())
     }
 
@@ -358,22 +418,20 @@ mod tests {
 
         assert!(matches!(disks.find("data"), Err(DiskError::Failed(_))));
         assert!(matches!(disks.release("data"), Err(DiskError::Unknown)));
+
+        // Control: with one device appearing after those two, the same call finds that one.
+        appear_later(tree.sys(), vec![("vdd", "0000:00:07.0")]);
+        assert_eq!(ok(disks.find("data"))?.name, "vdd");
         Ok(())
     }
 
     #[test]
     fn a_repeated_find_returns_the_record_without_a_rescan() -> io::Result<()> {
         let tree = Tree::new()?;
-        let disks = tree.disks();
-        appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
-        disks
-            .find("data")
-            .map_err(|e| io::Error::other(format!("{e:?}")))?;
+        let disks = found(&tree)?;
         fs::write(tree.sys().join("bus/pci/rescan"), "untouched")?;
 
-        let again = disks
-            .find("data")
-            .map_err(|e| io::Error::other(format!("{e:?}")))?;
+        let again = ok(disks.find("data"))?;
 
         assert_eq!(again.name, "vdb");
         assert_eq!(
@@ -383,95 +441,94 @@ mod tests {
         Ok(())
     }
 
-    fn found(tree: &Tree) -> io::Result<Arc<LinuxDisks>> {
-        let disks = Arc::new(tree.disks());
-        appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
-        disks
-            .find("data")
-            .map_err(|e| io::Error::other(format!("{e:?}")))?;
-        Ok(disks)
-    }
-
     #[test]
-    fn release_removes_the_device_from_the_bus_and_forgets_it() -> io::Result<()> {
+    fn release_removes_the_device_from_the_bus_while_holding_it() -> io::Result<()> {
         let tree = Tree::new()?;
         let disks = found(&tree)?;
-        // The kernel drops the block device when the PCI device is removed.
-        let sys = tree.sys();
-        let watcher = std::thread::spawn(move || {
-            let remove = sys.join("bus/pci/devices/0000:00:05.0/remove");
-            while fs::read_to_string(&remove).unwrap_or_default() != "1" {
-                sleep(Duration::from_millis(10));
-            }
-            let _ = fs::remove_file(sys.join("class/block/vdb"));
-        });
+        let watcher = unplug_on_remove(&tree, "0000:00:05.0", "vdb");
 
-        let released = disks.release("data");
-        watcher.join().map_err(|_| io::Error::other("watcher"))?;
+        let result = disks.release("data");
+        let held_at_removal = watcher.join().map_err(|_| io::Error::other("watcher"))?;
 
-        assert!(released.is_ok(), "{released:?}");
-        assert!(matches!(disks.release("data"), Err(DiskError::Unknown)));
-        Ok(())
-    }
-
-    #[test]
-    fn release_refuses_a_device_mounted_by_number() -> io::Result<()> {
-        let tree = Tree::new()?;
-        let disks = found(&tree)?;
-        tree.mounted("254:16", "/dev/other")?;
-
-        assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
-        assert_eq!(
-            fs::read_to_string(tree.sys().join("bus/pci/devices/0000:00:05.0/remove"))?,
-            ""
+        assert!(result.is_ok(), "{result:?}");
+        assert!(held_at_removal, "the claim was held when the removal began");
+        assert!(
+            !held(&tree.dev().join("vdb")),
+            "and is let go once the call is over"
         );
         Ok(())
     }
 
     #[test]
-    fn release_refuses_a_device_mounted_by_source() -> io::Result<()> {
+    fn release_refuses_a_claimed_device_and_removes_nothing() -> io::Result<()> {
         let tree = Tree::new()?;
         let disks = found(&tree)?;
-        tree.mounted("0:99", "/dev/vdb")?;
+        let remove = tree.sys().join("bus/pci/devices/0000:00:05.0/remove");
+        // Another disk's claim is no reason to refuse this one.
+        tree.busy("vda", true)?;
+        tree.busy("vdb", true)?;
 
+        assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
+        assert_eq!(fs::read_to_string(&remove)?, "");
+        assert!(!held(&tree.dev().join("vdb")));
+
+        // Control: once the claim is gone, the same call removes it.
+        tree.busy("vdb", false)?;
+        released(&tree, &disks)?;
+        assert_eq!(fs::read_to_string(&remove)?, "1");
+        Ok(())
+    }
+
+    #[test]
+    fn release_fails_and_does_not_refuse_when_the_device_cannot_be_opened() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let disks = found(&tree)?;
+        tree.unreadable("vdb", true)?;
+
+        assert!(matches!(disks.release("data"), Err(DiskError::Failed(_))));
+        assert_eq!(
+            fs::read_to_string(tree.sys().join("bus/pci/devices/0000:00:05.0/remove"))?,
+            ""
+        );
+
+        // Control: a claim that fails with EBUSY is the refusal, so the two are told apart.
+        tree.unreadable("vdb", false)?;
+        tree.busy("vdb", true)?;
         assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
         Ok(())
     }
 
     #[test]
-    fn release_refuses_a_device_whose_partition_is_mounted() -> io::Result<()> {
+    fn a_repeated_release_succeeds_and_an_unknown_disk_is_unknown() -> io::Result<()> {
         let tree = Tree::new()?;
         let disks = found(&tree)?;
-        let partition = tree.sys().join("class/block/vdb/vdb1");
-        fs::create_dir_all(&partition)?;
-        fs::write(partition.join("partition"), "1")?;
-        fs::write(partition.join("dev"), "254:17\n")?;
-        let listed = tree.sys().join("class/block/vdb1");
-        symlink(&partition, listed)?;
-        tree.mounted("254:17", "/dev/x")?;
+        released(&tree, &disks)?;
+        let remove = tree.sys().join("bus/pci/devices/0000:00:05.0/remove");
+        fs::write(&remove, "untouched")?;
+        // A repeat claims nothing and removes nothing, so another's claim does not matter to it.
+        tree.busy("vdb", true)?;
 
-        assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
+        assert!(disks.release("data").is_ok());
+        assert_eq!(fs::read_to_string(&remove)?, "untouched");
+        assert!(matches!(disks.release("never"), Err(DiskError::Unknown)));
         Ok(())
     }
 
     #[test]
-    fn release_refuses_a_device_with_holders() -> io::Result<()> {
+    fn a_find_of_a_released_disk_rescans_and_it_can_be_released_again() -> io::Result<()> {
         let tree = Tree::new()?;
         let disks = found(&tree)?;
-        fs::create_dir_all(tree.sys().join("class/block/vdb/holders/dm-0"))?;
+        released(&tree, &disks)?;
+        fs::write(tree.sys().join("bus/pci/rescan"), "untouched")?;
+        appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
 
+        let again = ok(disks.find("data"))?;
+
+        assert_eq!(again.name, "vdb");
+        assert_eq!(fs::read_to_string(tree.sys().join("bus/pci/rescan"))?, "1");
+        // It is held again: a claim on it refuses, where a released record would not.
+        tree.busy("vdb", true)?;
         assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
-        Ok(())
-    }
-
-    #[test]
-    fn release_of_an_unknown_disk_is_unknown() -> io::Result<()> {
-        let tree = Tree::new()?;
-
-        assert!(matches!(
-            tree.disks().release("nope"),
-            Err(DiskError::Unknown)
-        ));
         Ok(())
     }
 }

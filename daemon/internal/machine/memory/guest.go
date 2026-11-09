@@ -38,6 +38,7 @@ type Guest struct {
 	refuse    error
 	terms     map[machine.MachineID]int
 	found     map[machine.MachineID]map[machine.DiskID]bool
+	released  map[machine.MachineID]map[machine.DiskID]bool
 	held      map[machine.MachineID]map[machine.DiskID]bool
 }
 
@@ -60,6 +61,7 @@ func NewGuest(retention int) *Guest {
 		refused:   make(map[machine.ExecID]string),
 		terms:     make(map[machine.MachineID]int),
 		found:     make(map[machine.MachineID]map[machine.DiskID]bool),
+		released:  make(map[machine.MachineID]map[machine.DiskID]bool),
 		held:      make(map[machine.MachineID]map[machine.DiskID]bool),
 		retention: retention,
 	}
@@ -409,7 +411,8 @@ func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
 	return nil
 }
 
-// FindDisk implements machine.Guest: the guest finds the disk and records it.
+// FindDisk implements machine.Guest: the guest finds the disk and records it,
+// whether it is new or one it released.
 func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
 	if err := g.enter("find-disk"); err != nil {
 		return err
@@ -423,12 +426,14 @@ func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine
 		g.found[id] = make(map[machine.DiskID]bool)
 	}
 	g.found[id][disk] = true
+	delete(g.released[id], disk)
 	return nil
 }
 
 // ReleaseDisk implements machine.Guest: it releases a disk the guest found,
-// unless the disk is held open (HoldDisk), and answers machine.ErrDiskUnknown
-// for one it did not find.
+// unless the disk is held open (HoldDisk). A disk it already released is
+// released again without effect, and machine.ErrDiskUnknown is the answer for
+// one it never found.
 func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
 	if err := g.enter("release-disk"); err != nil {
 		return err
@@ -438,6 +443,9 @@ func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk mach
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.released[id][disk] {
+		return nil
+	}
 	if !g.found[id][disk] {
 		return machine.ErrDiskUnknown
 	}
@@ -445,6 +453,10 @@ func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk mach
 		return machine.ErrDiskInUse
 	}
 	delete(g.found[id], disk)
+	if g.released[id] == nil {
+		g.released[id] = make(map[machine.DiskID]bool)
+	}
+	g.released[id][disk] = true
 	return nil
 }
 

@@ -129,13 +129,15 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 			case errors.Is(err, ErrDiskInUse):
 				return fail(ErrPreconditionFailed, "the guest of Machine %q is using disk %q: %v", id, disk, err)
 			case errors.Is(err, ErrDiskUnknown):
-				return fail(ErrPreconditionFailed, "the guest of Machine %q did not find disk %q while it ran, so it cannot release it; stop the Machine to detach it", id, disk)
+				return fail(ErrPreconditionFailed, "the guest of Machine %q never found disk %q while it ran, so it cannot release it; stop the Machine to detach it", id, disk)
 			}
 			return fail(ErrFailed, "the guest could not release disk %q: %v", disk, err)
 		}
 		if err := s.driver.DetachDisk(ctx, id, disk); err != nil {
 			// The guest has let go of a disk the VMM still has: ask it to
-			// find the disk again, as far as it can.
+			// find the disk again, as far as it can. If it cannot, a retried
+			// Detach releases again without effect and tries the Driver once
+			// more.
 			ctx, cancel := s.compensating(ctx)
 			defer cancel()
 			_ = s.guest.FindDisk(ctx, id, disk)

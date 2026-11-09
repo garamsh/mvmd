@@ -63,17 +63,20 @@ service GuestService {
   // the kernel to rescan the PCI bus, since the VMM sends no hotplug
   // notification, and takes the one virtio block device that appears. It
   // records disk_id against that device and returns it. A repeat for a
-  // recorded disk_id returns the record without rescanning. No new device
-  // within the agent's bound, or more than one, fails the call and records
-  // nothing. The agent does nothing else with the device. It is served before
+  // disk_id the agent holds returns the record without rescanning, and for
+  // one it has released rescans as for a new one. No new device within the
+  // agent's bound, or more than one, fails the call and records nothing. The agent does nothing else with the device. It is served before
   // Boot has succeeded, and the calls of one Machine are serialised.
   rpc FindDisk(FindDiskRequest) returns (FindDiskResponse);
 
   // Release the device FindDisk recorded under disk_id so that mvmd can
-  // unplug it: refused as FAILED_PRECONDITION with a DiskInUse detail while
-  // the device or a partition of it is mounted or held, otherwise removed from
-  // the PCI bus. A disk_id with no record is NOT_FOUND, which is also what a
-  // repeat after a release gets. It is served before Boot has succeeded.
+  // unplug it: the agent opens the block device exclusively, which the kernel
+  // refuses while the device or a partition of it is mounted or otherwise
+  // claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
+  // otherwise it removes the device from the PCI bus, still holding the
+  // device. The agent keeps the record as released, so a repeat after a
+  // release succeeds. A disk_id the agent never found is NOT_FOUND. It is
+  // served before Boot has succeeded.
   rpc ReleaseDisk(ReleaseDiskRequest) returns (ReleaseDiskResponse);
 
   // Whether the agent serves.
@@ -421,8 +424,8 @@ message NotBooted {
   BootState state = 1;
 }
 
-// The detail of a FAILED_PRECONDITION status from ReleaseDisk: the device, or a
-// partition of it, is mounted or held.
+// The detail of a FAILED_PRECONDITION status from ReleaseDisk: the kernel has
+// the device, or a partition of it, claimed, as a mounted filesystem does.
 message DiskInUse {
   // The disk_id the call named.
   string disk_id = 1;

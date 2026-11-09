@@ -112,7 +112,8 @@ var (
 	// ErrDiskInUse is a disk whose device the guest has mounted or holds, so
 	// it is not released.
 	ErrDiskInUse = errors.New("the guest is using the disk")
-	// ErrDiskUnknown is a disk the guest has no record of finding.
+	// ErrDiskUnknown is a disk the guest never found. A disk it found and
+	// released is not unknown.
 	ErrDiskUnknown = errors.New("the guest has no record of the disk")
 )
 
@@ -192,11 +193,13 @@ type Guest interface {
 	// FindDisk asks the agent to find the block device of a disk the Driver has
 	// just hot-plugged and to record it under the disk's ID (ADR 0022). It is
 	// served before the guest has booted. A failure means the guest did not
-	// find exactly one new device. Repeating it for a recorded disk is safe.
+	// find exactly one new device. Repeating it for a disk it holds is safe, and
+	// for a disk it released it rescans, as for a new one.
 	FindDisk(ctx context.Context, id MachineID, disk DiskID) error
 	// ReleaseDisk asks the agent to release the device it recorded for the
 	// disk, so the Driver may unplug it. It returns ErrDiskInUse when the
-	// device is mounted or held, and ErrDiskUnknown when the agent has no record
-	// of the disk, which is also the answer to a repeat after a release.
+	// device is mounted or held, and ErrDiskUnknown when the agent never found
+	// the disk. A disk it already released is released again without effect, so
+	// a repeat after a release succeeds.
 	ReleaseDisk(ctx context.Context, id MachineID, disk DiskID) error
 }

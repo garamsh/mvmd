@@ -97,16 +97,19 @@ type GuestServiceClient interface {
 	// the kernel to rescan the PCI bus, since the VMM sends no hotplug
 	// notification, and takes the one virtio block device that appears. It
 	// records disk_id against that device and returns it. A repeat for a
-	// recorded disk_id returns the record without rescanning. No new device
-	// within the agent's bound, or more than one, fails the call and records
-	// nothing. The agent does nothing else with the device. It is served before
+	// disk_id the agent holds returns the record without rescanning, and for
+	// one it has released rescans as for a new one. No new device within the
+	// agent's bound, or more than one, fails the call and records nothing. The agent does nothing else with the device. It is served before
 	// Boot has succeeded, and the calls of one Machine are serialised.
 	FindDisk(ctx context.Context, in *FindDiskRequest, opts ...grpc.CallOption) (*FindDiskResponse, error)
 	// Release the device FindDisk recorded under disk_id so that mvmd can
-	// unplug it: refused as FAILED_PRECONDITION with a DiskInUse detail while
-	// the device or a partition of it is mounted or held, otherwise removed from
-	// the PCI bus. A disk_id with no record is NOT_FOUND, which is also what a
-	// repeat after a release gets. It is served before Boot has succeeded.
+	// unplug it: the agent opens the block device exclusively, which the kernel
+	// refuses while the device or a partition of it is mounted or otherwise
+	// claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
+	// otherwise it removes the device from the PCI bus, still holding the
+	// device. The agent keeps the record as released, so a repeat after a
+	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
+	// served before Boot has succeeded.
 	ReleaseDisk(ctx context.Context, in *ReleaseDiskRequest, opts ...grpc.CallOption) (*ReleaseDiskResponse, error)
 	// Whether the agent serves.
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
@@ -377,16 +380,19 @@ type GuestServiceServer interface {
 	// the kernel to rescan the PCI bus, since the VMM sends no hotplug
 	// notification, and takes the one virtio block device that appears. It
 	// records disk_id against that device and returns it. A repeat for a
-	// recorded disk_id returns the record without rescanning. No new device
-	// within the agent's bound, or more than one, fails the call and records
-	// nothing. The agent does nothing else with the device. It is served before
+	// disk_id the agent holds returns the record without rescanning, and for
+	// one it has released rescans as for a new one. No new device within the
+	// agent's bound, or more than one, fails the call and records nothing. The agent does nothing else with the device. It is served before
 	// Boot has succeeded, and the calls of one Machine are serialised.
 	FindDisk(context.Context, *FindDiskRequest) (*FindDiskResponse, error)
 	// Release the device FindDisk recorded under disk_id so that mvmd can
-	// unplug it: refused as FAILED_PRECONDITION with a DiskInUse detail while
-	// the device or a partition of it is mounted or held, otherwise removed from
-	// the PCI bus. A disk_id with no record is NOT_FOUND, which is also what a
-	// repeat after a release gets. It is served before Boot has succeeded.
+	// unplug it: the agent opens the block device exclusively, which the kernel
+	// refuses while the device or a partition of it is mounted or otherwise
+	// claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
+	// otherwise it removes the device from the PCI bus, still holding the
+	// device. The agent keeps the record as released, so a repeat after a
+	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
+	// served before Boot has succeeded.
 	ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error)
 	// Whether the agent serves.
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)

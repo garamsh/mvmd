@@ -429,6 +429,41 @@ func TestDetachDisk_TheGuestReleasesTheDiskFirst(t *testing.T) {
 		assert.True(t, e.guest.DiskFound("m", "d"))
 		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
 	})
+
+	t.Run("a Detach retried after the Driver failed and the guest could not find the disk again converges", func(t *testing.T) {
+		e := running(t)
+		e.driver.FailAt("detach", errBoom)
+		e.guest.FailAt("find-disk", errBoom)
+
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrFailed)
+		assert.False(t, e.guest.DiskFound("m", "d"), "the guest has let go and could not take the disk back")
+		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
+
+		// Control: the same retry while the Driver still fails stays a
+		// failure and not a refusal, so the Driver was asked again.
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrFailed)
+		assert.Equal(t, 2, e.driver.Calls("detach"))
+
+		e.driver.Heal("detach")
+		require.NoError(t, e.svc.DetachDisk(ctx, "m", "d"))
+		assert.Equal(t, 3, e.guest.Calls("release-disk"))
+		assert.Equal(t, 3, e.driver.Calls("detach"))
+		assert.Empty(t, e.driver.HotDisks("m"))
+		assert.Empty(t, attached(t, e, "m"))
+	})
+
+	t.Run("a disk found again after a release is released again", func(t *testing.T) {
+		e := running(t)
+		e.driver.FailAt("detach", errBoom)
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrFailed)
+		require.True(t, e.guest.DiskFound("m", "d"), "the guest took it back")
+
+		e.guest.HoldDisk("m", "d", true)
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrPreconditionFailed)
+		e.guest.HoldDisk("m", "d", false)
+		e.driver.Heal("detach")
+		require.NoError(t, e.svc.DetachDisk(ctx, "m", "d"))
+	})
 }
 
 // Row "Set resources", column Needs.

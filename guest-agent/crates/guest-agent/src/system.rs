@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use nix::sys::reboot::{RebootMode, reboot};
+use thiserror::Error;
 
 use crate::description::NetworkConfig;
 use crate::uuid::{Filesystem, Uuid};
@@ -78,24 +79,28 @@ pub struct DiskDevice {
 }
 
 /// Why a disk call failed.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DiskError {
-    /// The device is mounted or held.
+    /// The kernel has the device claimed: it is mounted, held or in use as swap.
+    #[error("the disk is in use")]
     InUse,
-    /// The agent has no record of the disk.
+    /// The agent never found the disk.
+    #[error("the agent has no record of the disk")]
     Unknown,
     /// The kernel's answer was not one device, or a call failed.
-    Failed(io::Error),
+    #[error("the disk call failed: {0}")]
+    Failed(#[source] io::Error),
 }
 
 /// The disks hot-plugged into the Machine. An implementation serialises its calls and keeps the
 /// record of which device each disk ID is.
 pub trait Disks: Send + Sync {
-    /// Rescan for the one new block device and record it as `disk_id`; a recorded `disk_id`
-    /// returns its record.
+    /// Rescan for the one new block device and record it as `disk_id`; a `disk_id` the agent
+    /// holds returns its record, and one it released is found by a rescan as a new one is.
     fn find(&self, disk_id: &str) -> Result<DiskDevice, DiskError>;
 
-    /// Remove the device recorded as `disk_id` unless it is in use, and forget the record.
+    /// Remove the device recorded as `disk_id` unless it is in use, and keep the record as
+    /// released, so a repeat succeeds. A `disk_id` never found is `Unknown`.
     fn release(&self, disk_id: &str) -> Result<(), DiskError>;
 }
 

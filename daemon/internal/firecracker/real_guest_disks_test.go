@@ -20,8 +20,10 @@ import (
 // A booted guest finds a disk the Driver hot-plugged, releases it before the
 // Driver unplugs it, and finds it again when it is plugged back (ADR 0022).
 // Firecracker tells the guest of neither: the Guest Agent rescans the PCI bus
-// and removes the device itself. The agent serves both calls before it has
-// been booted, which is the state the initrd's agent is in here.
+// and removes the device itself, holding the device exclusively while it does.
+// A repeated release succeeds, so a detach that failed half way can be
+// retried. The agent serves both calls before it has been booted, which is the
+// state the initrd's agent is in here.
 func TestReal_AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.T) {
 	// The Unix socket paths bound the length of this directory.
 	dir, err := os.MkdirTemp("", "fcgdisk")
@@ -68,8 +70,9 @@ func TestReal_AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.
 		return within(func(c context.Context) error { return guest.Health(c, "m1") }) == nil
 	}, time.Minute, 500*time.Millisecond, "the Guest Agent never answered")
 
-	// Control: a disk nothing was plugged for is not found, so a find that
-	// succeeds below is the guest seeing the device and not an answer by default.
+	// Control: a disk nothing was plugged for is not found, and a release of a
+	// disk never found is refused as unknown, so the repeats below that succeed
+	// are the agent's record of a release and not an answer by default.
 	err = within(func(c context.Context) error { return guest.FindDisk(c, "m1", "hot") })
 	require.Error(t, err, "no new device has appeared")
 	require.ErrorIs(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), machine.ErrDiskUnknown)
@@ -83,8 +86,9 @@ func TestReal_AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.
 		assert.Len(t, drivesOf(t, sock), 3, "round %d", round)
 
 		require.NoError(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), "round %d", round)
-		require.ErrorIs(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), machine.ErrDiskUnknown, "a repeat after the release, round %d", round)
+		require.NoError(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), "a repeat after the release, round %d", round)
 		require.NoError(t, d.DetachDisk(ctx, "m1", "hot"), "round %d", round)
+		require.NoError(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), "a repeat after the unplug, round %d", round)
 		assert.Len(t, drivesOf(t, sock), 2, "round %d", round)
 	}
 	assert.NoError(t, within(func(c context.Context) error { return guest.Health(c, "m1") }), "the guest still answers after the unplug")
