@@ -33,6 +33,11 @@ type Config struct {
 	// StateDir holds mvmd's database. It is created if absent.
 	StateDir string `json:"state_dir"`
 	// Driver selects the adapters behind the ports: "memory" or "firecracker".
+	// "firecracker" replaces only the Driver and the Guest; Images, Disks and
+	// Snapshots stay in-memory substitutes whose paths name no file, so every
+	// Start of a Machine fails under it until a real Image Store and Disk are
+	// wired (#30's remainder, #33). Use it to start the daemon and check its
+	// inputs, not to run Machines.
 	Driver string `json:"driver"`
 	// Firecracker names the pinned binary, kernel and initrd the Firecracker
 	// Driver boots; it is required by that Driver and refused with any other.

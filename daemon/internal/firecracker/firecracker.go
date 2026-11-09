@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -63,9 +62,6 @@ func (c Config) Validate() error {
 type Driver struct {
 	cfg      Config
 	cpuModel string
-
-	mu    sync.Mutex
-	specs map[machine.MachineID]machine.BootSpec
 }
 
 // New returns the Driver. It refuses a binary or a kernel whose digest is not
@@ -77,14 +73,14 @@ func New(cfg Config) (*Driver, error) {
 	if cfg.Dirs == nil {
 		return nil, fmt.Errorf("firecracker needs the run directories of Machines")
 	}
-	if err := verify(cfg); err != nil {
+	if err := verify(context.Background(), cfg); err != nil {
 		return nil, err
 	}
 	model, err := hostCPUModel()
 	if err != nil {
 		return nil, err
 	}
-	return &Driver{cfg: cfg, cpuModel: model, specs: make(map[machine.MachineID]machine.BootSpec)}, nil
+	return &Driver{cfg: cfg, cpuModel: model}, nil
 }
 
 // Info implements machine.Driver. No optional capability is reported: this

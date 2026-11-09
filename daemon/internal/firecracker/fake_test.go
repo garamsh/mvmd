@@ -61,8 +61,16 @@ func (f *fakeAPI) listen(t *testing.T, path string) {
 	t.Cleanup(func() { _ = f.srv.Close() })
 }
 
-// stop ends the VMM: its socket no longer accepts connections.
+// stop ends the VMM: its socket no longer accepts connections, and the file
+// is gone.
 func (f *fakeAPI) stop() { _ = f.srv.Close() }
+
+// stopLeavingTheSocket ends the VMM as a killed one does: the socket file stays
+// and nothing listens on it.
+func (f *fakeAPI) stopLeavingTheSocket() {
+	f.ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = f.srv.Close()
+}
 
 func (f *fakeAPI) seen() []request {
 	f.mu.Lock()

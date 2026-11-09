@@ -3,7 +3,11 @@ package firecracker_test
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -120,15 +124,64 @@ func TestBoot_WaitsForTheSocketTheVMMCreates(t *testing.T) {
 	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
 	require.NoError(t, err)
 
-	f := &fakeAPI{}
-	go func() {
-		time.Sleep(150 * time.Millisecond)
-		f.listen(t, n.apiSocket())
-	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	require.NoError(t, n.driver.Boot(ctx, "m1"))
+	booted := make(chan error, 1)
+	go func() { booted <- n.driver.Boot(ctx, "m1") }()
+
+	time.Sleep(150 * time.Millisecond)
+	select {
+	case err := <-booted:
+		t.Fatalf("Boot returned before the socket existed: %v", err)
+	default:
+	}
+	f := &fakeAPI{}
+	f.listen(t, n.apiSocket())
+	require.NoError(t, <-booted)
 	assert.NotEmpty(t, f.seen())
+}
+
+func TestBoot_CanBeRepeatedAfterAFailureAndAfterADaemonRestart(t *testing.T) {
+	n := newNode(t)
+	f := &fakeAPI{}
+	f.listen(t, n.apiSocket())
+	var failing atomic.Bool
+	failing.Store(true)
+	f.mu.Lock()
+	f.answer = func(r request) (int, string) {
+		switch {
+		case r.Path == "/version":
+			return http.StatusOK, `{"firecracker_version":"1.17.0"}`
+		case r.Path == "/boot-source" && failing.Load():
+			return http.StatusBadRequest, `{"fault_message":"not yet"}`
+		}
+		return http.StatusNoContent, ""
+	}
+	f.mu.Unlock()
+	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
+	require.NoError(t, err)
+	require.Error(t, n.driver.Boot(context.Background(), "m1"))
+
+	// A Driver of a restarted daemon holds nothing of the Describe; the run
+	// directory does.
+	failing.Store(false)
+	restarted, err := firecracker.New(n.cfg)
+	require.NoError(t, err)
+	require.NoError(t, restarted.Boot(context.Background(), "m1"))
+	assert.Equal(t, "/actions", f.seen()[len(f.seen())-1].Path)
+}
+
+func TestBoot_ReadsTheDescriptionFromTheRunDirectoryOfTheMachine(t *testing.T) {
+	n := newNode(t)
+	f := &fakeAPI{}
+	f.listen(t, n.apiSocket())
+	require.Error(t, n.driver.Boot(context.Background(), "m1"), "control: nothing described, nothing to boot")
+
+	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
+	require.NoError(t, err)
+	require.NoError(t, n.driver.Boot(context.Background(), "m1"))
+	_, err = os.Stat(filepath.Join(n.run, "boot.json"))
+	require.NoError(t, err, "the description is in the run directory")
 }
 
 func TestBoot_GivesUpWhenTheContextEndsBeforeTheSocketExists(t *testing.T) {
@@ -245,7 +298,52 @@ func TestShutdown_WithNoGraceOnlyAsks(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{}
 	n.booted(f)
+	before := len(f.seen())
 	start := time.Now()
 	require.NoError(t, n.driver.Shutdown(context.Background(), "m1", 0))
 	assert.Less(t, time.Since(start), time.Second)
+
+	seen := f.seen()[before:]
+	require.Len(t, seen, 1, "it asked, once")
+	assert.Equal(t, "PUT", seen[0].Method)
+	assert.Equal(t, "/actions", seen[0].Path)
+	assert.JSONEq(t, `{"action_type":"SendCtrlAltDel"}`, seen[0].Body)
+}
+
+// afterTheAction runs end once Firecracker has been sent an action.
+func afterTheAction(f *fakeAPI, end func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answer = func(r request) (int, string) {
+		if r.Path == "/actions" {
+			go func() { time.Sleep(100 * time.Millisecond); end() }()
+		}
+		return http.StatusNoContent, ""
+	}
+}
+
+func TestShutdown_ASocketLeftWithNothingListeningMeansTheVMMHasEnded(t *testing.T) {
+	onX86(t)
+	n := newNode(t)
+	f := &fakeAPI{}
+	n.booted(f)
+	afterTheAction(f, f.stopLeavingTheSocket)
+	require.NoError(t, n.driver.Shutdown(context.Background(), "m1", 5*time.Second), "ECONNREFUSED")
+}
+
+func TestShutdown_AnyOtherFailureToReachTheSocketIsReportedNotTakenForAnEnd(t *testing.T) {
+	onX86(t)
+	n := newNode(t)
+	f := &fakeAPI{}
+	n.booted(f)
+	// The run directory becomes a file, so the socket's path fails with ENOTDIR.
+	afterTheAction(f, func() {
+		f.stop()
+		_ = os.RemoveAll(n.run)
+		_ = os.WriteFile(n.run, nil, 0o600)
+	})
+	err := n.driver.Shutdown(context.Background(), "m1", 5*time.Second)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, syscall.ENOTDIR)
+	assert.NotContains(t, err.Error(), "did not stop")
 }

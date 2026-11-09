@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -45,27 +47,38 @@ func bootArgs(goarch string) string {
 	return args
 }
 
-// digest returns the SHA-256 of the file, in hex.
-func digest(path string) (string, error) {
+// hashChunk is how much of a file is hashed between looks at the context.
+const hashChunk = 1 << 20
+
+// digest returns the SHA-256 of the file, in hex, and stops with the context's
+// error once the context ends.
+func digest(ctx context.Context, path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if _, err := io.CopyN(h, f, hashChunk); err != nil {
+			if errors.Is(err, io.EOF) {
+				return hex.EncodeToString(h.Sum(nil)), nil
+			}
+			return "", err
+		}
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // verify refuses a binary or a kernel that is not the one the node pinned.
-func verify(cfg Config) error {
+func verify(ctx context.Context, cfg Config) error {
 	for _, f := range []struct{ name, path, want string }{
 		{"binary", cfg.Binary, cfg.BinarySHA256},
 		{"kernel", cfg.Kernel, cfg.KernelSHA256},
 	} {
-		got, err := digest(f.path)
+		got, err := digest(ctx, f.path)
 		if err != nil {
 			return fmt.Errorf("check the firecracker %s: %w", f.name, err)
 		}
@@ -79,9 +92,10 @@ func verify(cfg Config) error {
 	return nil
 }
 
-// Describe implements machine.Driver. It checks the pinned inputs, keeps the
-// boot description for Boot, and states the process and what it needs open.
-func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
+// Describe implements machine.Driver. It checks the pinned inputs, writes the
+// boot description into the run directory for Boot, and states the process and
+// what it needs open.
+func (d *Driver) Describe(ctx context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
@@ -91,13 +105,12 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 			return machine.ProcessDescription{}, fmt.Errorf("the socket path %q is %d bytes, over the %d a Unix socket holds", p, len(p), maxSocketPath)
 		}
 	}
-	if err := verify(d.cfg); err != nil {
+	if err := verify(ctx, d.cfg); err != nil {
 		return machine.ProcessDescription{}, err
 	}
-
-	d.mu.Lock()
-	d.specs[id] = spec
-	d.mu.Unlock()
+	if err := writeBootDescription(spec); err != nil {
+		return machine.ProcessDescription{}, err
+	}
 
 	boot := []machine.BlockDevice{
 		{Path: d.cfg.Kernel, ReadOnly: true},
@@ -130,9 +143,51 @@ func cpuReadFiles(goarch string) []string {
 	return []string{"/sys/devices/system/cpu/cpu0/cache", "/sys/devices/system/cpu/cpu0/regs/identification/midr_el1"}
 }
 
-// validate refuses what v1.17.0 would, before a process exists for it.
+// bootFileName is the boot description in the run directory. It is written by
+// the host, root-owned and unreadable to the VMM's user, and it lives and goes
+// with the run directory, so it outlives neither the run nor a daemon restart.
+const bootFileName = "boot.json"
+
+func writeBootDescription(spec machine.BootSpec) error {
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return fmt.Errorf("encode the boot description: %w", err)
+	}
+	if err := os.MkdirAll(spec.RunDir, 0o700); err != nil {
+		return fmt.Errorf("create the run directory: %w", err)
+	}
+	final := filepath.Join(spec.RunDir, bootFileName)
+	tmp := final + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return fmt.Errorf("write the boot description: %w", err)
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		return fmt.Errorf("write the boot description: %w", err)
+	}
+	return nil
+}
+
+func readBootDescription(runDir string) (machine.BootSpec, error) {
+	raw, err := os.ReadFile(filepath.Join(runDir, bootFileName))
+	if err != nil {
+		return machine.BootSpec{}, fmt.Errorf("read the boot description Describe wrote: %w", err)
+	}
+	var spec machine.BootSpec
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return machine.BootSpec{}, fmt.Errorf("decode the boot description: %w", err)
+	}
+	return spec, nil
+}
+
+// maxTapName is the longest interface name Linux holds: IFNAMSIZ less the NUL.
+const maxTapName = 15
+
+// validate refuses what v1.17.0 or the kernel would, before a process exists
+// for it.
 func validate(spec machine.BootSpec) error {
 	switch {
+	case len(spec.Network.Tap) > maxTapName:
+		return fmt.Errorf("the tap name %q is %d bytes, over the %d an interface name holds", spec.Network.Tap, len(spec.Network.Tap), maxTapName)
 	case !filepath.IsAbs(spec.RunDir):
 		return fmt.Errorf("the run directory %q is not an absolute path", spec.RunDir)
 	case spec.Resources.VCPUs < 1 || spec.Resources.VCPUs > maxVCPUs:

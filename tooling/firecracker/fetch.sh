@@ -5,6 +5,9 @@
 # `make test-firecracker`; the digests below are the ones its release publishes, checked against
 # the files as downloaded. The host supplies bash, curl, tar, zstd and sha256sum.
 #
+# Moved by: the PM, who reviews these pins monthly against both projects' releases and security
+# advisories, and at once when an advisory names a pinned version (driver.md). No bot proposes it.
+#
 # Usage: fetch.sh <output-dir>
 # <output-dir> receives firecracker, vmlinux and inputs.env, which names both with the digests
 # pinned here and not the ones read back from the files, so a test that checks a file against

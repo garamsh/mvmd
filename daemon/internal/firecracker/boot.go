@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -14,12 +15,13 @@ import (
 // Boot implements machine.Driver: it configures the started VMM from the boot
 // description Describe kept, and starts the guest.
 func (d *Driver) Boot(ctx context.Context, id machine.MachineID) error {
-	d.mu.Lock()
-	spec, ok := d.specs[id]
-	delete(d.specs, id)
-	d.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("Machine %q was not described", id)
+	dir, err := d.cfg.Dirs.RunDir(id)
+	if err != nil {
+		return err
+	}
+	spec, err := readBootDescription(dir)
+	if err != nil {
+		return fmt.Errorf("Machine %q: %w", id, err)
 	}
 	sock, err := d.socket(id, apiSocketName)
 	if err != nil {
@@ -122,10 +124,14 @@ func (d *Driver) Shutdown(ctx context.Context, id machine.MachineID, grace time.
 	for {
 		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", sock)
 		if err != nil {
-			if ctx.Err() == nil {
-				return nil // refused: the VMM has ended
+			switch {
+			case ctx.Err() != nil:
+				return fmt.Errorf("the guest did not stop within %s: %w", grace, errors.Join(ctx.Err(), err))
+			case errors.Is(err, syscall.ENOENT), errors.Is(err, syscall.ECONNREFUSED):
+				return nil // no socket, or none listening: the VMM has ended
+			default:
+				return fmt.Errorf("cannot tell whether the VMM has ended: %w", err)
 			}
-			return fmt.Errorf("the guest did not stop within %s: %w", grace, errors.Join(ctx.Err(), err))
 		}
 		_ = conn.Close()
 		select {
