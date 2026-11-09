@@ -27,10 +27,14 @@ if [ "$$p" -eq 0 ]; then echo "$@: $$dir: no packages" >&2; exit 1; fi
 endef
 
 # The Rust workspaces every check covers, each a directory holding a virtual manifest, and the
-# binary crates of them that ship, built for the static musl target.
-RUST_WORKSPACES := guest-agent
-RUST_BINARIES := guest-agent
+# binary crates of them that ship, as workspace:crate, built for the static musl target.
+RUST_WORKSPACES := guest-agent imageconv
+RUST_BINARIES := guest-agent:guest-agent imageconv:imageconv
 RUST_TARGET := $(shell uname -m)-unknown-linux-musl
+# The pinned erofs-utils tools, built by imageconv/mkfs-erofs/build.sh. mkfs.erofs goes into the
+# converter's initrd; the tests read what it writes with fsck.erofs.
+EROFS_UTILS := imageconv/target/erofs-utils
+EROFS_UTILS_BUILD := imageconv/target/erofs-utils-build
 # A RUSTFLAGS that caps lints would let a denied lint pass, so no cargo call inherits one.
 CARGO = env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo
 
@@ -81,42 +85,64 @@ format-apply:
 	$(call each_module, (cd "$$dir" && git ls-files --cached --others --exclude-standard -z -- '*.go' | xargs -0 gofmt -w))
 	$(call each_rust, $(CARGO) fmt --all)
 
-test:
+# erofs-utils builds mkfs.erofs and fsck.erofs, statically linked, from pinned sources. The script
+# builds each twice and fails unless the two are identical; it skips the work when its pins are
+# unchanged since the last build, and `rebuild` forces it.
+.PHONY: erofs-utils rebuild-erofs-utils
+erofs-utils:
+	@imageconv/mkfs-erofs/build.sh $(EROFS_UTILS_BUILD) $(EROFS_UTILS)
+
+rebuild-erofs-utils:
+	@imageconv/mkfs-erofs/build.sh $(EROFS_UTILS_BUILD) $(EROFS_UTILS) --rebuild
+
+# The converter's tests convert with the pinned mkfs.erofs and read the result with fsck.erofs.
+test: export MKFS_EROFS := $(CURDIR)/$(EROFS_UTILS)/mkfs.erofs
+test: export FSCK_EROFS := $(CURDIR)/$(EROFS_UTILS)/fsck.erofs
+test: erofs-utils
 	$(call each_rust, $(count_members); $(CARGO) test --workspace --locked)
 	$(call each_module, $(count_packages); (cd "$$dir" && go test -v ./...))
 
-build:
+build: rebuild-erofs-utils
 	$(call each_module, $(count_packages); (cd "$$dir" && go build ./...))
 	$(call each_rust, $(count_members); $(CARGO) build --workspace --locked; \
-	  for bin in $(RUST_BINARIES); do \
-	    $(CARGO) build --release --locked --target $(RUST_TARGET) -p "$$bin"; \
-	    echo "$@: $$ws: built $$bin for $(RUST_TARGET)"; \
+	  for pair in $(RUST_BINARIES); do \
+	    if [ "$${pair%%:*}" = "$$ws" ]; then \
+	      bin="$${pair#*:}"; \
+	      $(CARGO) build --release --locked --target $(RUST_TARGET) -p "$$bin"; \
+	      echo "$@: $$ws: built $$bin for $(RUST_TARGET)"; \
+	    fi; \
 	  done)
-	$(initrd_twice)
+	$(call initrd_twice,guest-agent,)
+	$(call initrd_twice,imageconv,"$$workspace/target/erofs-utils/mkfs.erofs")
 
-# The Guest Agent's initrd is part of build: it is written to guest-agent/target/initrd.cpio and
-# its digest printed. The agent is built a second time in a fresh target directory, and build fails
-# unless that build gives the same digest: the initrd is reproducible. The workspace, Cargo's home and the
+# Each initrd is part of build: it is written to <workspace>/target/initrd.cpio and its digest
+# printed. The binary is built a second time in a fresh target directory, and build fails unless
+# that build gives the same digest: the initrd is reproducible. The workspace, Cargo's home and the
 # target directory are remapped to fixed names, so no path of the machine that builds is in the
-# binary, and the digest does not depend on where the checkout is.
+# binary, and the digest does not depend on where the checkout is. The converter's initrd also
+# holds the pinned mkfs.erofs, which build.sh has built twice and compared.
+# build_initrd takes the target directory, the output, the build's number, the crate and the
+# files the initrd holds beside the crate's binary.
 define build_initrd
-CARGO_TARGET_DIR="$(1)" $(CARGO) build --release --locked --target $(RUST_TARGET) -p guest-agent \
+CARGO_TARGET_DIR="$(1)" $(CARGO) build --release --locked --target $(RUST_TARGET) -p $(4) \
   --config "build.rustflags=[\"--remap-path-prefix=$$workspace=/build\", \"--remap-path-prefix=$$cargo_home=/cargo\", \"--remap-path-prefix=$(1)=/build/target\"]"; \
-$(CARGO) run --locked --quiet -p mkinitrd -- "$(1)/$(RUST_TARGET)/release/guest-agent" "$(2)"; \
-echo "$@: build $(3): $$(sha256sum "$(2)" | cut -d' ' -f1)  $$(wc -c < "$(2)") bytes"
+$(CARGO) run --locked --quiet -p mkinitrd -- "$(1)/$(RUST_TARGET)/release/$(4)" $(5) "$(2)"; \
+echo "$@: $(4) build $(3): $$(sha256sum "$(2)" | cut -d' ' -f1)  $$(wc -c < "$(2)") bytes"
 endef
 
+# initrd_twice takes the crate, which names its workspace directory, and the files its initrd
+# holds beside its binary.
 define initrd_twice
 @set -e; \
-cd guest-agent; \
+cd $(1); \
 workspace=$$PWD; \
 cargo_home=$${CARGO_HOME:-$$HOME/.cargo}; \
 fresh=$$(mktemp -d); \
 trap 'rm -rf "$$fresh"' EXIT; \
-$(call build_initrd,$$workspace/target,target/initrd.cpio,1); \
-$(call build_initrd,$$fresh/target,$$fresh/initrd.cpio,2); \
-if ! cmp -s target/initrd.cpio "$$fresh/initrd.cpio"; then echo "$@: the two initrd builds differ" >&2; exit 1; fi; \
-echo "$@: both initrd builds give $$(sha256sum target/initrd.cpio | cut -d' ' -f1)"
+$(call build_initrd,$$workspace/target,target/initrd.cpio,1,$(1),$(2)); \
+$(call build_initrd,$$fresh/target,$$fresh/initrd.cpio,2,$(1),$(2)); \
+if ! cmp -s target/initrd.cpio "$$fresh/initrd.cpio"; then echo "$@: the two $(1) initrd builds differ" >&2; exit 1; fi; \
+echo "$@: both $(1) initrd builds give $$(sha256sum target/initrd.cpio | cut -d' ' -f1)"
 endef
 
 # audit checks each Rust workspace's dependencies against the RustSec advisories and its sources.

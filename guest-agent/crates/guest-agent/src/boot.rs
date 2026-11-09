@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 use crate::description::{BootDescription, CatchUp, NetworkConfig};
-use crate::error::{BootStep, Error};
+use crate::error::{BootStep, Error, Unbooted};
 use crate::exec::Execs;
 use crate::system::System;
 use crate::uuid::Filesystem;
@@ -100,13 +100,28 @@ impl Boot {
     pub(crate) fn ready(&self) -> Result<(), Error> {
         match &*self.phase.borrow() {
             Phase::Disabled | Phase::Booted(_) => Ok(()),
-            Phase::Pending | Phase::Booting => Err(Error::PreconditionFailed(
-                "the guest has not booted: Boot has not succeeded".into(),
-            )),
-            Phase::Failed(Failure { step, detail }) => Err(Error::PreconditionFailed(format!(
-                "the guest did not boot: boot step {step}: {detail}"
-            ))),
+            Phase::Pending | Phase::Booting => Err(Error::NotBooted {
+                state: Unbooted::Pending,
+                reason: "the guest has not booted: Boot has not succeeded".into(),
+            }),
+            Phase::Failed(Failure { step, detail }) => Err(Error::NotBooted {
+                state: Unbooted::Failed,
+                reason: format!("the guest did not boot: boot step {step}: {detail}"),
+            }),
         }
+    }
+
+    /// The refusal of a call that needs a booted guest, or `None` when the guest has booted.
+    fn unbooted(&self, reason: &str) -> Option<Error> {
+        let state = match &*self.phase.borrow() {
+            Phase::Booted(_) => return None,
+            Phase::Failed(_) => Unbooted::Failed,
+            Phase::Disabled | Phase::Pending | Phase::Booting => Unbooted::Pending,
+        };
+        Some(Error::NotBooted {
+            state,
+            reason: reason.into(),
+        })
     }
 
     /// Resolves once every step has succeeded; never, if one fails.
@@ -177,10 +192,10 @@ impl Boot {
                 "this agent does not boot the guest".into(),
             ));
         };
-        if !matches!(&*self.phase.borrow(), Phase::Booted(_)) {
-            return Err(Error::PreconditionFailed(
-                "the network is configured by Boot, which has not succeeded".into(),
-            ));
+        if let Some(refusal) =
+            self.unbooted("the network is configured by Boot, which has not succeeded")
+        {
+            return Err(refusal);
         }
         let network = system.network.clone();
         Ok(blocking(BootStep::Network, move || network.apply(&config)).await?)
@@ -197,10 +212,8 @@ impl Boot {
                 "this agent does not boot the guest".into(),
             ));
         };
-        if !matches!(&*self.phase.borrow(), Phase::Booted(_)) {
-            return Err(Error::PreconditionFailed(
-                "the guest has not booted: Boot has not succeeded".into(),
-            ));
+        if let Some(refusal) = self.unbooted("the guest has not booted: Boot has not succeeded") {
+            return Err(refusal);
         }
         let mut last = self.last_restore.lock().await;
         if last.as_deref() == Some(request.restore_id.as_str()) {

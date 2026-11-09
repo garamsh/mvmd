@@ -13,9 +13,23 @@ pub enum Error {
     #[error("invalid request: {0}")]
     Invalid(String),
 
-    /// An offset names output the agent no longer holds; the message names the earliest it holds.
-    #[error("out of range: {0}")]
-    OutOfRange(String),
+    /// A path names a file of the wrong kind for the call.
+    #[error("invalid request: {path} is {}", .expected.wrong_kind())]
+    WrongKind {
+        /// The path the request named.
+        path: String,
+        /// The kind the call needs.
+        expected: Expected,
+    },
+
+    /// An offset names output the agent no longer holds.
+    #[error(
+        "out of range: output before offset {earliest_offset} is no longer held; the earliest held offset is {earliest_offset}"
+    )]
+    OutOfRange {
+        /// The offset of the earliest byte still held.
+        earliest_offset: u64,
+    },
 
     /// The path or the exec ID names nothing.
     #[error("not found: {0}")]
@@ -28,6 +42,15 @@ pub enum Error {
     /// The state the operation requires does not hold, and nothing changed.
     #[error("precondition failed: {0}")]
     PreconditionFailed(String),
+
+    /// The call needs a guest that has booted, and it has not.
+    #[error("precondition failed: {reason}")]
+    NotBooted {
+        /// Whether the boot is yet to settle or has failed.
+        state: Unbooted,
+        /// Why the call is refused, as text for people.
+        reason: String,
+    },
 
     /// Content received does not match the digest that came with it.
     #[error("digest mismatch: {0}")]
@@ -54,6 +77,34 @@ pub enum Error {
     /// The server stopped serving.
     #[error("serving failed: {0}")]
     Serve(Box<dyn std::error::Error + Send + Sync>),
+}
+
+/// The kind of file a call needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Expected {
+    /// A regular file.
+    File,
+    /// A directory.
+    Directory,
+}
+
+impl Expected {
+    /// What the path is instead, for the message.
+    fn wrong_kind(self) -> &'static str {
+        match self {
+            Self::File => "not a regular file",
+            Self::Directory => "not a directory",
+        }
+    }
+}
+
+/// How a guest that has not booted stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unbooted {
+    /// `Boot` has not been called, or its steps are still running.
+    Pending,
+    /// A step failed.
+    Failed,
 }
 
 /// A step of the boot, in the order the agent takes them.
@@ -95,9 +146,14 @@ impl Error {
         match source.kind() {
             io::ErrorKind::NotFound => Self::NotFound(path.display().to_string()),
             io::ErrorKind::PermissionDenied => Self::PermissionDenied(path.display().to_string()),
-            io::ErrorKind::NotADirectory | io::ErrorKind::IsADirectory => {
-                Self::Invalid(format!("{} is the wrong kind of file", path.display()))
-            }
+            io::ErrorKind::NotADirectory => Self::WrongKind {
+                path: path.display().to_string(),
+                expected: Expected::Directory,
+            },
+            io::ErrorKind::IsADirectory => Self::WrongKind {
+                path: path.display().to_string(),
+                expected: Expected::File,
+            },
             _ => Self::Io {
                 context: format!("{context} {}", path.display()),
                 source,

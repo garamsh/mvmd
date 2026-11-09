@@ -17,10 +17,14 @@ updates:
         patterns:
           - google.golang.org/protobuf
   - package-ecosystem: cargo
-    directory: /guest-agent
+    directories:
+      - /guest-agent
+      - /imageconv
     schedule:
       interval: weekly
   - package-ecosystem: rust-toolchain
-    directory: /guest-agent
+    directories:
+      - /guest-agent
+      - /imageconv
     schedule:
       interval: weekly
