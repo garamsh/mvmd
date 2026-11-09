@@ -71,6 +71,19 @@ func (e *OutputGoneError) Error() string {
 	return fmt.Sprintf("the output before offset %d is no longer held; resume from %d", e.Earliest, e.Earliest)
 }
 
+// BootStepError is what Guest.Boot returns when the agent answered and one
+// step of the boot failed. The guest stays up, refusing every call but a
+// repeat of Boot (guest.md), so it is a different outcome from a call that did
+// not reach the agent.
+type BootStepError struct {
+	Step   string
+	Detail string
+}
+
+func (e *BootStepError) Error() string {
+	return fmt.Sprintf("guest boot step %q failed: %s", e.Step, e.Detail)
+}
+
 // PatchOutcome is what a patch did.
 type PatchOutcome int
 

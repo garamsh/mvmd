@@ -162,7 +162,8 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
 		return fail(ErrFailed, "name the run directory: %v", err)
 	}
-	if boot.Devices, err = s.bootDevices(ctx, m); err != nil {
+	var located LocatedImage
+	if boot.Devices, located, err = s.bootDevices(ctx, m); err != nil {
 		return err
 	}
 	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
@@ -180,6 +181,14 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err := s.driver.Boot(ctx, id); err != nil {
 		return s.bootFailed(ctx, rec, err)
 	}
+	// The guest waits for this description before it does anything else, and
+	// Boot returns when the entrypoint runs, so nothing is Running before then.
+	// The Machine's lock is held meanwhile, so a repeated Start waits for the
+	// outcome of this one.
+	description := GuestBoot{ImageUUID: located.UUID, RootDiskUUID: m.RootDiskUUID, Run: located.Run, Network: m.Network.guestNetwork()}
+	if err := s.bootGuest(ctx, id, description); err != nil {
+		return s.bootFailed(ctx, rec, err)
+	}
 
 	next := m.clone()
 	next.State = StateRunning
@@ -188,6 +197,29 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		return s.unrecorded(rec, err)
 	}
 	return nil
+}
+
+// bootGuest sends the boot description and waits for the entrypoint to run, for
+// at most the node's boot timeout. The bound is the lifecycle's own: it holds
+// when the caller's context never ends and when the Guest adapter ignores the
+// context it is given, and a caller that gives up does not cancel the boot,
+// since an accepted call completes or fails into its defined state.
+func (s *service) bootGuest(ctx context.Context, id MachineID, description GuestBoot) error {
+	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.guest.Boot(bootCtx, id, description) }()
+	timer := time.NewTimer(s.bootTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("send the boot description to the guest: %w", err)
+		}
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("the guest did not finish booting within %s", s.bootTimeout)
+	}
 }
 
 // withdrawn removes the network a start applied before it failed, with no VMM
@@ -201,22 +233,23 @@ func (s *service) withdrawn(ctx context.Context, id MachineID, failure *Error) e
 }
 
 // bootDevices lists a Machine's block devices in boot order: its image
-// read-only, its root disk, then its attached disks.
-func (s *service) bootDevices(ctx context.Context, m Machine) ([]BlockDevice, error) {
-	path, err := s.images.Locate(ctx, m.Image)
+// read-only, its root disk, then its attached disks. It returns the image as
+// the node holds it, whose UUID and run configuration the guest is told.
+func (s *service) bootDevices(ctx context.Context, m Machine) ([]BlockDevice, LocatedImage, error) {
+	located, err := s.images.Locate(ctx, m.Image)
 	if err != nil {
-		return nil, locateFailure(err, ErrImageAbsent, "image %s", m.Image)
+		return nil, LocatedImage{}, locateFailure(err, ErrImageAbsent, "image %s", m.Image)
 	}
-	devices := []BlockDevice{{Path: path, ReadOnly: true}}
+	devices := []BlockDevice{{Path: located.Path, ReadOnly: true}}
 	attached := append([]DiskAttachment{{Disk: m.RootDisk}}, m.Disks...)
 	for _, a := range attached {
 		path, err := s.disks.Locate(ctx, a.Disk)
 		if err != nil {
-			return nil, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
+			return nil, LocatedImage{}, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
 		}
 		devices = append(devices, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly})
 	}
-	return devices, nil
+	return devices, located, nil
 }
 
 func locateFailure(err, absent error, what string, args ...any) error {

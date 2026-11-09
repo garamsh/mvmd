@@ -29,7 +29,7 @@ type Guest struct {
 	special   map[machine.MachineID]map[string]bool
 	execs     map[machine.ExecID]*guestExec
 	catchUps  map[machine.MachineID][]machine.CatchUp
-	boots     map[machine.MachineID]machine.GuestBoot
+	boots     map[machine.MachineID][]machine.GuestBoot
 	refused   map[machine.ExecID]string
 	loseExec  bool
 	retention int
@@ -50,7 +50,7 @@ func NewGuest(retention int) *Guest {
 		special:   make(map[machine.MachineID]map[string]bool),
 		execs:     make(map[machine.ExecID]*guestExec),
 		catchUps:  make(map[machine.MachineID][]machine.CatchUp),
-		boots:     make(map[machine.MachineID]machine.GuestBoot),
+		boots:     make(map[machine.MachineID][]machine.GuestBoot),
 		refused:   make(map[machine.ExecID]string),
 		retention: retention,
 	}
@@ -83,15 +83,33 @@ func (g *Guest) enter(step string) error {
 // Health implements machine.Guest.
 func (g *Guest) Health(_ context.Context, _ machine.MachineID) error { return g.enter("health") }
 
-// Boot implements machine.Guest.
-func (g *Guest) Boot(_ context.Context, id machine.MachineID, boot machine.GuestBoot) error {
-	if err := g.enter("boot"); err != nil {
-		return err
+// Boot implements machine.Guest. A step failed with a *machine.BootStepError
+// is the agent answering that a boot step failed, and is returned as it is.
+func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.GuestBoot) error {
+	if err := g.Enter("boot"); err != nil {
+		var step *machine.BootStepError
+		if errors.As(err, &step) {
+			return err
+		}
+		return errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	// A call whose context has ended did not reach the guest, as the real
+	// channel's would not.
+	if err := ctx.Err(); err != nil {
+		return errors.Join(machine.ErrGuestUnreachable, err)
 	}
 	g.mu.Lock()
-	g.boots[id] = boot
+	g.boots[id] = append(g.boots[id], boot)
 	g.mu.Unlock()
 	return nil
+}
+
+// Boots returns the boot descriptions the guest of the Machine was sent, in
+// order.
+func (g *Guest) Boots(id machine.MachineID) []machine.GuestBoot {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.boots[id])
 }
 
 // CatchUp implements machine.Guest.

@@ -18,6 +18,10 @@ func networkConfig(section string) string {
 	return `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"network":` + section + `}`
 }
 
+func bootTimeoutConfig(d string) string {
+	return `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"boot_timeout":"` + d + `"}`
+}
+
 func TestConfig_Parses(t *testing.T) {
 	cfg, err := app.ParseConfig([]byte(goodConfig))
 	require.NoError(t, err)
@@ -49,6 +53,14 @@ func TestConfig_Parses(t *testing.T) {
 		assert.NotNil(t, withNetwork.Network, section)
 	}
 
+	// Control for the boot timeout refusals: a duration within the bounds is
+	// accepted, the longest one included.
+	for _, d := range []string{"1ms", "90s", "1h"} {
+		withTimeout, err := app.ParseConfig([]byte(bootTimeoutConfig(d)))
+		require.NoError(t, err, d)
+		assert.Equal(t, d, withTimeout.BootTimeout)
+	}
+
 	path := filepath.Join(t.TempDir(), "mvmd.json")
 	require.NoError(t, os.WriteFile(path, []byte(goodConfig), 0o600))
 	loaded, err := app.LoadConfig(path)
@@ -76,6 +88,11 @@ func TestConfig_Refuses(t *testing.T) {
 		{"a gateway outside the prefix", networkConfig(`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"192.0.2.1"}`), "not inside"},
 		{"an IPv6 prefix that does not parse", networkConfig(`{"ipv6_prefix":"fd77::"}`), "network.ipv6_prefix"},
 		{"a resolver that does not parse", networkConfig(`{"ipv6_prefix":"fd77::/64","resolvers":["dns"]}`), "network.resolvers"},
+		{"a boot timeout that is not a duration", bootTimeoutConfig("soon"), "boot_timeout"},
+		{"a boot timeout without a unit", bootTimeoutConfig("90"), "boot_timeout"},
+		{"a boot timeout of zero", bootTimeoutConfig("0s"), "boot_timeout"},
+		{"a negative boot timeout", bootTimeoutConfig("-1s"), "boot_timeout"},
+		{"a boot timeout above the maximum", bootTimeoutConfig("61m"), "boot_timeout"},
 		{"trailing data", goodConfig + `{}`, "trailing"},
 		{"not JSON", `socket: /s`, "parse"},
 	}
