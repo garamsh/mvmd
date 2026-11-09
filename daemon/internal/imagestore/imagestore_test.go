@@ -262,7 +262,7 @@ func TestStore_PublishFailureAtEachStepLeavesTheOldIndexOrTheNew(t *testing.T) {
 			_, errB := s.Locate(ctx, imageB)
 			if step == "sync-dir" {
 				assert.NotEqual(t, old, current, "the rename was done, so the new index is in place")
-				assert.NoError(t, errB)
+				assert.NoError(t, errB, "Publish returned an error with the image visible, so image.Store leaves the caller to ask Locate")
 			} else {
 				assert.Equal(t, old, current, "nothing before the rename touches index.json")
 				assert.ErrorIs(t, errB, machine.ErrImageAbsent)

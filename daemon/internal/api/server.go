@@ -14,6 +14,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
+	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
 )
@@ -26,6 +27,7 @@ type Server struct {
 	v1alpha1.UnimplementedRuntimeServiceServer
 	machines machine.Service
 	deadline fencing.Service
+	images   image.Service
 	drivers  []machine.DriverInfo
 	events   events.Service
 	// stopping ends the event streams when Stop is called: a stream has no
@@ -34,11 +36,11 @@ type Server struct {
 	stop     context.CancelFunc
 }
 
-// New returns the server over the lifecycle, the deadline and the event log,
-// reporting the given Drivers in runtime info.
-func New(machines machine.Service, deadline fencing.Service, drivers []machine.DriverInfo, log events.Service) *Server {
+// New returns the server over the lifecycle, the deadline, the image pull use
+// case and the event log, reporting the given Drivers in runtime info.
+func New(machines machine.Service, deadline fencing.Service, images image.Service, drivers []machine.DriverInfo, log events.Service) *Server {
 	stopping, stop := context.WithCancel(context.Background())
-	return &Server{machines: machines, deadline: deadline, drivers: drivers, events: log, stopping: stopping, stop: stop}
+	return &Server{machines: machines, deadline: deadline, images: images, drivers: drivers, events: log, stopping: stopping, stop: stop}
 }
 
 // Stop ends every event stream, so the gRPC server can stop gracefully.

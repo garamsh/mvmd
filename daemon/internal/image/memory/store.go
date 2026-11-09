@@ -15,7 +15,9 @@ import (
 )
 
 // Store is an in-memory image.Store. Its steps are "locate", "stage",
-// "put-layer", "seal", "record", "publish", "discard" and "sweep". It holds
+// "put-layer", "seal", "record", "publish", "publish-sync", "discard" and
+// "sweep"; "publish-sync" fails after the index was replaced, as the final
+// sync of the adapter can. It holds
 // the protocol of ADR 0007: a call out of order is an error, an image is
 // listed only by a Publish that succeeded, and a Publish that fails has moved
 // its blobs and left them unreferenced.
@@ -181,10 +183,12 @@ func (s *Store) Publish(_ context.Context, staging image.Staging) error {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.listed[st.image] = record
 	s.reached[st.image] = names
-	return nil
+	s.mu.Unlock()
+	// The image is listed; an error from here on is a Publish that failed
+	// with the image visible.
+	return s.Enter("publish-sync")
 }
 
 // Discard implements image.Store.

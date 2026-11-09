@@ -28,6 +28,7 @@ import (
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
+	imagememory "github.com/garamsh/mvmd/daemon/internal/image/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
@@ -46,15 +47,24 @@ func (wallClock) Now() time.Time { return time.Now() }
 // configuration selects the memory driver, so that what a Machine needs on the
 // node can be provided: images and disks. Supervisors is nil when the
 // configuration names real supervision, and Driver and Guest are nil when it
-// names the Firecracker Driver.
+// names the Firecracker Driver. Images, the Registry, the Converter, the Cache
+// and the conversion Driver and Supervision are nil under it too: they are the
+// real adapters then. Images is what a Machine's start locates an image in and
+// Cache is where a pull publishes, so under the memory driver a pulled image is
+// not one a Machine can boot; a test provides the one it boots.
 type Substitutes struct {
-	Driver      *machinememory.Driver
-	Network     *machinememory.Network
-	Disks       *machinememory.Disk
-	Images      *machinememory.ImageStore
-	Snapshots   *machinememory.SnapshotStore
-	Guest       *machinememory.Guest
-	Supervisors *fencingmemory.Supervisors
+	Driver                *machinememory.Driver
+	Network               *machinememory.Network
+	Disks                 *machinememory.Disk
+	Images                *machinememory.ImageStore
+	Snapshots             *machinememory.SnapshotStore
+	Guest                 *machinememory.Guest
+	Supervisors           *fencingmemory.Supervisors
+	Registry              *imagememory.Registry
+	Converter             *imagememory.Converter
+	Cache                 *imagememory.Store
+	ConversionDriver      *machinememory.Driver
+	ConversionSupervision *machinememory.Supervision
 }
 
 // App is the wired daemon.
@@ -63,6 +73,7 @@ type App struct {
 	db          *boltstore.DB
 	machines    machine.Service
 	deadline    fencing.Service
+	images      images
 	server      *api.Server
 	Substitutes *Substitutes
 
@@ -83,6 +94,10 @@ func New(cfg Config) (*App, error) {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
 	callTimeout, err := cfg.callTimeout()
+	if err != nil {
+		return nil, fmt.Errorf("configuration: %w", err)
+	}
+	pullTimeout, err := cfg.pullTimeout()
 	if err != nil {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
@@ -146,16 +161,36 @@ func New(cfg Config) (*App, error) {
 		driver, guest = d, channel.NewGuest(d)
 		sub.Driver, sub.Guest = nil, nil
 	}
+	// The one allocator of VMM users: the lifecycle's Machines and the
+	// conversions of pulls draw from it, so they never share a user.
+	uids := machine.NewUIDs(cfg.VMMUIDRange.ToUIDRange())
+	// Images: the real Registry, converter channel and Image Store replace the
+	// substitutes under the Firecracker Driver, and the Image Store is what the
+	// lifecycle locates an image in.
+	var imgs images
+	var located machine.ImageStore = sub.Images
+	if cfg.Conversion != nil {
+		var store machine.ImageStore
+		imgs, store, err = realImages(cfg, clock, uids, pullTimeout)
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		located, sub.Images = store, nil
+	} else {
+		imgs = memoryImages(sub, uids, pullTimeout)
+	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, guest, wallClock{}, db.Machines(), deadline, machine.NewUIDs(cfg.VMMUIDRange.ToUIDRange()), log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
+	machines := machine.NewService(driver, deadline, network, sub.Disks, located, sub.Snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
 
 	return &App{
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
 		deadline:    deadline,
-		server:      api.New(machines, deadline, []machine.DriverInfo{driver.Info()}, log),
+		images:      imgs,
+		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, log),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil
@@ -165,15 +200,25 @@ func New(cfg Config) (*App, error) {
 // reconciliation.
 func (a *App) Ready() <-chan struct{} { return a.ready }
 
-// Serve restores the Machines from the state directory and reconciles the
-// fencing deadline against them, then serves the runtime API on the
+// Serve ends the converter VMs a previous mvmd left, sweeps the Image Store
+// (ADR 0007), restores the Machines from the state directory and reconciles
+// the fencing deadline against them, then serves the runtime API on the
 // socket until the context ends or the deadline's expiry loop fails. No call
-// is served before the reconciliation has finished: the socket does not exist
-// until then. It closes the database before it returns.
+// is served before all of that has finished: the socket does not exist until
+// then. It closes the database before it returns.
 func (a *App) Serve(ctx context.Context) error {
 	defer a.db.Close()
 	if a.beforeReconcile != nil {
 		a.beforeReconcile()
+	}
+	// The conversions go first: the sweep removes the staging area of one
+	// whose VMM has ended, and no pull is running, so none is mistaken for a
+	// leftover.
+	if err := a.images.reap(ctx); err != nil {
+		return fmt.Errorf("end the conversions of a previous mvmd: %w", err)
+	}
+	if err := a.images.service.Sweep(ctx); err != nil {
+		return fmt.Errorf("sweep the Image Store: %w", err)
 	}
 	if err := a.machines.Restore(ctx); err != nil {
 		return fmt.Errorf("restore the Machines: %w", err)

@@ -8,8 +8,8 @@ import (
 )
 
 // Store is the Image Store as a pull needs it, beside the Locate the
-// lifecycle uses. An image is visible exactly when Publish has returned for
-// it; no other call changes what Locate answers (ADR 0007).
+// lifecycle uses. An image becomes visible only in Publish, and no other call
+// changes what Locate answers (ADR 0007).
 type Store interface {
 	machine.ImageStore
 	// Stage opens the working area of a pull of the image, with its output
@@ -27,7 +27,9 @@ type Store interface {
 	Record(ctx context.Context, staging Staging, record Record) error
 	// Publish moves the staged blobs into the cache and then makes the image
 	// visible in one swap of the index. It follows Record, and the caller
-	// serializes its calls.
+	// serializes its calls. An error return does not say whether the image
+	// is visible: the swap of the index can have happened before a later
+	// step, the sync that makes it durable, failed. Locate says which.
 	Publish(ctx context.Context, staging Staging) error
 	// Discard removes the staging area. What Publish moved is left.
 	Discard(ctx context.Context, staging Staging) error

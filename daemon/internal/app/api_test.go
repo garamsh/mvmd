@@ -20,7 +20,6 @@ const (
 	notFound     = v1alpha1.OutcomeKind_OUTCOME_KIND_NOT_FOUND
 	conflict     = v1alpha1.OutcomeKind_OUTCOME_KIND_CONFLICT
 	precondition = v1alpha1.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED
-	unsupported  = v1alpha1.OutcomeKind_OUTCOME_KIND_UNSUPPORTED
 )
 
 func create(id string) *v1alpha1.CreateMachineRequest {
@@ -256,25 +255,4 @@ func TestAPI_ServerValidatesEveryRequest(t *testing.T) {
 	st, err := n.client.InspectDeadline(ctx, &v1alpha1.InspectDeadlineRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, v1alpha1.DeadlinePhase_DEADLINE_PHASE_NOT_ARMED, st.GetStatus().GetPhase(), "a rejected renewal arms nothing")
-}
-
-// A call the inside does not offer yet is UNSUPPORTED with a reason.
-func TestAPI_UnofferedCallsAreUnsupportedWithAReason(t *testing.T) {
-	ctx := context.Background()
-	n := start(t, testConfig(t))
-	c := n.client
-	pull := &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: "registry.example/app", Digest: digest}}
-
-	unary := map[string]func() error{
-		"PullImage": func() error { _, err := c.PullImage(ctx, pull); return err },
-	}
-	for name, call := range unary {
-		t.Run(name, func(t *testing.T) {
-			err := call()
-			requireKind(t, err, unsupported)
-			assert.Equal(t, codes.Unimplemented, status.Code(err))
-			assert.Contains(t, status.Convert(err).Message(), name)
-		})
-	}
-	assert.Len(t, unary, 1)
 }

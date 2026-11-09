@@ -114,6 +114,25 @@ func TestPull_FailedPublishLeavesUnreferencedBlobsTheSweepRemoves(t *testing.T) 
 	assert.Zero(t, r.store.Unreferenced())
 }
 
+// A Publish that fails after the swap of the index leaves the image visible,
+// and a pull that failed leaves nothing visible, so the pull succeeds; one that
+// fails before the swap fails (the control).
+func TestPull_PublishFailingAfterTheSwapIsSuccess(t *testing.T) {
+	after := newRig(t)
+	ref := after.add("one")
+	after.failAt("publish-sync", errors.New("sync failed"))
+
+	require.NoError(t, after.pull(ref))
+	after.requireListed(t, ref)
+
+	before := newRig(t)
+	ref = before.add("one")
+	before.failAt("publish", errors.New("injected"))
+
+	requireKind(t, before.pull(ref), machine.ErrFailed)
+	before.requireNothingVisible(t, ref)
+}
+
 // A staging area that cannot be removed after a failure is reported with it.
 func TestPull_FailureAndFailedCleanupAreBothReported(t *testing.T) {
 	r := newRig(t)
