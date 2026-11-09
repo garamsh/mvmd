@@ -392,7 +392,7 @@ func TestGet_DoesNotCallAnUnreadableRecordAbsent(t *testing.T) {
 			return os.WriteFile(filepath.Join(dir, "record.json"), []byte("{not json"), 0o600)
 		},
 		"another version": func(dir string) error {
-			return os.WriteFile(filepath.Join(dir, "record.json"), []byte(`{"version":99}`), 0o600)
+			return os.WriteFile(filepath.Join(dir, "record.json"), []byte(`{"version":99,"id":"a","state":[]}`), 0o600)
 		},
 		"a state name that leaves the directory": func(dir string) error {
 			return os.WriteFile(filepath.Join(dir, "record.json"), []byte(`{"version":1,"id":"a","state":["../../x"]}`), 0o600)
