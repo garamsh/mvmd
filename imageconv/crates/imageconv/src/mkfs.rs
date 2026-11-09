@@ -92,7 +92,6 @@ impl Mkfs {
                 "-T0",
                 "--mkfs-time",
                 "--tar=f",
-                "--aufs",
                 "--ovlfs-strip=1",
             ])
             .arg(format!("-U{}", run.uuid));
