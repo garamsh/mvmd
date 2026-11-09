@@ -25,6 +25,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
+	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
@@ -74,6 +75,10 @@ func New(cfg Config) (*App, error) {
 	if err := cfg.check(); err != nil {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
+	bootTimeout, err := cfg.bootTimeout()
+	if err != nil {
+		return nil, fmt.Errorf("configuration: %w", err)
+	}
 	clock, err := bootclock.New()
 	if err != nil {
 		return nil, err
@@ -96,6 +101,18 @@ func New(cfg Config) (*App, error) {
 		Guest:       machinememory.NewGuest(0),
 		Supervisors: fencingmemory.NewSupervisors(nil),
 	}
+	var network machine.Network = sub.Network
+	if n := cfg.Network; n != nil {
+		hc, err := n.toHostnet(cfg.VMMUIDRange)
+		if err == nil {
+			network, err = hostnet.New(hc)
+		}
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		sub.Network = nil
+	}
 	var supervisors fencing.Supervisors = sub.Supervisors
 	if s := cfg.Supervision; s != nil {
 		dir := s.Dir
@@ -111,7 +128,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(sub.Driver, deadline, sub.Network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log)
+	machines := machine.NewService(sub.Driver, deadline, network, sub.Disks, sub.Images, sub.Snapshots, sub.Guest, wallClock{}, db.Machines(), deadline, cfg.VMMUIDRange.ToUIDRange(), log, machine.WithBootTimeout(bootTimeout))
 
 	return &App{
 		cfg:         cfg,

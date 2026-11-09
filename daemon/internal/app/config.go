@@ -5,15 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
+	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
 // DriverMemory selects the in-memory Driver, Supervision, Network, Disk and
-// Image Store. The real adapters join the choice with their own issues.
+// Image Store. The real adapters join the choice with their own issues; the
+// ones that exist are selected by their own section of the configuration
+// (Supervision, Network), which replaces the substitute behind its port.
 const DriverMemory = "memory"
 
 // Config is mvmd's one configuration file.
@@ -30,6 +35,77 @@ type Config struct {
 	// Supervision, when set, starts a real mvmd-supervisor per Machine in place
 	// of the in-memory substitute.
 	Supervision *SupervisionConfig `json:"supervision,omitempty"`
+	// Network, when set, makes a real tap per Machine and one nftables table
+	// in place of the in-memory substitute. mvmd then needs CAP_NET_ADMIN.
+	Network *NetworkConfig `json:"network,omitempty"`
+	// BootTimeout is how long Start waits for a guest to finish booting, as a
+	// Go duration such as "90s". When it passes the VMM is ended and the
+	// Machine is Stopped. Empty means machine.DefaultBootTimeout (2m); it must
+	// be positive and at most MaxBootTimeout.
+	BootTimeout string `json:"boot_timeout,omitempty"`
+}
+
+// MaxBootTimeout is the longest boot timeout a node can name.
+const MaxBootTimeout = time.Hour
+
+// bootTimeout returns the configured bound, or the default when none is set.
+// check has already refused a value that does not parse.
+func (c Config) bootTimeout() (time.Duration, error) {
+	if c.BootTimeout == "" {
+		return machine.DefaultBootTimeout, nil
+	}
+	d, err := time.ParseDuration(c.BootTimeout)
+	switch {
+	case err != nil:
+		return 0, fmt.Errorf("boot_timeout %q is not a duration such as \"90s\"", c.BootTimeout)
+	case d <= 0 || d > MaxBootTimeout:
+		return 0, fmt.Errorf("boot_timeout %q is outside 1ns to %s", c.BootTimeout, MaxBootTimeout)
+	}
+	return d, nil
+}
+
+// NetworkConfig is what the node says about its network (ADR 0011). A node
+// serves the families it names a prefix for.
+type NetworkConfig struct {
+	// IPv4Prefix is the node's IPv4 prefix, such as "10.77.0.0/24"; empty
+	// means the node does not serve IPv4.
+	IPv4Prefix string `json:"ipv4_prefix"`
+	// IPv4Gateway is the host side of every tap, inside IPv4Prefix.
+	IPv4Gateway string `json:"ipv4_gateway"`
+	// IPv6Prefix is the node's IPv6 prefix, such as "fd77::/64"; empty means
+	// the node does not serve IPv6.
+	IPv6Prefix string `json:"ipv6_prefix"`
+	// Resolvers are the addresses the guest is told to resolve names with.
+	Resolvers []string `json:"resolvers"`
+}
+
+// toHostnet parses the node's network into the adapter's configuration.
+func (c NetworkConfig) toHostnet(uids VMMUIDRangeConfig) (hostnet.Config, error) {
+	out := hostnet.Config{VMMUIDRange: uids.ToUIDRange()}
+	var err error
+	if c.IPv4Prefix != "" {
+		if out.IPv4Prefix, err = netip.ParsePrefix(c.IPv4Prefix); err != nil {
+			return out, fmt.Errorf("network.ipv4_prefix: %w", err)
+		}
+		if out.IPv4Gateway, err = netip.ParseAddr(c.IPv4Gateway); err != nil {
+			return out, fmt.Errorf("network.ipv4_gateway: %w", err)
+		}
+	} else if c.IPv4Gateway != "" {
+		return out, fmt.Errorf("network.ipv4_gateway is set and network.ipv4_prefix is not")
+	}
+	if c.IPv6Prefix != "" {
+		if out.IPv6Prefix, err = netip.ParsePrefix(c.IPv6Prefix); err != nil {
+			return out, fmt.Errorf("network.ipv6_prefix: %w", err)
+		}
+	}
+	for _, r := range c.Resolvers {
+		a, err := netip.ParseAddr(r)
+		if err != nil {
+			return out, fmt.Errorf("network.resolvers: %w", err)
+		}
+		out.Resolvers = append(out.Resolvers, a)
+	}
+	return out, out.Validate()
 }
 
 // VMMUIDRangeConfig is the JSON-marshaled form of machine.UIDRange.
@@ -110,6 +186,14 @@ func (c Config) check() error {
 	}
 	if err := c.VMMUIDRange.ToUIDRange().Validate(); err != nil {
 		return fmt.Errorf("vmm_uid_range: %w", err)
+	}
+	if _, err := c.bootTimeout(); err != nil {
+		return err
+	}
+	if n := c.Network; n != nil {
+		if _, err := n.toHostnet(c.VMMUIDRange); err != nil {
+			return err
+		}
 	}
 	if s := c.Supervision; s != nil {
 		switch {
