@@ -20,7 +20,7 @@ func (e *env) reopened(t *testing.T) machine.Service {
 // reopenedWith is reopened with options.
 func (e *env) reopenedWith(t *testing.T, options ...machine.Option) machine.Service {
 	t.Helper()
-	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events, options...)
+	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, options...)
 	require.NoError(t, svc.Restore(context.Background()))
 	return svc
 }
@@ -104,7 +104,7 @@ func TestRestore_ANetworkThatCannotBeReconciledFailsTheRestore(t *testing.T) {
 	e.inState(t, "m", machine.StateRunning)
 	e.net.FailAt("reconcile", errBoom)
 
-	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
+	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events)
 	require.ErrorIs(t, svc.Restore(context.Background()), errBoom)
 
 	e.net.Heal("reconcile")
@@ -166,7 +166,7 @@ func TestRestore_AnUnclaimedSupervisorThatCannotBeEndedFaultsOrFails(t *testing.
 
 	// An unrecorded supervisor is an error, so the daemon does not serve.
 	require.NoError(t, e.sup.Start(ctx, "ghost", someProcess, someUser))
-	err = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events).Restore(ctx)
+	err = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events).Restore(ctx)
 	require.ErrorIs(t, err, errBoom)
 }
 

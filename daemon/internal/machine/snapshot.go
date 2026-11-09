@@ -172,9 +172,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		return fail(ErrPreconditionFailed, "restoring is not permitted: %v", err)
 	}
 
-	s.mu.Lock()
-	uid, err := s.allocateUID(id)
-	s.mu.Unlock()
+	uid, err := s.uids.AllocateMachine(id)
 	if err != nil {
 		return err
 	}
@@ -292,9 +290,7 @@ func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vm
 		}
 		s.release(root)
 	}
-	s.mu.Lock()
-	s.releaseUID(id)
-	s.mu.Unlock()
+	s.uids.ReleaseMachine(id)
 	return reason, true
 }
 

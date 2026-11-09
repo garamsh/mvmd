@@ -51,14 +51,11 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", taken, holder)
 	}
 
-	s.mu.Lock()
-	uid, err := s.allocateUID(id)
+	uid, err := s.uids.AllocateMachine(id)
 	if err != nil {
-		s.mu.Unlock()
 		s.release(disks...)
 		return err
 	}
-	s.mu.Unlock()
 
 	identity, err := s.network.Allocate(ctx, id, "")
 	if err != nil {
@@ -126,9 +123,7 @@ func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, rea
 	if err := s.network.Release(ctx, id); err != nil {
 		reason += fmt.Sprintf("; the network could not be released: %v", err)
 	}
-	s.mu.Lock()
-	s.releaseUID(id)
-	s.mu.Unlock()
+	s.uids.ReleaseMachine(id)
 	return reason
 }
 
@@ -467,7 +462,7 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	for _, a := range rec.Machine.Disks {
 		delete(s.held, a.Disk)
 	}
-	s.releaseUID(id)
+	s.uids.ReleaseMachine(id)
 	s.mu.Unlock()
 	s.dropExecs(id)
 	// The Machine's lock is still held, so this follows every event of its

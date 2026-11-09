@@ -58,28 +58,17 @@ func (s *service) Restore(ctx context.Context) error {
 			}
 		}
 	}
-	// Rebuild usedUID from every restored record so that a restarted daemon
+	// Rebuild the allocator from every restored record so that a restarted daemon
 	// does not hand out a UID still in use (ADR 0015).
 	for i := range records {
 		rec := records[i]
 		if rec.Unreadable != "" || rec.Machine == nil {
 			continue
 		}
-		uid := rec.Machine.User.UID
-		if !s.uidRange.Contains(uid) {
+		if err := s.uids.restoreMachine(rec.ID, rec.Machine.User.UID); err != nil {
 			s.mu.Unlock()
-			return fail(ErrPreconditionFailed,
-				"restored record %q carries UID %d outside the configured range (first: %d, count: %d)",
-				rec.ID, uid, s.uidRange.First, s.uidRange.Count)
+			return err
 		}
-		if _, collides := s.usedUIDByUID[uid]; collides {
-			s.mu.Unlock()
-			return fail(ErrPreconditionFailed,
-				"restored records %q and %q share UID %d",
-				s.usedUIDByUID[uid], rec.ID, uid)
-		}
-		s.usedUID[rec.ID] = uid
-		s.usedUIDByUID[uid] = rec.ID
 	}
 	s.mu.Unlock()
 
