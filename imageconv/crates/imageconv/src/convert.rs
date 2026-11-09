@@ -107,7 +107,7 @@ pub fn convert(
         let run = Run {
             uuid: parameters.uuid,
             output,
-            incremental: index > 0,
+            incremental: false,
             // With nothing to rewrite, a gzip layer reaches the tool as it came.
             ungzip: media == MediaType::TarGzip && plan.is_empty(),
         };
