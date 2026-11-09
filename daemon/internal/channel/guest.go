@@ -453,6 +453,14 @@ func (g *Guest) PatchFile(ctx context.Context, id machine.MachineID, path, baseD
 	return outcome, err
 }
 
+// Terminate implements machine.Guest. The request carries no signal (ADR 0018).
+func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
+	return g.run(ctx, id, opOther, func(c guestv1alpha1.GuestServiceClient) error {
+		_, err := c.Terminate(ctx, &guestv1alpha1.TerminateRequest{})
+		return err
+	})
+}
+
 // SearchFiles implements machine.Guest.
 func (g *Guest) SearchFiles(ctx context.Context, id machine.MachineID, path, pattern string) ([]string, error) {
 	var paths []string

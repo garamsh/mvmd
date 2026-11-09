@@ -320,7 +320,7 @@ func TestStop_OnSuccess(t *testing.T) {
 		require.NoError(t, e.svc.Stop(ctx, "m", 7*time.Second))
 		e.requireState(t, "m", machine.StateStopped)
 		e.requireStored(t, "m", machine.StateStopped)
-		assert.Equal(t, 7*time.Second, e.driver.Grace())
+		assert.InDelta(t, float64(7*time.Second), float64(e.driver.Grace()), float64(time.Second), "the Driver is given what the call to the agent left of the grace")
 		_, running := e.sup.Running("m")
 		assert.False(t, running, "a stop always ends with the VMM terminated")
 	})

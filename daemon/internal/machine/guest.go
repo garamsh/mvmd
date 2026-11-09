@@ -178,4 +178,10 @@ type Guest interface {
 	PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) (PatchOutcome, error)
 	// SearchFiles returns the paths under path that match the pattern.
 	SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error)
+	// Terminate asks the agent to apply its Termination rule (guest.md): send
+	// SIGTERM to the entrypoint, or end the Machine when none runs. It returns
+	// when the agent has taken the request, not when the Machine has ended, and
+	// it is the one call a guest that has not booted also serves. Repeating it
+	// is safe.
+	Terminate(ctx context.Context, id MachineID) error
 }

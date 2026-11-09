@@ -122,6 +122,25 @@ func TestRealAgent_HealthAndTheHandshake(t *testing.T) {
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable)
 }
 
+// guest-agent-channel is not the guest's init, so it refuses Terminate as a
+// failed precondition: the agent answered, so the port's error is not an
+// unreachable agent. The controls are Health on the same connection route,
+// which the agent serves, and a connector that opens nothing, which is
+// unreachable.
+func TestRealAgent_TerminateIsRefusedAsAnAnswer(t *testing.T) {
+	ctx := context.Background()
+	g, socket := realAgent(t)
+
+	err := g.Terminate(ctx, "m")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FailedPrecondition")
+	assert.NotErrorIs(t, err, machine.ErrGuestUnreachable, "the agent answered")
+	require.NoError(t, g.Health(ctx, "m"), "control: the same agent answers a call it serves")
+
+	err = channel.NewGuest(plainConnector{socket}).Terminate(ctx, "m")
+	require.ErrorIs(t, err, machine.ErrGuestUnreachable, "control: an agent that does not answer the handshake is unreachable")
+}
+
 func TestRealAgent_ExecAndItsOutput(t *testing.T) {
 	ctx := context.Background()
 	g, _ := realAgent(t)

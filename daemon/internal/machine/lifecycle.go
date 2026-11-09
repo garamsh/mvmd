@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -317,7 +318,7 @@ func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, g
 	// A guest cannot be trusted to stop, so its answer to the request does not
 	// decide the outcome: the VMM is ended either way.
 	if graceful {
-		_ = s.driver.Shutdown(ctx, id, grace)
+		s.askGuest(ctx, id, grace)
 	}
 	if err := s.supervisor.Terminate(ctx, id); err != nil {
 		if errors.Is(err, ErrNotAttempted) {
@@ -346,6 +347,51 @@ func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, g
 		return fail(ErrFailed, "%s", next.FailureReason)
 	}
 	return nil
+}
+
+// terminateFloor is the least a Terminate call may take, so a stop with no
+// grace still gets its request to the agent.
+const terminateFloor = 5 * time.Second
+
+// vmmPoll is how often a stop looks for the end of the VMM.
+const vmmPoll = 50 * time.Millisecond
+
+// askGuest asks the guest to stop through its agent, which applies the
+// Termination rule whatever the VMM and the guest kernel (ADR 0018), and waits
+// up to grace for the VMM to end. The Driver's own request is the fallback for
+// an agent that cannot be reached. An agent that answered and refused will not
+// stop the guest, so there is nothing to wait for. Nothing here decides the
+// outcome: the caller ends the VMM either way.
+func (s *service) askGuest(ctx context.Context, id MachineID, grace time.Duration) {
+	deadline := time.Now().Add(grace)
+	callCtx, cancel := context.WithTimeout(ctx, max(grace, terminateFloor))
+	err := s.guest.Terminate(callCtx, id)
+	cancel()
+	switch {
+	case errors.Is(err, ErrGuestUnreachable):
+		_ = s.driver.Shutdown(ctx, id, max(time.Until(deadline), 0))
+	case err == nil:
+		waitCtx, cancel := context.WithDeadline(ctx, deadline)
+		defer cancel()
+		s.awaitVMMEnd(waitCtx, id)
+	}
+}
+
+// awaitVMMEnd returns when the Machine has no supervisor, which ends with its
+// VMM, or when ctx ends.
+func (s *service) awaitVMMEnd(ctx context.Context, id MachineID) {
+	tick := time.NewTicker(vmmPoll)
+	defer tick.Stop()
+	for {
+		if live, err := s.supervisor.Live(ctx); err == nil && !slices.Contains(live, id) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 func (s *service) Pause(ctx context.Context, id MachineID) error {
