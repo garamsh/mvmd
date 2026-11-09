@@ -154,6 +154,12 @@ func TestRegistry_ChosenManifestMustBeWhatTheIndexDescribes(t *testing.T) {
 	require.NoError(t, err, "control: the index states the manifest's size")
 	_, err = r.Manifest(context.Background(), f.reference(build(len(childBody)-1)), amd64)
 	require.Error(t, err, "an index stating another size than the manifest has")
+
+	other := bytes.Clone(childBody)
+	other[len(other)-1] ^= 1
+	f.serveManifest(child, ocispec.MediaTypeImageManifest, child, other)
+	_, err = r.Manifest(context.Background(), f.reference(build(len(childBody))), amd64)
+	require.ErrorIs(t, err, ociregistry.ErrDigest, "other bytes of the size the index states, under the digest it names")
 }
 
 func TestRegistry_ManifestOfAnotherKindIsRefused(t *testing.T) {

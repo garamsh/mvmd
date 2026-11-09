@@ -262,7 +262,7 @@ func fail(ctx context.Context, op string, err error) error {
 	if cerr := ctx.Err(); cerr != nil {
 		return fmt.Errorf("%s: %w", op, cerr)
 	}
-	if errors.Is(err, ErrSize) || errors.Is(err, ErrDigest) {
+	if errors.Is(err, errSize) || errors.Is(err, errDigest) {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	return fmt.Errorf("%s: %s", op, strings.TrimSpace(err.Error()))

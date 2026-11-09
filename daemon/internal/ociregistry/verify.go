@@ -12,10 +12,10 @@ import (
 )
 
 var (
-	// ErrSize is the failure of a blob whose length is not its descriptor's.
-	ErrSize = errors.New("blob length differs from its descriptor")
-	// ErrDigest is the failure of a blob whose SHA-256 is not its descriptor's.
-	ErrDigest = errors.New("blob does not hash to its descriptor")
+	// errSize is the failure of a blob whose length is not its descriptor's.
+	errSize = errors.New("blob length differs from its descriptor")
+	// errDigest is the failure of a blob whose SHA-256 is not its descriptor's.
+	errDigest = errors.New("blob does not hash to its descriptor")
 )
 
 // verifying reads a blob and fails at the first byte past the descriptor's
@@ -49,16 +49,16 @@ func (v *verifying) Read(p []byte) (int, error) {
 	n, err := v.body.Read(p)
 	if int64(n) > remaining {
 		n = int(remaining)
-		err = fmt.Errorf("blob %s is longer than its size %d: %w", v.want.Digest, v.want.Size, ErrSize)
+		err = fmt.Errorf("blob %s is longer than its size %d: %w", v.want.Digest, v.want.Size, errSize)
 	}
 	v.sum.Write(p[:n])
 	v.read += int64(n)
 	if errors.Is(err, io.EOF) {
 		switch {
 		case v.read != v.want.Size:
-			err = fmt.Errorf("blob %s is %d bytes, not %d: %w", v.want.Digest, v.read, v.want.Size, ErrSize)
+			err = fmt.Errorf("blob %s is %d bytes, not %d: %w", v.want.Digest, v.read, v.want.Size, errSize)
 		case "sha256:"+hex.EncodeToString(v.sum.Sum(nil)) != v.want.Digest:
-			err = fmt.Errorf("blob %s: %w", v.want.Digest, ErrDigest)
+			err = fmt.Errorf("blob %s: %w", v.want.Digest, errDigest)
 		}
 	}
 	if err != nil {
@@ -74,7 +74,7 @@ func (v *verifying) Close() error { return v.body.Close() }
 func readAll(body io.ReadCloser, want image.Descriptor, limit int64) ([]byte, error) {
 	defer body.Close()
 	if want.Size < 0 || want.Size > limit {
-		return nil, fmt.Errorf("blob %s declares %d bytes, outside 0 to %d: %w", want.Digest, want.Size, limit, ErrSize)
+		return nil, fmt.Errorf("blob %s declares %d bytes, outside 0 to %d: %w", want.Digest, want.Size, limit, errSize)
 	}
 	return io.ReadAll(newVerifying(body, want))
 }
