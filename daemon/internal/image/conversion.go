@@ -68,6 +68,9 @@ func (s *service) runConverter(ctx context.Context, id machine.MachineID, user m
 	}
 	length, err := s.converter.Convert(ctx, id, job)
 	if err != nil {
+		if errors.Is(err, machine.ErrGuestUnreachable) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("no answer within the conversion limit of %s: %w", s.settings.Limit, err)
+		}
 		return 0, fmt.Errorf("convert: %w", err)
 	}
 	return length, nil
