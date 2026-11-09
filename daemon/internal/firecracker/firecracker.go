@@ -19,6 +19,11 @@ const Version = "1.17.0"
 const (
 	apiSocketName   = "api.sock"
 	vsockSocketName = "vsock.sock"
+	// logName is Firecracker's own log in the run directory, which keeps the
+	// supervisor's capture of its output (vmm.log) to the guest's console.
+	logName = "firecracker.log"
+	// consoleLogName is the supervisor's capture of the VMM's output.
+	consoleLogName = "vmm.log"
 	// guestCID is the guest's vsock address; it is the same for every Machine
 	// since a vsock device is private to its VMM.
 	guestCID = 3

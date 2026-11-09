@@ -84,7 +84,7 @@ func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t 
 		}
 	})
 
-	require.NoError(t, d.Boot(ctx, "m1"))
+	require.NoError(t, d.Boot(ctx, "m1", spec))
 
 	// The Guest Agent starts listening some time after the kernel boots, so a
 	// call retries until it answers. Its answer is what proves the whole path:

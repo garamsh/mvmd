@@ -13,16 +13,8 @@ import (
 )
 
 // Boot implements machine.Driver: it configures the started VMM from the boot
-// description Describe kept, and starts the guest.
-func (d *Driver) Boot(ctx context.Context, id machine.MachineID) error {
-	dir, err := d.cfg.Dirs.RunDir(id)
-	if err != nil {
-		return err
-	}
-	spec, err := readBootDescription(dir)
-	if err != nil {
-		return fmt.Errorf("Machine %q: %w", id, err)
-	}
+// description it is given, and starts the guest.
+func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.BootSpec) error {
 	sock, err := d.socket(id, apiSocketName)
 	if err != nil {
 		return err

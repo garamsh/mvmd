@@ -34,6 +34,23 @@ func TestStart_TheDriverAndTheSupervisorGetTheSameRunDirectory(t *testing.T) {
 	assert.NotEqual(t, e.driver.BootSpec("a").RunDir, e.driver.BootSpec("b").RunDir)
 }
 
+// Boot is given the boot description Describe was, so a Driver reads nothing
+// back from a directory the VMM can write.
+func TestStart_BootIsGivenTheBootDescriptionDescribeWasGiven(t *testing.T) {
+	e := newEnv()
+	e.inState(t, "a", machine.StateRunning)
+	e.inState(t, "b", machine.StateRunning)
+
+	for _, id := range []machine.MachineID{"a", "b"} {
+		described := e.driver.BootSpec(id)
+		require.NotEmpty(t, described.Devices, "the setup: the description names devices")
+		assert.Equal(t, described, e.driver.BootedWith(id))
+	}
+	// Control: the two Machines' descriptions differ, so a Boot given another
+	// Machine's would not pass.
+	assert.NotEqual(t, e.driver.BootedWith("a"), e.driver.BootedWith("b"))
+}
+
 // A Machine whose run directory cannot be named is not started.
 func TestStart_ARunDirectoryThatCannotBeNamedFailsTheStart(t *testing.T) {
 	e := newEnv()

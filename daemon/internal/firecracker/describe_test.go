@@ -3,6 +3,7 @@ package firecracker_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,7 +20,8 @@ func TestDescribe_StatesTheProcessAndWhatItNeedsOpen(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, n.cfg.Binary, p.Executable)
-	assert.Equal(t, []string{"--api-sock", n.apiSocket(), "--enable-pci"}, p.Args)
+	assert.Equal(t, []string{"--api-sock", n.apiSocket(), "--enable-pci", "--log-path", filepath.Join(n.run, "firecracker.log")}, p.Args,
+		"Firecracker's own log goes to a file of its own, so vmm.log holds the console")
 	assert.NotContains(t, strings.Join(p.Args, " "), "seccomp", "the VMM's own filter stays on (driver.md)")
 	assert.False(t, p.TapByDescriptor)
 	assert.Equal(t, []string{"/dev/kvm", "/dev/net/tun"}, p.DeviceNodes)

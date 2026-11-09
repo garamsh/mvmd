@@ -22,6 +22,7 @@ type Driver struct {
 
 	mu       sync.Mutex
 	specs    map[machine.MachineID]machine.BootSpec
+	booted   map[machine.MachineID]machine.BootSpec
 	grace    time.Duration
 	devices  map[machine.MachineID][]machine.DiskID
 	sizes    map[machine.MachineID]machine.Resources
@@ -71,6 +72,7 @@ func NewDriver(info machine.DriverInfo) *Driver {
 	return &Driver{
 		info:             info,
 		specs:            make(map[machine.MachineID]machine.BootSpec),
+		booted:           make(map[machine.MachineID]machine.BootSpec),
 		devices:          make(map[machine.MachineID][]machine.DiskID),
 		sizes:            make(map[machine.MachineID]machine.Resources),
 		restored:         make(map[machine.MachineID][]string),
@@ -194,8 +196,19 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 }
 
 // Boot implements machine.Driver.
-func (d *Driver) Boot(_ context.Context, id machine.MachineID) error {
+func (d *Driver) Boot(_ context.Context, id machine.MachineID, spec machine.BootSpec) error {
+	d.mu.Lock()
+	d.booted[id] = spec
+	d.mu.Unlock()
 	return d.Enter("boot")
+}
+
+// BootedWith returns the boot description the last Boot of the Machine was
+// given.
+func (d *Driver) BootedWith(id machine.MachineID) machine.BootSpec {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.booted[id]
 }
 
 // Shutdown implements machine.Driver.

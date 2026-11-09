@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -92,9 +91,9 @@ func verify(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// Describe implements machine.Driver. It checks the pinned inputs, writes the
-// boot description into the run directory for Boot, and states the process and
-// what it needs open.
+// Describe implements machine.Driver. It checks the pinned inputs and states
+// the process and what it needs open. It keeps nothing: Boot is given the
+// boot description again.
 func (d *Driver) Describe(ctx context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
@@ -108,9 +107,6 @@ func (d *Driver) Describe(ctx context.Context, _ machine.MachineID, spec machine
 	if err := verify(ctx, d.cfg); err != nil {
 		return machine.ProcessDescription{}, err
 	}
-	if err := writeBootDescription(spec); err != nil {
-		return machine.ProcessDescription{}, err
-	}
 
 	boot := []machine.BlockDevice{
 		{Path: d.cfg.Kernel, ReadOnly: true},
@@ -122,7 +118,7 @@ func (d *Driver) Describe(ctx context.Context, _ machine.MachineID, spec machine
 	}
 	return machine.ProcessDescription{
 		Executable:  d.cfg.Binary,
-		Args:        []string{"--api-sock", api, "--enable-pci"},
+		Args:        []string{"--api-sock", api, "--enable-pci", "--log-path", filepath.Join(spec.RunDir, logName)},
 		BootFiles:   append(boot, spec.Devices...),
 		ReadFiles:   cpuReadFiles(runtime.GOARCH),
 		DeviceNodes: nodes,
@@ -141,42 +137,6 @@ func cpuReadFiles(goarch string) []string {
 		return nil
 	}
 	return []string{"/sys/devices/system/cpu/cpu0/cache", "/sys/devices/system/cpu/cpu0/regs/identification/midr_el1"}
-}
-
-// bootFileName is the boot description in the run directory. It is written by
-// the host, root-owned and unreadable to the VMM's user, and it lives and goes
-// with the run directory, so it outlives neither the run nor a daemon restart.
-const bootFileName = "boot.json"
-
-func writeBootDescription(spec machine.BootSpec) error {
-	raw, err := json.Marshal(spec)
-	if err != nil {
-		return fmt.Errorf("encode the boot description: %w", err)
-	}
-	if err := os.MkdirAll(spec.RunDir, 0o700); err != nil {
-		return fmt.Errorf("create the run directory: %w", err)
-	}
-	final := filepath.Join(spec.RunDir, bootFileName)
-	tmp := final + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return fmt.Errorf("write the boot description: %w", err)
-	}
-	if err := os.Rename(tmp, final); err != nil {
-		return fmt.Errorf("write the boot description: %w", err)
-	}
-	return nil
-}
-
-func readBootDescription(runDir string) (machine.BootSpec, error) {
-	raw, err := os.ReadFile(filepath.Join(runDir, bootFileName))
-	if err != nil {
-		return machine.BootSpec{}, fmt.Errorf("read the boot description Describe wrote: %w", err)
-	}
-	var spec machine.BootSpec
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		return machine.BootSpec{}, fmt.Errorf("decode the boot description: %w", err)
-	}
-	return spec, nil
 }
 
 // maxTapName is the longest interface name Linux holds: IFNAMSIZ less the NUL.

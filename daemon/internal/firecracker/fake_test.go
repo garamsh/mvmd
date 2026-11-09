@@ -142,5 +142,5 @@ func (n *node) booted(f *fakeAPI) {
 	f.listen(n.t, n.apiSocket())
 	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
 	require.NoError(n.t, err)
-	require.NoError(n.t, n.driver.Boot(context.Background(), "m1"))
+	require.NoError(n.t, n.driver.Boot(context.Background(), "m1", n.spec()))
 }

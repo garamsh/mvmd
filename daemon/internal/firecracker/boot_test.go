@@ -61,7 +61,7 @@ func TestBoot_AMachineWithNoNetworkDeviceGetsNone(t *testing.T) {
 	spec.Devices = spec.Devices[1:]
 	_, err := n.driver.Describe(context.Background(), "m1", spec)
 	require.NoError(t, err)
-	require.NoError(t, n.driver.Boot(context.Background(), "m1"))
+	require.NoError(t, n.driver.Boot(context.Background(), "m1", spec))
 
 	var paths []string
 	for _, r := range f.seen() {
@@ -82,7 +82,7 @@ func TestBoot_RefusesAVMMOfAnotherVersionAndConfiguresNothing(t *testing.T) {
 	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
 	require.NoError(t, err)
 
-	err = n.driver.Boot(context.Background(), "m1")
+	err = n.driver.Boot(context.Background(), "m1", n.spec())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "1.16.0")
 	require.Len(t, f.seen(), 1, "only the version was asked")
@@ -104,19 +104,32 @@ func TestBoot_StopsAtTheFirstRefusalAndReportsItsMessage(t *testing.T) {
 	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
 	require.NoError(t, err)
 
-	err = n.driver.Boot(context.Background(), "m1")
+	err = n.driver.Boot(context.Background(), "m1", n.spec())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot open the kernel")
 	assert.Contains(t, err.Error(), "/boot-source")
 	assert.Len(t, f.seen(), 3, "version, machine-config, boot-source; nothing after the refusal")
 }
 
-func TestBoot_OfAMachineNotDescribedFails(t *testing.T) {
+func TestBoot_ConfiguresFromTheDescriptionItIsGivenAndKeepsNothingFromDescribe(t *testing.T) {
 	n := newNode(t)
 	f := &fakeAPI{}
 	f.listen(t, n.apiSocket())
-	require.Error(t, n.driver.Boot(context.Background(), "m1"))
-	assert.Empty(t, f.seen())
+	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
+	require.NoError(t, err)
+
+	given := n.spec()
+	given.Resources = machine.Resources{VCPUs: 4, MemoryBytes: 512 << 20}
+	require.NoError(t, n.driver.Boot(context.Background(), "m1", given))
+
+	var config string
+	for _, r := range f.seen() {
+		if r.Path == "/machine-config" {
+			config = r.Body
+		}
+	}
+	assert.JSONEq(t, `{"vcpu_count":4,"mem_size_mib":512}`, config, "what Boot was given, not what Describe was")
+	assert.NoFileExists(t, filepath.Join(n.run, "boot.json"), "nothing of the description is left where the VMM's user can write it")
 }
 
 func TestBoot_WaitsForTheSocketTheVMMCreates(t *testing.T) {
@@ -127,7 +140,7 @@ func TestBoot_WaitsForTheSocketTheVMMCreates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	booted := make(chan error, 1)
-	go func() { booted <- n.driver.Boot(ctx, "m1") }()
+	go func() { booted <- n.driver.Boot(ctx, "m1", n.spec()) }()
 
 	time.Sleep(150 * time.Millisecond)
 	select {
@@ -158,30 +171,15 @@ func TestBoot_CanBeRepeatedAfterAFailureAndAfterADaemonRestart(t *testing.T) {
 		return http.StatusNoContent, ""
 	}
 	f.mu.Unlock()
-	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
-	require.NoError(t, err)
-	require.Error(t, n.driver.Boot(context.Background(), "m1"))
+	require.Error(t, n.driver.Boot(context.Background(), "m1", n.spec()))
 
-	// A Driver of a restarted daemon holds nothing of the Describe; the run
-	// directory does.
+	// The failed Boot left nothing behind, and a Driver of a restarted daemon
+	// holds nothing of any Describe.
 	failing.Store(false)
 	restarted, err := firecracker.New(n.cfg)
 	require.NoError(t, err)
-	require.NoError(t, restarted.Boot(context.Background(), "m1"))
+	require.NoError(t, restarted.Boot(context.Background(), "m1", n.spec()))
 	assert.Equal(t, "/actions", f.seen()[len(f.seen())-1].Path)
-}
-
-func TestBoot_ReadsTheDescriptionFromTheRunDirectoryOfTheMachine(t *testing.T) {
-	n := newNode(t)
-	f := &fakeAPI{}
-	f.listen(t, n.apiSocket())
-	require.Error(t, n.driver.Boot(context.Background(), "m1"), "control: nothing described, nothing to boot")
-
-	_, err := n.driver.Describe(context.Background(), "m1", n.spec())
-	require.NoError(t, err)
-	require.NoError(t, n.driver.Boot(context.Background(), "m1"))
-	_, err = os.Stat(filepath.Join(n.run, "boot.json"))
-	require.NoError(t, err, "the description is in the run directory")
 }
 
 func TestBoot_GivesUpWhenTheContextEndsBeforeTheSocketExists(t *testing.T) {
@@ -192,7 +190,7 @@ func TestBoot_GivesUpWhenTheContextEndsBeforeTheSocketExists(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	err = n.driver.Boot(ctx, "m1")
+	err = n.driver.Boot(ctx, "m1", n.spec())
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(start), 3*time.Second)
 }
@@ -217,7 +215,7 @@ func TestBoot_StopsWaitingOnAnAnswerWhenTheContextEnds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	err = n.driver.Boot(ctx, "m1")
+	err = n.driver.Boot(ctx, "m1", n.spec())
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(start), 3*time.Second)
 }
