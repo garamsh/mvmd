@@ -1044,6 +1044,24 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		assert.Greater(t, never.Dials(), 1)
 	})
 
+	t.Run("a cancelled wait is a cancellation, where a deadline is an unreachable agent", func(t *testing.T) {
+		never := &connectorFunc{fn: func(int) (net.Conn, error) { return nil, machine.ErrGuestUnreachable }}
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(200*time.Millisecond, cancel)
+		defer cancel()
+
+		err := channel.NewGuest(never).Boot(ctx, "m", machine.GuestBoot{})
+		require.ErrorIs(t, err, context.Canceled)
+		assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
+		assert.NotContains(t, err.Error(), "did not listen")
+
+		dctx, dcancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer dcancel()
+		err = channel.NewGuest(never).Boot(dctx, "m", machine.GuestBoot{})
+		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+		assert.Contains(t, err.Error(), "did not listen", "the control: the same connector under a deadline")
+	})
+
 	t.Run("a call other than Boot does not wait: it repeats once, as it did", func(t *testing.T) {
 		never := &connectorFunc{fn: func(int) (net.Conn, error) { return nil, machine.ErrGuestUnreachable }}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

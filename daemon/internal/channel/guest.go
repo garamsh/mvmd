@@ -130,7 +130,7 @@ func (g *Guest) once(ctx context.Context, id machine.MachineID, op operation, f 
 	defer func() { _ = cc.Close() }()
 	err = f(guestv1alpha1.NewGuestServiceClient(cc))
 	var ended *dialError
-	if op == opBoot && err != nil && ctx.Err() != nil && !dialed.Load() && !errors.As(err, &ended) {
+	if op == opBoot && err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && !dialed.Load() && !errors.As(err, &ended) {
 		return fmt.Errorf("%w: the agent did not listen before the boot's time ended: %w",
 			machine.ErrGuestUnreachable, ctx.Err())
 	}
