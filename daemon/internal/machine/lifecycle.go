@@ -9,6 +9,8 @@ import (
 
 func (s *service) Create(ctx context.Context, id MachineID, request RequestID, spec Spec) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	spec = spec.clone()
 
 	if rec, ok := s.lookup(id); ok {
@@ -142,6 +144,8 @@ func (s *service) failCreate(ctx context.Context, id MachineID, request RequestI
 
 func (s *service) Start(ctx context.Context, id MachineID) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -290,6 +294,8 @@ func (s *service) ForceStop(ctx context.Context, id MachineID) error {
 // stop ends a Machine's VMM, asking the guest first only when graceful.
 func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, graceful bool) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, grace)
+	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -346,6 +352,8 @@ func (s *service) Resume(ctx context.Context, id MachineID) error {
 // was in.
 func (s *service) move(ctx context.Context, id MachineID, call string, from, to State, effect func(context.Context, MachineID) error) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
@@ -370,6 +378,8 @@ func (s *service) move(ctx context.Context, id MachineID, call string, from, to 
 
 func (s *service) Delete(ctx context.Context, id MachineID) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	rec, err := s.machine(id)
 	if err != nil {
 		return nil

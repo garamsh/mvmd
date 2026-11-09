@@ -14,7 +14,13 @@ import (
 // builds it, with the substitutes the test chooses to keep or empty.
 func (e *env) reopened(t *testing.T) machine.Service {
 	t.Helper()
-	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events)
+	return e.reopenedWith(t)
+}
+
+// reopenedWith is reopened with options.
+func (e *env) reopenedWith(t *testing.T, options ...machine.Option) machine.Service {
+	t.Helper()
+	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.UIDRange{First: 1000, Count: 256}, e.events, options...)
 	require.NoError(t, svc.Restore(context.Background()))
 	return svc
 }

@@ -89,6 +89,11 @@ type service struct {
 	events     Events
 	// bootTimeout bounds the wait for the guest's boot in Start.
 	bootTimeout time.Duration
+	// callTimeout bounds an accepted call; callContext applies it, detaching
+	// the call from its caller. A test replaces callContext to run a call on the
+	// caller's own context.
+	callTimeout time.Duration
+	callContext func(ctx context.Context, bound time.Duration) (context.Context, context.CancelFunc)
 
 	// mu guards the maps below and every record's Machine pointer, and is held
 	// only for map and pointer work, never across a port call. A Machine's
@@ -117,6 +122,37 @@ type service struct {
 // node names no other bound.
 const DefaultBootTimeout = 2 * time.Minute
 
+// DefaultCallTimeout is how long an accepted call may run, from the moment it
+// holds its Machine's lock, when the node names no other bound. A Stop has its
+// grace period on top.
+const DefaultCallTimeout = 10 * time.Minute
+
+// WithCallTimeout bounds how long an accepted state-changing call runs,
+// whatever the caller's context says. A bound that is not positive is ignored.
+func WithCallTimeout(d time.Duration) Option {
+	return func(s *service) {
+		if d > 0 {
+			s.callTimeout = d
+		}
+	}
+}
+
+// accepted returns the context the steps of an accepted state-changing call
+// run on, and its release. The caller's disconnect or deadline does not end it
+// (runtime-api.md §Calling rules): a call completes or fails into the state its
+// table row names. The lifecycle's own bound does end it, so a step that hangs
+// cannot hold the Machine's lock forever; extra is added to the bound for a
+// wait the caller asked for. It is the shape bootGuest uses for the boot.
+func (s *service) accepted(ctx context.Context, extra time.Duration) (context.Context, context.CancelFunc) {
+	return s.callContext(ctx, s.callTimeout+extra)
+}
+
+// detached is a context that carries ctx's values but not its cancellation,
+// ended after bound.
+func detached(ctx context.Context, bound time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), bound)
+}
+
 // Option changes how the lifecycle behaves from its defaults.
 type Option func(*service)
 
@@ -137,6 +173,8 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 	driver.Observe(events.Reported)
 	s := &service{
 		bootTimeout:  DefaultBootTimeout,
+		callTimeout:  DefaultCallTimeout,
+		callContext:  detached,
 		driver:       driver,
 		supervisor:   supervisor,
 		network:      network,

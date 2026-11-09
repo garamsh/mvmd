@@ -13,6 +13,8 @@ const catchUpEntropy = 64
 
 func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotID, request RequestID) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	switch {
 	case id == "":
 		return fail(ErrInvalid, "the Machine identifier is empty")
@@ -113,6 +115,8 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 
 func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error {
 	defer s.lock(id)()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
 	asked := Request{ID: request, Snapshot: snapshot, Spec: Spec{Policy: policy.clone()}}
 
 	if rec, ok := s.lookup(id); ok {
