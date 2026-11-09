@@ -54,7 +54,7 @@ func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes 
 	d.disks[disk] = sizeBytes
 	d.owner[disk] = owner
 	d.mu.Unlock()
-	return disk, "", nil
+	return disk, "ext4-uuid-of-" + string(disk), nil
 }
 
 // CreateRootFrom implements machine.Disk.

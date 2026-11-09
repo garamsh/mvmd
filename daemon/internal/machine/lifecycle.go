@@ -162,7 +162,8 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
 		return fail(ErrFailed, "name the run directory: %v", err)
 	}
-	if boot.Devices, err = s.bootDevices(ctx, m); err != nil {
+	var located LocatedImage
+	if boot.Devices, located, err = s.bootDevices(ctx, m); err != nil {
 		return err
 	}
 	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
@@ -179,6 +180,14 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	}
 	if err := s.driver.Boot(ctx, id); err != nil {
 		return s.bootFailed(ctx, rec, err)
+	}
+	// The guest waits for this description before it does anything else, and
+	// Boot returns when the entrypoint runs, so nothing is Running before then.
+	// The Machine's lock is held meanwhile, so a repeated Start waits for the
+	// outcome of this one.
+	description := GuestBoot{ImageUUID: located.UUID, RootDiskUUID: m.RootDiskUUID, Run: located.Run, Network: m.Network.guestNetwork()}
+	if err := s.guest.Boot(ctx, id, description); err != nil {
+		return s.bootFailed(ctx, rec, fmt.Errorf("send the boot description to the guest: %w", err))
 	}
 
 	next := m.clone()
@@ -201,22 +210,23 @@ func (s *service) withdrawn(ctx context.Context, id MachineID, failure *Error) e
 }
 
 // bootDevices lists a Machine's block devices in boot order: its image
-// read-only, its root disk, then its attached disks.
-func (s *service) bootDevices(ctx context.Context, m Machine) ([]BlockDevice, error) {
-	path, err := s.images.Locate(ctx, m.Image)
+// read-only, its root disk, then its attached disks. It returns the image as
+// the node holds it, whose UUID and run configuration the guest is told.
+func (s *service) bootDevices(ctx context.Context, m Machine) ([]BlockDevice, LocatedImage, error) {
+	located, err := s.images.Locate(ctx, m.Image)
 	if err != nil {
-		return nil, locateFailure(err, ErrImageAbsent, "image %s", m.Image)
+		return nil, LocatedImage{}, locateFailure(err, ErrImageAbsent, "image %s", m.Image)
 	}
-	devices := []BlockDevice{{Path: path, ReadOnly: true}}
+	devices := []BlockDevice{{Path: located.Path, ReadOnly: true}}
 	attached := append([]DiskAttachment{{Disk: m.RootDisk}}, m.Disks...)
 	for _, a := range attached {
 		path, err := s.disks.Locate(ctx, a.Disk)
 		if err != nil {
-			return nil, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
+			return nil, LocatedImage{}, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
 		}
 		devices = append(devices, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly})
 	}
-	return devices, nil
+	return devices, located, nil
 }
 
 func locateFailure(err, absent error, what string, args ...any) error {

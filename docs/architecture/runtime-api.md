@@ -43,7 +43,7 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 | Operation | Needs | On success | Repeat | State after failure |
 |---|---|---|---|---|
 | Create Machine | Image already on the node, resources, root disk size, disks, network policy | Created | Same request ID: original outcome | No Machine exists |
-| Start | Created or Stopped; network policy applied; fencing deadline armed | Running | Already Running: success | Prior state; a boot that began and failed ends in Stopped with the failure reason |
+| Start | Created or Stopped; network policy applied; fencing deadline armed | Running, once the VMM runs and the guest has been sent its boot description and its entrypoint runs | Already Running: success. A repeat while a start is in progress waits and returns that start's outcome | Prior state; a boot that began and failed, whether the VMM's or the guest's, ends in Stopped with the failure reason, which names the guest's boot step when one failed |
 | Stop | Any state | Stopped | Already Stopped, or Created: success, no change | Running or Paused if the stop never began; Faulted if it began and cannot be confirmed, or if the VMM ended but the Machine's network could not be removed, and a later Stop retries |
 | Pause | Running | Paused | Already Paused: success | Running |
 | Resume | Paused | Running | Already Running: success | Paused |
@@ -53,6 +53,7 @@ Inspect reports the state, the reason for the last failure if any, the Driver an
 
 - **Stop forces the guest down after a grace period the client names.** A guest cannot be trusted to stop (workloads are untrusted, #2 §5 security), so a stop always ends with the VMM terminated.
 - **Start and restore are the two ways to Running** (#2 §4, node behaviour: "boot or restore"). Both refuse to run before the network policy is applied, so a Machine is fail-closed (#2 §4 invariant 6); the default network blocks all external traffic (#2 §4, core and extensions).
+- **Start waits for the guest's `Boot`.** Running means the entrypoint runs ([guest.md](./guest.md) §Current decisions), so until `Boot` returns the Machine is reported in its prior state. A restore sends no `Boot`: the guest booted before the snapshot, and it is sent `CatchUp`.
 - **Snapshot holds the guest paused for its duration** so memory and disk are one pair (#2 §2). It records the Driver name and version, the CPU model and the guest kernel ([driver.md](./driver.md)), and a snapshot never moves to another VMM.
 - **Delete** exists because the client must be able to release a Machine's resources; the Driver contract has a matching destroy ([driver.md](./driver.md)).
 - **Machine creation does not boot.** Create only configures, as the Driver's create does.

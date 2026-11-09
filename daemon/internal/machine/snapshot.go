@@ -225,7 +225,7 @@ func (s *service) bringUp(ctx context.Context, m Machine, request RequestID, fil
 	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
 		return fail(ErrFailed, "name the run directory: %v", err), false
 	}
-	if boot.Devices, err = s.bootDevices(ctx, m); err != nil {
+	if boot.Devices, _, err = s.bootDevices(ctx, m); err != nil {
 		var e *Error
 		if errors.As(err, &e) {
 			return e, false
