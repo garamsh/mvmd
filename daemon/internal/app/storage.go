@@ -44,6 +44,11 @@ func realStorage(cfg Config, runDirs string) (machine.Disk, machine.SnapshotStor
 // rename fails with EXDEV across file systems, even across two mounts of one,
 // which a comparison of device numbers would not see.
 func checkSameFileSystem(runDirs, staging string) error {
+	// The supervision adapter makes the directory with its first Machine, so
+	// it may not exist yet; it makes it the same way.
+	if err := os.MkdirAll(runDirs, 0o700); err != nil {
+		return fmt.Errorf("the supervision directory %s: %w", runDirs, err)
+	}
 	probe, err := os.CreateTemp(runDirs, ".mvmd-rename-probe-")
 	if err != nil {
 		return fmt.Errorf("the supervision directory %s: %w", runDirs, err)
