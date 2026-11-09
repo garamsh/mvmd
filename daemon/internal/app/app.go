@@ -136,11 +136,13 @@ func New(cfg Config) (*App, error) {
 		sub.Network = nil
 	}
 	var supervisors fencing.Supervisors = sub.Supervisors
+	var runDirs string
 	if s := cfg.Supervision; s != nil {
 		dir := s.Dir
 		if dir == "" {
 			dir = filepath.Join(cfg.StateDir, "machines")
 		}
+		runDirs = dir
 		real, err := supervision.New(supervision.Config{Binary: s.Binary, Dir: dir, Cgroup: s.Cgroup, VMMCgroup: s.VMMCgroup})
 		if err != nil {
 			_ = db.Close()
@@ -186,7 +188,7 @@ func New(cfg Config) (*App, error) {
 	var disks machine.Disk = sub.Disks
 	var snapshots machine.SnapshotStore = sub.Snapshots
 	if cfg.Disk != nil {
-		disks, snapshots, err = realStorage(cfg)
+		disks, snapshots, err = realStorage(cfg, runDirs)
 		if err != nil {
 			_ = db.Close()
 			return nil, err

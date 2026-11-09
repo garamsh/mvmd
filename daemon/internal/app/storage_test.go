@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"github.com/garamsh/mvmd/daemon/internal/app"
 )
@@ -66,6 +67,44 @@ func TestStorage_ANodeWhoseStorageCannotBeOpenedDoesNotStart(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestStorage_ANodeWhoseRunDirectoriesAreOnAnotherFileSystemDoesNotStart(t *testing.T) {
+	cfg := firecrackerConfig(t)
+	// /dev/shm is a tmpfs, so a rename out of it into the state directory
+	// fails with EXDEV, as it does between any two file systems.
+	other, err := os.MkdirTemp("/dev/shm", "mvmd-runs-")
+	require.NoError(t, err, "this test needs a second file system, and /dev/shm is it")
+	t.Cleanup(func() { _ = os.RemoveAll(other) })
+	require.NotEqual(t, deviceOf(t, other), deviceOf(t, cfg.StateDir), "the run directories must be on a different file system than the state directory")
+	cfg.Supervision.Dir = other
+
+	_, err = app.New(cfg)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "is not on the file system of the supervision directory")
+	assert.ErrorContains(t, err, other)
+	assert.ErrorContains(t, err, filepath.Join(cfg.StateDir, "snapshots", "staging"))
+	entries, err := os.ReadDir(other)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "the probe leaves nothing in the run directories")
+
+	// The control: the same node with its run directories under the state
+	// directory starts, and the probe leaves nothing there either.
+	cfg.Supervision.Dir = filepath.Join(cfg.StateDir, "runs")
+	_, err = app.New(cfg)
+	require.NoError(t, err)
+	for _, dir := range []string{cfg.Supervision.Dir, filepath.Join(cfg.StateDir, "snapshots", "staging")} {
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries, dir)
+	}
+}
+
+func deviceOf(t *testing.T, path string) uint64 {
+	t.Helper()
+	var st unix.Stat_t
+	require.NoError(t, unix.Stat(path, &st))
+	return uint64(st.Dev)
 }
 
 // occupy puts a regular file where the node would make the directory name.
