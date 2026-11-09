@@ -1,6 +1,6 @@
 // Package boltstore is mvmd's durable State Store on bbolt: one database file
-// in the state directory, a bucket for the Machine records and a bucket for
-// the fencing deadline. A write returns once its transaction is committed and
+// in the state directory, a bucket for the Machine records, one for their
+// exec entries and one for the fencing deadline. A write returns once its transaction is committed and
 // the file synced, which is what "acknowledged only after durably recorded"
 // needs (runtime-api.md §Fencing deadline).
 package boltstore
@@ -19,6 +19,10 @@ var (
 	machinesBucket = []byte("machines")
 	deadlineBucket = []byte("deadline")
 	deadlineKey    = []byte("deadline")
+	// execsBucket holds one bucket per Machine, named for it, of that Machine's
+	// exec entries by exec identifier. A database made before it existed has
+	// none, and Open adds it.
+	execsBucket = []byte("execs")
 )
 
 // DB is the open database. Machines and Deadline are the two stores on it.
@@ -38,7 +42,7 @@ func Open(dir string) (*DB, error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, name := range [][]byte{machinesBucket, deadlineBucket} {
+		for _, name := range [][]byte{machinesBucket, deadlineBucket, execsBucket} {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return err
 			}
