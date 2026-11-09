@@ -531,4 +531,203 @@ mod tests {
         assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
         Ok(())
     }
+
+    /// The exclusive claim on a real block device, which only the kernel can answer: a loop
+    /// device over a file. Mounting and attaching a loop device need root, so each test runs
+    /// itself again under passwordless sudo, which the GitHub-hosted runner provides, and where
+    /// it can get neither it fails and is not skipped.
+    mod real_device {
+        use super::*;
+        use nix::errno::Errno;
+        use nix::mount::{MsFlags, mount, umount};
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        use std::process::Command;
+
+        /// Whether the caller is root and so goes on. Otherwise it runs the test `name` alone
+        /// under sudo, requires that to have passed, and reports that the caller is done.
+        fn root_or_rerun(name: &str) -> io::Result<bool> {
+            // The owner of /proc/self is the user the process runs as.
+            if fs::metadata("/proc/self")?.uid() == 0 {
+                return Ok(true);
+            }
+            let path = module_path!().split_once("::").map_or("", |(_, rest)| rest);
+            let full = format!("{path}::{name}");
+            let out = Command::new("sudo")
+                .arg("-n")
+                .arg(std::env::current_exe()?)
+                .args(["--exact", &full, "--test-threads=1", "--nocapture"])
+                .output()?;
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(
+                out.status.success(),
+                "this test needs root or passwordless sudo, and this host gives neither, or the run as root failed: {text}"
+            );
+            assert!(
+                text.contains("1 passed"),
+                "the run under sudo did not run the test {full}: {text}"
+            );
+            Ok(false)
+        }
+
+        fn run(program: &str, args: &[&str]) -> io::Result<()> {
+            let out = Command::new(program).args(args).output()?;
+            if out.status.success() {
+                Ok(())
+            } else {
+                Err(io::Error::other(format!(
+                    "{program} {args:?}: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                )))
+            }
+        }
+
+        /// An ext4 filesystem on a loop device over a file in a temporary directory.
+        struct Loop {
+            dir: tempfile::TempDir,
+            device: PathBuf,
+        }
+
+        impl Loop {
+            fn new() -> io::Result<Self> {
+                let dir = tempfile::tempdir()?;
+                let image = dir.path().join("disk.img");
+                File::create(&image)?.set_len(16 << 20)?;
+                let out = Command::new("losetup")
+                    .args(["--find", "--show"])
+                    .arg(&image)
+                    .output()?;
+                if !out.status.success() {
+                    return Err(io::Error::other(format!(
+                        "losetup: {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    )));
+                }
+                let device = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+                let disk = Self { dir, device };
+                // The setup is read back: a block device is what the claim is about.
+                assert!(
+                    fs::metadata(&disk.device)?.file_type().is_block_device(),
+                    "{} is not a block device",
+                    disk.device.display()
+                );
+                run("mkfs.ext4", &["-q", &disk.device.to_string_lossy()])?;
+                fs::create_dir(disk.target())?;
+                Ok(disk)
+            }
+
+            fn name(&self) -> String {
+                self.device
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            }
+
+            fn target(&self) -> PathBuf {
+                self.dir.path().join("mnt")
+            }
+
+            fn mount(&self) -> Result<Mounted, Errno> {
+                mount(
+                    Some(&self.device),
+                    &self.target(),
+                    Some("ext4"),
+                    MsFlags::empty(),
+                    None::<&str>,
+                )?;
+                Ok(Mounted(self.target()))
+            }
+        }
+
+        impl Drop for Loop {
+            fn drop(&mut self) {
+                let _ = run("losetup", &["--detach", &self.device.to_string_lossy()]);
+            }
+        }
+
+        /// A mount, let go of when dropped.
+        struct Mounted(PathBuf);
+
+        impl Drop for Mounted {
+            fn drop(&mut self) {
+                let _ = umount(&self.0);
+            }
+        }
+
+        #[test]
+        fn a_mounted_device_refuses_the_claim_and_the_release_reports_it_in_use() -> io::Result<()>
+        {
+            if !root_or_rerun(
+                "a_mounted_device_refuses_the_claim_and_the_release_reports_it_in_use",
+            )? {
+                return Ok(());
+            }
+            let disk = Loop::new()?;
+            let name = disk.name();
+
+            // Control: nothing mounted, and the claim is given.
+            drop(open_exclusive(&disk.device)?);
+
+            let mounted = disk.mount()?;
+            let refused = open_exclusive(&disk.device).expect_err("a mounted device is claimed");
+            assert_eq!(refused.raw_os_error(), Some(nix::libc::EBUSY), "{refused}");
+
+            // The release path, on a disk found at a fake PCI address whose block device is the
+            // real one.
+            let tree = Tree::new()?;
+            let disks = LinuxDisks::at(tree.sys(), "/dev", Duration::from_millis(400));
+            let sys = tree.sys();
+            let (new_name, new_address) = (name.clone(), "0000:00:05.0");
+            let appear = std::thread::spawn(move || {
+                sleep(Duration::from_millis(120));
+                device_in(&sys, &new_name, new_address, "7:0", false)
+            });
+            ok(disks.find("data"))?;
+            appear.join().map_err(|_| io::Error::other("appear"))??;
+            let remove = tree.sys().join("bus/pci/devices/0000:00:05.0/remove");
+
+            assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
+            assert_eq!(fs::read_to_string(&remove)?, "", "nothing was removed");
+
+            // Control: unmounted, the same call goes through, holding the real device.
+            drop(mounted);
+            let (sys, device) = (tree.sys(), disk.device.clone());
+            let unplug = std::thread::spawn(move || {
+                while fs::read_to_string(sys.join("bus/pci/devices/0000:00:05.0/remove"))
+                    .unwrap_or_default()
+                    != "1"
+                {
+                    sleep(Duration::from_millis(10));
+                }
+                let claimed = held(&device);
+                let _ = fs::remove_file(sys.join("class/block").join(name));
+                claimed
+            });
+            let result = disks.release("data");
+            let claimed = unplug.join().map_err(|_| io::Error::other("unplug"))?;
+            assert!(result.is_ok(), "{result:?}");
+            assert!(claimed, "the real device was held when the removal began");
+            Ok(())
+        }
+
+        #[test]
+        fn a_held_claim_refuses_a_mount_of_the_device() -> io::Result<()> {
+            if !root_or_rerun("a_held_claim_refuses_a_mount_of_the_device")? {
+                return Ok(());
+            }
+            let disk = Loop::new()?;
+
+            let claim = open_exclusive(&disk.device)?;
+            let refused = disk.mount().err();
+            assert_eq!(refused, Some(Errno::EBUSY), "mounting a claimed device");
+
+            // Control: once the claim is dropped, the same mount succeeds.
+            drop(claim);
+            let _mounted = disk.mount()?;
+            Ok(())
+        }
+    }
 }
