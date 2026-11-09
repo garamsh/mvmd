@@ -1,4 +1,4 @@
-package firecracker_test
+package hostcpu_test
 
 import (
 	"strings"
@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/garamsh/mvmd/daemon/internal/firecracker"
+	"github.com/garamsh/mvmd/daemon/internal/hostcpu"
 )
 
-func TestCPUModel_NamesTheFirstProcessorByItsIdentity(t *testing.T) {
+func TestModelOf_NamesTheFirstProcessorByItsIdentity(t *testing.T) {
 	x86 := `processor	: 0
 vendor_id	: GenuineIntel
 cpu family	: 6
@@ -25,7 +25,7 @@ cpu family	: 6
 model		: 999
 stepping	: 7
 `
-	got, err := firecracker.CPUModel(strings.NewReader(x86))
+	got, err := hostcpu.ModelOf(strings.NewReader(x86))
 	require.NoError(t, err)
 	assert.Equal(t, "vendor_id=GenuineIntel cpu family=6 model=183 stepping=1", got, "the first processor, and not the model name or MHz")
 
@@ -36,12 +36,12 @@ CPU variant	: 0x3
 CPU part	: 0xd0c
 CPU revision	: 1
 `
-	got, err = firecracker.CPUModel(strings.NewReader(arm))
+	got, err = hostcpu.ModelOf(strings.NewReader(arm))
 	require.NoError(t, err)
 	assert.Equal(t, "CPU implementer=0x41 CPU architecture=8 CPU variant=0x3 CPU part=0xd0c CPU revision=1", got)
 }
 
-func TestCPUModel_RefusesADescriptionThatNamesNoModel(t *testing.T) {
-	_, err := firecracker.CPUModel(strings.NewReader("processor : 0\nbogomips : 1\n"))
+func TestModelOf_RefusesADescriptionThatNamesNoModel(t *testing.T) {
+	_, err := hostcpu.ModelOf(strings.NewReader("processor : 0\nbogomips : 1\n"))
 	require.Error(t, err)
 }

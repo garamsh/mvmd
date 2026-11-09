@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -126,4 +127,21 @@ func DialContext(ctx context.Context, path string) (net.Conn, error) {
 	}
 	defer d.Close()
 	return d.DialContext(ctx, filepath.Base(path))
+}
+
+// Await returns once a connection to the socket at path is accepted, which is
+// some time after the process that binds it has started, or when ctx ends. It
+// closes the connection it made.
+func Await(ctx context.Context, path string) error {
+	for wait := time.Millisecond; ; wait = min(2*wait, 50*time.Millisecond) {
+		conn, err := DialContext(ctx, path)
+		if err == nil {
+			return conn.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(fmt.Errorf("the socket %s never accepted a connection", path), ctx.Err(), err)
+		case <-time.After(wait):
+		}
+	}
 }

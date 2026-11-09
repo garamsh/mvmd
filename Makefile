@@ -53,9 +53,9 @@ echo "$@: $$ws: --workspace selects $$m member(s) per cargo metadata --no-deps";
 if [ "$$m" -eq 0 ]; then echo "$@: $$ws: no members" >&2; exit 1; fi
 endef
 
-# The tests of test-firecracker are behind a build tag, so vet reads them again with it.
+# The tests of test-firecracker and test-cloud-hypervisor are behind build tags, so vet reads them again with them.
 lint:
-	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && go vet -tags firecracker_real ./... && \
+	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && go vet -tags firecracker_real,cloud_hypervisor_real ./... && \
 	  if [ -f buf.yaml ]; then \
 	    lib=$$($(TOOL_ENV) go list -m -f '{{.Version}}' google.golang.org/protobuf); \
 	    gen=$$($(TOOL_ENV) go list -modfile=$(PROTOGEN) -m -f '{{.Version}}' google.golang.org/protobuf); \
@@ -116,7 +116,7 @@ test: erofs-utils
 # not part of ci: a runner without KVM would fail it, so the pipeline runs it as a job of its own.
 # tooling/firecracker/fetch.sh fetches the two inputs by their pinned digests; a missing input fails
 # the tests and never skips them.
-.PHONY: guest-initrd test-firecracker
+.PHONY: guest-initrd test-firecracker test-cloud-hypervisor
 guest-initrd:
 	$(call initrd_twice,guest-agent,)
 
@@ -130,6 +130,22 @@ test-firecracker: guest-initrd
 	cat "$$log"; \
 	n=$$(grep -c '^--- PASS: TestReal_' "$$log" || true); \
 	echo "$@: $$n test(s) passed, selected by -run '^TestReal_' under the firecracker_real tag"; \
+	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
+
+# test-cloud-hypervisor does the same for the pinned Cloud Hypervisor, through its Driver. The kernel
+# is the one tooling/firecracker/fetch.sh pins, so that script runs for it as well; the two inputs
+# files are sourced together. Like test-firecracker it is not part of ci and a missing input fails.
+test-cloud-hypervisor: guest-initrd
+	@set -e; \
+	tooling/firecracker/fetch.sh tooling/firecracker/target; \
+	tooling/cloud-hypervisor/fetch.sh tooling/cloud-hypervisor/target; \
+	set -a; . tooling/firecracker/target/inputs.env; . tooling/cloud-hypervisor/target/inputs.env; set +a; \
+	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
+	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
+	if ! (cd daemon && go test -tags cloud_hypervisor_real -count=1 -v -run '^TestReal_' ./internal/cloudhypervisor/) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
+	cat "$$log"; \
+	n=$$(grep -c '^--- PASS: TestReal_' "$$log" || true); \
+	echo "$@: $$n test(s) passed, selected by -run '^TestReal_' under the cloud_hypervisor_real tag"; \
 	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
 
 # test-e2e runs the end-to-end tests of e2e/: the built mvmd and mvmd-supervisor on the pinned

@@ -56,7 +56,7 @@ func (d *Driver) started(ctx context.Context, id machine.MachineID) (*client, er
 	if err != nil {
 		return nil, err
 	}
-	if err := await(ctx, sock); err != nil {
+	if err := unixsock.Await(ctx, sock); err != nil {
 		return nil, err
 	}
 	c := newClient(sock)
