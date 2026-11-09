@@ -276,10 +276,12 @@ type Driver interface {
 	Snapshot(ctx context.Context, id MachineID) (DriverSnapshot, error)
 	// DescribeRestore is Describe for a Machine that boots from the files of a
 	// snapshot. The boot's network device is the new Machine's tap, not the one
-	// the snapshot recorded.
+	// the snapshot recorded. Its boot files are exactly those its VMM opens on
+	// restore, at their fixed paths and none other (ADR 0027).
 	DescribeRestore(ctx context.Context, id MachineID, spec BootSpec, files []string) (ProcessDescription, error)
-	// Restore loads the snapshot into the started VMM and resumes the guest. It
-	// is given the boot description DescribeRestore was, as Boot is, so the
+	// Restore sees the snapshot loaded into the started VMM, which a VMM that
+	// restores from its command line has done as it started, and the guest
+	// resumed. It is given the boot description DescribeRestore was, as Boot is, so the
 	// Driver keeps nothing between the two calls.
 	Restore(ctx context.Context, id MachineID, spec BootSpec) error
 	// Observe sets the function the Driver calls for each event it raises on
