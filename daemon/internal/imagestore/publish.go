@@ -69,7 +69,7 @@ func (s *Store) Publish(ctx context.Context, staging image.Staging) error {
 		Size:        st.record.manifestSize,
 		Annotations: map[string]string{pulledByAnnotation: string(st.image)},
 	}
-	idx.Manifests = withEntry(idx.Manifests, entry)
+	_ = withEntry(idx.Manifests, entry)
 	content, err := json.Marshal(idx)
 	if err != nil {
 		return err
