@@ -37,7 +37,10 @@ func firecrackerConfig(t *testing.T) app.Config {
 	}
 	cv.Kernel, cv.KernelSHA256 = file("converter-vmlinux", "a converter kernel")
 	cv.Initrd, _ = file("converter-initrd.cpio", "a converter initrd")
+	mkfs, _ := file("mkfs.ext4", "#!/bin/sh\nexit 0\n")
+	require.NoError(t, os.Chmod(mkfs, 0o700))
 	cfg.Driver = app.DriverFirecracker
+	cfg.Disk = &app.DiskConfig{MKFS: mkfs}
 	cfg.Firecracker = f
 	cfg.Conversion = cv
 	cfg.Supervision = &app.SupervisionConfig{Binary: "/usr/libexec/mvmd-supervisor"}
@@ -51,6 +54,8 @@ func TestFirecracker_TheDriverAndTheChannelReplaceTheMemoryOnes(t *testing.T) {
 	assert.NotNil(t, memory.Substitutes.Guest, "control: and the memory Guest")
 	assert.NotNil(t, memory.Substitutes.Registry, "control: and the memory Registry")
 	assert.NotNil(t, memory.Substitutes.Converter, "control: and the memory Converter")
+	assert.NotNil(t, memory.Substitutes.Disks, "control: and the memory Disk")
+	assert.NotNil(t, memory.Substitutes.Snapshots, "control: and the memory Snapshot Store")
 	assert.NotNil(t, memory.Substitutes.Cache, "control: and the memory Image Store")
 	assert.NotNil(t, memory.Substitutes.ConversionDriver, "control: and the memory conversion Driver")
 	assert.NotNil(t, memory.Substitutes.ConversionSupervision, "control: and the memory conversion Supervision")
@@ -62,6 +67,8 @@ func TestFirecracker_TheDriverAndTheChannelReplaceTheMemoryOnes(t *testing.T) {
 	assert.Nil(t, a.Substitutes.Supervisors, "the Driver's run directories are the real supervisors'")
 	assert.Nil(t, a.Substitutes.Registry, "the memory Registry is not in the graph")
 	assert.Nil(t, a.Substitutes.Converter, "the memory Converter is not in the graph")
+	assert.Nil(t, a.Substitutes.Disks, "the memory Disk is not in the graph")
+	assert.Nil(t, a.Substitutes.Snapshots, "the memory Snapshot Store is not in the graph")
 	assert.Nil(t, a.Substitutes.Cache, "the memory Image Store is not in the graph")
 	assert.Nil(t, a.Substitutes.ConversionDriver, "the memory conversion Driver is not in the graph")
 	assert.Nil(t, a.Substitutes.ConversionSupervision, "the memory conversion Supervision is not in the graph")
@@ -92,6 +99,7 @@ func TestFirecracker_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.
 const (
 	digest64    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	fcSection   = `,"firecracker":{"binary":"/opt/firecracker","binary_sha256":"` + digest64 + `","kernel":"/opt/vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/initrd.cpio"}`
+	dkSection   = `,"disk":{"mkfs":"/sbin/mkfs.ext4"}`
 	fcSupervise = `,"supervision":{"binary":"/usr/libexec/mvmd-supervisor"}`
 	cvSection   = `,"conversion":{"kernel":"/opt/converter-vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/converter-initrd.cpio","converter":"converter-1","vcpus":2,"memory_bytes":536870912,"output_bytes":1073741824,"name_set_bytes":1048576,"limit":"10m"}`
 )
@@ -101,11 +109,11 @@ func firecrackerRaw(driver, section, supervision string) string {
 }
 
 func pullTimeoutRaw(d string) string {
-	return strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection, fcSupervise), `"driver"`, `"pull_timeout":"`+d+`","driver"`, 1)
+	return strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"pull_timeout":"`+d+`","driver"`, 1)
 }
 
 func TestFirecracker_ConfigParses(t *testing.T) {
-	cfg, err := app.ParseConfig([]byte(firecrackerRaw("firecracker", fcSection+cvSection, fcSupervise)))
+	cfg, err := app.ParseConfig([]byte(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise)))
 	require.NoError(t, err)
 	assert.Equal(t, &app.FirecrackerConfig{
 		Binary: "/opt/firecracker", BinarySHA256: digest64, Kernel: "/opt/vmlinux", KernelSHA256: digest64, Initrd: "/opt/initrd.cpio",
@@ -114,10 +122,11 @@ func TestFirecracker_ConfigParses(t *testing.T) {
 		Kernel: "/opt/converter-vmlinux", KernelSHA256: digest64, Initrd: "/opt/converter-initrd.cpio", Converter: "converter-1",
 		VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m",
 	}, cfg.Conversion)
+	assert.Equal(t, &app.DiskConfig{MKFS: "/sbin/mkfs.ext4"}, cfg.Disk)
 	assert.Nil(t, cfg.Registry)
 
 	// Control for the refusals of the registry section and the pull timeout.
-	withRegistry := strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection, fcSupervise), `"driver"`, `"registry":{"credentials_file":"/etc/mvmd/registry.json"},"pull_timeout":"45m","driver"`, 1)
+	withRegistry := strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"registry":{"credentials_file":"/etc/mvmd/registry.json"},"pull_timeout":"45m","driver"`, 1)
 	cfg, err = app.ParseConfig([]byte(withRegistry))
 	require.NoError(t, err)
 	assert.Equal(t, &app.RegistryConfig{CredentialsFile: "/etc/mvmd/registry.json"}, cfg.Registry)
@@ -128,25 +137,29 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 	changed := func(old, with string) string {
 		section := strings.Replace(fcSection, old, with, 1)
 		require.NotEqual(t, fcSection, section, "the row changes the section")
-		return firecrackerRaw("firecracker", section+cvSection, fcSupervise)
+		return firecrackerRaw("firecracker", section+cvSection+dkSection, fcSupervise)
 	}
 	conversion := func(old, with string) string {
 		section := strings.Replace(cvSection, old, with, 1)
 		require.NotEqual(t, cvSection, section, "the row changes the section")
-		return firecrackerRaw("firecracker", fcSection+section, fcSupervise)
+		return firecrackerRaw("firecracker", fcSection+section+dkSection, fcSupervise)
 	}
 	registry := func(driver, sections, section string) string {
 		return strings.Replace(firecrackerRaw(driver, sections, fcSupervise), `"driver"`, `"registry":`+section+`,"driver"`, 1)
 	}
 	tests := []struct{ name, raw, reason string }{
 		{"the driver without its section", firecrackerRaw("firecracker", "", fcSupervise), "firecracker section"},
-		{"the driver without supervision", firecrackerRaw("firecracker", fcSection+cvSection, ""), "supervision section"},
-		{"the driver without the conversion section", firecrackerRaw("firecracker", fcSection, fcSupervise), "conversion section"},
+		{"the driver without supervision", firecrackerRaw("firecracker", fcSection+cvSection+dkSection, ""), "supervision section"},
+		{"the driver without the conversion section", firecrackerRaw("firecracker", fcSection+dkSection, fcSupervise), "conversion section"},
 		{"the section with the memory driver", firecrackerRaw("memory", fcSection+cvSection, fcSupervise), "firecracker section is for"},
+		{"the driver without the disk section", firecrackerRaw("firecracker", fcSection+cvSection, fcSupervise), "disk section"},
+		{"the disk section with the memory driver", firecrackerRaw("memory", dkSection, fcSupervise), "disk section is for"},
+		{"a relative mkfs", strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), "/sbin/mkfs.ext4", "mkfs.ext4", 1), "disk.mkfs"},
+		{"an option the disk section does not read", strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"mkfs":"/sbin/mkfs.ext4"`, `"mkfs":"/sbin/mkfs.ext4","extra":1`, 1), "unknown field"},
 		{"the conversion section with the memory driver", firecrackerRaw("memory", cvSection, fcSupervise), "conversion section is for"},
 		{"the registry section with the memory driver", registry("memory", "", `{"credentials_file":"/c"}`), "registry section is for"},
-		{"a relative credentials file", registry("firecracker", fcSection+cvSection, `{"credentials_file":"c"}`), "registry.credentials_file"},
-		{"no credentials file", registry("firecracker", fcSection+cvSection, `{}`), "registry.credentials_file"},
+		{"a relative credentials file", registry("firecracker", fcSection+cvSection+dkSection, `{"credentials_file":"c"}`), "registry.credentials_file"},
+		{"no credentials file", registry("firecracker", fcSection+cvSection+dkSection, `{}`), "registry.credentials_file"},
 		{"a pull timeout that is not a duration", pullTimeoutRaw("soon"), "pull_timeout"},
 		{"a pull timeout of zero", pullTimeoutRaw("0s"), "pull_timeout"},
 		{"a pull timeout above the maximum", pullTimeoutRaw("7h"), "pull_timeout"},
