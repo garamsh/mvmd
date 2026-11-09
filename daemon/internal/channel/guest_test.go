@@ -745,10 +745,10 @@ func TestUnreachable_WhenTheDriverCannotOpenAStream(t *testing.T) {
 		h := newHarness(t)
 		h.driver.ServeGuest("m", machine.GuestAgentPort+1, func(c net.Conn) { _ = c.Close() })
 		require.ErrorIs(t, h.guest.Health(ctx, "m"), machine.ErrGuestUnreachable)
-		require.ErrorIs(t, h.guest.Boot(ctx, "m", machine.GuestBoot{}), machine.ErrGuestUnreachable)
+		require.ErrorIs(t, h.guest.Boot(ctx, "m", machine.GuestBoot{}), machine.ErrVMMEnded)
 		_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{})
 		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
-		assert.Equal(t, 6, h.driver.Calls("guest-conn"), "the Driver was asked, and once more for each call's repeat")
+		assert.Equal(t, 3, h.driver.Calls("guest-conn"), "each call makes one dial")
 	})
 
 	t.Run("a failure of the Driver", func(t *testing.T) {
@@ -960,7 +960,147 @@ func TestCalls_AreBoundedOnlyByTheCallersContext(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 		err := h.guest.Boot(ctx, "m", machine.GuestBoot{})
-		require.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.NotErrorIs(t, err, machine.ErrGuestUnreachable)
+		require.ErrorIs(t, err, machine.ErrGuestUnreachable)
+	})
+}
+
+// countingConnector delegates to an inner connector after n dials have failed.
+type countingConnector struct {
+	inner   channel.Connector
+	limit   int
+	count   int
+	failure error
+}
+
+func (c *countingConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	c.count++
+	if c.count <= c.limit {
+		return nil, c.failure
+	}
+	if c.inner == nil {
+		return nil, c.failure
+	}
+	return c.inner.GuestConn(ctx, id, port)
+}
+
+// errVMMEndedConnector always returns ErrVMMEnded, as a connector whose VMM
+// has ended.
+type errVMMEndedConnector struct{}
+
+func (c *errVMMEndedConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	return nil, machine.ErrVMMEnded
+}
+
+// neverConnectConnector never answers, as a connector that has no agent.
+type neverConnectConnector struct{}
+
+func (c *neverConnectConnector) GuestConn(ctx context.Context, id machine.MachineID, port uint32) (net.Conn, error) {
+	return nil, machine.ErrGuestUnreachable
+}
+
+// HarnessWithConnector is like harness but accepts a custom Connector.
+type harnessWithConnector struct {
+	conn  channel.Connector
+	guest *channel.Guest
+}
+
+func newHarnessWithConnector(t *testing.T, conn channel.Connector) *harnessWithConnector {
+	t.Helper()
+	return &harnessWithConnector{conn: conn, guest: channel.NewGuest(conn)}
+}
+
+// agentOf registers a fake agent on the harness's driver, if the driver
+// implements ServeGuest; otherwise it does nothing.
+func (h *harnessWithConnector) agentOf(t *testing.T, id machine.MachineID) *state {
+	t.Helper()
+	st := &state{fail: map[string]error{}, execStatus: guestv1alpha1.ExecStatus_EXEC_STATUS_STARTED}
+	if driver, ok := h.conn.(interface {
+		ServeGuest(machine.MachineID, uint32, func(net.Conn))
+	}); ok {
+		driver.ServeGuest(id, machine.GuestAgentPort, st.serve)
+		t.Cleanup(func() {
+			st.mu.Lock()
+			defer st.mu.Unlock()
+			for _, s := range st.servers {
+				s.Stop()
+			}
+		})
+	} else if cc, ok := h.conn.(*countingConnector); ok {
+		if driver, ok := cc.inner.(interface {
+			ServeGuest(machine.MachineID, uint32, func(net.Conn))
+		}); ok {
+			driver.ServeGuest(id, machine.GuestAgentPort, st.serve)
+			t.Cleanup(func() {
+				st.mu.Lock()
+				defer st.mu.Unlock()
+				for _, s := range st.servers {
+					s.Stop()
+				}
+			})
+		}
+	}
+	return st
+}
+
+// Boot waits for the agent, and fails at once when the VMM has ended.
+func TestBoot_WaitsForAgent(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a connector that returns ErrGuestUnreachable for its first 3 dials then connects is waited for", func(t *testing.T) {
+		conn := &countingConnector{
+			inner:   memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1"}),
+			limit:   3,
+			failure: machine.ErrGuestUnreachable,
+		}
+		h := newHarnessWithConnector(t, conn)
+		h.agentOf(t, "m")
+
+		err := h.guest.Boot(ctx, "m", machine.GuestBoot{})
+		require.NoError(t, err)
+		assert.Equal(t, 4, conn.count)
+	})
+
+	t.Run("a connector returning ErrVMMEnded makes Boot fail at once", func(t *testing.T) {
+		conn := &errVMMEndedConnector{}
+		h := newHarnessWithConnector(t, conn)
+
+		start := time.Now()
+		err := h.guest.Boot(ctx, "m", machine.GuestBoot{})
+		elapsed := time.Since(start)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, machine.ErrVMMEnded)
+		assert.True(t, elapsed < 200*time.Millisecond, "elapsed %v should be < 200ms", elapsed)
+	})
+
+	t.Run("a connector that never answers fails at the context's end", func(t *testing.T) {
+		conn := &countingConnector{
+			limit:   100,
+			failure: machine.ErrGuestUnreachable,
+		}
+		h := newHarnessWithConnector(t, conn)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		err := h.guest.Boot(ctx, "m", machine.GuestBoot{})
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, machine.ErrGuestUnreachable)
+		assert.Contains(t, err.Error(), "did not listen")
+		assert.True(t, conn.count > 1, "expected more than 1 dial, got %d", conn.count)
+	})
+
+	t.Run("a non-Boot call on ErrGuestUnreachable fails after 1 dial", func(t *testing.T) {
+		conn := &countingConnector{
+			limit:   1,
+			failure: machine.ErrGuestUnreachable,
+		}
+		h := newHarnessWithConnector(t, conn)
+
+		err := h.guest.Health(ctx, "m")
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, machine.ErrGuestUnreachable)
+		assert.Equal(t, 1, conn.count, "Health should not retry, got %d dials", conn.count)
 	})
 }
