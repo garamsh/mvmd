@@ -181,8 +181,10 @@ func (n *node) conversionLogs() string {
 	const tail = 6000
 	var b strings.Builder
 	dirs, _ := filepath.Glob(filepath.Join(n.stateDir, "conversions", "*"))
+	machines, _ := filepath.Glob(filepath.Join(n.stateDir, "machines", "*"))
+	dirs = append(dirs, machines...)
 	if len(dirs) == 0 {
-		return "no converter VM state directory under " + filepath.Join(n.stateDir, "conversions")
+		return "no VM state directory under " + n.stateDir
 	}
 	for _, dir := range dirs {
 		for _, name := range []string{"supervisor.log", filepath.Join("run", "vmm.log")} {
@@ -206,7 +208,8 @@ func (n *node) conversionLogs() string {
 // refused by one of these.
 func (n *node) fileOwners() string {
 	out, _ := exec.Command("find", filepath.Join(n.stateDir, "images"), filepath.Join(n.stateDir, "disks"), "-ls").CombinedOutput()
-	return "owners and modes of the cache and the disks:\n" + string(out)
+	taps, _ := exec.Command("sh", "-c", "for d in /sys/class/net/*; do echo $d owner=$(cat $d/owner 2>/dev/null) group=$(cat $d/group 2>/dev/null) flags=$(cat $d/tun_flags 2>/dev/null); done; ls -ln /dev/net/tun").CombinedOutput()
+	return "owners and modes of the cache and the disks:\n" + string(out) + "network devices and their owners:\n" + string(taps)
 }
 
 // remove unmounts the state directory and deletes what the node made. It runs after stop.
