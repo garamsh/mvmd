@@ -18,17 +18,18 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// DriverMemory selects the in-memory Driver, Supervision, Network, Disk and
-// Image Store, and the in-memory Registry, converter and image cache behind
-// PullImage. The real adapters join the choice with their own issues; the
-// ones that exist are selected by their own section of the configuration
-// (Supervision, Network), which replaces the substitute behind its port.
+// DriverMemory selects the in-memory Driver, Supervision, Network, Disk,
+// Snapshot Store and Image Store, and the in-memory Registry, converter and
+// image cache behind PullImage. The real Supervision and Network are selected
+// by their own section of the configuration, which replaces the substitute
+// behind its port.
 const DriverMemory = "memory"
 
 // DriverFirecracker selects the Firecracker Driver, and the Guest Agent
 // channel adapter over it, in place of the in-memory Driver and Guest, and
 // with them the Image Store, the Registry and the converter channel behind
-// PullImage. It needs the Firecracker, Conversion and Supervision sections.
+// PullImage, the Disk and the Snapshot Store. It needs the Firecracker,
+// Conversion, Disk and Supervision sections.
 const DriverFirecracker = "firecracker"
 
 // Config is mvmd's one configuration file.
@@ -37,15 +38,19 @@ type Config struct {
 	// StateDir holds mvmd's database. It is created if absent. Under the
 	// Firecracker Driver it also holds the Image Store, in "images", on a
 	// filesystem with fs-verity enabled (image.md §Layout), and the state
-	// directories of the converter VMs' supervisors, in "conversions".
+	// directories of the converter VMs' supervisors, in "conversions", the
+	// root disks, in "disks", and the snapshots, in "snapshots".
 	StateDir string `json:"state_dir"`
 	// Driver selects the adapters behind the ports: "memory" or "firecracker".
-	// "firecracker" replaces the Driver, the Guest and the Image Store;
-	// Disks and Snapshots stay in-memory substitutes whose paths name no file,
-	// so every Start of a Machine fails under it until a real Disk is wired
-	// (#33). Use it to start the daemon, pull images and check its inputs, not
-	// to run Machines.
+	// "firecracker" replaces the Driver, the Guest, the Image Store, the Disk
+	// and the Snapshot Store with the real adapters, so a Machine can be
+	// created, started, snapshotted and restored on the node. Root disks are
+	// then in "disks" under StateDir and snapshots in "snapshots", which must
+	// be on the same file system as the Machines' run directories.
 	Driver string `json:"driver"`
+	// Disk names what the Disk adapter needs. It is required by the
+	// Firecracker Driver and refused with any other.
+	Disk *DiskConfig `json:"disk,omitempty"`
 	// Firecracker names the pinned binary, kernel and initrd the Firecracker
 	// Driver boots; it is required by that Driver and refused with any other.
 	Firecracker *FirecrackerConfig `json:"firecracker,omitempty"`
@@ -245,6 +250,13 @@ func (c Config) bootTimeout() (time.Duration, error) {
 	return d, nil
 }
 
+// DiskConfig is what the node says about its root disks (ADR 0009).
+type DiskConfig struct {
+	// MKFS is the absolute path of the mkfs.ext4 that formats a root disk. It
+	// is run with -V at start, and the node does not start when that fails.
+	MKFS string `json:"mkfs"`
+}
+
 // FirecrackerConfig is what the node says about Firecracker and the guest it
 // boots (ADR 0010): each file by absolute path, the binary and the kernel also
 // by SHA-256 in hex, which the Driver checks before every boot.
@@ -387,6 +399,10 @@ func (c Config) check() error {
 		return fmt.Errorf("driver %q needs the supervision section: its VMM runs under a supervisor", c.Driver)
 	case c.Driver == DriverFirecracker && c.Conversion == nil:
 		return fmt.Errorf("driver %q needs the conversion section: PullImage converts in a converter VM", c.Driver)
+	case c.Driver == DriverFirecracker && c.Disk == nil:
+		return fmt.Errorf("driver %q needs the disk section: a Machine's root disk is formatted by mkfs.ext4", c.Driver)
+	case c.Driver != DriverFirecracker && c.Disk != nil:
+		return fmt.Errorf("the disk section is for driver %q, not %q", DriverFirecracker, c.Driver)
 	case c.Driver != DriverFirecracker && c.Firecracker != nil:
 		return fmt.Errorf("the firecracker section is for driver %q, not %q", DriverFirecracker, c.Driver)
 	case c.Driver != DriverFirecracker && c.Conversion != nil:
@@ -403,6 +419,9 @@ func (c Config) check() error {
 		if err := cv.check(*c.Firecracker); err != nil {
 			return err
 		}
+	}
+	if d := c.Disk; d != nil && !filepath.IsAbs(d.MKFS) {
+		return fmt.Errorf("disk.mkfs %q is not an absolute path", d.MKFS)
 	}
 	if r := c.Registry; r != nil && !filepath.IsAbs(r.CredentialsFile) {
 		return fmt.Errorf("registry.credentials_file %q is not an absolute path", r.CredentialsFile)
