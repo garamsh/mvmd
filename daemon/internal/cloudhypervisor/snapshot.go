@@ -74,7 +74,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 		}
 		held[name] = f
 	}
-	boot := []machine.File{d.initrd()}
+	boot := []machine.File{}
 	for _, name := range snapshotNames {
 		if held[name] == "" {
 			return machine.ProcessDescription{}, fmt.Errorf("a snapshot holds %s, and %d files were given without it", strings.Join(snapshotNames, ", "), len(files))
