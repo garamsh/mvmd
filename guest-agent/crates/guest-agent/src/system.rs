@@ -66,6 +66,39 @@ pub trait Clock: Send + Sync {
     fn set_realtime(&self, unix_nanos: i64) -> io::Result<()>;
 }
 
+/// What a hot-plugged disk looks like to the guest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskDevice {
+    /// The block device's name, for example `vdb`.
+    pub name: String,
+    /// Its size in bytes.
+    pub size_bytes: u64,
+    /// Whether it is read-only.
+    pub read_only: bool,
+}
+
+/// Why a disk call failed.
+#[derive(Debug)]
+pub enum DiskError {
+    /// The device is mounted or held.
+    InUse,
+    /// The agent has no record of the disk.
+    Unknown,
+    /// The kernel's answer was not one device, or a call failed.
+    Failed(io::Error),
+}
+
+/// The disks hot-plugged into the Machine. An implementation serialises its calls and keeps the
+/// record of which device each disk ID is.
+pub trait Disks: Send + Sync {
+    /// Rescan for the one new block device and record it as `disk_id`; a recorded `disk_id`
+    /// returns its record.
+    fn find(&self, disk_id: &str) -> Result<DiskDevice, DiskError>;
+
+    /// Remove the device recorded as `disk_id` unless it is in use, and forget the record.
+    fn release(&self, disk_id: &str) -> Result<(), DiskError>;
+}
+
 /// Where the agent writes the lines that say why it ended, which the VMM's console carries to
 /// the daemon.
 pub trait Console: Send + Sync {
@@ -88,6 +121,8 @@ pub struct System {
     pub entropy: Arc<dyn Entropy>,
     /// The wall clock.
     pub clock: Arc<dyn Clock>,
+    /// The disks hot-plugged into the Machine.
+    pub disks: Arc<dyn Disks>,
 }
 
 /// Ends the Machine through the `reboot` system call.

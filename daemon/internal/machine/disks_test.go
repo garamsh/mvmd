@@ -3,6 +3,7 @@ package machine_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,25 +77,41 @@ func TestAttachDisk_Needs(t *testing.T) {
 		requireKind(t, e.svc.AttachDisk(ctx, "other", ro("m-root")), machine.ErrPreconditionFailed)
 	})
 
-	t.Run("hotplug capability if Running or Paused", func(t *testing.T) {
-		for _, state := range []machine.State{machine.StateRunning, machine.StatePaused} {
-			e := newEnv() // a Driver without the capability
-			e.disks.Provide("d")
-			e.inState(t, "m", state)
-			requireKind(t, e.svc.AttachDisk(ctx, "m", rw("d")), machine.ErrUnsupported)
-			assert.Empty(t, attached(t, e, "m"))
-			assert.Zero(t, e.driver.Calls("attach"))
+	t.Run("hotplug capability if Running", func(t *testing.T) {
+		e := newEnv() // a Driver without the capability
+		e.disks.Provide("d")
+		e.inState(t, "m", machine.StateRunning)
+		requireKind(t, e.svc.AttachDisk(ctx, "m", rw("d")), machine.ErrUnsupported)
+		assert.Empty(t, attached(t, e, "m"))
+		assert.Zero(t, e.driver.Calls("attach"))
 
-			with := newEnv(machine.CapabilityDiskHotplug)
-			with.disks.Provide("d")
-			with.inState(t, "m", state)
-			require.NoError(t, with.svc.AttachDisk(ctx, "m", rw("d")))
-		}
+		with := newEnv(machine.CapabilityDiskHotplug)
+		with.disks.Provide("d")
+		with.inState(t, "m", machine.StateRunning)
+		require.NoError(t, with.svc.AttachDisk(ctx, "m", rw("d")))
+	})
+
+	t.Run("a Machine that is not Paused, because its guest cannot find the disk", func(t *testing.T) {
+		e := newEnv(machine.CapabilityDiskHotplug)
+		e.disks.Provide("d")
+		e.inState(t, "m", machine.StatePaused)
+		requireKind(t, e.svc.AttachDisk(ctx, "m", rw("d")), machine.ErrPreconditionFailed)
+		assert.Empty(t, attached(t, e, "m"))
+		assert.Zero(t, e.driver.Calls("attach"))
+		assert.Zero(t, e.guest.Calls("find-disk"))
+
+		// Control: resumed, the same call is accepted.
+		require.NoError(t, e.svc.Resume(ctx, "m"))
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+	})
+
+	t.Run("no capability if Created or Stopped", func(t *testing.T) {
 		for _, state := range []machine.State{machine.StateCreated, machine.StateStopped} {
-			e := newEnv() // not Running or Paused: no capability is needed
+			e := newEnv() // not Running: no capability is needed
 			e.disks.Provide("d")
 			e.inState(t, "m", state)
 			require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+			assert.Zero(t, e.guest.Calls("find-disk"), "there is no guest to ask")
 		}
 	})
 }
@@ -188,23 +205,36 @@ func TestAttachDisk_StateAfterFailure(t *testing.T) {
 func TestDetachDisk_Needs(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("hotplug capability if Running or Paused", func(t *testing.T) {
-		for _, state := range []machine.State{machine.StateRunning, machine.StatePaused} {
-			// The disk is attached while the Machine is Created, then the
-			// Machine is brought to the state.
-			e := newEnv()
-			e.disks.Provide("d")
-			e.created(t, "m")
-			require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
-			require.NoError(t, e.svc.Start(ctx, "m"))
-			if state == machine.StatePaused {
-				require.NoError(t, e.svc.Pause(ctx, "m"))
-			}
+	t.Run("hotplug capability if Running", func(t *testing.T) {
+		// The disk is attached while the Machine is Created, then the Machine
+		// is started.
+		e := newEnv()
+		e.disks.Provide("d")
+		e.created(t, "m")
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+		require.NoError(t, e.svc.Start(ctx, "m"))
 
-			requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrUnsupported)
-			assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
-			assert.Zero(t, e.driver.Calls("detach"))
-		}
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrUnsupported)
+		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
+		assert.Zero(t, e.driver.Calls("detach"))
+		assert.Zero(t, e.guest.Calls("release-disk"))
+	})
+
+	t.Run("a Machine that is not Paused, because its guest cannot release the disk", func(t *testing.T) {
+		e := newEnv(machine.CapabilityDiskHotplug)
+		e.disks.Provide("d")
+		e.inState(t, "m", machine.StateRunning)
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+		require.NoError(t, e.svc.Pause(ctx, "m"))
+
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrPreconditionFailed)
+		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
+		assert.Zero(t, e.driver.Calls("detach"))
+		assert.Zero(t, e.guest.Calls("release-disk"))
+
+		// Control: resumed, the same call is accepted.
+		require.NoError(t, e.svc.Resume(ctx, "m"))
+		require.NoError(t, e.svc.DetachDisk(ctx, "m", "d"))
 	})
 
 	t.Run("a Created or Stopped Machine needs no capability", func(t *testing.T) {
@@ -282,6 +312,122 @@ func TestDetachDisk_StateAfterFailure(t *testing.T) {
 		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrFailed)
 		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
 		e.requireState(t, "m", machine.StateCreated)
+	})
+}
+
+// The guest's part in a hot attach and detach (ADR 0022).
+func TestAttachDisk_TheGuestFindsTheDisk(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a Running Machine's guest finds the disk after the Driver attaches it", func(t *testing.T) {
+		e := newEnv(machine.CapabilityDiskHotplug)
+		e.disks.Provide("d")
+		e.inState(t, "m", machine.StateRunning)
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+
+		assert.Equal(t, 1, e.guest.Calls("find-disk"))
+		assert.True(t, e.guest.DiskFound("m", "d"))
+
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+		assert.Equal(t, 1, e.guest.Calls("find-disk"), "a repeat does not ask the guest again")
+	})
+
+	t.Run("a guest that cannot find it leaves the disk detached and not held", func(t *testing.T) {
+		e := newEnv(machine.CapabilityDiskHotplug)
+		e.disks.Provide("d")
+		e.inState(t, "m", machine.StateRunning)
+		e.created(t, "other")
+		e.guest.FailAt("find-disk", errBoom)
+
+		requireKind(t, e.svc.AttachDisk(ctx, "m", rw("d")), machine.ErrFailed)
+		assert.Empty(t, attached(t, e, "m"))
+		assert.Empty(t, e.driver.HotDisks("m"), "the Driver took the disk off again")
+		rec, _ := e.store.Record("m")
+		assert.Empty(t, rec.Machine.Disks)
+		e.requireState(t, "m", machine.StateRunning)
+		require.NoError(t, e.svc.AttachDisk(ctx, "other", rw("d")), "so another Machine can hold it")
+	})
+
+	t.Run("a guest that cannot find it and a Driver that cannot detach it Fault the Machine", func(t *testing.T) {
+		e := newEnv(machine.CapabilityDiskHotplug)
+		e.disks.Provide("d")
+		e.inState(t, "m", machine.StateRunning)
+		e.guest.FailAt("find-disk", errBoom)
+		e.driver.FailAt("detach", errBoom)
+
+		requireKind(t, e.svc.AttachDisk(ctx, "m", rw("d")), machine.ErrFailed)
+		e.requireState(t, "m", machine.StateFaulted)
+	})
+}
+
+func TestDetachDisk_TheGuestReleasesTheDiskFirst(t *testing.T) {
+	ctx := context.Background()
+	running := func(t *testing.T) *env {
+		e := newEnv(machine.CapabilityDiskHotplug)
+		e.disks.Provide("d")
+		e.inState(t, "m", machine.StateRunning)
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+		return e
+	}
+
+	t.Run("the guest releases it and then the Driver detaches it", func(t *testing.T) {
+		e := running(t)
+		require.NoError(t, e.svc.DetachDisk(ctx, "m", "d"))
+
+		assert.Equal(t, 1, e.guest.Calls("release-disk"))
+		assert.False(t, e.guest.DiskFound("m", "d"))
+		assert.Empty(t, e.driver.HotDisks("m"))
+		assert.Empty(t, attached(t, e, "m"))
+	})
+
+	t.Run("a guest that is using it refuses, and the Driver is not asked", func(t *testing.T) {
+		e := running(t)
+		e.guest.HoldDisk("m", "d", true)
+
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrPreconditionFailed)
+		assert.Zero(t, e.driver.Calls("detach"))
+		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
+		assert.Equal(t, []machine.DiskID{"d"}, e.driver.HotDisks("m"))
+
+		// Control: once the guest lets go, the same call is accepted.
+		e.guest.HoldDisk("m", "d", false)
+		require.NoError(t, e.svc.DetachDisk(ctx, "m", "d"))
+	})
+
+	t.Run("a guest that does not answer leaves the disk attached", func(t *testing.T) {
+		e := running(t)
+		e.guest.FailAt("release-disk", errBoom)
+
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrFailed)
+		assert.Zero(t, e.driver.Calls("detach"))
+		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
+		e.requireState(t, "m", machine.StateRunning)
+	})
+
+	t.Run("a disk the guest never found is refused, and a Stopped Machine detaches it", func(t *testing.T) {
+		// A disk given at Create is on the VMM from boot; the guest recorded no
+		// ID for it.
+		e := newEnv(machine.CapabilityDiskHotplug)
+		e.disks.Provide("d")
+		e.created(t, "m")
+		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
+		require.NoError(t, e.svc.Start(ctx, "m"))
+
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrPreconditionFailed)
+		assert.Zero(t, e.driver.Calls("detach"))
+
+		require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+		require.NoError(t, e.svc.DetachDisk(ctx, "m", "d"))
+	})
+
+	t.Run("a Driver that cannot detach it after the release has the guest find it again", func(t *testing.T) {
+		e := running(t)
+		e.driver.FailAt("detach", errBoom)
+
+		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrFailed)
+		assert.Equal(t, 2, e.guest.Calls("find-disk"), "once at the attach and once after the failed detach")
+		assert.True(t, e.guest.DiskFound("m", "d"))
+		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
 	})
 }
 

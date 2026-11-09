@@ -7,8 +7,9 @@ use std::time::Duration;
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
-    BootRequest, ExecRequest, ExecStatus, HealthRequest, NetworkConfig, ReadExecOutputRequest,
-    RunConfig, TerminateRequest, read_exec_output_response,
+    BootRequest, ExecRequest, ExecStatus, FindDiskRequest, HealthRequest, NetworkConfig,
+    ReadExecOutputRequest, ReleaseDiskRequest, RunConfig, TerminateRequest,
+    read_exec_output_response,
 };
 use hyper_util::rt::TokioIo;
 use tempfile::TempDir;
@@ -153,6 +154,31 @@ async fn terminate_is_refused_because_this_agent_is_not_the_guests_init() -> Res
     assert_eq!(refused.code(), Code::FailedPrecondition);
     // Control: the binary stays up and serves the next call, so the refusal is the call's and
     // not an ended server's.
+    client.health(HealthRequest {}).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_disk_calls_are_refused_because_this_agents_sys_is_the_hosts() -> Result {
+    let agent = Agent::start(&["--handshake-port", &PORT.to_string()]).await?;
+    let mut client = agent.client().await?;
+
+    let find = client
+        .find_disk(FindDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await
+        .unwrap_err();
+    let release = client
+        .release_disk(ReleaseDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(find.code(), Code::FailedPrecondition);
+    assert_eq!(release.code(), Code::FailedPrecondition);
+    // Control: the binary stays up and serves the next call.
     client.health(HealthRequest {}).await?;
     Ok(())
 }

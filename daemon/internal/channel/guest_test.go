@@ -43,6 +43,7 @@ type state struct {
 	boot       *guestv1alpha1.BootRequest
 	catchUp    *guestv1alpha1.CatchUpRequest
 	terminates int
+	disks      []string // "find:<id>" and "release:<id>", in the order they arrived
 	exec       *guestv1alpha1.ExecRequest
 	execStatus guestv1alpha1.ExecStatus
 	outStream  guestv1alpha1.OutputStream
@@ -178,6 +179,26 @@ func (a *agent) Terminate(context.Context, *guestv1alpha1.TerminateRequest) (*gu
 		return nil, err
 	}
 	return &guestv1alpha1.TerminateResponse{}, nil
+}
+
+func (a *agent) FindDisk(_ context.Context, r *guestv1alpha1.FindDiskRequest) (*guestv1alpha1.FindDiskResponse, error) {
+	a.mu.Lock()
+	a.disks = append(a.disks, "find:"+r.GetDiskId())
+	a.mu.Unlock()
+	if err := a.failure("FindDisk"); err != nil {
+		return nil, err
+	}
+	return &guestv1alpha1.FindDiskResponse{Device: "/dev/vdb"}, nil
+}
+
+func (a *agent) ReleaseDisk(_ context.Context, r *guestv1alpha1.ReleaseDiskRequest) (*guestv1alpha1.ReleaseDiskResponse, error) {
+	a.mu.Lock()
+	a.disks = append(a.disks, "release:"+r.GetDiskId())
+	a.mu.Unlock()
+	if err := a.failure("ReleaseDisk"); err != nil {
+		return nil, err
+	}
+	return &guestv1alpha1.ReleaseDiskResponse{}, nil
 }
 
 func (a *agent) Exec(_ context.Context, r *guestv1alpha1.ExecRequest) (*guestv1alpha1.ExecResponse, error) {
@@ -546,6 +567,24 @@ func TestTerminate_SendsOneRequestAndRepeatsAfterAReset(t *testing.T) {
 	})
 }
 
+// FindDisk and ReleaseDisk send the disk's ID, and a connection that breaks
+// before the answer is replaced.
+func TestDisks_SendTheDiskNamed(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	require.NoError(t, h.guest.FindDisk(ctx, "m", "scratch"))
+	require.NoError(t, h.guest.ReleaseDisk(ctx, "m", "scratch"))
+	assert.Equal(t, []string{"find:scratch", "release:scratch"}, a.disks)
+
+	h = newHarness(t)
+	a = h.agentOf(t, "m")
+	a.dropOnConnect = func(n int) bool { return n == 1 }
+	require.NoError(t, h.guest.ReleaseDisk(ctx, "m", "scratch"))
+	assert.Equal(t, []string{"release:scratch"}, a.disks)
+	assert.Equal(t, 2, a.connections())
+}
+
 // Each status of the agent becomes the error the port promises, by what the
 // call was doing. The rows whose want is nil are controls: a status that must
 // not become that sentinel.
@@ -562,8 +601,10 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		"Boot": func(h *harness) error {
 			return h.guest.Boot(ctx, "m", machine.GuestBoot{})
 		},
-		"CatchUp":   func(h *harness) error { return h.guest.CatchUp(ctx, "m", machine.CatchUp{}) },
-		"Terminate": func(h *harness) error { return h.guest.Terminate(ctx, "m") },
+		"CatchUp":     func(h *harness) error { return h.guest.CatchUp(ctx, "m", machine.CatchUp{}) },
+		"Terminate":   func(h *harness) error { return h.guest.Terminate(ctx, "m") },
+		"FindDisk":    func(h *harness) error { return h.guest.FindDisk(ctx, "m", "d") },
+		"ReleaseDisk": func(h *harness) error { return h.guest.ReleaseDisk(ctx, "m", "d") },
 		"Exec": func(h *harness) error {
 			_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{})
 			return err
@@ -585,7 +626,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 			return err
 		},
 	}
-	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable}
+	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown}
 	tests := []struct {
 		name   string
 		call   string
@@ -617,6 +658,14 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		// not be reached, which the lifecycle falls back from.
 		{name: "a terminate the agent refuses", call: "Terminate", answer: st(codes.FailedPrecondition, "this agent is not the guest's init and cannot stop it")},
 		{name: "a terminate to an agent that is gone", call: "Terminate", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
+		// Disks: the DiskInUse detail is the in-use answer, and the same code with
+		// no detail is not; NotFound is an unknown disk for the disk calls only.
+		{name: "a disk the guest is using", call: "ReleaseDisk", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.DiskInUse{DiskId: "d"}), want: machine.ErrDiskInUse},
+		{name: "a precondition with no detail, whatever the message says", call: "ReleaseDisk", answer: st(codes.FailedPrecondition, "the disk is in use")},
+		{name: "a disk the guest has no record of", call: "ReleaseDisk", answer: st(codes.NotFound, "not found: disk d"), want: machine.ErrDiskUnknown},
+		{name: "a disk to find that is not found", call: "FindDisk", answer: st(codes.NotFound, "not found: disk d"), want: machine.ErrDiskUnknown},
+		{name: "a find that failed in the guest", call: "FindDisk", answer: st(codes.Internal, "no new device appeared")},
+		{name: "a release to an agent that is gone", call: "ReleaseDisk", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
 		{name: "a connection the agent lost", call: "Health", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
 		// ExecOutputGone, with the same code and no detail as the control.
 		{

@@ -52,6 +52,13 @@ pub enum Error {
         reason: String,
     },
 
+    /// A disk's device, or a partition of it, is mounted or held, so it is not released.
+    #[error("precondition failed: disk {disk_id} is in use")]
+    DiskInUse {
+        /// The disk the call named.
+        disk_id: String,
+    },
+
     /// Content received does not match the digest that came with it.
     #[error("digest mismatch: {0}")]
     DigestMismatch(String),

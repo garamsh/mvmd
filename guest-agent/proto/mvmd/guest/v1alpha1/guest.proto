@@ -59,6 +59,23 @@ service GuestService {
   // sends SIGTERM again.
   rpc Terminate(TerminateRequest) returns (TerminateResponse);
 
+  // Find the block device of a disk mvmd has just hot-plugged: the agent asks
+  // the kernel to rescan the PCI bus, since the VMM sends no hotplug
+  // notification, and takes the one virtio block device that appears. It
+  // records disk_id against that device and returns it. A repeat for a
+  // recorded disk_id returns the record without rescanning. No new device
+  // within the agent's bound, or more than one, fails the call and records
+  // nothing. The agent does nothing else with the device. It is served before
+  // Boot has succeeded, and the calls of one Machine are serialised.
+  rpc FindDisk(FindDiskRequest) returns (FindDiskResponse);
+
+  // Release the device FindDisk recorded under disk_id so that mvmd can
+  // unplug it: refused as FAILED_PRECONDITION with a DiskInUse detail while
+  // the device or a partition of it is mounted or held, otherwise removed from
+  // the PCI bus. A disk_id with no record is NOT_FOUND, which is also what a
+  // repeat after a release gets. It is served before Boot has succeeded.
+  rpc ReleaseDisk(ReleaseDiskRequest) returns (ReleaseDiskResponse);
+
   // Whether the agent serves.
   rpc Health(HealthRequest) returns (HealthResponse);
   // The agent version and the contract versions it serves.
@@ -312,6 +329,27 @@ message TerminateRequest {}
 
 message TerminateResponse {}
 
+message FindDiskRequest {
+  // The ID mvmd attached the disk under.
+  string disk_id = 1;
+}
+
+message FindDiskResponse {
+  // The block device's name, for example vdb; its node is /dev/<device>.
+  string device = 1;
+  // The device's size in bytes.
+  uint64 size_bytes = 2;
+  // Whether the device is read-only.
+  bool read_only = 3;
+}
+
+message ReleaseDiskRequest {
+  // The ID mvmd attached the disk under.
+  string disk_id = 1;
+}
+
+message ReleaseDiskResponse {}
+
 message HealthRequest {}
 
 message HealthResponse {}
@@ -381,4 +419,11 @@ enum BootState {
 // has not succeeded.
 message NotBooted {
   BootState state = 1;
+}
+
+// The detail of a FAILED_PRECONDITION status from ReleaseDisk: the device, or a
+// partition of it, is mounted or held.
+message DiskInUse {
+  // The disk_id the call named.
+  string disk_id = 1;
 }
