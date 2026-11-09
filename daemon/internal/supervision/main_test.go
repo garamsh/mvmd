@@ -173,13 +173,13 @@ func adapterConfig(dir string) supervision.Config {
 // runDir is where the adapter puts the run directory of a Machine.
 func runDir(dir, id string) string { return filepath.Join(dir, id, "run") }
 
-// describe is the description of the probe in the mode, running in the
-// directory: a guest of one vCPU and 256 MiB, and an overhead of 256 MiB, 256
-// tasks and one CPU.
+// describe is the description of the probe in the mode, with the host's run
+// directory, which the probe sees at the fixed path in its root: a guest of one
+// vCPU and 256 MiB, and an overhead of 256 MiB, 256 tasks and one CPU.
 func describe(probe, mode, run string, args ...string) machine.ProcessDescription {
 	return machine.ProcessDescription{
 		Executable: probe,
-		Args:       append([]string{mode, run}, args...),
+		Args:       append([]string{mode, machine.InRunDir}, args...),
 		Overhead:   machine.ProcessOverhead{MemoryBytes: 256 << 20, Tasks: 256, CPUs: 1},
 		Guest:      machine.Resources{VCPUs: 1, MemoryBytes: 256 << 20},
 		RunDir:     run,
@@ -224,6 +224,39 @@ func boottime(t testing.TB) int64 {
 		t.Fatal(err)
 	}
 	return ts.Nano()
+}
+
+// inCgroup returns the processes of the host in the Machine's VMM cgroup whose
+// command line contains every word. The probes name their directory by its
+// path in their root, the same for every Machine, so the command line does not
+// say whose they are and the cgroup does.
+func inCgroup(id string, words ...string) []int {
+	raw, err := os.ReadFile(filepath.Join(vmmCgroup, id, "cgroup.procs"))
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for _, field := range strings.Fields(string(raw)) {
+		pid, err := strconv.Atoi(field)
+		if err != nil {
+			continue
+		}
+		line, err := os.ReadFile("/proc/" + field + "/cmdline")
+		if err != nil {
+			continue
+		}
+		line = bytes.ReplaceAll(line, []byte{0}, []byte{' '})
+		match := true
+		for _, w := range words {
+			if !bytes.Contains(line, []byte(w)) {
+				match = false
+			}
+		}
+		if match {
+			out = append(out, pid)
+		}
+	}
+	return out
 }
 
 // processes returns the processes of the host whose command line contains

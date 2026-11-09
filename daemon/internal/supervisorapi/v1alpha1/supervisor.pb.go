@@ -29,12 +29,23 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// BlockDevice is a file a VMM is given and the mode it is given in.
+// BlockDevice is a host file a VMM is given, where in its root it is given
+// and the mode it is given in.
 type BlockDevice struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	DiskId        string                 `protobuf:"bytes,1,opt,name=disk_id,json=diskId,proto3" json:"disk_id,omitempty"`
-	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	ReadOnly      bool                   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Not read by the supervisor.
+	DiskId string `protobuf:"bytes,1,opt,name=disk_id,json=diskId,proto3" json:"disk_id,omitempty"`
+	// The file's path on the host.
+	Path     string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	ReadOnly bool   `protobuf:"varint,3,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	// The path the file has in the process's root: absolute and clean, and not
+	// inside another file's path or under /dev (ADR 0019). A request without it
+	// is refused.
+	InPath string `protobuf:"bytes,4,opt,name=in_path,json=inPath,proto3" json:"in_path,omitempty"`
+	// The file's SHA-256, in hex, or empty when the file is not pinned. The
+	// supervisor hashes the file it opens and mounts the file it hashed, and
+	// refuses the start when the digest differs.
+	Sha256        string `protobuf:"bytes,5,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -90,6 +101,20 @@ func (x *BlockDevice) GetReadOnly() bool {
 	return false
 }
 
+func (x *BlockDevice) GetInPath() string {
+	if x != nil {
+		return x.InPath
+	}
+	return ""
+}
+
+func (x *BlockDevice) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
 // Process is the Driver's description of the VMM process, in full.
 type Process struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
@@ -102,8 +127,11 @@ type Process struct {
 	OverheadMemoryBytes uint64                 `protobuf:"varint,7,opt,name=overhead_memory_bytes,json=overheadMemoryBytes,proto3" json:"overhead_memory_bytes,omitempty"`
 	OverheadTasks       uint32                 `protobuf:"varint,8,opt,name=overhead_tasks,json=overheadTasks,proto3" json:"overhead_tasks,omitempty"`
 	OverheadCpus        float64                `protobuf:"fixed64,9,opt,name=overhead_cpus,json=overheadCpus,proto3" json:"overhead_cpus,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The executable's SHA-256, in hex, or empty when it is not pinned. Checked
+	// as BlockDevice.sha256 is. The executable is at its host path in the root.
+	ExecutableSha256 string `protobuf:"bytes,10,opt,name=executable_sha256,json=executableSha256,proto3" json:"executable_sha256,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Process) Reset() {
@@ -199,6 +227,13 @@ func (x *Process) GetOverheadCpus() float64 {
 	return 0
 }
 
+func (x *Process) GetExecutableSha256() string {
+	if x != nil {
+		return x.ExecutableSha256
+	}
+	return ""
+}
+
 type StartRequest struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Process *Process               `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
@@ -219,12 +254,15 @@ type StartRequest struct {
 	// cgroup's memory.max and cpu.max.
 	GuestMemoryBytes uint64 `protobuf:"varint,5,opt,name=guest_memory_bytes,json=guestMemoryBytes,proto3" json:"guest_memory_bytes,omitempty"`
 	GuestVcpus       uint32 `protobuf:"varint,6,opt,name=guest_vcpus,json=guestVcpus,proto3" json:"guest_vcpus,omitempty"`
-	// The Machine's run directory: absolute, owned by the Machine's user, and
-	// mounted read-write at its own path in the process's root.
+	// The Machine's run directory on the host: absolute and owned by the
+	// Machine's user.
 	RunDir string `protobuf:"bytes,7,opt,name=run_dir,json=runDir,proto3" json:"run_dir,omitempty"`
 	// The cgroup v2 directory mvmd created for this process, with the memory,
 	// pids and cpu controllers enabled for it. The process starts in it.
-	Cgroup        string `protobuf:"bytes,8,opt,name=cgroup,proto3" json:"cgroup,omitempty"`
+	Cgroup string `protobuf:"bytes,8,opt,name=cgroup,proto3" json:"cgroup,omitempty"`
+	// The path the run directory has in the process's root, where it is mounted
+	// read-write (ADR 0019). A request without it is refused.
+	RunDirInPath  string `protobuf:"bytes,9,opt,name=run_dir_in_path,json=runDirInPath,proto3" json:"run_dir_in_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -311,6 +349,13 @@ func (x *StartRequest) GetRunDir() string {
 func (x *StartRequest) GetCgroup() string {
 	if x != nil {
 		return x.Cgroup
+	}
+	return ""
+}
+
+func (x *StartRequest) GetRunDirInPath() string {
+	if x != nil {
+		return x.RunDirInPath
 	}
 	return ""
 }
@@ -563,11 +608,13 @@ var File_mvmd_supervisor_v1alpha1_supervisor_proto protoreflect.FileDescriptor
 
 const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\n" +
-	")mvmd/supervisor/v1alpha1/supervisor.proto\x12\x18mvmd.supervisor.v1alpha1\"W\n" +
+	")mvmd/supervisor/v1alpha1/supervisor.proto\x12\x18mvmd.supervisor.v1alpha1\"\x88\x01\n" +
 	"\vBlockDevice\x12\x17\n" +
 	"\adisk_id\x18\x01 \x01(\tR\x06diskId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1b\n" +
-	"\tread_only\x18\x03 \x01(\bR\breadOnly\"\xf1\x02\n" +
+	"\tread_only\x18\x03 \x01(\bR\breadOnly\x12\x17\n" +
+	"\ain_path\x18\x04 \x01(\tR\x06inPath\x12\x16\n" +
+	"\x06sha256\x18\x05 \x01(\tR\x06sha256\"\x9e\x03\n" +
 	"\aProcess\x12\x1e\n" +
 	"\n" +
 	"executable\x18\x01 \x01(\tR\n" +
@@ -581,7 +628,9 @@ const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\x11tap_by_descriptor\x18\x06 \x01(\bR\x0ftapByDescriptor\x122\n" +
 	"\x15overhead_memory_bytes\x18\a \x01(\x04R\x13overheadMemoryBytes\x12%\n" +
 	"\x0eoverhead_tasks\x18\b \x01(\rR\roverheadTasks\x12#\n" +
-	"\roverhead_cpus\x18\t \x01(\x01R\foverheadCpus\"\x81\x02\n" +
+	"\roverhead_cpus\x18\t \x01(\x01R\foverheadCpus\x12+\n" +
+	"\x11executable_sha256\x18\n" +
+	" \x01(\tR\x10executableSha256\"\xa8\x02\n" +
 	"\fStartRequest\x12;\n" +
 	"\aprocess\x18\x01 \x01(\v2!.mvmd.supervisor.v1alpha1.ProcessR\aprocess\x12\x10\n" +
 	"\x03uid\x18\x02 \x01(\rR\x03uid\x12\x10\n" +
@@ -591,7 +640,8 @@ const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\vguest_vcpus\x18\x06 \x01(\rR\n" +
 	"guestVcpus\x12\x17\n" +
 	"\arun_dir\x18\a \x01(\tR\x06runDir\x12\x16\n" +
-	"\x06cgroup\x18\b \x01(\tR\x06cgroup\"\x0f\n" +
+	"\x06cgroup\x18\b \x01(\tR\x06cgroup\x12%\n" +
+	"\x0frun_dir_in_path\x18\t \x01(\tR\frunDirInPath\"\x0f\n" +
 	"\rStartResponse\"@\n" +
 	"\x10SetExpiryRequest\x12,\n" +
 	"\x12expiry_boottime_ns\x18\x01 \x01(\x03R\x10expiryBoottimeNs\"A\n" +
@@ -609,7 +659,8 @@ const file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDesc = "" +
 	"\x11SupervisorService\x12X\n" +
 	"\x05Start\x12&.mvmd.supervisor.v1alpha1.StartRequest\x1a'.mvmd.supervisor.v1alpha1.StartResponse\x12d\n" +
 	"\tSetExpiry\x12*.mvmd.supervisor.v1alpha1.SetExpiryRequest\x1a+.mvmd.supervisor.v1alpha1.SetExpiryResponse\x12^\n" +
-	"\aInspect\x12(.mvmd.supervisor.v1alpha1.InspectRequest\x1a).mvmd.supervisor.v1alpha1.InspectResponseBSZQgithub.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1;supervisorv1alpha1b\x06proto3"
+	"\aInspect\x12(.mvmd.supervisor.v1alpha1.InspectRequest\x1a).mvmd.supervisor.v1alpha1.InspectResponseB\x84\x02\n" +
+	"\x1ccom.mvmd.supervisor.v1alpha1B\x0fSupervisorProtoP\x01ZQgithub.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1;supervisorv1alpha1\xa2\x02\x03MSX\xaa\x02\x18Mvmd.Supervisor.V1alpha1\xca\x02\x18Mvmd\\Supervisor\\V1alpha1\xe2\x02$Mvmd\\Supervisor\\V1alpha1\\GPBMetadata\xea\x02\x1aMvmd::Supervisor::V1alpha1b\x06proto3"
 
 var (
 	file_mvmd_supervisor_v1alpha1_supervisor_proto_rawDescOnce sync.Once

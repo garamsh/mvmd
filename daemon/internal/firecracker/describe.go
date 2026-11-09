@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -46,38 +45,29 @@ func bootArgs(goarch string) string {
 	return args
 }
 
-// hashChunk is how much of a file is hashed between looks at the context.
-const hashChunk = 1 << 20
-
-// digest returns the SHA-256 of the file, in hex, and stops with the context's
-// error once the context ends.
-func digest(ctx context.Context, path string) (string, error) {
+// digest returns the SHA-256 of the file, in hex.
+func digest(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
 	h := sha256.New()
-	for {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		if _, err := io.CopyN(h, f, hashChunk); err != nil {
-			if errors.Is(err, io.EOF) {
-				return hex.EncodeToString(h.Sum(nil)), nil
-			}
-			return "", err
-		}
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
 	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// verify refuses a binary or a kernel that is not the one the node pinned.
-func verify(ctx context.Context, cfg Config) error {
+// verify refuses a binary or a kernel that is not the one the node pinned. It
+// is how a node fails at its start and not at its first boot; the check of
+// record is the supervisor's, on the file it presents to the VMM (ADR 0019).
+func verify(cfg Config) error {
 	for _, f := range []struct{ name, path, want string }{
 		{"binary", cfg.Binary, cfg.BinarySHA256},
 		{"kernel", cfg.Kernel, cfg.KernelSHA256},
 	} {
-		got, err := digest(ctx, f.path)
+		got, err := digest(f.path)
 		if err != nil {
 			return fmt.Errorf("check the firecracker %s: %w", f.name, err)
 		}
@@ -91,37 +81,38 @@ func verify(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// Describe implements machine.Driver. It checks the pinned inputs and states
-// the process and what it needs open. It keeps nothing: Boot is given the
-// boot description again.
-func (d *Driver) Describe(ctx context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
+// Describe implements machine.Driver. It states the process and what it needs
+// open, with the digests of the pinned binary and kernel for the supervisor to
+// check; it reads neither file. It keeps nothing: Boot is given the boot
+// description again.
+func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
-	api, vsock := filepath.Join(spec.RunDir, apiSocketName), filepath.Join(spec.RunDir, vsockSocketName)
-	for _, p := range []string{api, vsock} {
+	// mvmd connects to the sockets at their host paths and the VMM creates them
+	// at their paths in its root; both are under the 107 bytes a Unix socket
+	// address holds.
+	for _, p := range []string{filepath.Join(spec.RunDir, apiSocketName), filepath.Join(spec.RunDir, vsockSocketName)} {
 		if len(p) > maxSocketPath {
 			return machine.ProcessDescription{}, fmt.Errorf("the socket path %q is %d bytes, over the %d a Unix socket holds", p, len(p), maxSocketPath)
 		}
 	}
-	if err := verify(ctx, d.cfg); err != nil {
-		return machine.ProcessDescription{}, err
-	}
 
-	boot := []machine.BlockDevice{
-		{Path: d.cfg.Kernel, ReadOnly: true},
-		{Path: d.cfg.Initrd, ReadOnly: true},
+	boot := []machine.File{
+		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
+		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true},
 	}
 	nodes := []string{"/dev/kvm"}
 	if spec.Network.Tap != "" {
 		nodes = append(nodes, "/dev/net/tun")
 	}
 	return machine.ProcessDescription{
-		Executable:  d.cfg.Binary,
-		Args:        []string{"--api-sock", api, "--enable-pci", "--log-path", filepath.Join(spec.RunDir, logName)},
-		BootFiles:   append(boot, spec.Devices...),
-		ReadFiles:   cpuReadFiles(runtime.GOARCH),
-		DeviceNodes: nodes,
+		Executable:       d.cfg.Binary,
+		ExecutableSHA256: d.cfg.BinarySHA256,
+		Args:             []string{"--api-sock", inRun(apiSocketName), "--enable-pci", "--log-path", inRun(logName)},
+		BootFiles:        append(boot, machine.DeviceFiles(spec.Devices)...),
+		ReadFiles:        cpuReadFiles(runtime.GOARCH),
+		DeviceNodes:      nodes,
 		Overhead: machine.ProcessOverhead{
 			MemoryBytes: overheadMemory,
 			Tasks:       spec.Resources.VCPUs + overheadTasks,

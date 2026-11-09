@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -72,20 +73,69 @@ type BootSpec struct {
 	Devices   []BlockDevice
 	Network   NetworkDevice
 	Resources Resources
-	// RunDir is the Machine's run directory, where the VMM creates its API
-	// socket and its vsock socket and mvmd connects to them by path (ADR 0015).
-	// The Supervision port names it and the supervisor is given the same.
+	// RunDir is the Machine's run directory on the host, where mvmd connects to
+	// the VMM's API socket and vsock socket by path (ADR 0015); the VMM names
+	// them under InRunDir. The Supervision port names it and the supervisor is
+	// given the same.
 	RunDir string
+}
+
+// The paths a VMM sees its Machine's files at, inside its root (ADR 0019).
+// They are the same for every Machine, so nothing a VMM records of a Machine
+// names a host path, and a Machine restored from that record has its own files
+// bound to the same paths. A Driver describes devices to its VMM by these paths
+// only.
+const (
+	// InKernel and InInitrd are the guest kernel and the initrd.
+	InKernel = "/boot/kernel"
+	InInitrd = "/boot/initrd"
+	// InRunDir is the Machine's run directory, where the VMM creates its API
+	// socket and its vsock socket.
+	InRunDir = "/run"
+)
+
+// InDisk is the path of the block device at a position of BootSpec.Devices.
+// For a Machine the positions are its image (0), its root disk (1) and its
+// attached disks in the order they were attached; a converter has its output
+// disk at 0. A Driver learns no more of what a device holds (ADR 0010).
+func InDisk(position int) string { return "/disk/" + strconv.Itoa(position) }
+
+// File is a host file made visible to the VMM at a path in its root.
+type File struct {
+	// Host is the file's path on the host, which the supervisor opens.
+	Host string
+	// In is the file's path in the VMM's root: one of the names above.
+	In       string
+	ReadOnly bool
+	// SHA256 is the file's digest in hex, or empty for a file that is not
+	// pinned. The supervisor checks it against the file it opens and mounts
+	// that file, so the file checked is the file the VMM is given (ADR 0019).
+	SHA256 string
+}
+
+// DeviceFiles are the devices of a boot description as files at their fixed
+// paths, in boot order.
+func DeviceFiles(devices []BlockDevice) []File {
+	files := make([]File, 0, len(devices))
+	for i, dev := range devices {
+		files = append(files, File{Host: dev.Path, In: InDisk(i), ReadOnly: dev.ReadOnly})
+	}
+	return files
 }
 
 // ProcessDescription is the VMM process a Driver describes for the
 // supervisor to start and confine. It grants no capability, chooses no user
 // and skips no step (ADR 0015).
 type ProcessDescription struct {
+	// Executable is a host path, and is at the same path in the VMM's root.
 	Executable string
-	Args       []string
-	// BootFiles are the files of the boot description, with their modes.
-	BootFiles []BlockDevice
+	// ExecutableSHA256 is its digest in hex, or empty when it is not pinned;
+	// it is checked as File.SHA256 is.
+	ExecutableSHA256 string
+	Args             []string
+	// BootFiles are the files of the boot description, with their modes: at
+	// the fixed paths above.
+	BootFiles []File
 	// ReadFiles are host files the VMM reads beyond the boot files.
 	ReadFiles []string
 	// DeviceNodes are the device nodes the VMM opens.
@@ -106,8 +156,9 @@ type ProcessDescription struct {
 	// Guest is the guest's memory and vCPUs, which with Overhead fix the
 	// VMM's cgroup limits.
 	Guest Resources
-	// RunDir is the Machine's run directory, the one its BootSpec names. The
-	// supervisor bind-mounts it read-write in the VMM's root.
+	// RunDir is the Machine's run directory on the host, the one its BootSpec
+	// names. The supervisor bind-mounts it read-write at InRunDir in the VMM's
+	// root.
 	RunDir string
 }
 

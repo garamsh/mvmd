@@ -174,7 +174,11 @@ func TestStart_OnSuccess(t *testing.T) {
 	// mvmd started the process the Driver described, under the supervisor.
 	process, running := e.sup.Running("m")
 	require.True(t, running)
-	assert.Equal(t, boot.Devices, process.BootFiles)
+	assert.Equal(t, []machine.File{
+		{Host: "/images/sha256:image.erofs", In: "/disk/0", ReadOnly: true},
+		{Host: "/disks/m-root", In: "/disk/1"},
+		{Host: "/disks/data", In: "/disk/2", ReadOnly: true},
+	}, process.BootFiles, "the Driver names each device at its fixed path")
 	assert.Equal(t, 1, e.driver.Calls("boot"))
 }
 

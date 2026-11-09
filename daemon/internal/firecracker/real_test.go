@@ -5,7 +5,6 @@ package firecracker_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,8 +18,9 @@ import (
 )
 
 // These tests boot the pinned Firecracker on the pinned kernel with the Guest
-// Agent's initrd, as the user running them: no supervisor, no confinement and
-// no tap, so they need /dev/kvm and no root. They run through
+// Agent's initrd, as the user running them: no supervisor, no confinement
+// beyond a root with the files at their fixed paths (real_root_test.go), and no
+// tap, so they need /dev/kvm and no root. They run through
 // `make test-firecracker`, which fetches the inputs and names them; a run
 // without them fails, since a pass that never booted a guest would say
 // nothing about the Driver.
@@ -65,11 +65,13 @@ func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t 
 	require.NoError(t, err)
 
 	// What the supervisor does, without its confinement: run the described
-	// process with its output in the run directory's log.
+	// process in a root holding the files at their fixed paths, with its output
+	// in the run directory's log.
 	vmmLog, err := os.Create(filepath.Join(run, "vmm.log"))
 	require.NoError(t, err)
 	defer vmmLog.Close()
-	cmd := exec.Command(p.Executable, p.Args...)
+	cmd, err := inRoot(p.For(spec))
+	require.NoError(t, err)
 	cmd.Stdout, cmd.Stderr = vmmLog, vmmLog
 	require.NoError(t, cmd.Start())
 	exited := make(chan struct{})

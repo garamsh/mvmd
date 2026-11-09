@@ -2,6 +2,7 @@ package firecracker_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,11 +36,11 @@ func TestBoot_ConfiguresTheVMMThenStartsTheGuest(t *testing.T) {
 	want := []struct{ method, path, body string }{
 		{"GET", "/version", ""},
 		{"PUT", "/machine-config", `{"vcpu_count":2,"mem_size_mib":256}`},
-		{"PUT", "/boot-source", `{"kernel_image_path":"` + n.cfg.Kernel + `","initrd_path":"` + n.cfg.Initrd + `","boot_args":"` + firecracker.BootArgs(runtime.GOARCH) + `"}`},
-		{"PUT", "/drives/disk0", `{"drive_id":"disk0","path_on_host":"/images/erofs","is_root_device":false,"is_read_only":true}`},
-		{"PUT", "/drives/disk1", `{"drive_id":"disk1","path_on_host":"/disks/root.img","is_root_device":false,"is_read_only":false,"cache_type":"Writeback"}`},
+		{"PUT", "/boot-source", `{"kernel_image_path":"/boot/kernel","initrd_path":"/boot/initrd","boot_args":"` + firecracker.BootArgs(runtime.GOARCH) + `"}`},
+		{"PUT", "/drives/disk0", `{"drive_id":"disk0","path_on_host":"/disk/0","is_root_device":false,"is_read_only":true}`},
+		{"PUT", "/drives/disk1", `{"drive_id":"disk1","path_on_host":"/disk/1","is_root_device":false,"is_read_only":false,"cache_type":"Writeback"}`},
 		{"PUT", "/network-interfaces/eth0", `{"iface_id":"eth0","host_dev_name":"tap-m1","guest_mac":"02:00:00:00:00:01"}`},
-		{"PUT", "/vsock", `{"guest_cid":3,"uds_path":"` + n.vsockSocket() + `"}`},
+		{"PUT", "/vsock", `{"guest_cid":3,"uds_path":"/run/vsock.sock"}`},
 		{"PUT", "/actions", `{"action_type":"InstanceStart"}`},
 	}
 	require.Len(t, seen, len(want))
@@ -48,6 +49,59 @@ func TestBoot_ConfiguresTheVMMThenStartsTheGuest(t *testing.T) {
 		assert.Equal(t, w.path, seen[i].Path, "request %d", i)
 		if w.body != "" {
 			assert.JSONEq(t, w.body, seen[i].Body, "request %d", i)
+		}
+	}
+}
+
+// A snapshot records the paths of the devices the VMM was configured with, and
+// a restored Machine has its own files at other host paths (ADR 0019), so what
+// reaches the VMM names the fixed paths in its root and no host path.
+func TestBoot_NamesOnlyPathsInTheVMMsRoot(t *testing.T) {
+	n := newNode(t)
+	f := &fakeAPI{}
+	n.booted(f)
+	spec := n.spec()
+	p, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err)
+
+	named := map[string]string{} // request path and field to the path the VMM is given
+	for _, r := range f.seen() {
+		var body map[string]any
+		if r.Body == "" {
+			continue
+		}
+		require.NoError(t, json.Unmarshal([]byte(r.Body), &body))
+		for _, field := range []string{"kernel_image_path", "initrd_path", "path_on_host", "uds_path"} {
+			if v, ok := body[field]; ok {
+				named[r.Path+" "+field] = v.(string)
+			}
+		}
+	}
+	assert.Equal(t, map[string]string{
+		"/boot-source kernel_image_path": "/boot/kernel",
+		"/boot-source initrd_path":       "/boot/initrd",
+		"/drives/disk0 path_on_host":     "/disk/0",
+		"/drives/disk1 path_on_host":     "/disk/1",
+		"/vsock uds_path":                "/run/vsock.sock",
+	}, named, "control: every request that carries a path was read")
+
+	// Every path the VMM is given, in its requests and its arguments, is one
+	// the description mounts.
+	mounted := map[string]bool{machine.InRunDir: true}
+	var hosts []string
+	for _, bf := range p.BootFiles {
+		mounted[bf.In] = true
+		hosts = append(hosts, bf.Host)
+	}
+	hosts = append(hosts, n.run)
+	given := append([]string{}, p.Args[1], p.Args[len(p.Args)-1])
+	for _, v := range named {
+		given = append(given, v)
+	}
+	for _, path := range given {
+		assert.True(t, mounted[path] || mounted[filepath.Dir(path)], "%s is not a path the description mounts", path)
+		for _, host := range hosts {
+			assert.NotEqual(t, host, path, "the VMM is given a host path")
 		}
 	}
 }

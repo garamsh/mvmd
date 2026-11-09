@@ -211,7 +211,7 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 	if p != nil {
 		return *p, nil
 	}
-	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: spec.Devices}, nil
+	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: machine.DeviceFiles(spec.Devices)}, nil
 }
 
 // Boot implements machine.Driver.
@@ -361,7 +361,7 @@ func (d *Driver) DescribeRestore(_ context.Context, id machine.MachineID, spec m
 	if p != nil {
 		return *p, nil
 	}
-	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: spec.Devices}, nil
+	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: machine.DeviceFiles(spec.Devices)}, nil
 }
 
 // Restore implements machine.Driver.

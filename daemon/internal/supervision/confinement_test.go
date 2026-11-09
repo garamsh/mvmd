@@ -1,6 +1,8 @@
 package supervision_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"os"
@@ -94,10 +96,12 @@ func statusOf(t *testing.T, pid int) map[string]string {
 	return out
 }
 
-// vmmOf returns the host id of the probe running in the run directory.
+// vmmOf returns the host id of the probe running for the run directory: the one
+// in its Machine's cgroup, since every probe names its directory /run.
 func vmmOf(t *testing.T, run string) int {
 	t.Helper()
-	pids := processes("probe", "report "+run)
+	id := filepath.Base(filepath.Dir(run))
+	pids := inCgroup(id, "probe", " report ")
 	require.Len(t, pids, 1, "the VMM of %s", run)
 	return pids[0]
 }
@@ -155,7 +159,7 @@ func TestConfinement_TheVMMCannotOpenAHostFileOutsideItsGrant(t *testing.T) {
 	tries := []string{"open:" + secret.Name(), "open:" + granted.Name(), "opendir:/"}
 
 	n := newNode(t)
-	run := n.started(t, "m", vmmUser, append(tries, "write:"+filepath.Join(runDir(n.dir, "m"), "mine")), func(p *machine.ProcessDescription) {
+	run := n.started(t, "m", vmmUser, append(tries, "write:"+filepath.Join(machine.InRunDir, "mine")), func(p *machine.ProcessDescription) {
 		p.ReadFiles = []string{granted.Name()}
 	})
 	rep := reportOf(t, run)
@@ -166,14 +170,15 @@ func TestConfinement_TheVMMCannotOpenAHostFileOutsideItsGrant(t *testing.T) {
 	assert.Equal(t, "ok", rep["open:"+granted.Name()], "a file the Driver names is readable")
 	assert.Equal(t, "EACCES", rep["opendir:/"], "the root exists in the VMM's mount namespace and no Landlock rule grants it")
 	assert.Equal(t, "ok", ctl["opendir:/"], "control: the same user lists the root without the supervisor")
-	assert.Equal(t, "ok", rep["write:"+filepath.Join(runDir(n.dir, "m"), "mine")], "the run directory is writable")
+	assert.Equal(t, "ok", rep["write:"+filepath.Join(machine.InRunDir, "mine")], "the run directory is writable")
+	assert.FileExists(t, filepath.Join(run, "mine"), "and it is the Machine's run directory on the host")
 }
 
 func TestConfinement_TheVMMCannotReachAnotherMachinesRunDirectory(t *testing.T) {
 	n := newNode(t)
 	other := runDir(n.dir, "b")
 	intruder := filepath.Join(other, "intruder")
-	own := filepath.Join(runDir(n.dir, "a"), "mine")
+	own := filepath.Join(machine.InRunDir, "mine")
 
 	_ = n.started(t, "b", machine.User{UID: 65533, GID: 65533}, nil, nil)
 	run := n.started(t, "a", vmmUser, []string{"write:" + intruder, "write:" + own}, nil)
@@ -181,7 +186,7 @@ func TestConfinement_TheVMMCannotReachAnotherMachinesRunDirectory(t *testing.T) 
 	ctl := outside(t, vmmUser.UID, "write:"+intruder).report
 
 	assert.Equal(t, "ENOENT", rep["write:"+intruder], "the other Machine's run directory is not in the VMM's root")
-	assert.Equal(t, "ok", rep["write:"+own], "its own run directory is")
+	assert.Equal(t, "ok", rep["write:"+own], "its own run directory is, at /run")
 	assert.Equal(t, "EACCES", ctl["write:"+intruder], "control: the directory exists, and without the supervisor only its owner's mode keeps this user out")
 	_, err := os.Stat(intruder)
 	assert.ErrorIs(t, err, os.ErrNotExist, "nothing was written there")
@@ -432,12 +437,12 @@ func removeCgroup(t *testing.T, dir string) {
 func (r *raw) request() *pb.StartRequest {
 	return &pb.StartRequest{
 		Process: &pb.Process{
-			Executable: probeBin, Args: []string{"vmm", r.run},
+			Executable: probeBin, Args: []string{"vmm", machine.InRunDir},
 			OverheadMemoryBytes: 256 << 20, OverheadTasks: 256, OverheadCpus: 1,
 		},
 		Uid: 65534, Gid: 65534,
 		GuestMemoryBytes: 256 << 20, GuestVcpus: 1,
-		RunDir: r.run, Cgroup: r.cgroup,
+		RunDir: r.run, RunDirInPath: machine.InRunDir, Cgroup: r.cgroup,
 	}
 }
 
@@ -447,6 +452,12 @@ func (r *raw) request() *pb.StartRequest {
 func TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns(t *testing.T) {
 	notExecutable := filepath.Join(shortDir(t), "vmm")
 	require.NoError(t, os.WriteFile(notExecutable, []byte("#!/bin/true\n"), 0o644))
+	kernel := filepath.Join(shortDir(t), "kernel")
+	require.NoError(t, os.WriteFile(kernel, []byte("a kernel"), 0o644))
+	kernelFile := func(digest string) []*pb.BlockDevice {
+		return []*pb.BlockDevice{{Path: kernel, InPath: machine.InKernel, ReadOnly: true, Sha256: digest}}
+	}
+	rightDigest, wrongDigest := sha256Hex([]byte("a kernel")), sha256Hex([]byte("another kernel"))
 
 	for _, c := range []struct {
 		name   string
@@ -462,6 +473,24 @@ func TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns(t *testing.T) {
 		{"a device node that does not exist", func(_ *raw, req *pb.StartRequest) {
 			req.Process.DeviceNodes = []string{"/dev/nosuchdevice"}
 		}, "build the root"},
+		{"a boot file that does not exist", func(_ *raw, req *pb.StartRequest) {
+			req.Process.BootFiles = []*pb.BlockDevice{{Path: "/nonexistent/disk", InPath: machine.InDisk(0)}}
+		}, "build the root"},
+		{"a pinned kernel that is not the pinned file", func(_ *raw, req *pb.StartRequest) {
+			req.Process.BootFiles = kernelFile(wrongDigest)
+		}, "has digest " + rightDigest},
+		{"a pinned executable that is not the pinned file", func(_ *raw, req *pb.StartRequest) {
+			req.Process.ExecutableSha256 = wrongDigest
+		}, "has digest"},
+		{"two files at one path in the root", func(_ *raw, req *pb.StartRequest) {
+			req.Process.BootFiles = append(kernelFile(rightDigest), &pb.BlockDevice{Path: notExecutable, InPath: machine.InKernel, ReadOnly: true})
+		}, "both given the path"},
+		{"a path in the root that leaves it", func(_ *raw, req *pb.StartRequest) {
+			req.Process.BootFiles = []*pb.BlockDevice{{Path: kernel, InPath: "/boot/../../kernel"}}
+		}, "absolute, clean"},
+		{"a boot file with no path in the root", func(_ *raw, req *pb.StartRequest) {
+			req.Process.BootFiles = []*pb.BlockDevice{{Path: kernel}}
+		}, "absolute, clean"},
 		{"a cgroup whose controllers are not enabled", func(r *raw, req *pb.StartRequest) {
 			bare := filepath.Join(vmmBareCgroup, "bare")
 			require.NoError(t, os.Mkdir(bare, 0o755))
@@ -487,9 +516,14 @@ func TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns(t *testing.T) {
 		})
 	}
 
-	t.Run("control: the request without a fault starts the VMM", func(t *testing.T) {
+	t.Run("control: the request without a fault, with the right pins, starts the VMM", func(t *testing.T) {
 		r := newRaw(t, "control", vmmCgroup)
-		_, err := r.client.Start(ctx, r.request())
+		probe, err := os.ReadFile(probeBin)
+		require.NoError(t, err)
+		req := r.request()
+		req.Process.BootFiles = kernelFile(rightDigest)
+		req.Process.ExecutableSha256 = sha256Hex(probe)
+		_, err = r.client.Start(ctx, req)
 		require.NoError(t, err)
 		untilReady(t, r.run)
 		_, statErr := os.Stat(filepath.Join(r.run, "vmm.pid"))
@@ -524,4 +558,65 @@ func TestConfinement_TheVMMWritesItsOwnLogAndNotTheSupervisors(t *testing.T) {
 	sup, err := os.ReadFile(filepath.Join(n.dir, "m", "supervisor.log"))
 	require.NoError(t, err)
 	assert.NotContains(t, string(sup), "vmm started", "control: the supervisor's log is not the VMM's output")
+}
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// Each file of the boot description is in the VMM's root at the path the
+// description gives it, with its mode, and not at its host path, so a snapshot
+// that records these paths names nothing of the host (ADR 0019). The control is
+// the same probe, outside the supervisor, reading the host paths.
+func TestConfinement_EachFileIsAtItsFixedPathAndNotAtItsHostPath(t *testing.T) {
+	dir := shortDir(t)
+	file := func(name, content string, uid, gid uint32) string {
+		p := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+		require.NoError(t, os.Chown(p, int(uid), int(gid)))
+		return p
+	}
+	kernel := file("kernel", "a kernel", 0, 0)
+	image := file("image", "an image", 0, 0)
+	disk := file("root.img", "a disk", vmmUser.UID, vmmUser.GID)
+
+	n := newNode(t)
+	hostRun := runDir(n.dir, "m")
+	tries := []string{
+		"sha256:/boot/kernel", "sha256:/disk/0", "sha256:/disk/1",
+		"sha256:" + kernel, "sha256:" + image, "sha256:" + disk,
+		"openw:/boot/kernel", "openw:/disk/0", "openw:/disk/1",
+		"write:/run/f", "write:" + hostRun + "/g",
+	}
+	run := n.started(t, "m", vmmUser, tries, func(p *machine.ProcessDescription) {
+		p.BootFiles = []machine.File{
+			{Host: kernel, In: machine.InKernel, ReadOnly: true, SHA256: sha256Hex([]byte("a kernel"))},
+			{Host: image, In: machine.InDisk(0), ReadOnly: true},
+			{Host: disk, In: machine.InDisk(1)},
+		}
+	})
+	rep := reportOf(t, run)
+	// The Machine's state directory is the supervisor's own, 0700, so the
+	// control's user cannot even reach the run directory under it. Open the
+	// directory to traversal only for the control, so that what it shows is the
+	// path, not the mode above it.
+	require.NoError(t, os.Chmod(filepath.Join(n.dir, "m"), 0o711))
+	ctl := outside(t, vmmUser.UID, "sha256:"+kernel, "sha256:"+image, "sha256:"+disk, "write:"+hostRun+"/g").report
+
+	assert.Equal(t, sha256Hex([]byte("a kernel")), rep["sha256:/boot/kernel"], "the kernel is at its fixed path")
+	assert.Equal(t, sha256Hex([]byte("an image")), rep["sha256:/disk/0"], "the image is the device at position 0")
+	assert.Equal(t, sha256Hex([]byte("a disk")), rep["sha256:/disk/1"], "the root disk is the device at position 1")
+	for _, host := range []string{kernel, image, disk} {
+		assert.Equal(t, "ENOENT", rep["sha256:"+host], "%s is not at its host path in the root", host)
+		assert.NotEqual(t, "ENOENT", ctl["sha256:"+host], "control: the same user reaches %s without the supervisor", host)
+	}
+	for _, ro := range []string{"openw:/boot/kernel", "openw:/disk/0"} {
+		assert.Contains(t, []string{"EROFS", "EACCES"}, rep[ro], "%s is read-only", ro)
+	}
+	assert.Equal(t, "ok", rep["openw:/disk/1"], "control: a device not marked read-only can be written")
+	assert.Equal(t, "ok", rep["write:/run/f"], "the run directory is at /run")
+	assert.FileExists(t, filepath.Join(hostRun, "f"), "and it is the Machine's own")
+	assert.Equal(t, "ENOENT", rep["write:"+hostRun+"/g"], "not at its host path")
+	assert.Equal(t, "ok", ctl["write:"+hostRun+"/g"], "control: the same user writes there without the supervisor")
 }
