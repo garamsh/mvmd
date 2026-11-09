@@ -75,7 +75,7 @@ func snapshot(id string) machine.Snapshot {
 		ID:      machine.SnapshotID(id),
 		Machine: "machine-of-" + machine.MachineID(id),
 		Request: "request-of-" + machine.RequestID(id),
-		Spec: machine.Spec{
+		Spec: machine.SnapshotSpec{
 			Image:         "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Resources:     machine.Resources{VCPUs: 3, MemoryBytes: 512 << 20},
 			RootDiskBytes: diskSize,
@@ -194,9 +194,6 @@ func TestRecord_KeepsEveryFieldOfASnapshot(t *testing.T) {
 		case reflect.Struct:
 			for i := range v.NumField() {
 				name := path + "." + v.Type().Field(i).Name
-				if name == "Snapshot.Spec.Disks" || name == "Snapshot.Spec.Policy" {
-					continue // a snapshot carries neither (machine.Snapshot)
-				}
 				unset(name, v.Field(i))
 			}
 		default:
@@ -285,24 +282,6 @@ func TestPut_PutsOfOneIdentifierAtOnceKeepExactlyOne(t *testing.T) {
 	left, err := os.ReadDir(filepath.Join(f.snapshots(), "staging"))
 	require.NoError(t, err)
 	assert.Empty(t, left)
-}
-
-func TestPut_RefusesWhatASnapshotDoesNotCarry(t *testing.T) {
-	f := newFixture(t)
-	s := f.open(t)
-	files := f.files(t, "a")
-
-	withDisk := snapshot("a")
-	withDisk.Spec.Disks = []machine.DiskAttachment{{Disk: "d"}}
-	assert.Error(t, s.Put(ctx, withDisk, files))
-	withPolicy := snapshot("a")
-	withPolicy.Spec.Policy.Egress = []machine.NetworkRule{{}}
-	assert.Error(t, s.Put(ctx, withPolicy, files))
-	requireUntouched(t, files, "a")
-	requireNothingKept(t, f)
-
-	// Control: the same files with neither are accepted.
-	require.NoError(t, s.Put(ctx, snapshot("a"), files))
 }
 
 func TestPut_RefusesStateFilesOfOneName(t *testing.T) {
