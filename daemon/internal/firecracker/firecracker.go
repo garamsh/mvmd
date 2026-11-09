@@ -24,6 +24,9 @@ const (
 	logName = "firecracker.log"
 	// consoleLogName is the supervisor's capture of the VMM's output.
 	consoleLogName = "vmm.log"
+	// consoleSocketName is the supervisor's console socket, in the state
+	// directory beside the run directory (ADR 0020).
+	consoleSocketName = "console.sock"
 	// guestCID is the guest's vsock address; it is the same for every Machine
 	// since a vsock device is private to its VMM.
 	guestCID = 3
@@ -88,10 +91,11 @@ func New(cfg Config) (*Driver, error) {
 	return &Driver{cfg: cfg, cpuModel: model}, nil
 }
 
-// Info implements machine.Driver. No optional capability is reported: this
-// Driver does not yet snapshot, restore, hot-plug or resize.
+// Info implements machine.Driver. The one optional capability reported is the
+// console: this Driver does not yet snapshot, restore, hot-plug or resize.
 func (d *Driver) Info() machine.DriverInfo {
-	return machine.DriverInfo{Name: "firecracker", Version: Version, CPUModel: d.cpuModel}
+	return machine.DriverInfo{Name: "firecracker", Version: Version, CPUModel: d.cpuModel,
+		Capabilities: []machine.Capability{machine.CapabilityConsole}}
 }
 
 // Observe implements machine.Driver. The Driver raises no event of its own:

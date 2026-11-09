@@ -3,7 +3,11 @@
 package firecracker_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +19,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/channel"
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 )
 
 // These tests boot the pinned Firecracker on the pinned kernel with the Guest
@@ -65,15 +70,26 @@ func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t 
 	require.NoError(t, err)
 
 	// What the supervisor does, without its confinement: run the described
-	// process in a root holding the files at their fixed paths, with its output
-	// in the run directory's log.
+	// process in a root holding the files at their fixed paths, with its
+	// standard input and output on the console the supervisor serves in the
+	// state directory (its code, supervisor.ServeConsole) and the run
+	// directory's log.
 	vmmLog, err := os.Create(filepath.Join(run, "vmm.log"))
 	require.NoError(t, err)
 	defer vmmLog.Close()
 	cmd, err := inRoot(p.For(spec))
 	require.NoError(t, err)
-	cmd.Stdout, cmd.Stderr = vmmLog, vmmLog
+	vmmIn, consoleIn, err := os.Pipe()
+	require.NoError(t, err)
+	consoleOut, vmmOut, err := os.Pipe()
+	require.NoError(t, err)
+	l, err := net.Listen("unix", filepath.Join(dir, supervisor.ConsoleSocketName))
+	require.NoError(t, err)
+	console := supervisor.ServeConsole(l, consoleIn, consoleOut, vmmLog)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = vmmIn, vmmOut, vmmLog
 	require.NoError(t, cmd.Start())
+	require.NoError(t, vmmIn.Close())
+	require.NoError(t, vmmOut.Close())
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
 	t.Cleanup(func() {
@@ -97,6 +113,38 @@ func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t 
 		defer ccancel()
 		return guest.Health(cctx, "m1") == nil
 	}, time.Minute, 500*time.Millisecond, "the Guest Agent never answered Health through GuestConn")
+
+	// The console: what a session writes is the guest's serial input, and the
+	// guest's kernel answers it, since its serial line echoes what it receives
+	// once the Guest Agent holds the line open.
+	session, err := d.Console(ctx, "m1")
+	require.NoError(t, err)
+	defer session.Close()
+	_, err = session.Write([]byte("mvmd-console-probe\n"))
+	require.NoError(t, err)
+	require.NoError(t, awaitOutput(session, "mvmd-console-probe", 30*time.Second), "the guest did not answer on the console")
+
+	// A second session beside the first reads the guest's answer too, and the
+	// first is unaffected when it closes. The log holds the boot output, which
+	// no session was open for, and what the sessions caused.
+	other, err := d.Console(ctx, "m1")
+	require.NoError(t, err)
+	_, err = other.Write([]byte("mvmd-second-probe\n"))
+	require.NoError(t, err)
+	require.NoError(t, awaitOutput(other, "mvmd-second-probe", 30*time.Second))
+	require.NoError(t, other.Close())
+	_, err = session.Write([]byte("mvmd-after-close\n"))
+	require.NoError(t, err)
+	require.NoError(t, awaitOutput(session, "mvmd-after-close", 30*time.Second), "closing one session leaves the other working")
+	require.Eventually(t, func() bool {
+		log, err := d.ConsoleLog(ctx, "m1")
+		if err != nil {
+			return false
+		}
+		raw, _ := io.ReadAll(log)
+		_ = log.Close()
+		return bytes.Contains(raw, []byte("Linux version")) && bytes.Contains(raw, []byte("mvmd-console-probe"))
+	}, 10*time.Second, 100*time.Millisecond, "the console log holds the boot output and the session's echo")
 
 	// A paused guest runs nothing, so the agent answers nothing until resumed.
 	require.NoError(t, d.Pause(ctx, "m1"))
@@ -123,4 +171,36 @@ func TestReal_ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t 
 	}
 	_, err = d.GuestConn(ctx, "m1", machine.GuestAgentPort)
 	require.ErrorIs(t, err, machine.ErrGuestUnreachable, "no guest is reachable once the VMM has ended")
+
+	// The VMM's output has ended, so the open session reads to its end and no
+	// more open.
+	console.Wait()
+	_, err = io.Copy(io.Discard, session)
+	require.NoError(t, err, "the session ends with end of file when the VMM ends")
+	_, err = d.Console(ctx, "m1")
+	require.ErrorIs(t, err, machine.ErrConsoleUnavailable)
+}
+
+// awaitOutput reads the session until it holds want, or fails after the time.
+func awaitOutput(r io.Reader, want string, within time.Duration) error {
+	done := make(chan error, 1)
+	var seen bytes.Buffer
+	go func() {
+		buf := make([]byte, 1024)
+		for !bytes.Contains(seen.Bytes(), []byte(want)) {
+			n, err := r.Read(buf)
+			seen.Write(buf[:n])
+			if err != nil {
+				done <- fmt.Errorf("the session ended before %q: %w (saw %q)", want, err, seen.String())
+				return
+			}
+		}
+		done <- nil
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(within):
+		return fmt.Errorf("no %q within %v", want, within)
+	}
 }
