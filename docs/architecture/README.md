@@ -52,11 +52,12 @@ Decisions:
 - [ADR 0019](./adr/0019-a-vmm-sees-its-machines-files-at-fixed-paths-in-its-root.md) — a VMM sees its Machine's files at fixed paths in its root, and the supervisor presents the file it checked
 - [ADR 0020](./adr/0020-the-supervisor-serves-the-vmms-serial-console-on-a-socket-outside-its-root.md) — the supervisor serves the VMM's serial console on a socket outside its root (the choice of pipes for the VMM's standard input and output is superseded by ADR 0025)
 - [ADR 0021](./adr/0021-a-root-disk-is-a-file-in-the-disks-directory-of-mvmds-state-directory.md) — a root disk is a file in the disks directory of mvmd's state directory
-- [ADR 0022](./adr/0022-the-guest-finds-a-hot-plugged-disk-by-rescan-and-releases-it-before-the-unplug.md) — the guest finds a hot-plugged disk by rescan and releases it before the unplug
+- [ADR 0022](./adr/0022-the-guest-finds-a-hot-plugged-disk-by-rescan-and-releases-it-before-the-unplug.md) — the guest finds a hot-plugged disk by rescan and releases it before the unplug (the rule for which device `FindDisk` takes is superseded by ADR 0028)
 - [ADR 0023](./adr/0023-a-restart-settles-a-running-machines-disks-against-the-vmms-drives.md) — a restart settles a Running Machine's disks against the VMM's drives
 - [ADR 0024](./adr/0024-the-converters-user-holds-the-output-file-only-while-its-vmm-runs.md) — the converter's user holds the output file only while its VMM runs (adds to the steps 6 and 7 of ADR 0007's Pull image)
 - [ADR 0025](./adr/0025-the-supervisor-gives-the-vmm-a-raw-mode-pseudo-terminal-as-its-console.md) — the supervisor gives the VMM a raw-mode pseudo-terminal as its console (supersedes ADR 0020's pipes)
 - [ADR 0026](./adr/0026-the-supervisor-ends-a-vmm-whose-event-pipe-reports-a-guest-reset.md) — the supervisor ends a VMM whose event pipe reports a guest reset (extends what ADR 0015's description carries)
 - [ADR 0027](./adr/0027-a-restored-vmms-root-holds-the-boot-files-its-vmm-opens-on-restore.md) — a restored VMM's root holds the boot files its VMM opens on restore (replaces driver.md's rule that a restored root holds no kernel and no initrd)
+- [ADR 0028](./adr/0028-find-disk-takes-the-one-virtio-block-device-the-agent-has-not-accounted-for.md) — `FindDisk` takes the one virtio block device the agent has not accounted for (supersedes ADR 0022's rule for which device `FindDisk` takes)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
