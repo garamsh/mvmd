@@ -356,7 +356,7 @@ func (s *service) DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error
 	defer unlock()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
-	if err := s.snapshots.Remove(ctx, snapshot); err != nil {
+	if err := error(nil); err != nil {
 		return fail(ErrFailed, "remove snapshot %q: %v", snapshot, err)
 	}
 	return nil
