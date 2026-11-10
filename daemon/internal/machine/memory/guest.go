@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"sort"
@@ -440,16 +441,23 @@ func (g *Guest) list(id machine.MachineID, path string) ([]machine.FileEntry, er
 	return out, nil
 }
 
-// SearchFiles implements machine.Guest: the files under path whose name
-// contains the pattern, in runs of entriesPerMessage.
+// SearchFiles implements machine.Guest: the files under path whose path
+// relative to it matches the pattern, in runs of entriesPerMessage. The
+// pattern is the Guest Agent's glob (glob.go). Unlike the agent it finds files
+// only, never a directory.
 func (g *Guest) SearchFiles(_ context.Context, id machine.MachineID, path, pattern string, send func([]string) error) error {
 	if err := g.enter("search-files"); err != nil {
 		return err
 	}
+	re, err := compileGlob(pattern)
+	if err != nil {
+		return fmt.Errorf("pattern %q: %w", pattern, err)
+	}
+	dir := strings.TrimSuffix(path, "/") + "/"
 	g.mu.Lock()
 	var out []string
 	for p := range g.files[id] {
-		if strings.HasPrefix(p, path) && strings.Contains(p[len(path):], pattern) {
+		if rest, under := strings.CutPrefix(p, dir); under && matchGlob(re, rest) {
 			out = append(out, p)
 		}
 	}

@@ -90,7 +90,7 @@ func TestGuestAPI_AListingLargerThanAMessageStreams(t *testing.T) {
 	}
 	assert.Equal(t, want, paths, "every entry, sorted by path")
 
-	found, err := searchAll(ctx, n.client, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/big/", Pattern: "n"})
+	found, err := searchAll(ctx, n.client, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/big/", Pattern: "n*"})
 	require.NoError(t, err)
 	assert.Equal(t, want, found, "every match, sorted by path")
 }
@@ -198,7 +198,7 @@ func TestGuestAPI_Files(t *testing.T) {
 		BaseDigest: "sha256:0", ExpectedDigest: "sha256:1", Patch: []byte("x")})
 	requireKind(t, err, precondition)
 
-	found, err := searchAll(ctx, c, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/etc/", Pattern: "mot"})
+	found, err := searchAll(ctx, c, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/etc/", Pattern: "mot*"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/etc/motd"}, found)
 

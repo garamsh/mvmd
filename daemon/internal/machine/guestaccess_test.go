@@ -464,7 +464,7 @@ func TestPatchFile(t *testing.T) {
 func TestSearchFiles(t *testing.T) {
 	ctx := context.Background()
 	refusedUnlessRunning(t, func(e *env) error {
-		_, err := searched(ctx, e.svc, "/", "log")
+		_, err := searched(ctx, e.svc, "/", "**/*.log")
 		return err
 	})
 
@@ -474,15 +474,15 @@ func TestSearchFiles(t *testing.T) {
 	e.guest.PutFile("m", "/var/b.txt", "")
 	e.guest.PutFile("m", "/etc/c.log", "")
 
-	got, err := searched(ctx, e.svc, "/var/", "log")
+	got, err := searched(ctx, e.svc, "/var/", "*.log")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/var/a.log"}, got)
-	all, err := searched(ctx, e.svc, "/", "log")
+	all, err := searched(ctx, e.svc, "/", "**/*.log")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/etc/c.log", "/var/a.log"}, all, "control: a wider path finds more")
 
 	e.guest.FailAt("search-files", errors.New("boom"))
-	_, err = searched(ctx, e.svc, "/", "log")
+	_, err = searched(ctx, e.svc, "/", "**/*.log")
 	requireKind(t, err, machine.ErrFailed)
 }
 
@@ -568,7 +568,7 @@ func TestListFiles_PassesRunsOn(t *testing.T) {
 	assert.Equal(t, []int{512, 512, 76}, sizes)
 
 	sizes = nil
-	require.NoError(t, e.svc.SearchFiles(ctx, "m", "/d/", "f", func(run []string) error {
+	require.NoError(t, e.svc.SearchFiles(ctx, "m", "/d/", "f*", func(run []string) error {
 		sizes = append(sizes, len(run))
 		return nil
 	}))
