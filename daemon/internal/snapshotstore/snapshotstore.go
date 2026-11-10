@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -29,7 +31,7 @@ const (
 
 // Store is the snapshots of a node in one directory. A snapshot is the
 // directory named by the SHA-256 of its identifier, so any identifier is a
-// safe name. Put, Get and Remove are safe to call at once, for the same
+// safe name. Put, Get, List and Remove are safe to call at once, for the same
 // snapshot too: what decides a race is a rename. One process holds the
 // directory at a time.
 type Store struct {
@@ -119,6 +121,38 @@ func (s *Store) Get(ctx context.Context, id machine.SnapshotID) (machine.Snapsho
 		files.State = append(files.State, filepath.Join(dir, stateName, name))
 	}
 	return snapshot, files, nil
+}
+
+// List implements machine.SnapshotStore. The staging directory holds no
+// record, so it is left out, as is a snapshot retired between the listing of
+// the directory and the read of its record: that one is gone. A record that
+// cannot be read fails the listing, since a node holding one is not in a state
+// a client can reconcile against.
+func (s *Store) List(ctx context.Context) ([]machine.Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]machine.Snapshot, 0, len(entries))
+	for _, e := range entries {
+		raw, err := os.ReadFile(filepath.Join(s.dir, e.Name(), recordName))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		snapshot, _, err := decodeRecord(raw)
+		if err != nil {
+			return nil, fmt.Errorf("read the record in %s: %w", e.Name(), err)
+		}
+		out = append(out, snapshot)
+	}
+	slices.SortFunc(out, func(a, b machine.Snapshot) int { return strings.Compare(string(a.ID), string(b.ID)) })
+	return out, nil
 }
 
 // Remove implements machine.SnapshotStore. The snapshot stops being visible

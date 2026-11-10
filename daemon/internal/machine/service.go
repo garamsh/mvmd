@@ -80,6 +80,13 @@ type Service interface {
 	// RestoreSnapshot creates the Machine id, Running, from the snapshot, with
 	// the policy as its network policy. It is gated as Start is.
 	RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error
+	// ListSnapshots returns every snapshot the node holds, ordered by
+	// identifier.
+	ListSnapshots(ctx context.Context) ([]Snapshot, error)
+	// DeleteSnapshot removes the snapshot and its files. An absent snapshot
+	// succeeds. A snapshot a Snapshot or a restore call is using is refused
+	// with ErrPreconditionFailed; a snapshot whose Machine exists is not.
+	DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which
@@ -322,6 +329,35 @@ func (s *service) enter(id MachineID) (*machineLock, func()) {
 // lockSnapshot takes the snapshot's lock, exclusively or shared, and returns
 // the unlock. The entry exists while a call holds or waits for it.
 func (s *service) lockSnapshot(id SnapshotID, exclusive bool) func() {
+	l, release := s.enterSnapshot(id)
+	lock, unlock := l.RLock, l.RUnlock
+	if exclusive {
+		lock, unlock = l.Lock, l.Unlock
+	}
+	lock()
+	return func() {
+		unlock()
+		release()
+	}
+}
+
+// tryLockSnapshotExclusive takes the snapshot's lock exclusively only if no
+// call holds or waits on it for use, and returns the unlock, or false.
+func (s *service) tryLockSnapshotExclusive(id SnapshotID) (func(), bool) {
+	l, release := s.enterSnapshot(id)
+	if !l.TryLock() {
+		release()
+		return nil, false
+	}
+	return func() {
+		l.Unlock()
+		release()
+	}, true
+}
+
+// enterSnapshot counts a user of the snapshot's lock, creating the lock for
+// the first, and returns it with the function that stops counting.
+func (s *service) enterSnapshot(id SnapshotID) (*snapshotLock, func()) {
 	s.mu.Lock()
 	l, ok := s.snapLocks[id]
 	if !ok {
@@ -330,13 +366,7 @@ func (s *service) lockSnapshot(id SnapshotID, exclusive bool) func() {
 	}
 	l.users++
 	s.mu.Unlock()
-	lock, unlock := l.RLock, l.RUnlock
-	if exclusive {
-		lock, unlock = l.Lock, l.Unlock
-	}
-	lock()
-	return func() {
-		unlock()
+	return l, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if l.users--; l.users == 0 {

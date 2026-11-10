@@ -47,6 +47,8 @@ const (
 	RuntimeService_SearchFiles_FullMethodName     = "/mvmd.runtime.v1alpha1.RuntimeService/SearchFiles"
 	RuntimeService_Console_FullMethodName         = "/mvmd.runtime.v1alpha1.RuntimeService/Console"
 	RuntimeService_PullImage_FullMethodName       = "/mvmd.runtime.v1alpha1.RuntimeService/PullImage"
+	RuntimeService_ListSnapshots_FullMethodName   = "/mvmd.runtime.v1alpha1.RuntimeService/ListSnapshots"
+	RuntimeService_DeleteSnapshot_FullMethodName  = "/mvmd.runtime.v1alpha1.RuntimeService/DeleteSnapshot"
 	RuntimeService_RenewDeadline_FullMethodName   = "/mvmd.runtime.v1alpha1.RuntimeService/RenewDeadline"
 	RuntimeService_InspectDeadline_FullMethodName = "/mvmd.runtime.v1alpha1.RuntimeService/InspectDeadline"
 )
@@ -89,6 +91,9 @@ type RuntimeServiceClient interface {
 	Console(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsoleRequest, ConsoleResponse], error)
 	// Images.
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (*PullImageResponse, error)
+	// Snapshots.
+	ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error)
+	DeleteSnapshot(ctx context.Context, in *DeleteSnapshotRequest, opts ...grpc.CallOption) (*DeleteSnapshotResponse, error)
 	// Fencing deadline.
 	RenewDeadline(ctx context.Context, in *RenewDeadlineRequest, opts ...grpc.CallOption) (*RenewDeadlineResponse, error)
 	InspectDeadline(ctx context.Context, in *InspectDeadlineRequest, opts ...grpc.CallOption) (*InspectDeadlineResponse, error)
@@ -385,6 +390,26 @@ func (c *runtimeServiceClient) PullImage(ctx context.Context, in *PullImageReque
 	return out, nil
 }
 
+func (c *runtimeServiceClient) ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSnapshotsResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_ListSnapshots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeServiceClient) DeleteSnapshot(ctx context.Context, in *DeleteSnapshotRequest, opts ...grpc.CallOption) (*DeleteSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteSnapshotResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_DeleteSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runtimeServiceClient) RenewDeadline(ctx context.Context, in *RenewDeadlineRequest, opts ...grpc.CallOption) (*RenewDeadlineResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RenewDeadlineResponse)
@@ -443,6 +468,9 @@ type RuntimeServiceServer interface {
 	Console(grpc.BidiStreamingServer[ConsoleRequest, ConsoleResponse]) error
 	// Images.
 	PullImage(context.Context, *PullImageRequest) (*PullImageResponse, error)
+	// Snapshots.
+	ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error)
+	DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*DeleteSnapshotResponse, error)
 	// Fencing deadline.
 	RenewDeadline(context.Context, *RenewDeadlineRequest) (*RenewDeadlineResponse, error)
 	InspectDeadline(context.Context, *InspectDeadlineRequest) (*InspectDeadlineResponse, error)
@@ -530,6 +558,12 @@ func (UnimplementedRuntimeServiceServer) Console(grpc.BidiStreamingServer[Consol
 }
 func (UnimplementedRuntimeServiceServer) PullImage(context.Context, *PullImageRequest) (*PullImageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PullImage not implemented")
+}
+func (UnimplementedRuntimeServiceServer) ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSnapshots not implemented")
+}
+func (UnimplementedRuntimeServiceServer) DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*DeleteSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSnapshot not implemented")
 }
 func (UnimplementedRuntimeServiceServer) RenewDeadline(context.Context, *RenewDeadlineRequest) (*RenewDeadlineResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RenewDeadline not implemented")
@@ -965,6 +999,42 @@ func _RuntimeService_PullImage_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RuntimeService_ListSnapshots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSnapshotsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).ListSnapshots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_ListSnapshots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).ListSnapshots(ctx, req.(*ListSnapshotsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RuntimeService_DeleteSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).DeleteSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_DeleteSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).DeleteSnapshot(ctx, req.(*DeleteSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RuntimeService_RenewDeadline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RenewDeadlineRequest)
 	if err := dec(in); err != nil {
@@ -1087,6 +1157,14 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PullImage",
 			Handler:    _RuntimeService_PullImage_Handler,
+		},
+		{
+			MethodName: "ListSnapshots",
+			Handler:    _RuntimeService_ListSnapshots_Handler,
+		},
+		{
+			MethodName: "DeleteSnapshot",
+			Handler:    _RuntimeService_DeleteSnapshot_Handler,
 		},
 		{
 			MethodName: "RenewDeadline",

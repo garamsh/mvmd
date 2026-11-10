@@ -78,6 +78,9 @@ type SnapshotStore interface {
 	// Get returns the snapshot and where its files are now, or
 	// ErrSnapshotAbsent.
 	Get(ctx context.Context, id SnapshotID) (Snapshot, SnapshotFiles, error)
+	// List returns every snapshot the store holds, ordered by identifier. A
+	// snapshot being put or removed at the time is either in it or not.
+	List(ctx context.Context) ([]Snapshot, error)
 	// Remove deletes the snapshot and its files. Removing an absent snapshot
 	// succeeds.
 	Remove(ctx context.Context, id SnapshotID) error
