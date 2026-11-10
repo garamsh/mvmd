@@ -1,6 +1,7 @@
 // Command entry is the entrypoint of the e2e's bootable image. Run without arguments it prints one
 // line and stays running, so the Machine is Running while the test reads the line. Run as a command
-// of an exec it does one short thing: "echo WORDS..." prints them, "exit N" ends with code N.
+// of an exec, or as arguments of the image's entrypoint, it does one short thing: "echo WORDS..."
+// prints them, "exit N" ends with code N.
 package main
 
 import (

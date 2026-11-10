@@ -322,10 +322,17 @@ func (n *node) pull(t *testing.T, name string, layers ...[]byte) ref {
 // prints a line and stays running, in a layer below the given ones.
 func (n *node) pullBootable(t *testing.T, name string, layers ...[]byte) ref {
 	t.Helper()
+	return n.pullEntry(t, name, nil, layers...)
+}
+
+// pullEntry is pullBootable with arguments to the entrypoint, which testdata/entry reads as the
+// command of an exec: "exit N" makes the entrypoint end by itself with code N.
+func (n *node) pullEntry(t *testing.T, name string, args []string, layers ...[]byte) ref {
+	t.Helper()
 	program, err := entryProgram()
 	require.NoError(t, err)
 	base := layer(dir("bin"), executable("bin/entry", string(program)))
-	return n.pullWith(t, name, []string{"/bin/entry"}, append([][]byte{base}, layers...)...)
+	return n.pullWith(t, name, append([]string{"/bin/entry"}, args...), append([][]byte{base}, layers...)...)
 }
 
 // arm arms the node's fencing deadline, which Start refuses to go without.
