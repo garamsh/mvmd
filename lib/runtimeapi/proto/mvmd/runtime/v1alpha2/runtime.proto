@@ -1,12 +1,12 @@
-// The mvmd runtime API, version v1alpha1. Its meaning is fixed by
+// The mvmd runtime API, version v1alpha2. Its meaning is fixed by
 // docs/architecture/runtime-api.md; this file is the encoding.
 syntax = "proto3";
 
-package mvmd.runtime.v1alpha1;
+package mvmd.runtime.v1alpha2;
 
 import "google/protobuf/duration.proto";
 
-option go_package = "github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1;v1alpha1";
+option go_package = "github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2;v1alpha2";
 
 // RuntimeService is the whole runtime API. Every call ends in an outcome kind
 // (OutcomeKind). A success is an OK status; every other kind is a non-OK
@@ -40,8 +40,8 @@ service RuntimeService {
   rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
   rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
   rpc PatchFile(PatchFileRequest) returns (PatchFileResponse);
-  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
-  rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
+  rpc ListFiles(ListFilesRequest) returns (stream ListFilesResponse);
+  rpc SearchFiles(SearchFilesRequest) returns (stream SearchFilesResponse);
   rpc Console(stream ConsoleRequest) returns (stream ConsoleResponse);
 
   // Images.
@@ -315,7 +315,7 @@ message DriverInfo {
 
 message GetRuntimeInfoResponse {
   // The API versions served, as package identifiers (for example
-  // "mvmd.runtime.v1alpha1").
+  // "mvmd.runtime.v1alpha2").
   repeated string api_versions = 1;
   repeated DriverInfo drivers = 2;
 }
@@ -512,17 +512,25 @@ message FileEntry {
   uint64 size = 3;
 }
 
-// ListFilesResponse is the entries of the directory, sorted by path.
+// ListFilesResponse is a run of the directory's entries. The entries of all
+// the messages of the stream, in order, are sorted by path.
 message ListFilesResponse {
   repeated FileEntry entries = 1;
 }
 
 message SearchFilesRequest {
   string machine_id = 1;
+  // An absolute directory path; the search covers its tree.
   string path = 2;
+  // A glob matched against an entry's path relative to the directory. "*" and
+  // "?" do not cross "/", "**" does, and "{a,b}" and "[ab]" are supported; the
+  // syntax is the Guest Agent's, the globset crate's glob with "/" a literal
+  // separator (https://docs.rs/globset/0.4.21/globset/#syntax).
   string pattern = 3;
 }
 
+// SearchFilesResponse is a run of the paths that match. The paths of all the
+// messages of the stream, in order, are sorted.
 message SearchFilesResponse {
   repeated string matches = 1;
 }

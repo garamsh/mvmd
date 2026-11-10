@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/garamsh/mvmd/daemon/internal/app"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // What the deadline acknowledged is on disk: a daemon started over the same
@@ -26,14 +26,14 @@ func TestRestart_AcknowledgedRenewalSurvives(t *testing.T) {
 	first.app.Substitutes.Images.Provide(digest)
 	_, err := first.client.CreateMachine(ctx, create("m"))
 	require.NoError(t, err)
-	_, err = first.client.RenewDeadline(ctx, &v1alpha1.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 9})
+	_, err = first.client.RenewDeadline(ctx, &v1alpha2.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 9})
 	require.NoError(t, err)
 	first.shutdown(t)
 
 	second := start(t, cfg)
-	resp, err := second.client.InspectDeadline(ctx, &v1alpha1.InspectDeadlineRequest{})
+	resp, err := second.client.InspectDeadline(ctx, &v1alpha2.InspectDeadlineRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.DeadlinePhase_DEADLINE_PHASE_ARMED, resp.GetStatus().GetPhase())
+	assert.Equal(t, v1alpha2.DeadlinePhase_DEADLINE_PHASE_ARMED, resp.GetStatus().GetPhase())
 	assert.Equal(t, uint64(9), resp.GetStatus().GetLastRenewalNumber())
 	assert.Equal(t, time.Hour, resp.GetStatus().GetLength().AsDuration())
 	assert.Less(t, resp.GetStatus().GetRemaining().AsDuration(), time.Hour, "the time left, not a fresh hour")

@@ -8,26 +8,26 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
-var execStatuses = map[machine.ExecStatus]v1alpha1.ExecStatus{
-	machine.ExecNotStarted: v1alpha1.ExecStatus_EXEC_STATUS_NOT_STARTED,
-	machine.ExecStarted:    v1alpha1.ExecStatus_EXEC_STATUS_STARTED,
-	machine.ExecExited:     v1alpha1.ExecStatus_EXEC_STATUS_EXITED,
-	machine.ExecCutShort:   v1alpha1.ExecStatus_EXEC_STATUS_CUT_SHORT,
+var execStatuses = map[machine.ExecStatus]v1alpha2.ExecStatus{
+	machine.ExecNotStarted: v1alpha2.ExecStatus_EXEC_STATUS_NOT_STARTED,
+	machine.ExecStarted:    v1alpha2.ExecStatus_EXEC_STATUS_STARTED,
+	machine.ExecExited:     v1alpha2.ExecStatus_EXEC_STATUS_EXITED,
+	machine.ExecCutShort:   v1alpha2.ExecStatus_EXEC_STATUS_CUT_SHORT,
 }
 
-var outputStreams = map[machine.OutputStream]v1alpha1.OutputStream{
-	machine.OutputStdout: v1alpha1.OutputStream_OUTPUT_STREAM_STDOUT,
-	machine.OutputStderr: v1alpha1.OutputStream_OUTPUT_STREAM_STDERR,
+var outputStreams = map[machine.OutputStream]v1alpha2.OutputStream{
+	machine.OutputStdout: v1alpha2.OutputStream_OUTPUT_STREAM_STDOUT,
+	machine.OutputStderr: v1alpha2.OutputStream_OUTPUT_STREAM_STDERR,
 }
 
-func execRecordToWire(r machine.ExecRecord) *v1alpha1.ExecRecord {
-	return &v1alpha1.ExecRecord{ExecId: string(r.ID), Status: execStatuses[r.Status], Reason: r.Reason, ExitCode: r.ExitCode}
+func execRecordToWire(r machine.ExecRecord) *v1alpha2.ExecRecord {
+	return &v1alpha2.ExecRecord{ExecId: string(r.ID), Status: execStatuses[r.Status], Reason: r.Reason, ExitCode: r.ExitCode}
 }
 
-func (s *Server) Exec(ctx context.Context, req *v1alpha1.ExecRequest) (*v1alpha1.ExecResponse, error) {
+func (s *Server) Exec(ctx context.Context, req *v1alpha2.ExecRequest) (*v1alpha2.ExecResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -37,10 +37,10 @@ func (s *Server) Exec(ctx context.Context, req *v1alpha1.ExecRequest) (*v1alpha1
 	if err != nil {
 		return nil, status(err)
 	}
-	return &v1alpha1.ExecResponse{Record: execRecordToWire(record)}, nil
+	return &v1alpha2.ExecResponse{Record: execRecordToWire(record)}, nil
 }
 
-func (s *Server) ReadExecOutput(req *v1alpha1.ReadExecOutputRequest, stream grpc.ServerStreamingServer[v1alpha1.ReadExecOutputResponse]) error {
+func (s *Server) ReadExecOutput(req *v1alpha2.ReadExecOutputRequest, stream grpc.ServerStreamingServer[v1alpha2.ReadExecOutputResponse]) error {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return err
@@ -49,8 +49,8 @@ func (s *Server) ReadExecOutput(req *v1alpha1.ReadExecOutputRequest, stream grpc
 		return rejected("exec_id is empty")
 	}
 	send := func(c machine.OutputChunk) error {
-		return stream.Send(&v1alpha1.ReadExecOutputResponse{Part: &v1alpha1.ReadExecOutputResponse_Chunk{
-			Chunk: &v1alpha1.OutputChunk{Stream: outputStreams[c.Stream], Offset: c.Offset, Data: c.Data},
+		return stream.Send(&v1alpha2.ReadExecOutputResponse{Part: &v1alpha2.ReadExecOutputResponse_Chunk{
+			Chunk: &v1alpha2.OutputChunk{Stream: outputStreams[c.Stream], Offset: c.Offset, Data: c.Data},
 		}})
 	}
 	record, err := s.machines.ReadExecOutput(stream.Context(), id, machine.ExecID(req.GetExecId()), req.GetAfterOffset(), send)
@@ -60,10 +60,10 @@ func (s *Server) ReadExecOutput(req *v1alpha1.ReadExecOutputRequest, stream grpc
 	if record.Status == machine.ExecStarted {
 		return nil // the command runs: the client reads again from the last offset it holds
 	}
-	return stream.Send(&v1alpha1.ReadExecOutputResponse{Part: &v1alpha1.ReadExecOutputResponse_Record{Record: execRecordToWire(record)}})
+	return stream.Send(&v1alpha2.ReadExecOutputResponse{Part: &v1alpha2.ReadExecOutputResponse_Record{Record: execRecordToWire(record)}})
 }
 
-func (s *Server) SignalExec(ctx context.Context, req *v1alpha1.SignalExecRequest) (*v1alpha1.SignalExecResponse, error) {
+func (s *Server) SignalExec(ctx context.Context, req *v1alpha2.SignalExecRequest) (*v1alpha2.SignalExecResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -71,15 +71,15 @@ func (s *Server) SignalExec(ctx context.Context, req *v1alpha1.SignalExecRequest
 	if err := s.machines.SignalExec(ctx, id, machine.ExecID(req.GetExecId()), req.GetSignal()); err != nil {
 		return nil, status(err)
 	}
-	return &v1alpha1.SignalExecResponse{}, nil
+	return &v1alpha2.SignalExecResponse{}, nil
 }
 
-func (s *Server) ReadFile(req *v1alpha1.ReadFileRequest, stream grpc.ServerStreamingServer[v1alpha1.ReadFileResponse]) error {
+func (s *Server) ReadFile(req *v1alpha2.ReadFileRequest, stream grpc.ServerStreamingServer[v1alpha2.ReadFileResponse]) error {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return err
 	}
-	send := func(chunk []byte) error { return stream.Send(&v1alpha1.ReadFileResponse{Chunk: chunk}) }
+	send := func(chunk []byte) error { return stream.Send(&v1alpha2.ReadFileResponse{Chunk: chunk}) }
 	return status(s.machines.ReadFile(stream.Context(), id, req.GetPath(), send))
 }
 
@@ -87,7 +87,7 @@ func (s *Server) ReadFile(req *v1alpha1.ReadFileRequest, stream grpc.ServerStrea
 // first message. A stream that ends cleanly is io.EOF; one that breaks is its
 // error, so the lifecycle leaves the old content.
 type chunkReader struct {
-	stream grpc.ClientStreamingServer[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]
+	stream grpc.ClientStreamingServer[v1alpha2.WriteFileRequest, v1alpha2.WriteFileResponse]
 	rest   []byte
 }
 
@@ -97,7 +97,7 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if _, isStart := msg.GetPart().(*v1alpha1.WriteFileRequest_Start); isStart {
+		if _, isStart := msg.GetPart().(*v1alpha2.WriteFileRequest_Start); isStart {
 			return 0, errors.New("a start message after the first")
 		}
 		r.rest = msg.GetChunk()
@@ -107,7 +107,7 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (s *Server) WriteFile(stream grpc.ClientStreamingServer[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]) error {
+func (s *Server) WriteFile(stream grpc.ClientStreamingServer[v1alpha2.WriteFileRequest, v1alpha2.WriteFileResponse]) error {
 	first, err := stream.Recv()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
@@ -126,7 +126,7 @@ func (s *Server) WriteFile(stream grpc.ClientStreamingServer[v1alpha1.WriteFileR
 	if err := s.machines.WriteFile(stream.Context(), id, start.GetPath(), &chunkReader{stream: stream}); err != nil {
 		return status(err)
 	}
-	return stream.SendAndClose(&v1alpha1.WriteFileResponse{})
+	return stream.SendAndClose(&v1alpha2.WriteFileResponse{})
 }
 
 // consoleReadSize is the most output one response carries.
@@ -137,7 +137,7 @@ const consoleReadSize = 32 << 10
 // carries input, and each response carries output. The session ends, and the
 // call with it, when the client ends its side of the stream, when the Machine's
 // VMM ends the console, or when either side fails.
-func (s *Server) Console(stream grpc.BidiStreamingServer[v1alpha1.ConsoleRequest, v1alpha1.ConsoleResponse]) error {
+func (s *Server) Console(stream grpc.BidiStreamingServer[v1alpha2.ConsoleRequest, v1alpha2.ConsoleResponse]) error {
 	first, err := stream.Recv()
 	if err != nil {
 		if errors.Is(err, io.EOF) {
@@ -185,7 +185,7 @@ func (s *Server) Console(stream grpc.BidiStreamingServer[v1alpha1.ConsoleRequest
 	for {
 		n, readErr := session.Read(buf)
 		if n > 0 {
-			if err := stream.Send(&v1alpha1.ConsoleResponse{Output: buf[:n]}); err != nil {
+			if err := stream.Send(&v1alpha2.ConsoleResponse{Output: buf[:n]}); err != nil {
 				return err
 			}
 		}
@@ -204,7 +204,7 @@ func (s *Server) Console(stream grpc.BidiStreamingServer[v1alpha1.ConsoleRequest
 	}
 }
 
-func (s *Server) PatchFile(ctx context.Context, req *v1alpha1.PatchFileRequest) (*v1alpha1.PatchFileResponse, error) {
+func (s *Server) PatchFile(ctx context.Context, req *v1alpha2.PatchFileRequest) (*v1alpha2.PatchFileResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -212,40 +212,36 @@ func (s *Server) PatchFile(ctx context.Context, req *v1alpha1.PatchFileRequest) 
 	if err := s.machines.PatchFile(ctx, id, req.GetPath(), req.GetBaseDigest(), req.GetExpectedDigest(), req.GetPatch()); err != nil {
 		return nil, status(err)
 	}
-	return &v1alpha1.PatchFileResponse{}, nil
+	return &v1alpha2.PatchFileResponse{}, nil
 }
 
-var entryKinds = map[machine.EntryKind]v1alpha1.EntryKind{
-	machine.EntryFile:      v1alpha1.EntryKind_ENTRY_KIND_FILE,
-	machine.EntryDirectory: v1alpha1.EntryKind_ENTRY_KIND_DIRECTORY,
-	machine.EntrySymlink:   v1alpha1.EntryKind_ENTRY_KIND_SYMLINK,
-	machine.EntryOther:     v1alpha1.EntryKind_ENTRY_KIND_OTHER,
+var entryKinds = map[machine.EntryKind]v1alpha2.EntryKind{
+	machine.EntryFile:      v1alpha2.EntryKind_ENTRY_KIND_FILE,
+	machine.EntryDirectory: v1alpha2.EntryKind_ENTRY_KIND_DIRECTORY,
+	machine.EntrySymlink:   v1alpha2.EntryKind_ENTRY_KIND_SYMLINK,
+	machine.EntryOther:     v1alpha2.EntryKind_ENTRY_KIND_OTHER,
 }
 
-func (s *Server) ListFiles(ctx context.Context, req *v1alpha1.ListFilesRequest) (*v1alpha1.ListFilesResponse, error) {
+func (s *Server) ListFiles(req *v1alpha2.ListFilesRequest, stream grpc.ServerStreamingServer[v1alpha2.ListFilesResponse]) error {
 	id, err := target(req.GetMachineId())
 	if err != nil {
-		return nil, err
+		return err
 	}
-	entries, err := s.machines.ListFiles(ctx, id, req.GetPath())
-	if err != nil {
-		return nil, status(err)
+	send := func(entries []machine.FileEntry) error {
+		wire := make([]*v1alpha2.FileEntry, 0, len(entries))
+		for _, e := range entries {
+			wire = append(wire, &v1alpha2.FileEntry{Path: e.Path, Kind: entryKinds[e.Kind], Size: e.Size})
+		}
+		return stream.Send(&v1alpha2.ListFilesResponse{Entries: wire})
 	}
-	wire := make([]*v1alpha1.FileEntry, 0, len(entries))
-	for _, e := range entries {
-		wire = append(wire, &v1alpha1.FileEntry{Path: e.Path, Kind: entryKinds[e.Kind], Size: e.Size})
-	}
-	return &v1alpha1.ListFilesResponse{Entries: wire}, nil
+	return status(s.machines.ListFiles(stream.Context(), id, req.GetPath(), send))
 }
 
-func (s *Server) SearchFiles(ctx context.Context, req *v1alpha1.SearchFilesRequest) (*v1alpha1.SearchFilesResponse, error) {
+func (s *Server) SearchFiles(req *v1alpha2.SearchFilesRequest, stream grpc.ServerStreamingServer[v1alpha2.SearchFilesResponse]) error {
 	id, err := target(req.GetMachineId())
 	if err != nil {
-		return nil, err
+		return err
 	}
-	matches, err := s.machines.SearchFiles(ctx, id, req.GetPath(), req.GetPattern())
-	if err != nil {
-		return nil, status(err)
-	}
-	return &v1alpha1.SearchFilesResponse{Matches: matches}, nil
+	send := func(paths []string) error { return stream.Send(&v1alpha2.SearchFilesResponse{Matches: paths}) }
+	return status(s.machines.SearchFiles(stream.Context(), id, req.GetPath(), req.GetPattern(), send))
 }

@@ -24,7 +24,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/garamsh/mvmd/lib/runtimeapi"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // node is a running mvmd, the built binary, with the selected Driver over the pinned inputs,
@@ -34,7 +34,7 @@ type node struct {
 	work     string
 	stateDir string
 	registry *registry
-	client   v1alpha1.RuntimeServiceClient
+	client   v1alpha2.RuntimeServiceClient
 	cgroups  []string
 }
 
@@ -123,7 +123,7 @@ func startNode(t *testing.T) *node {
 
 	// The tests ran on the Driver they were told to: a node that served another would pass them
 	// without having exercised the one under test.
-	info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha1.GetRuntimeInfoRequest{})
+	info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
 	require.Len(t, info.GetDrivers(), 1)
 	require.Equal(t, driver.driver, info.GetDrivers()[0].GetDriver().GetName(), "the Driver the node runs")
@@ -131,7 +131,7 @@ func startNode(t *testing.T) *node {
 }
 
 // dial connects to the runtime API once the daemon serves it, and fails if the daemon exits first.
-func (n *node) dial(socket string, exited <-chan error) v1alpha1.RuntimeServiceClient {
+func (n *node) dial(socket string, exited <-chan error) v1alpha2.RuntimeServiceClient {
 	n.t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
@@ -146,7 +146,7 @@ func (n *node) dial(socket string, exited <-chan error) v1alpha1.RuntimeServiceC
 			cancel()
 			if err == nil {
 				n.t.Cleanup(func() { _ = conn.Close() })
-				return v1alpha1.NewRuntimeServiceClient(conn)
+				return v1alpha2.NewRuntimeServiceClient(conn)
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -340,7 +340,7 @@ func (n *node) arm(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	_, err := n.client.RenewDeadline(ctx, &v1alpha1.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 1})
+	_, err := n.client.RenewDeadline(ctx, &v1alpha2.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 1})
 	require.NoError(t, err)
 }
 
@@ -350,7 +350,7 @@ func (n *node) entrypointOutput(t *testing.T, ctx context.Context, machine strin
 	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	stream, err := n.client.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: machine, ExecId: "entrypoint"})
+	stream, err := n.client.ReadExecOutput(ctx, &v1alpha2.ReadExecOutputRequest{MachineId: machine, ExecId: "entrypoint"})
 	require.NoError(t, err)
 	var out strings.Builder
 	for !strings.Contains(out.String(), "\n") {
@@ -382,7 +382,7 @@ func (n *node) pullWith(t *testing.T, name string, entrypoint []string, layers .
 	r := n.registry.publish(name, entrypoint, layers...)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	_, err := n.client.PullImage(ctx, &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: r.Repository, Digest: r.Digest}})
+	_, err := n.client.PullImage(ctx, &v1alpha2.PullImageRequest{Image: &v1alpha2.ImageRef{Repository: r.Repository, Digest: r.Digest}})
 	require.NoError(t, err, "pull %s@%s", r.Repository, r.Digest)
 	return r
 }

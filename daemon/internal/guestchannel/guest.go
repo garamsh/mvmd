@@ -576,11 +576,13 @@ var entryKinds = map[guestv1alpha1.EntryKind]machine.EntryKind{
 }
 
 // ListFiles implements machine.Guest. An entry of a kind this daemon does not
-// know is EntryOther.
-func (g *Guest) ListFiles(ctx context.Context, id machine.MachineID, path string) ([]machine.FileEntry, error) {
-	var entries []machine.FileEntry
-	err := g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
-		entries = nil // a repeat lists again from the start
+// know is EntryOther. Each message of the agent is passed on as it arrives. A
+// stream that breaks is read again, and the entries that sort at or before the
+// last one passed on are skipped, as the agent sorts by path.
+func (g *Guest) ListFiles(ctx context.Context, id machine.MachineID, path string, send func(entries []machine.FileEntry) error) error {
+	var last string
+	var sent bool
+	return g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
 		stream, err := c.ListFiles(ctx, &guestv1alpha1.ListFilesRequest{Path: path})
 		if err != nil {
 			return err
@@ -593,23 +595,34 @@ func (g *Guest) ListFiles(ctx context.Context, id machine.MachineID, path string
 			if err != nil {
 				return err
 			}
+			var run []machine.FileEntry
 			for _, e := range msg.GetEntries() {
+				if sent && e.GetPath() <= last {
+					continue
+				}
 				kind, known := entryKinds[e.GetKind()]
 				if !known {
 					kind = machine.EntryOther
 				}
-				entries = append(entries, machine.FileEntry{Path: e.GetPath(), Kind: kind, Size: e.GetSize()})
+				run = append(run, machine.FileEntry{Path: e.GetPath(), Kind: kind, Size: e.GetSize()})
 			}
+			if len(run) == 0 {
+				continue
+			}
+			if err := send(run); err != nil {
+				return err
+			}
+			last, sent = run[len(run)-1].Path, true
 		}
 	})
-	return entries, err
 }
 
-// SearchFiles implements machine.Guest.
-func (g *Guest) SearchFiles(ctx context.Context, id machine.MachineID, path, pattern string) ([]string, error) {
-	var paths []string
-	err := g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
-		paths = nil // a repeat lists again from the start
+// SearchFiles implements machine.Guest, passing on and resuming as ListFiles
+// does.
+func (g *Guest) SearchFiles(ctx context.Context, id machine.MachineID, path, pattern string, send func(paths []string) error) error {
+	var last string
+	var sent bool
+	return g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
 		stream, err := c.SearchFiles(ctx, &guestv1alpha1.SearchFilesRequest{Path: path, Pattern: pattern})
 		if err != nil {
 			return err
@@ -622,10 +635,20 @@ func (g *Guest) SearchFiles(ctx context.Context, id machine.MachineID, path, pat
 			if err != nil {
 				return err
 			}
+			var run []string
 			for _, e := range msg.GetMatches() {
-				paths = append(paths, e.GetPath())
+				if sent && e.GetPath() <= last {
+					continue
+				}
+				run = append(run, e.GetPath())
 			}
+			if len(run) == 0 {
+				continue
+			}
+			if err := send(run); err != nil {
+				return err
+			}
+			last, sent = run[len(run)-1], true
 		}
 	})
-	return paths, err
 }

@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
-const failed = v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED
+const failed = v1alpha2.OutcomeKind_OUTCOME_KIND_FAILED
 
 // A pull through the runtime API converts the image in a converter microVM and publishes it to
 // the cache, where the Machine calls find it.
@@ -35,7 +35,7 @@ func TestE2E_PullPublishesTheImageTheMachineCallsFind(t *testing.T) {
 	// The control: an image no pull brought to the node is not one a Machine is created from.
 	_, err = n.client.CreateMachine(ctx, createRequest("from-nowhere", "sha256:"+zeros))
 	require.Error(t, err)
-	assert.Equal(t, v1alpha1.OutcomeKind_OUTCOME_KIND_NOT_FOUND, v1alpha1.KindOf(err))
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_NOT_FOUND, v1alpha2.KindOf(err))
 }
 
 // A Machine started from a pulled image runs the image's entrypoint, and the output the entrypoint
@@ -49,7 +49,7 @@ func TestE2E_AMachineStartsFromThePulledImageAndItsEntrypointSpeaks(t *testing.T
 	defer cancel()
 	_, err := n.client.CreateMachine(ctx, createRequest("boots", pulled.Digest))
 	require.NoError(t, err)
-	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "boots"})
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "boots"})
 	require.NoError(t, err, "the Machine of the pulled image starts")
 
 	assert.Equal(t, "hello from the entrypoint\n", n.entrypointOutput(t, ctx, "boots"))
@@ -57,12 +57,12 @@ func TestE2E_AMachineStartsFromThePulledImageAndItsEntrypointSpeaks(t *testing.T
 
 const zeros = "0000000000000000000000000000000000000000000000000000000000000000"
 
-func createRequest(id, image string) *v1alpha1.CreateMachineRequest {
-	return &v1alpha1.CreateMachineRequest{
+func createRequest(id, image string) *v1alpha2.CreateMachineRequest {
+	return &v1alpha2.CreateMachineRequest{
 		MachineId:     id,
 		RequestId:     "create-" + id,
 		ImageDigest:   image,
-		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 256 << 20},
+		Resources:     &v1alpha2.Resources{CpuCount: 1, MemoryBytes: 256 << 20},
 		RootDiskBytes: 1 << 30,
 	}
 }
@@ -183,7 +183,7 @@ func TestE2E_ATamperedImageFailsTheCheckBeforeBoot(t *testing.T) {
 			control := "control-" + string(rune('a'+i))
 			_, err := n.client.CreateMachine(ctx, createRequest(control, pulled.Digest))
 			require.NoError(t, err, "the untampered image passes the check")
-			_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: control})
+			_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: control})
 			require.NoError(t, err, "the untampered image boots")
 			assert.Equal(t, "hello from the entrypoint\n", n.entrypointOutput(t, ctx, control))
 			_, err = n.client.CreateMachine(ctx, createRequest("victim-"+string(rune('a'+i)), pulled.Digest))
@@ -191,9 +191,9 @@ func TestE2E_ATamperedImageFailsTheCheckBeforeBoot(t *testing.T) {
 
 			variant.tamper(t, erofs)
 
-			_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "victim-" + string(rune('a'+i))})
+			_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "victim-" + string(rune('a'+i))})
 			require.Error(t, err, "a tampered image does not boot")
-			assert.Equal(t, failed, v1alpha1.KindOf(err))
+			assert.Equal(t, failed, v1alpha2.KindOf(err))
 			assert.ErrorContains(t, err, "fs-verity", "the failure names the check that refused the file")
 
 			_, err = n.client.CreateMachine(ctx, createRequest("late-"+string(rune('a'+i)), pulled.Digest))

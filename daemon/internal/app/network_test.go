@@ -15,7 +15,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/app"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/nstest"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // These tests wire the real Network adapter through the composition site, so
@@ -79,7 +79,7 @@ func TestNetwork_AStartMakesATapAndAStopRemovesIt(t *testing.T) {
 		require.Len(t, tapChains(t), 1, "Start of \"a\" made its tap and committed its rules")
 		assert.True(t, hasLink(t, tapChains(t)[0]))
 
-		_, err := n.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "a", GracePeriod: durationpb.New(time.Second)})
+		_, err := n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "a", GracePeriod: durationpb.New(time.Second)})
 		require.NoError(t, err)
 		assert.Empty(t, tapChains(t), "Stop removed the rules")
 	})
@@ -150,7 +150,7 @@ func TestNetwork_RestartFaultsAMachineThatLostItsTapAndServesTheRest(t *testing.
 				populate(t, first)
 				_, err := first.client.CreateMachine(ctx, create("c"))
 				require.NoError(t, err)
-				_, err = first.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "c"})
+				_, err = first.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "c"})
 				require.NoError(t, err)
 				taps := tapChains(t)
 				require.Len(t, taps, 2, "setup: \"a\" and \"c\" are Running with a tap each")
@@ -167,13 +167,13 @@ func TestNetwork_RestartFaultsAMachineThatLostItsTapAndServesTheRest(t *testing.
 				})
 				var faulted, running []string
 				for _, id := range []string{"a", "c"} {
-					m, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: id})
+					m, err := second.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: id})
 					require.NoError(t, err)
 					switch m.GetMachine().GetState() {
-					case v1alpha1.MachineState_MACHINE_STATE_FAULTED:
+					case v1alpha2.MachineState_MACHINE_STATE_FAULTED:
 						faulted = append(faulted, id)
 						assert.Contains(t, m.GetMachine().GetLastFailureReason(), "network could not be restored")
-					case v1alpha1.MachineState_MACHINE_STATE_RUNNING:
+					case v1alpha2.MachineState_MACHINE_STATE_RUNNING:
 						running = append(running, id)
 					}
 				}

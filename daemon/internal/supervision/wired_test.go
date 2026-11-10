@@ -16,7 +16,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/app"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
 	"github.com/garamsh/mvmd/lib/runtimeapi"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -25,7 +25,7 @@ const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef012345678
 // supervision when the config names it.
 type daemon struct {
 	app    *app.App
-	client v1alpha1.RuntimeServiceClient
+	client v1alpha2.RuntimeServiceClient
 	stop   func()
 }
 
@@ -47,7 +47,7 @@ func startDaemon(t *testing.T, cfg app.Config, work string) *daemon {
 	}
 	conn, err := runtimeapi.Dial(ctx, cfg.Socket.Path)
 	require.NoError(t, err)
-	d := &daemon{app: a, client: v1alpha1.NewRuntimeServiceClient(conn)}
+	d := &daemon{app: a, client: v1alpha2.NewRuntimeServiceClient(conn)}
 	d.stop = func() {
 		_ = conn.Close()
 		cancel()
@@ -85,16 +85,16 @@ func wiredConfig(t *testing.T) (cfg app.Config, work string) {
 
 func createStart(t *testing.T, d *daemon) {
 	t.Helper()
-	_, err := d.client.CreateMachine(ctx, &v1alpha1.CreateMachineRequest{
+	_, err := d.client.CreateMachine(ctx, &v1alpha2.CreateMachineRequest{
 		MachineId: "m", RequestId: "r", ImageDigest: digest,
-		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 1 << 30},
+		Resources:     &v1alpha2.Resources{CpuCount: 1, MemoryBytes: 1 << 30},
 		RootDiskBytes: 1 << 30,
-		NetworkPolicy: &v1alpha1.NetworkPolicy{},
+		NetworkPolicy: &v1alpha2.NetworkPolicy{},
 	})
 	require.NoError(t, err)
-	_, err = d.client.RenewDeadline(ctx, &v1alpha1.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 1})
+	_, err = d.client.RenewDeadline(ctx, &v1alpha2.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 1})
 	require.NoError(t, err)
-	_, err = d.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "m"})
+	_, err = d.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
 }
 
@@ -118,7 +118,7 @@ func TestWired_ARealSupervisorRunsTheMachine(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, strconv.Itoa(1<<30+256<<20), strings.TrimSpace(string(limit)))
 
-	_, err = d.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
+	_, err = d.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
 	require.NoError(t, err)
 	assert.Empty(t, members(ns), "stopping the Machine ends its supervisor and the namespace")
 	assert.Empty(t, processes("--machine m "))
@@ -136,17 +136,17 @@ func TestWired_ARestartedDaemonReattaches(t *testing.T) {
 	assert.NotEmpty(t, members(ns), "the supervisor outlives the daemon")
 
 	second := startDaemon(t, cfg, work)
-	got, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "m"})
+	got, err := second.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, got.GetMachine().GetState())
-	_, err = second.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, got.GetMachine().GetState())
+	_, err = second.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
 	require.NoError(t, err)
 	assert.Empty(t, members(ns))
 
 	// Control: with the supervisor gone, a third start finds the Machine Stopped.
 	second.shutdown()
 	third := startDaemon(t, cfg, work)
-	got, err = third.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "m"})
+	got, err = third.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_STOPPED, got.GetMachine().GetState())
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_STOPPED, got.GetMachine().GetState())
 }

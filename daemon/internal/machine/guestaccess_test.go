@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 	"testing/iotest"
@@ -463,7 +464,7 @@ func TestPatchFile(t *testing.T) {
 func TestSearchFiles(t *testing.T) {
 	ctx := context.Background()
 	refusedUnlessRunning(t, func(e *env) error {
-		_, err := e.svc.SearchFiles(ctx, "m", "/", "log")
+		_, err := searched(ctx, e.svc, "/", "log")
 		return err
 	})
 
@@ -473,15 +474,15 @@ func TestSearchFiles(t *testing.T) {
 	e.guest.PutFile("m", "/var/b.txt", "")
 	e.guest.PutFile("m", "/etc/c.log", "")
 
-	got, err := e.svc.SearchFiles(ctx, "m", "/var/", "log")
+	got, err := searched(ctx, e.svc, "/var/", "log")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/var/a.log"}, got)
-	all, err := e.svc.SearchFiles(ctx, "m", "/", "log")
+	all, err := searched(ctx, e.svc, "/", "log")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/etc/c.log", "/var/a.log"}, all, "control: a wider path finds more")
 
 	e.guest.FailAt("search-files", errors.New("boom"))
-	_, err = e.svc.SearchFiles(ctx, "m", "/", "log")
+	_, err = searched(ctx, e.svc, "/", "log")
 	requireKind(t, err, machine.ErrFailed)
 }
 
@@ -490,7 +491,7 @@ func TestSearchFiles(t *testing.T) {
 func TestListFiles(t *testing.T) {
 	ctx := context.Background()
 	refusedUnlessRunning(t, func(e *env) error {
-		_, err := e.svc.ListFiles(ctx, "m", "/")
+		_, err := listEntries(ctx, e.svc, "/")
 		return err
 	})
 
@@ -501,27 +502,80 @@ func TestListFiles(t *testing.T) {
 	e.guest.PutFile("m", "/var/lib/c", "")
 	e.guest.PutFile("m", "/etc/c.log", "")
 
-	got, err := e.svc.ListFiles(ctx, "m", "/var")
+	got, err := listEntries(ctx, e.svc, "/var")
 	require.NoError(t, err)
 	assert.Equal(t, []machine.FileEntry{
 		{Path: "/var/a.log", Kind: machine.EntryFile, Size: 3},
 		{Path: "/var/lib", Kind: machine.EntryDirectory},
 	}, got, "a file with its size, a directory once, and nothing from below it")
-	again, err := e.svc.ListFiles(ctx, "m", "/var")
+	again, err := listEntries(ctx, e.svc, "/var")
 	require.NoError(t, err)
 	assert.Equal(t, got, again, "a repeat answers the same")
 	e.requireState(t, "m", machine.StateRunning)
 
-	_, err = e.svc.ListFiles(ctx, "m", "")
+	_, err = listEntries(ctx, e.svc, "")
 	requireKind(t, err, machine.ErrInvalid)
-	_, err = e.svc.ListFiles(ctx, "m", "/missing")
+	_, err = listEntries(ctx, e.svc, "/missing")
 	requireKind(t, err, machine.ErrNotFound)
-	_, err = e.svc.ListFiles(ctx, "m", "/var/a.log")
+	_, err = listEntries(ctx, e.svc, "/var/a.log")
 	requireKind(t, err, machine.ErrInvalid) // a file is not a directory: the caller's error
 	e.guest.FailAt("list-files", errors.New("boom"))
-	_, err = e.svc.ListFiles(ctx, "m", "/var")
+	_, err = listEntries(ctx, e.svc, "/var")
 	requireKind(t, err, machine.ErrFailed)
 	e.requireState(t, "m", machine.StateRunning)
+}
+
+// listEntries collects what ListFiles sends of Machine "m".
+func listEntries(ctx context.Context, svc machine.Service, path string) ([]machine.FileEntry, error) {
+	var got []machine.FileEntry
+	err := svc.ListFiles(ctx, "m", path, func(run []machine.FileEntry) error {
+		got = append(got, run...)
+		return nil
+	})
+	return got, err
+}
+
+// searched collects what SearchFiles sends of Machine "m".
+func searched(ctx context.Context, svc machine.Service, path, pattern string) ([]string, error) {
+	var got []string
+	err := svc.SearchFiles(ctx, "m", path, pattern, func(run []string) error {
+		got = append(got, run...)
+		return nil
+	})
+	return got, err
+}
+
+// A listing and a search are passed on in the runs the guest sends them in,
+// sorted across the runs, and a failure of send ends the call.
+func TestListFiles_PassesRunsOn(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	for i := range 1100 {
+		e.guest.PutFile("m", fmt.Sprintf("/d/f%04d", i), "")
+	}
+
+	var sizes []int
+	var last string
+	require.NoError(t, e.svc.ListFiles(ctx, "m", "/d", func(run []machine.FileEntry) error {
+		sizes = append(sizes, len(run))
+		for _, f := range run {
+			assert.Greater(t, f.Path, last, "sorted across the runs")
+			last = f.Path
+		}
+		return nil
+	}))
+	assert.Equal(t, []int{512, 512, 76}, sizes)
+
+	sizes = nil
+	require.NoError(t, e.svc.SearchFiles(ctx, "m", "/d/", "f", func(run []string) error {
+		sizes = append(sizes, len(run))
+		return nil
+	}))
+	assert.Equal(t, []int{512, 512, 76}, sizes)
+
+	err := e.svc.ListFiles(ctx, "m", "/d", func([]machine.FileEntry) error { return errors.New("the client is gone") })
+	requireKind(t, err, machine.ErrFailed)
 }
 
 // Row "Signal", column Needs.

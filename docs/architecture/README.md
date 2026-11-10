@@ -24,7 +24,7 @@ Responsibility documents:
 
 - [structure.md](./structure.md) — the hexagonal shape, repository layout, boundaries and dependency direction, ports
 - [runtime.md](./runtime.md) — what mvmd owns on a node, its boundary with gaon, fencing, the node network, VMM confinement, invariants
-- [runtime-api.md](./runtime-api.md) — the runtime API: operations, calling rules, version v1alpha1, fencing deadline
+- [runtime-api.md](./runtime-api.md) — the runtime API: operations, calling rules, version v1alpha2, fencing deadline
 - [driver.md](./driver.md) — the VMM Driver contract
 - [image.md](./image.md) — image pull and conversion, MachineImage, node image cache, integrity
 - [guest.md](./guest.md) — the Guest Agent, guest boot order, guest kernel scope
@@ -65,5 +65,6 @@ Decisions:
 - [ADR 0032](./adr/0032-the-guest-agent-ends-the-machine-by-the-method-the-kernel-command-line-names.md) — the Guest Agent ends the Machine by the method the kernel command line names
 - [ADR 0033](./adr/0033-a-vmm-that-ends-on-its-own-moves-its-machine-to-stopped-with-the-reason.md) — a VMM that ends on its own moves its Machine to Stopped with the reason (the daemon finds it through the supervisors it lists)
 - [ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md) — the node reclaims nothing by its own policy, and the runtime API lists and removes the snapshots and images it holds
+- [ADR 0035](./adr/0035-the-runtime-api-streams-listings-and-searches-and-serves-one-alpha-version-at-a-time.md) — the runtime API streams listings and searches and serves one alpha version at a time (`v1alpha2`)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

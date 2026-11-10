@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -64,6 +65,11 @@ type state struct {
 	// connection n; connection 1 stops after holdAfter chunks.
 	file      []byte
 	fileChunk func(n int) int
+
+	// listRun is how many entries a ListFiles message holds on connection n,
+	// two when it is unset; connection 1 of a ListFiles or SearchFiles stops
+	// after holdAfter messages.
+	listRun func(n int) int
 
 	// written is what WriteFile received, and the digest it came with.
 	written []byte
@@ -320,12 +326,16 @@ func (a *agent) PatchFile(_ context.Context, r *guestv1alpha1.PatchFileRequest) 
 
 func (a *agent) SearchFiles(_ *guestv1alpha1.SearchFilesRequest, srv grpc.ServerStreamingServer[guestv1alpha1.SearchFilesResponse]) error {
 	a.mu.Lock()
-	paths := a.paths
+	paths, hold := a.paths, a.holdAfter
 	a.mu.Unlock()
 	if err := a.failure("SearchFiles"); err != nil {
 		return err
 	}
-	for _, p := range paths {
+	for i, p := range paths {
+		if a.n == 1 && hold > 0 && i == hold {
+			<-srv.Context().Done()
+			return srv.Context().Err()
+		}
 		if err := srv.Send(&guestv1alpha1.SearchFilesResponse{Matches: []*guestv1alpha1.FileEntry{{Path: p}}}); err != nil {
 			return err
 		}
@@ -337,13 +347,20 @@ func (a *agent) SearchFiles(_ *guestv1alpha1.SearchFilesRequest, srv grpc.Server
 // the first message would lose some.
 func (a *agent) ListFiles(_ *guestv1alpha1.ListFilesRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ListFilesResponse]) error {
 	a.mu.Lock()
-	entries := a.entries
+	entries, hold, size := a.entries, a.holdAfter, 2
+	if a.listRun != nil {
+		size = a.listRun(a.n)
+	}
 	a.mu.Unlock()
 	if err := a.failure("ListFiles"); err != nil {
 		return err
 	}
-	for len(entries) > 0 {
-		n := min(2, len(entries))
+	for sent := 0; len(entries) > 0; sent++ {
+		if a.n == 1 && hold > 0 && sent == hold {
+			<-srv.Context().Done()
+			return srv.Context().Err()
+		}
+		n := min(size, len(entries))
 		if err := srv.Send(&guestv1alpha1.ListFilesResponse{Entries: entries[:n]}); err != nil {
 			return err
 		}
@@ -691,12 +708,10 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		},
 		"Signal": func(h *harness) error { return h.guest.Signal(ctx, "m", "x", 15) },
 		"ListFiles": func(h *harness) error {
-			_, err := h.guest.ListFiles(ctx, "m", "/")
-			return err
+			return h.guest.ListFiles(ctx, "m", "/", func([]machine.FileEntry) error { return nil })
 		},
 		"SearchFiles": func(h *harness) error {
-			_, err := h.guest.SearchFiles(ctx, "m", "/", "*")
-			return err
+			return h.guest.SearchFiles(ctx, "m", "/", "*", func([]string) error { return nil })
 		},
 	}
 	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown, machine.ErrExecNotRunning, machine.ErrSignalInvalid, machine.ErrNotDirectory}
@@ -1025,7 +1040,11 @@ func TestSearchFiles_ReturnsThePaths(t *testing.T) {
 	h := newHarness(t)
 	a := h.agentOf(t, "m")
 	a.paths = []string{"/a/x", "/b/x"}
-	got, err := h.guest.SearchFiles(context.Background(), "m", "/", "**/x")
+	var got []string
+	err := h.guest.SearchFiles(context.Background(), "m", "/", "**/x", func(run []string) error {
+		got = append(got, run...)
+		return nil
+	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/a/x", "/b/x"}, got)
 }
@@ -1040,8 +1059,15 @@ func TestListFiles_ReturnsTheEntriesWithKindAndSize(t *testing.T) {
 		{Path: "/d", Kind: guestv1alpha1.EntryKind_ENTRY_KIND_OTHER},
 		{Path: "/e", Kind: guestv1alpha1.EntryKind_ENTRY_KIND_UNSPECIFIED},
 	}
-	got, err := h.guest.ListFiles(context.Background(), "m", "/")
+	var got []machine.FileEntry
+	runs := 0
+	err := h.guest.ListFiles(context.Background(), "m", "/", func(run []machine.FileEntry) error {
+		runs++
+		got = append(got, run...)
+		return nil
+	})
 	require.NoError(t, err)
+	assert.Equal(t, 3, runs, "one run to a message of the agent")
 	assert.Equal(t, []machine.FileEntry{
 		{Path: "/a", Kind: machine.EntryFile, Size: 3},
 		{Path: "/b", Kind: machine.EntryDirectory},
@@ -1049,6 +1075,76 @@ func TestListFiles_ReturnsTheEntriesWithKindAndSize(t *testing.T) {
 		{Path: "/d", Kind: machine.EntryOther},
 		{Path: "/e", Kind: machine.EntryOther},
 	}, got, "every message's entries, in order, and a kind not known is other")
+}
+
+// A listing cut by a reset is read again and the entries already passed on are
+// skipped, whatever size the messages of the new connection are.
+func TestListFiles_ResumesAfterAReset(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	var want []string
+	for i := range 10 {
+		p := fmt.Sprintf("/d/f%02d", i)
+		want = append(want, p)
+		a.entries = append(a.entries, &guestv1alpha1.FileEntry{Path: p, Kind: guestv1alpha1.EntryKind_ENTRY_KIND_FILE})
+	}
+	a.holdAfter = 2 // connection 1 sends four entries and holds
+	a.listRun = func(n int) int {
+		if n == 1 {
+			return 2
+		}
+		return 3 // the fourth entry falls inside the second message of the new connection
+	}
+
+	var got []string
+	passed := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- h.guest.ListFiles(context.Background(), "m", "/d", func(run []machine.FileEntry) error {
+			for _, e := range run {
+				got = append(got, e.Path)
+			}
+			if len(got) == 4 {
+				close(passed)
+			}
+			return nil
+		})
+	}()
+	within(t, passed)
+	a.closeConn(1)
+
+	require.NoError(t, within(t, done))
+	assert.Equal(t, want, got, "every entry once, in order")
+	assert.Equal(t, 2, a.connections())
+}
+
+// A search cut by a reset resumes as a listing does.
+func TestSearchFiles_ResumesAfterAReset(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	for i := range 6 {
+		a.paths = append(a.paths, fmt.Sprintf("/d/f%02d", i))
+	}
+	a.holdAfter = 3
+
+	var got []string
+	passed := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- h.guest.SearchFiles(context.Background(), "m", "/d", "*", func(run []string) error {
+			got = append(got, run...)
+			if len(got) == 3 {
+				close(passed)
+			}
+			return nil
+		})
+	}()
+	within(t, passed)
+	a.closeConn(1)
+
+	require.NoError(t, within(t, done))
+	assert.Equal(t, a.paths, got, "every path once, in order")
+	assert.Equal(t, 2, a.connections())
 }
 
 func TestSignal_SendsTheExecAndTheNumber(t *testing.T) {

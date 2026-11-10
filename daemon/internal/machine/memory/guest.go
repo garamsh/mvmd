@@ -381,12 +381,32 @@ func (g *Guest) PatchFile(_ context.Context, id machine.MachineID, path, base, e
 	return 0, machine.ErrPatchPrecondition
 }
 
+// entriesPerMessage is how many entries a run holds, as the Guest Agent's
+// messages do.
+const entriesPerMessage = 512
+
 // ListFiles implements machine.Guest: the files directly under path, and the
-// directories that hold deeper ones. A path with nothing under it is absent.
-func (g *Guest) ListFiles(_ context.Context, id machine.MachineID, path string) ([]machine.FileEntry, error) {
+// directories that hold deeper ones, in runs of entriesPerMessage. A path with
+// nothing under it is absent.
+func (g *Guest) ListFiles(_ context.Context, id machine.MachineID, path string, send func([]machine.FileEntry) error) error {
 	if err := g.enter("list-files"); err != nil {
-		return nil, err
+		return err
 	}
+	out, err := g.list(id, path)
+	if err != nil {
+		return err
+	}
+	for len(out) > 0 {
+		n := min(entriesPerMessage, len(out))
+		if err := send(out[:n]); err != nil {
+			return err
+		}
+		out = out[n:]
+	}
+	return nil
+}
+
+func (g *Guest) list(id machine.MachineID, path string) ([]machine.FileEntry, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if _, isFile := g.files[id][path]; isFile {
@@ -421,21 +441,28 @@ func (g *Guest) ListFiles(_ context.Context, id machine.MachineID, path string) 
 }
 
 // SearchFiles implements machine.Guest: the files under path whose name
-// contains the pattern.
-func (g *Guest) SearchFiles(_ context.Context, id machine.MachineID, path, pattern string) ([]string, error) {
+// contains the pattern, in runs of entriesPerMessage.
+func (g *Guest) SearchFiles(_ context.Context, id machine.MachineID, path, pattern string, send func([]string) error) error {
 	if err := g.enter("search-files"); err != nil {
-		return nil, err
+		return err
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	var out []string
 	for p := range g.files[id] {
 		if strings.HasPrefix(p, path) && strings.Contains(p[len(path):], pattern) {
 			out = append(out, p)
 		}
 	}
+	g.mu.Unlock()
 	sort.Strings(out)
-	return out, nil
+	for len(out) > 0 {
+		n := min(entriesPerMessage, len(out))
+		if err := send(out[:n]); err != nil {
+			return err
+		}
+		out = out[n:]
+	}
+	return nil
 }
 
 // EndsMachineWith makes a Terminate end the Machine by calling f, as an agent

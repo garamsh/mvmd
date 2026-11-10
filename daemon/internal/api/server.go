@@ -1,5 +1,5 @@
 // Package api is the driving adapter for the runtime API: it serves
-// RuntimeService from lib/runtimeapi/v1alpha1 over the inside, converting
+// RuntimeService from lib/runtimeapi/v1alpha2 over the inside, converting
 // between the wire types and the inside's, and mapping every outcome to its
 // status code. It is the one place that imports lib/runtimeapi (structure.md
 // §Repository layout).
@@ -16,15 +16,15 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // Version is the API version this server serves.
-const Version = "mvmd.runtime.v1alpha1"
+const Version = "mvmd.runtime.v1alpha2"
 
-// Server implements v1alpha1.RuntimeServiceServer.
+// Server implements v1alpha2.RuntimeServiceServer.
 type Server struct {
-	v1alpha1.UnimplementedRuntimeServiceServer
+	v1alpha2.UnimplementedRuntimeServiceServer
 	machines machine.Service
 	deadline fencing.Service
 	images   image.Service
@@ -47,14 +47,14 @@ func New(machines machine.Service, deadline fencing.Service, images image.Servic
 func (s *Server) Stop() { s.stop() }
 
 // Register registers the server on a gRPC server.
-func (s *Server) Register(g *grpc.Server) { v1alpha1.RegisterRuntimeServiceServer(g, s) }
+func (s *Server) Register(g *grpc.Server) { v1alpha2.RegisterRuntimeServiceServer(g, s) }
 
 // Interceptor refuses, with the REJECTED outcome, a request that fails its own
 // Validate. The client refuses them too, but a server does not rely on it.
 func Interceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	if v, ok := req.(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return nil, v1alpha1.NewError(v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, err.Error())
+			return nil, v1alpha2.NewError(v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, err.Error())
 		}
 	}
 	return handler(ctx, req)
@@ -77,14 +77,14 @@ func (v *validatingStream) RecvMsg(m any) error {
 	}
 	if val, ok := m.(interface{ Validate() error }); ok {
 		if err := val.Validate(); err != nil {
-			return v1alpha1.NewError(v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, err.Error())
+			return v1alpha2.NewError(v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, err.Error())
 		}
 	}
 	return nil
 }
 
 func rejected(format string, args ...any) error {
-	return v1alpha1.NewError(v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, fmt.Sprintf(format, args...))
+	return v1alpha2.NewError(v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, fmt.Sprintf(format, args...))
 }
 
 // status maps an error of the inside to the call's outcome.
@@ -92,45 +92,45 @@ func status(err error) error {
 	if err == nil {
 		return nil
 	}
-	kind := v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED
+	kind := v1alpha2.OutcomeKind_OUTCOME_KIND_FAILED
 	reason := err.Error()
 	var gone *machine.OutputGoneError
 	if errors.As(err, &gone) {
-		return v1alpha1.NewOutputGone(gone.Error(), gone.Earliest)
+		return v1alpha2.NewOutputGone(gone.Error(), gone.Earliest)
 	}
 	var outcome *machine.Error
 	if errors.As(err, &outcome) {
 		reason = outcome.Reason
 		switch {
 		case errors.Is(outcome, machine.ErrInvalid):
-			kind = v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED
+			kind = v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED
 		case errors.Is(outcome, machine.ErrNotFound):
-			kind = v1alpha1.OutcomeKind_OUTCOME_KIND_NOT_FOUND
+			kind = v1alpha2.OutcomeKind_OUTCOME_KIND_NOT_FOUND
 		case errors.Is(outcome, machine.ErrConflict):
-			kind = v1alpha1.OutcomeKind_OUTCOME_KIND_CONFLICT
+			kind = v1alpha2.OutcomeKind_OUTCOME_KIND_CONFLICT
 		case errors.Is(outcome, machine.ErrPreconditionFailed):
-			kind = v1alpha1.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED
+			kind = v1alpha2.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED
 		case errors.Is(outcome, machine.ErrUnsupported):
-			kind = v1alpha1.OutcomeKind_OUTCOME_KIND_UNSUPPORTED
+			kind = v1alpha2.OutcomeKind_OUTCOME_KIND_UNSUPPORTED
 		}
 	}
-	return v1alpha1.NewError(kind, reason)
+	return v1alpha2.NewError(kind, reason)
 }
 
 // wireCapabilities maps each Driver capability to the API values that report
 // it. A capability with no entry would be dropped from the runtime info, so a
 // test fails for one.
-var wireCapabilities = map[machine.Capability][]v1alpha1.Capability{
-	machine.CapabilitySnapshot:    {v1alpha1.Capability_CAPABILITY_SNAPSHOT},
-	machine.CapabilityConsole:     {v1alpha1.Capability_CAPABILITY_CONSOLE},
-	machine.CapabilityDiskHotplug: {v1alpha1.Capability_CAPABILITY_DISK_HOTPLUG},
-	machine.CapabilityResize:      {v1alpha1.Capability_CAPABILITY_CPU_RESIZE, v1alpha1.Capability_CAPABILITY_MEMORY_RESIZE},
+var wireCapabilities = map[machine.Capability][]v1alpha2.Capability{
+	machine.CapabilitySnapshot:    {v1alpha2.Capability_CAPABILITY_SNAPSHOT},
+	machine.CapabilityConsole:     {v1alpha2.Capability_CAPABILITY_CONSOLE},
+	machine.CapabilityDiskHotplug: {v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG},
+	machine.CapabilityResize:      {v1alpha2.Capability_CAPABILITY_CPU_RESIZE, v1alpha2.Capability_CAPABILITY_MEMORY_RESIZE},
 }
 
-func (s *Server) GetRuntimeInfo(context.Context, *v1alpha1.GetRuntimeInfoRequest) (*v1alpha1.GetRuntimeInfoResponse, error) {
-	resp := &v1alpha1.GetRuntimeInfoResponse{ApiVersions: []string{Version}}
+func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest) (*v1alpha2.GetRuntimeInfoResponse, error) {
+	resp := &v1alpha2.GetRuntimeInfoResponse{ApiVersions: []string{Version}}
 	for _, d := range s.drivers {
-		info := &v1alpha1.DriverInfo{Driver: &v1alpha1.Driver{Name: d.Name, Version: d.Version}}
+		info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}}
 		for _, c := range d.Capabilities {
 			info.Capabilities = append(info.Capabilities, wireCapabilities[c]...)
 		}

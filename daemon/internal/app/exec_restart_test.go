@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
-func execOnA(request string) *v1alpha1.ExecRequest {
-	return &v1alpha1.ExecRequest{ExecId: "x", RequestId: request, MachineId: "a", Command: []string{"echo", "hi"}}
+func execOnA(request string) *v1alpha2.ExecRequest {
+	return &v1alpha2.ExecRequest{ExecId: "x", RequestId: request, MachineId: "a", Command: []string{"echo", "hi"}}
 }
 
 // The exec records are in the state directory: a restart keeps a request ID's
@@ -33,7 +33,7 @@ func TestRestore_KeepsExecRecords(t *testing.T) {
 		requireKind(t, err, conflict)
 		resp, err := second.client.Exec(ctx, execOnA("r"))
 		require.NoError(t, err, "control: the original request ID")
-		assert.Equal(t, v1alpha1.ExecStatus_EXEC_STATUS_STARTED, resp.GetRecord().GetStatus())
+		assert.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_STARTED, resp.GetRecord().GetStatus())
 	})
 	t.Run("no supervisor", func(t *testing.T) {
 		cfg := testConfig(t)
@@ -48,12 +48,12 @@ func TestRestore_KeepsExecRecords(t *testing.T) {
 		requireKind(t, err, conflict)
 		resp, err := second.client.Exec(ctx, execOnA("r"))
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.ExecStatus_EXEC_STATUS_CUT_SHORT, resp.GetRecord().GetStatus())
+		assert.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_CUT_SHORT, resp.GetRecord().GetStatus())
 		second.shutdown(t)
 
 		third := startWith(t, cfg, provide)
 		resp, err = third.client.Exec(ctx, execOnA("r"))
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.ExecStatus_EXEC_STATUS_CUT_SHORT, resp.GetRecord().GetStatus(), "kept by the next restart too")
+		assert.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_CUT_SHORT, resp.GetRecord().GetStatus(), "kept by the next restart too")
 	})
 }
