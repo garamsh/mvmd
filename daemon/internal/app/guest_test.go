@@ -135,14 +135,57 @@ func TestGuestAPI_Files(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/etc/motd"}, found.GetMatches())
 
+	g.PutFile("m", "/etc/conf.d/net", "")
+	listed, err := c.ListFiles(ctx, &v1alpha1.ListFilesRequest{MachineId: "m", Path: "/etc"})
+	require.NoError(t, err)
+	assert.Equal(t, []*v1alpha1.FileEntry{
+		{Path: "/etc/conf.d", Kind: v1alpha1.EntryKind_ENTRY_KIND_DIRECTORY},
+		{Path: "/etc/motd", Kind: v1alpha1.EntryKind_ENTRY_KIND_FILE, Size: uint64(len("patched"))},
+	}, listed.GetEntries(), "a directory and a file with its size, none of what is below the directory")
+	_, err = c.ListFiles(ctx, &v1alpha1.ListFilesRequest{MachineId: "m", Path: "/missing"})
+	requireKind(t, err, notFound)
+
 	t.Run("a Machine that is not Running refuses them", func(t *testing.T) {
 		_, err := c.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(0)})
 		require.NoError(t, err)
 		_, err = c.SearchFiles(ctx, &v1alpha1.SearchFilesRequest{MachineId: "m", Path: "/", Pattern: "x"})
 		requireKind(t, err, precondition)
+		_, err = c.ListFiles(ctx, &v1alpha1.ListFilesRequest{MachineId: "m", Path: "/"})
+		requireKind(t, err, precondition)
 		_, err = c.Exec(ctx, execRequest())
 		requireKind(t, err, precondition)
 	})
+}
+
+// Signal through the wired graph: a running command takes it, a command that
+// has ended is a failed precondition, and a number that is not a signal is
+// rejected.
+func TestGuestAPI_SignalExec(t *testing.T) {
+	ctx := context.Background()
+	n := running(t)
+	g := n.app.Substitutes.Guest
+	c := n.client
+	_, err := c.Exec(ctx, execRequest())
+	require.NoError(t, err)
+
+	_, err = c.SignalExec(ctx, &v1alpha1.SignalExecRequest{MachineId: "m", ExecId: "x", Signal: 15})
+	require.NoError(t, err)
+	assert.Equal(t, []int32{15}, g.Signals("x"))
+
+	_, err = c.SignalExec(ctx, &v1alpha1.SignalExecRequest{MachineId: "m", ExecId: "x"})
+	requireKind(t, err, rejected)
+	_, err = c.SignalExec(ctx, &v1alpha1.SignalExecRequest{MachineId: "m", ExecId: "other", Signal: 15})
+	requireKind(t, err, notFound)
+	assert.Equal(t, []int32{15}, g.Signals("x"), "only the valid call reached the guest")
+
+	g.Finish("x", 0)
+	_, err = c.SignalExec(ctx, &v1alpha1.SignalExecRequest{MachineId: "m", ExecId: "x", Signal: 15})
+	requireKind(t, err, precondition)
+
+	_, err = c.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(0)})
+	require.NoError(t, err)
+	_, err = c.SignalExec(ctx, &v1alpha1.SignalExecRequest{MachineId: "m", ExecId: "x", Signal: 15})
+	requireKind(t, err, precondition)
 }
 
 func TestGuestAPI_AnInvalidMessageIsRefused(t *testing.T) {

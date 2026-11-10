@@ -254,6 +254,9 @@ func (s *service) SignalExec(ctx context.Context, id MachineID, exec ExecID, sig
 	case signal < 1:
 		return fail(ErrInvalid, "%d is not a signal number", signal)
 	}
+	if err := s.requireRunning(id, "signal exec"); err != nil {
+		return err
+	}
 	s.execMu.Lock()
 	entry, ok := s.execs[exec]
 	var held ExecEntry
@@ -266,9 +269,6 @@ func (s *service) SignalExec(ctx context.Context, id MachineID, exec ExecID, sig
 	}
 	if held.Unreadable != "" {
 		return unreadableExec(held)
-	}
-	if err := s.requireRunning(id, "signal exec"); err != nil {
-		return err
 	}
 	if err := s.guest.Signal(ctx, id, exec, signal); err != nil {
 		return guestFailure(err, "signal exec")

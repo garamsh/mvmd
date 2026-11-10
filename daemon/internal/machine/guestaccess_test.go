@@ -459,7 +459,7 @@ func TestPatchFile(t *testing.T) {
 	requireKind(t, e.svc.PatchFile(ctx, "m", "/missing", base, expected, nil), machine.ErrNotFound)
 }
 
-// Row "List and search".
+// Row "Search".
 func TestSearchFiles(t *testing.T) {
 	ctx := context.Background()
 	refusedUnlessRunning(t, func(e *env) error {
@@ -483,4 +483,91 @@ func TestSearchFiles(t *testing.T) {
 	e.guest.FailAt("search-files", errors.New("boom"))
 	_, err = e.svc.SearchFiles(ctx, "m", "/", "log")
 	requireKind(t, err, machine.ErrFailed)
+}
+
+// Row "List": the entries directly under the directory, with their kind and
+// size, and the directories that hold deeper files.
+func TestListFiles(t *testing.T) {
+	ctx := context.Background()
+	refusedUnlessRunning(t, func(e *env) error {
+		_, err := e.svc.ListFiles(ctx, "m", "/")
+		return err
+	})
+
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	e.guest.PutFile("m", "/var/a.log", "abc")
+	e.guest.PutFile("m", "/var/lib/b", "")
+	e.guest.PutFile("m", "/var/lib/c", "")
+	e.guest.PutFile("m", "/etc/c.log", "")
+
+	got, err := e.svc.ListFiles(ctx, "m", "/var")
+	require.NoError(t, err)
+	assert.Equal(t, []machine.FileEntry{
+		{Path: "/var/a.log", Kind: machine.EntryFile, Size: 3},
+		{Path: "/var/lib", Kind: machine.EntryDirectory},
+	}, got, "a file with its size, a directory once, and nothing from below it")
+	again, err := e.svc.ListFiles(ctx, "m", "/var")
+	require.NoError(t, err)
+	assert.Equal(t, got, again, "a repeat answers the same")
+	e.requireState(t, "m", machine.StateRunning)
+
+	_, err = e.svc.ListFiles(ctx, "m", "")
+	requireKind(t, err, machine.ErrInvalid)
+	_, err = e.svc.ListFiles(ctx, "m", "/missing")
+	requireKind(t, err, machine.ErrNotFound)
+	e.guest.FailAt("list-files", errors.New("boom"))
+	_, err = e.svc.ListFiles(ctx, "m", "/var")
+	requireKind(t, err, machine.ErrFailed)
+	e.requireState(t, "m", machine.StateRunning)
+}
+
+// Row "Signal", column Needs.
+func TestSignalExec_Needs(t *testing.T) {
+	ctx := context.Background()
+	refusedUnlessRunning(t, func(e *env) error {
+		return e.svc.SignalExec(ctx, "m", "x", 15)
+	})
+
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+	require.NoError(t, err)
+	requireKind(t, e.svc.SignalExec(ctx, "", "x", 15), machine.ErrNotFound)
+	requireKind(t, e.svc.SignalExec(ctx, "m", "", 15), machine.ErrInvalid)
+	requireKind(t, e.svc.SignalExec(ctx, "m", "x", 0), machine.ErrInvalid)
+	requireKind(t, e.svc.SignalExec(ctx, "m", "unknown", 15), machine.ErrNotFound)
+	assert.Zero(t, e.guest.Calls("signal"), "the guest was not asked")
+
+	// Control: a command of the Machine, and a signal number, reach the guest.
+	require.NoError(t, e.svc.SignalExec(ctx, "m", "x", 15))
+	assert.Equal(t, 1, e.guest.Calls("signal"))
+
+	e.inState(t, "other", machine.StateRunning)
+	requireKind(t, e.svc.SignalExec(ctx, "other", "x", 15), machine.ErrNotFound)
+	assert.Equal(t, 1, e.guest.Calls("signal"), "an exec of another Machine is not signalled")
+}
+
+// Row "Signal", columns On success, Repeat and After failure.
+func TestSignalExec_OutcomeRepeatAndFailure(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+	require.NoError(t, err)
+
+	require.NoError(t, e.svc.SignalExec(ctx, "m", "x", 15))
+	require.NoError(t, e.svc.SignalExec(ctx, "m", "x", 2), "a repeat delivers again")
+	assert.Equal(t, []int32{15, 2}, e.guest.Signals("x"))
+	e.requireState(t, "m", machine.StateRunning)
+
+	e.guest.Finish("x", 0)
+	requireKind(t, e.svc.SignalExec(ctx, "m", "x", 15), machine.ErrPreconditionFailed)
+	assert.Equal(t, []int32{15, 2}, e.guest.Signals("x"), "an ended command takes nothing")
+
+	e.guest.FailAt("signal", errors.New("boom"))
+	_, err = e.svc.Exec(ctx, "m", "y", "r2", echo)
+	require.NoError(t, err)
+	requireKind(t, e.svc.SignalExec(ctx, "m", "y", 15), machine.ErrFailed)
+	e.requireState(t, "m", machine.StateRunning)
 }

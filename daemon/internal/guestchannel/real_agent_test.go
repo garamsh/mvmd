@@ -312,6 +312,61 @@ func TestRealAgent_FileCalls(t *testing.T) {
 	assert.Equal(t, []string{filepath.Join(dir, "g.log")}, found)
 }
 
+func TestRealAgent_ListFiles(t *testing.T) {
+	ctx := context.Background()
+	g, _ := realAgent(t)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), []byte("abc"), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "deep"), nil, 0o600))
+	require.NoError(t, os.Symlink("f.txt", filepath.Join(dir, "link")))
+
+	got, err := g.ListFiles(ctx, "m", dir)
+	require.NoError(t, err)
+	kinds := map[string]machine.EntryKind{}
+	for _, e := range got {
+		kinds[e.Path] = e.Kind
+	}
+	assert.Equal(t, map[string]machine.EntryKind{
+		filepath.Join(dir, "f.txt"): machine.EntryFile,
+		filepath.Join(dir, "link"):  machine.EntrySymlink,
+		filepath.Join(dir, "sub"):   machine.EntryDirectory,
+	}, kinds, "the entries directly under the directory, and nothing from below sub")
+	for _, e := range got {
+		if e.Path == filepath.Join(dir, "f.txt") {
+			assert.Equal(t, uint64(3), e.Size)
+		}
+	}
+
+	_, err = g.ListFiles(ctx, "m", filepath.Join(dir, "absent"))
+	require.ErrorIs(t, err, machine.ErrFileAbsent)
+	_, err = g.ListFiles(ctx, "m", filepath.Join(dir, "f.txt"))
+	require.Error(t, err, "a file is not a directory")
+	assert.NotErrorIs(t, err, machine.ErrFileAbsent)
+}
+
+func TestRealAgent_Signal(t *testing.T) {
+	ctx := context.Background()
+	g, _ := realAgent(t)
+	_, err := g.Exec(ctx, "m", "sleeper", machine.ExecSpec{Command: []string{"/bin/sleep", "60"}})
+	require.NoError(t, err)
+
+	require.ErrorIs(t, g.Signal(ctx, "m", "sleeper", 99), machine.ErrSignalInvalid)
+	require.ErrorIs(t, g.Signal(ctx, "m", "never-started", 15), machine.ErrExecAbsent)
+
+	require.NoError(t, g.Signal(ctx, "m", "sleeper", 15))
+	var final machine.ExecRecord
+	require.Eventually(t, func() bool {
+		_, final, err = readOutput(g, "sleeper", 0)
+		return err == nil && final.Status == machine.ExecExited
+	}, 10*time.Second, 20*time.Millisecond)
+	assert.Equal(t, int32(15), final.TermSignal, "the command ended by the signal")
+
+	err = g.Signal(ctx, "m", "sleeper", 15)
+	require.ErrorIs(t, err, machine.ErrExecNotRunning, "a command that has ended")
+	assert.NotErrorIs(t, err, machine.ErrExecAbsent)
+}
+
 // Each status the real agent sends maps to the port's error, and each has a
 // control: the call that succeeds, or the same call that fails another way.
 func TestRealAgent_StatusesMapToThePortsErrors(t *testing.T) {
