@@ -173,36 +173,31 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
 	}
-	boot := BootSpec{Resources: m.Resources, Ceiling: m.Ceiling}
-	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
-		return fail(ErrFailed, "name the run directory: %v", err)
+	plan := bootPlan{
+		machine: m,
+		describe: func(ctx context.Context, boot BootSpec) (ProcessDescription, error) {
+			return s.driver.Describe(ctx, id, boot)
+		},
+		vmm: func(ctx context.Context, boot BootSpec) error { return s.driver.Boot(ctx, id, boot) },
+		// The guest waits for this description before it does anything else, and
+		// Boot returns when the entrypoint runs, so nothing is Running before then.
+		// The Machine's lock is held meanwhile, so a repeated Start waits for the
+		// outcome of this one.
+		guest: func(ctx context.Context, image LocatedImage) error {
+			description := GuestBoot{ImageUUID: image.UUID, RootDiskUUID: m.RootDiskUUID, Run: image.Run, Network: m.Network.guestNetwork()}
+			if err := s.guest.Boot(ctx, id, description); err != nil {
+				return fmt.Errorf("send the boot description to the guest: %w", err)
+			}
+			return nil
+		},
+		guestWhile: "booting",
 	}
-	var located LocatedImage
-	if boot.Devices, located, err = s.bootDevices(ctx, m); err != nil {
-		return err
-	}
-	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
-	if err != nil {
-		return fail(ErrPreconditionFailed, "the network policy was not applied: %v", err)
-	}
-	boot.Network = NetworkDevice{Tap: tap, MAC: m.Network.MAC}
-	process, err := s.driver.Describe(ctx, id, boot)
-	if err != nil {
-		return s.withdrawn(ctx, id, fail(ErrFailed, "describe the VMM process: %v", err))
-	}
-	if err := s.supervisor.Start(ctx, id, process.For(boot), m.User); err != nil {
-		return s.withdrawn(ctx, id, fail(ErrFailed, "start the VMM process: %v", err))
-	}
-	if err := s.awaitVMM(ctx, id, func(ctx context.Context) error { return s.driver.Boot(ctx, id, boot) }); err != nil {
-		return s.bootFailed(ctx, rec, err)
-	}
-	// The guest waits for this description before it does anything else, and
-	// Boot returns when the entrypoint runs, so nothing is Running before then.
-	// The Machine's lock is held meanwhile, so a repeated Start waits for the
-	// outcome of this one.
-	description := GuestBoot{ImageUUID: located.UUID, RootDiskUUID: m.RootDiskUUID, Run: located.Run, Network: m.Network.guestNetwork()}
-	if err := s.bootGuest(ctx, id, description); err != nil {
-		return s.bootFailed(ctx, rec, err)
+	if res := s.bringUp(ctx, plan); res.failure != nil {
+		if !res.begun.vmm {
+			// No VMM process began, so the Machine keeps its state.
+			return fail(res.failure.Kind, "%s", res.reason())
+		}
+		return s.bootFailed(ctx, rec, res)
 	}
 
 	next := m.clone()
@@ -213,71 +208,6 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		return s.unrecorded(rec, err)
 	}
 	return nil
-}
-
-// bootGuest sends the boot description and waits for the entrypoint to run, for
-// at most the node's boot timeout. The bound is the lifecycle's own: it holds
-// when the caller's context never ends and when the Guest adapter ignores the
-// context it is given, and a caller that gives up does not cancel the boot,
-// since an accepted call completes or fails into its defined state.
-func (s *service) bootGuest(ctx context.Context, id MachineID, description GuestBoot) error {
-	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- s.guest.Boot(bootCtx, id, description) }()
-	timer := time.NewTimer(s.bootTimeout)
-	defer timer.Stop()
-	select {
-	case err := <-done:
-		if err != nil {
-			return fmt.Errorf("send the boot description to the guest: %w", err)
-		}
-		return nil
-	case <-timer.C:
-		return fmt.Errorf("the guest did not finish booting within %s", s.bootTimeout)
-	}
-}
-
-// awaitVMM runs a Driver step that waits for the started VMM's VM to run, for
-// at most the node's boot timeout, and gives up when the Machine's supervisor
-// is no longer listed, which is the VMM having ended (ADR 0003). The Driver
-// waits on a socket the VMM binds, which a VMM that has ended never does, so the
-// step's own end would come only with the call's bound. Like bootGuest it holds
-// when the Driver ignores the context it is given.
-func (s *service) awaitVMM(ctx context.Context, id MachineID, step func(context.Context) error) error {
-	stepCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- step(stepCtx) }()
-	timer := time.NewTimer(s.bootTimeout)
-	defer timer.Stop()
-	tick := time.NewTicker(s.vmmEndPoll)
-	defer tick.Stop()
-	for {
-		select {
-		case err := <-done:
-			return err
-		case <-timer.C:
-			return fmt.Errorf("the VMM did not reach Running within %s", s.bootTimeout)
-		case <-tick.C:
-			// A listing that fails observes nothing; the next one tries again.
-			if live, err := s.supervisor.Live(ctx); err == nil && !slices.Contains(live, id) {
-				return errors.New("the VMM ended before its VM reached Running")
-			}
-		}
-	}
-}
-
-// withdrawn removes the network a start applied before it failed, with no VMM
-// process to hold it, and returns the failure, extended by a removal that
-// failed.
-func (s *service) withdrawn(ctx context.Context, id MachineID, failure *Error) error {
-	ctx, cancel := s.compensating(ctx)
-	defer cancel()
-	if err := s.network.Withdraw(ctx, id); err != nil {
-		return fail(failure.Kind, "%s; the network could not be removed: %v", failure.Reason, err)
-	}
-	return failure
 }
 
 // bootDevices lists a Machine's block devices in boot order: its image
@@ -308,20 +238,17 @@ func locateFailure(err, absent error, what string, args ...any) error {
 	return fail(ErrFailed, "locate %s: %v", what, err)
 }
 
-// bootFailed ends a boot that began and failed: the VMM is ended and the
-// Machine is Stopped with the reason, or Faulted if the VMM cannot be ended.
-func (s *service) bootFailed(ctx context.Context, rec *Record, boot error) error {
+// bootFailed ends a boot that began and failed, after the pipeline ended the
+// VMM: the Machine is Stopped with the reason, or Faulted if the VMM or its
+// network could not be removed.
+func (s *service) bootFailed(ctx context.Context, rec *Record, boot bootResult) error {
 	ctx, cancel := s.compensating(ctx)
 	defer cancel()
 	next := rec.Machine.clone()
 	next.State = StateStopped
-	next.FailureReason = fmt.Sprintf("boot failed: %v", boot)
-	if err := s.supervisor.Terminate(ctx, rec.ID); err != nil {
+	next.FailureReason = "boot failed: " + boot.reason()
+	if boot.endErr != nil || boot.withdrawErr != nil {
 		next.State = StateFaulted
-		next.FailureReason += fmt.Sprintf("; the VMM could not be ended: %v", err)
-	} else if err := s.network.Withdraw(ctx, rec.ID); err != nil {
-		next.State = StateFaulted
-		next.FailureReason += fmt.Sprintf("; the network could not be removed: %v", err)
 	}
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)
