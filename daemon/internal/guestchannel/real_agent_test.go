@@ -90,7 +90,16 @@ func realAgent(t *testing.T) (*guestchannel.Guest, string) {
 			<-done
 		}
 	})
-	require.Eventually(t, func() bool { _, err := os.Stat(socket); return err == nil }, 10*time.Second, 10*time.Millisecond, "the binary never bound its socket")
+	// The socket file exists from bind(), before listen(): a dial is accepted
+	// only after that, so the wait is a dial that succeeds.
+	require.Eventually(t, func() bool {
+		conn, err := net.Dial("unix", socket)
+		if err != nil {
+			return false
+		}
+		_ = conn.Close()
+		return true
+	}, 10*time.Second, 10*time.Millisecond, "the binary never accepted a connection")
 	return guestchannel.NewGuest(socketConnector{socket}), socket
 }
 
