@@ -141,7 +141,7 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 		return images{}, nil, err
 	}
 	conversions := conversionSupervision{sup: sup, clock: clock, limit: settings.Limit}
-	driver, err := cfg.Conversion.files(vmm).driver(cfg.Driver, sup)
+	driver, err := cfg.Conversion.files(vmm).driver(DriverFirecracker, sup)
 	if err != nil {
 		return images{}, nil, fmt.Errorf("the converter's Driver: %w", err)
 	}
