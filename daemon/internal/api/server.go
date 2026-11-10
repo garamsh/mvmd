@@ -117,18 +117,22 @@ func status(err error) error {
 	return v1alpha1.NewError(kind, reason)
 }
 
+// wireCapabilities maps each Driver capability to the API values that report
+// it. A capability with no entry would be dropped from the runtime info, so a
+// test fails for one.
+var wireCapabilities = map[machine.Capability][]v1alpha1.Capability{
+	machine.CapabilitySnapshot:    {v1alpha1.Capability_CAPABILITY_SNAPSHOT},
+	machine.CapabilityConsole:     {v1alpha1.Capability_CAPABILITY_CONSOLE},
+	machine.CapabilityDiskHotplug: {v1alpha1.Capability_CAPABILITY_DISK_HOTPLUG},
+	machine.CapabilityResize:      {v1alpha1.Capability_CAPABILITY_CPU_RESIZE, v1alpha1.Capability_CAPABILITY_MEMORY_RESIZE},
+}
+
 func (s *Server) GetRuntimeInfo(context.Context, *v1alpha1.GetRuntimeInfoRequest) (*v1alpha1.GetRuntimeInfoResponse, error) {
 	resp := &v1alpha1.GetRuntimeInfoResponse{ApiVersions: []string{Version}}
 	for _, d := range s.drivers {
 		info := &v1alpha1.DriverInfo{Driver: &v1alpha1.Driver{Name: d.Name, Version: d.Version}}
 		for _, c := range d.Capabilities {
-			switch c {
-			case machine.CapabilityDiskHotplug:
-				info.Capabilities = append(info.Capabilities, v1alpha1.Capability_CAPABILITY_DISK_HOTPLUG)
-			case machine.CapabilityResize:
-				info.Capabilities = append(info.Capabilities,
-					v1alpha1.Capability_CAPABILITY_CPU_RESIZE, v1alpha1.Capability_CAPABILITY_MEMORY_RESIZE)
-			}
+			info.Capabilities = append(info.Capabilities, wireCapabilities[c]...)
 		}
 		resp.Drivers = append(resp.Drivers, info)
 	}

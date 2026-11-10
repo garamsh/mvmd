@@ -96,6 +96,7 @@ enum Capability {
   CAPABILITY_DISK_HOTPLUG = 2;
   CAPABILITY_CPU_RESIZE = 3;
   CAPABILITY_MEMORY_RESIZE = 4;
+  CAPABILITY_CONSOLE = 5;
 }
 
 // ImageRef locates an image to pull: the repository to fetch it from and the
