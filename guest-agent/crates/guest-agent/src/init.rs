@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use tonic::transport::server::Connected;
 
 use crate::boot::{Boot, ENTRYPOINT};
+use crate::end_method::EndMethod;
 use crate::error::Error;
 use crate::exec::Execs;
 use crate::system::{Console, System};
@@ -42,8 +43,9 @@ enum Ended {
 /// The agent serves `incoming`, boots the guest when mvmd describes it and supervises the
 /// entrypoint. When the entrypoint ends, or the agent cannot go on, it writes one line to the
 /// console saying why, stops accepting calls, waits up to `Config::shutdown_grace` for the
-/// connected clients, and powers the Machine off. If the power-off returns it has failed: the
-/// agent then restarts the Machine, and if that fails too it waits for ever.
+/// connected clients, and ends the Machine by the method the kernel command line names (power off
+/// or reset). If that returns it has failed: the agent then tries the other, and if that fails
+/// too it waits for ever.
 pub async fn run<I, IO>(
     setup: impl FnOnce() -> io::Result<(I, mpsc::Receiver<Signal>)>,
     config: Config,
@@ -62,7 +64,8 @@ fn failure_line(context: &str, error: impl std::fmt::Display) -> String {
     format!("mvmd-guest-agent: failed to {context}: {error}")
 }
 
-/// End the Machine from async code: power off, then restart, then wait.
+/// End the Machine from async code: by the method the command line names, then by the other, then
+/// wait.
 async fn end(system: &System) -> Infallible {
     let system = system.clone();
     // The blocking thread that waits for ever is not the runtime's to wait on.
@@ -70,18 +73,54 @@ async fn end(system: &System) -> Infallible {
     std::future::pending().await
 }
 
-/// End the Machine: power off, then restart, then wait. Each of the first two returns only when it
-/// has failed, and the console says so.
+/// End the Machine by the method the command line names, then by the other, then wait. Each of the
+/// first two returns only when it has failed, and the console says so.
 fn end_now(system: &System) {
-    let outcome = system.power.power_off();
-    system
-        .console
-        .line(&failure_line("power off", describe_return(outcome)));
-    let outcome = system.power.restart();
-    system
-        .console
-        .line(&failure_line("restart", describe_return(outcome)));
+    let power_off = || {
+        let outcome = system.power.power_off();
+        system
+            .console
+            .line(&failure_line("power off", describe_return(outcome)));
+    };
+    let restart = || {
+        let outcome = system.power.restart();
+        system
+            .console
+            .line(&failure_line("restart", describe_return(outcome)));
+    };
+    match system.end_method.get().copied().unwrap_or_default() {
+        EndMethod::PowerOff => {
+            power_off();
+            restart();
+        }
+        EndMethod::Reset => {
+            restart();
+            power_off();
+        }
+    }
     system.power.halt();
+}
+
+/// Read the method the kernel command line names and keep it for every end that follows. A line
+/// that names none is written to the console, and the Machine then ends by power off.
+fn read_end_method(system: &System) {
+    let method = system
+        .command_line
+        .read()
+        .map_err(|error| failure_line("read the kernel command line", error))
+        .and_then(|line| {
+            EndMethod::from_command_line(&line)
+                .map_err(|error| format!("mvmd-guest-agent: {error}; ending by power off"))
+        });
+    let method = method.unwrap_or_else(|line| {
+        system.console.line(&line);
+        EndMethod::PowerOff
+    });
+    // The agent reads once, so the cell is empty.
+    assert!(
+        system.end_method.set(method).is_ok(),
+        "the end method is read once"
+    );
 }
 
 /// Write the line for a failure of the agent itself, then end the Machine. For the code that
@@ -135,6 +174,7 @@ async fn serve_and_supervise<I, IO>(
         Ok(Err(error)) => return console.line(&failure_line("prepare the guest", error)),
         Err(error) => return console.line(&failure_line("prepare the guest", error)),
     }
+    read_end_method(system);
     if let Err(error) = system.disks.account_for_boot() {
         return console.line(&failure_line("account for the boot's disks", error));
     }

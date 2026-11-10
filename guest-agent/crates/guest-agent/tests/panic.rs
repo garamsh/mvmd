@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use guest_agent::{
-    Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, GuestSize, Mounts, Network,
-    NetworkConfig, Power, Resources, System, Uuid,
+    Clock, Console, DiskDevice, DiskError, Disks, EndMethod, Entropy, Filesystem, GuestSize,
+    KernelCommandLine, Mounts, Network, NetworkConfig, Power, Resources, System, Uuid,
 };
 
 type Log = Arc<Mutex<Vec<String>>>;
@@ -98,6 +98,13 @@ impl Disks for Unused {
     }
 }
 
+/// Never read: the panic test sets the method itself.
+impl KernelCommandLine for Unused {
+    fn read(&self) -> io::Result<String> {
+        Ok(String::new())
+    }
+}
+
 impl Resources for Unused {
     fn online_vcpus(&self, _target: u32) -> io::Result<GuestSize> {
         Ok(GuestSize {
@@ -117,6 +124,8 @@ fn system(log: &Log) -> System {
         clock: Arc::new(Unused),
         disks: Arc::new(Unused),
         resources: Arc::new(Unused),
+        command_line: Arc::new(Unused),
+        end_method: Arc::default(),
     }
 }
 
@@ -127,7 +136,13 @@ fn entries(log: &Log) -> Vec<String> {
 #[test]
 fn a_panic_on_any_thread_ends_the_machine_through_the_end_path() {
     let log = Log::default();
-    guest_agent::end_on_panic(system(&log));
+    let system = system(&log);
+    // A Driver that names the reset: the hook ends the Machine that way.
+    system
+        .end_method
+        .set(EndMethod::Reset)
+        .expect("the cell is empty");
+    guest_agent::end_on_panic(system);
 
     // The control: nothing has ended the Machine before the panic.
     assert!(entries(&log).is_empty());
@@ -151,10 +166,10 @@ fn a_panic_on_any_thread_ends_the_machine_through_the_end_path() {
     assert_eq!(
         entries[1..],
         [
-            "power_off",
-            "console: mvmd-guest-agent: failed to power off: injected failure",
             "restart",
             "console: mvmd-guest-agent: failed to restart: injected failure",
+            "power_off",
+            "console: mvmd-guest-agent: failed to power off: injected failure",
             "halt",
         ]
     );
