@@ -76,7 +76,7 @@ func events(dir, fd, text string) {
 	time.Sleep(100 * time.Millisecond)
 	_, _ = f.WriteString(text[half:])
 	for {
-		unread, err := unix.IoctlGetInt(n, unix.FIONREAD)
+		unread, err := unix.IoctlGetInt(n, unix.TIOCINQ)
 		if err == nil && unread == 0 {
 			break
 		}
