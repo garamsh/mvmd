@@ -24,7 +24,7 @@ Candidates weighed for the size of a result:
 
 Candidates weighed for the versions served:
 
-- **Serve the current alpha version and stop serving the one before it** — chosen. Alpha is where a contract may still move, and the only client builds against a version in step with the daemon it runs beside.
+- **Serve the current alpha version and stop serving the one before it** — chosen. Alpha is where a contract may still move, so serving only the current version leaves one contract for the daemon to implement and test, and the version number still tells a caller that something moved.
 - **Keep `v1alpha1` served beside `v1alpha2`.** Every call of both would be kept working and tested, and the daemon would carry two generated packages and a mapping between them for a client that has no reason to stay behind.
 
 Candidates weighed for the pattern of Search:
