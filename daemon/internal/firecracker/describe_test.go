@@ -111,9 +111,9 @@ func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T)
 	}
 }
 
-func TestBootArgs_SkipTheKeyboardProbeOnX86Only(t *testing.T) {
-	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd", firecracker.BootArgs("amd64"))
-	assert.Equal(t, "console=ttyS0 reboot=k panic=1", firecracker.BootArgs("arm64"))
+func TestBootArgs_SkipTheKeyboardProbeOnX86OnlyAndNameTheEndMethodPerArchitecture(t *testing.T) {
+	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd mvmd.end=reset", firecracker.BootArgs("amd64"))
+	assert.Equal(t, "console=ttyS0 reboot=k panic=1 mvmd.end=poweroff", firecracker.BootArgs("arm64"))
 }
 
 func TestCPUReadFiles_AreNamedOnAarch64Only(t *testing.T) {

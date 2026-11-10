@@ -28,15 +28,18 @@ const (
 )
 
 // bootArgs is the kernel command line: the serial console the VMM carries to
-// the run directory's log, and a reset that ends the VMM. i8042's probe
-// parameters are the ones the Firecracker documentation gives to skip the
-// probe, and apply on x86_64 only.
+// the run directory's log, a reset that ends the VMM, and the method the guest
+// ends its Machine by (ADR 0032). i8042's probe parameters are the ones the
+// Firecracker documentation gives to skip the probe, and apply on x86_64 only.
+// On x86_64 the VMM ends on the keyboard-controller reset, and a power off
+// halts the guest with the VMM running. On aarch64 PSCI turns both into a KVM
+// system event the VMM ends on, so the plain power off is used.
 func bootArgs(goarch string) string {
 	args := "console=ttyS0 reboot=k panic=1"
 	if goarch == "amd64" {
-		args += " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+		return args + " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd mvmd.end=reset"
 	}
-	return args
+	return args + " mvmd.end=poweroff"
 }
 
 // verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It
