@@ -1,6 +1,7 @@
 //! The guest's vCPUs and memory on a Linux kernel, through `/sys` and `/proc`. The kernel brings
 //! hot-plugged memory online by itself and a hot-added vCPU not at all, so the agent writes `1`
-//! to the `online` file of each present CPU that reads `0`.
+//! to the `online` file of the lowest present CPUs that read `0`, and only while fewer than the
+//! caller's target are online.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -47,8 +48,9 @@ impl LinuxResources {
         self
     }
 
-    /// The CPUs present, by number with the directory of each. A CPU that is possible but not
-    /// present has no directory.
+    /// The CPUs present, by number with the directory of each. This rests on the kernel
+    /// registering a CPU's directory when the CPU becomes present and removing it when it is
+    /// unplugged, so a CPU that is possible but not present has none.
     fn present(&self) -> io::Result<Vec<(u32, PathBuf)>> {
         let mut cpus = Vec::new();
         for entry in fs::read_dir(&self.cpus)? {
@@ -89,17 +91,27 @@ impl LinuxResources {
 }
 
 impl Resources for LinuxResources {
-    fn online_vcpus(&self) -> io::Result<GuestSize> {
+    fn online_vcpus(&self, target: u32) -> io::Result<GuestSize> {
         let mut online = 0;
+        let mut offline = Vec::new();
         for (number, dir) in self.present()? {
             let named = |error: io::Error| io::Error::other(format!("cpu{number}: {error}"));
+            if Self::is_online(&dir).map_err(named)? {
+                online += 1;
+            } else {
+                offline.push((number, dir));
+            }
+        }
+        for (number, dir) in offline {
+            if online >= target {
+                break;
+            }
+            let named = |error: io::Error| io::Error::other(format!("cpu{number}: {error}"));
+            (self.enable)(&dir.join("online")).map_err(named)?;
             if !Self::is_online(&dir).map_err(named)? {
-                (self.enable)(&dir.join("online")).map_err(named)?;
-                if !Self::is_online(&dir).map_err(named)? {
-                    return Err(io::Error::other(format!(
-                        "cpu{number} is still offline after the write"
-                    )));
-                }
+                return Err(io::Error::other(format!(
+                    "cpu{number} is still offline after the write"
+                )));
             }
             online += 1;
         }
@@ -175,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn every_offline_cpu_comes_online_and_the_report_counts_them() -> io::Result<()> {
+    fn offline_cpus_come_online_up_to_the_target_and_the_report_counts_them() -> io::Result<()> {
         let tree = Tree::new()?;
         tree.cpu(1, true)?;
         tree.cpu(2, false)?;
@@ -185,7 +197,7 @@ mod tests {
         assert_eq!(tree.state(2)?, "0");
         assert_eq!(tree.state(4)?, "0");
 
-        let size = tree.resources().online_vcpus()?;
+        let size = tree.resources().online_vcpus(5)?;
 
         assert_eq!(size.vcpus, 5);
         assert_eq!(size.memory_bytes, 2048 * 1024);
@@ -196,20 +208,61 @@ mod tests {
     }
 
     #[test]
+    fn only_the_lowest_offline_cpus_come_online_when_there_are_more_than_the_target_needs()
+    -> io::Result<()> {
+        let tree = Tree::new()?;
+        for number in 1..=4 {
+            tree.cpu(number, false)?;
+        }
+
+        let size = tree.resources().online_vcpus(3)?;
+
+        assert_eq!(size.vcpus, 3);
+        assert_eq!(tree.state(1)?, "1");
+        assert_eq!(tree.state(2)?, "1");
+        assert_eq!(tree.state(3)?, "0");
+        assert_eq!(tree.state(4)?, "0");
+        Ok(())
+    }
+
+    #[test]
+    fn nothing_is_written_when_the_online_count_is_at_or_above_the_target() -> io::Result<()> {
+        let tree = Tree::new()?;
+        tree.cpu(1, true)?;
+        tree.cpu(2, false)?;
+        // A write to cpu2 would fail, so a call that succeeds did not make one.
+        tree.refuse(2, true)?;
+        let resources = tree.resources();
+
+        let at = resources.online_vcpus(2)?;
+        let above = resources.online_vcpus(1)?;
+
+        assert_eq!((at.vcpus, above.vcpus), (2, 2));
+        assert_eq!(tree.state(2)?, "0");
+        // The control: a target above the online count does try cpu2.
+        let error = resources.online_vcpus(3).unwrap_err();
+        assert!(error.to_string().contains("cpu2"), "{error}");
+        tree.refuse(2, false)?;
+        assert_eq!(resources.online_vcpus(3)?.vcpus, 3);
+        assert_eq!(tree.state(2)?, "1");
+        Ok(())
+    }
+
+    #[test]
     fn a_call_with_nothing_to_bring_online_answers_the_same_counts() -> io::Result<()> {
         let tree = Tree::new()?;
         tree.cpu(1, false)?;
         let resources = tree.resources();
-        let first = resources.online_vcpus()?;
+        let first = resources.online_vcpus(8)?;
 
-        let second = resources.online_vcpus()?;
+        let second = resources.online_vcpus(8)?;
 
         assert_eq!(second, first);
         assert_eq!(second.vcpus, 2);
         // The control: a CPU that appears afterwards is counted, so the repeat counted what is
         // there and not what the first call remembered.
         tree.cpu(2, false)?;
-        assert_eq!(resources.online_vcpus()?.vcpus, 3);
+        assert_eq!(resources.online_vcpus(8)?.vcpus, 3);
         Ok(())
     }
 
@@ -217,7 +270,7 @@ mod tests {
     fn a_guest_with_only_its_boot_cpu_reports_one() -> io::Result<()> {
         let tree = Tree::new()?;
 
-        assert_eq!(tree.resources().online_vcpus()?.vcpus, 1);
+        assert_eq!(tree.resources().online_vcpus(8)?.vcpus, 1);
         Ok(())
     }
 
@@ -229,14 +282,14 @@ mod tests {
         tree.refuse(2, true)?;
         let resources = tree.resources();
 
-        let error = resources.online_vcpus().unwrap_err();
+        let error = resources.online_vcpus(8).unwrap_err();
 
         assert!(error.to_string().contains("cpu2"), "{error}");
         assert!(!error.to_string().contains("cpu1"), "{error}");
         // The control: with the refusal lifted the same call succeeds, so cpu2's write was the
         // cause.
         tree.refuse(2, false)?;
-        assert_eq!(resources.online_vcpus()?.vcpus, 3);
+        assert_eq!(resources.online_vcpus(8)?.vcpus, 3);
         Ok(())
     }
 
@@ -248,11 +301,11 @@ mod tests {
         let resources =
             LinuxResources::at(tree.cpus(), tree.dir.path().join("meminfo")).enabling(|_| Ok(()));
 
-        let error = resources.online_vcpus().unwrap_err();
+        let error = resources.online_vcpus(8).unwrap_err();
 
         assert!(error.to_string().contains("cpu1"), "{error}");
         // The control: a write that applies succeeds.
-        assert_eq!(tree.resources().online_vcpus()?.vcpus, 2);
+        assert_eq!(tree.resources().online_vcpus(8)?.vcpus, 2);
         Ok(())
     }
 
@@ -261,10 +314,10 @@ mod tests {
         let tree = Tree::new()?;
         fs::write(tree.dir.path().join("meminfo"), "MemFree: 1 kB\n")?;
 
-        assert!(tree.resources().online_vcpus().is_err());
+        assert!(tree.resources().online_vcpus(8).is_err());
         // The control: the same tree with a total answers.
         fs::write(tree.dir.path().join("meminfo"), "MemTotal: 4 kB\n")?;
-        assert_eq!(tree.resources().online_vcpus()?.memory_bytes, 4096);
+        assert_eq!(tree.resources().online_vcpus(8)?.memory_bytes, 4096);
         Ok(())
     }
 }

@@ -51,9 +51,10 @@ type GuestServiceClient interface {
 	// Describe the Machine to the agent, which runs as the guest's init and
 	// waits for this call before it touches a disk. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
-	// call except Terminate, Health and Info is refused until it has succeeded. A repeat
-	// with the same description succeeds and changes nothing; a repeat after
-	// a failure fails the same way.
+	// call except Terminate, Health, Info, FindDisk, ReleaseDisk and
+	// OnlineVcpus is refused until it has succeeded. A repeat with the same
+	// description succeeds and changes nothing; a repeat after a failure fails
+	// the same way.
 	Boot(ctx context.Context, in *BootRequest, opts ...grpc.CallOption) (*BootResponse, error)
 	// Replace the network configuration of a running Machine. The agent
 	// applies it whole: what it applied before is removed. After a restore the
@@ -113,11 +114,15 @@ type GuestServiceClient interface {
 	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
 	// served before Boot has succeeded.
 	ReleaseDisk(ctx context.Context, in *ReleaseDiskRequest, opts ...grpc.CallOption) (*ReleaseDiskResponse, error)
-	// Bring online every vCPU the kernel has and has not brought online, which
-	// a hot-added vCPU is: the agent writes 1 to the online file of each present,
-	// offline CPU, then returns the vCPU count and the memory the kernel reports.
-	// A CPU that does not come online fails the call, and the message names it.
-	// A repeat with nothing to bring online returns the same counts. It is served
+	// Bring vCPUs online up to a target count. The kernel does not bring a
+	// hot-added vCPU online, so the agent counts the online CPUs and, while
+	// fewer than the target are online, writes 1 to the online file of the
+	// lowest-numbered present, offline CPU. At or above the target it writes
+	// nothing, so a CPU the guest took offline, or one being removed, is left
+	// as it is. It returns the online vCPU count and the memory the kernel
+	// reports; the caller judges whether they reached its target. A target of 0
+	// is INVALID_ARGUMENT. A CPU that does not come online fails the call, and
+	// the message names it. A repeat returns the same counts. It is served
 	// before Boot has succeeded.
 	OnlineVcpus(ctx context.Context, in *OnlineVcpusRequest, opts ...grpc.CallOption) (*OnlineVcpusResponse, error)
 	// Whether the agent serves.
@@ -352,9 +357,10 @@ type GuestServiceServer interface {
 	// Describe the Machine to the agent, which runs as the guest's init and
 	// waits for this call before it touches a disk. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
-	// call except Terminate, Health and Info is refused until it has succeeded. A repeat
-	// with the same description succeeds and changes nothing; a repeat after
-	// a failure fails the same way.
+	// call except Terminate, Health, Info, FindDisk, ReleaseDisk and
+	// OnlineVcpus is refused until it has succeeded. A repeat with the same
+	// description succeeds and changes nothing; a repeat after a failure fails
+	// the same way.
 	Boot(context.Context, *BootRequest) (*BootResponse, error)
 	// Replace the network configuration of a running Machine. The agent
 	// applies it whole: what it applied before is removed. After a restore the
@@ -414,11 +420,15 @@ type GuestServiceServer interface {
 	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
 	// served before Boot has succeeded.
 	ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error)
-	// Bring online every vCPU the kernel has and has not brought online, which
-	// a hot-added vCPU is: the agent writes 1 to the online file of each present,
-	// offline CPU, then returns the vCPU count and the memory the kernel reports.
-	// A CPU that does not come online fails the call, and the message names it.
-	// A repeat with nothing to bring online returns the same counts. It is served
+	// Bring vCPUs online up to a target count. The kernel does not bring a
+	// hot-added vCPU online, so the agent counts the online CPUs and, while
+	// fewer than the target are online, writes 1 to the online file of the
+	// lowest-numbered present, offline CPU. At or above the target it writes
+	// nothing, so a CPU the guest took offline, or one being removed, is left
+	// as it is. It returns the online vCPU count and the memory the kernel
+	// reports; the caller judges whether they reached its target. A target of 0
+	// is INVALID_ARGUMENT. A CPU that does not come online fails the call, and
+	// the message names it. A repeat returns the same counts. It is served
 	// before Boot has succeeded.
 	OnlineVcpus(context.Context, *OnlineVcpusRequest) (*OnlineVcpusResponse, error)
 	// Whether the agent serves.

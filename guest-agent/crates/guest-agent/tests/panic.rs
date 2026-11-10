@@ -99,7 +99,7 @@ impl Disks for Unused {
 }
 
 impl Resources for Unused {
-    fn online_vcpus(&self) -> io::Result<GuestSize> {
+    fn online_vcpus(&self, _target: u32) -> io::Result<GuestSize> {
         Ok(GuestSize {
             vcpus: 1,
             memory_bytes: 0,

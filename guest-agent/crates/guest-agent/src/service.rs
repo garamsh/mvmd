@@ -426,11 +426,15 @@ impl GuestService for Guest {
 
     async fn online_vcpus(
         &self,
-        _request: Request<OnlineVcpusRequest>,
+        request: Request<OnlineVcpusRequest>,
     ) -> Result<Response<OnlineVcpusResponse>, Status> {
+        let target = request.into_inner().vcpus;
+        if target == 0 {
+            return Err(Error::Invalid("vcpus is 0".into()).into());
+        }
         // Not gated on the boot: the call acts on the kernel's CPU tree.
         let resources = self.boot.resources()?;
-        let size = tokio::task::spawn_blocking(move || resources.online_vcpus())
+        let size = tokio::task::spawn_blocking(move || resources.online_vcpus(target))
             .await
             .map_err(|joined| Error::Io {
                 context: "bring the vCPUs online".into(),

@@ -2332,7 +2332,9 @@ func (*ReleaseDiskResponse) Descriptor() ([]byte, []int) {
 }
 
 type OnlineVcpusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The number of online vCPUs wanted, at least 1.
+	Vcpus         uint32 `protobuf:"varint,1,opt,name=vcpus,proto3" json:"vcpus,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2365,6 +2367,13 @@ func (x *OnlineVcpusRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use OnlineVcpusRequest.ProtoReflect.Descriptor instead.
 func (*OnlineVcpusRequest) Descriptor() ([]byte, []int) {
 	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *OnlineVcpusRequest) GetVcpus() uint32 {
+	if x != nil {
+		return x.Vcpus
+	}
+	return 0
 }
 
 type OnlineVcpusResponse struct {
@@ -2957,8 +2966,9 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\tread_only\x18\x03 \x01(\bR\breadOnly\"-\n" +
 	"\x12ReleaseDiskRequest\x12\x17\n" +
 	"\adisk_id\x18\x01 \x01(\tR\x06diskId\"\x15\n" +
-	"\x13ReleaseDiskResponse\"\x14\n" +
-	"\x12OnlineVcpusRequest\"N\n" +
+	"\x13ReleaseDiskResponse\"*\n" +
+	"\x12OnlineVcpusRequest\x12\x14\n" +
+	"\x05vcpus\x18\x01 \x01(\rR\x05vcpus\"N\n" +
 	"\x13OnlineVcpusResponse\x12\x14\n" +
 	"\x05vcpus\x18\x01 \x01(\rR\x05vcpus\x12!\n" +
 	"\fmemory_bytes\x18\x02 \x01(\x04R\vmemoryBytes\"\x0f\n" +

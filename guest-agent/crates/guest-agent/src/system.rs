@@ -121,9 +121,10 @@ pub struct GuestSize {
 
 /// The guest's vCPUs and memory.
 pub trait Resources: Send + Sync {
-    /// Bring online every present vCPU that is offline, then report what the kernel has. An error
+    /// Bring present, offline vCPUs online in number order, only while fewer than `target` are
+    /// online, then report what the kernel has. At or above `target` nothing is written. An error
     /// names the CPU that did not come online.
-    fn online_vcpus(&self) -> io::Result<GuestSize>;
+    fn online_vcpus(&self, target: u32) -> io::Result<GuestSize>;
 }
 
 /// Where the agent writes the lines that say why it ended, which the VMM's console carries to

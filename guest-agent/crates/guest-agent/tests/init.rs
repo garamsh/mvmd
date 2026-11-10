@@ -287,8 +287,8 @@ struct TestResources {
 }
 
 impl Resources for TestResources {
-    fn online_vcpus(&self) -> io::Result<GuestSize> {
-        self.log.push("resources online_vcpus");
+    fn online_vcpus(&self, target: u32) -> io::Result<GuestSize> {
+        self.log.push(format!("resources online_vcpus {target}"));
         if self.failing.load(Ordering::SeqCst) {
             return Err(io::Error::other("cpu3: Input/output error"));
         }
@@ -1437,12 +1437,34 @@ async fn the_vcpus_are_brought_online_and_reported_before_the_guest_has_booted()
 
     let reported = agent
         .client
-        .online_vcpus(OnlineVcpusRequest {})
+        .online_vcpus(OnlineVcpusRequest { vcpus: 2 })
         .await?
         .into_inner();
 
     assert_eq!((reported.vcpus, reported.memory_bytes), (2, 1 << 20));
-    assert_eq!(agent.log.count("resources online_vcpus"), 1);
+    assert_eq!(agent.log.count("resources online_vcpus 2"), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_target_of_zero_is_refused_and_a_target_of_one_is_accepted() -> Result {
+    let mut agent = Agent::start().await?;
+
+    let refused = agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 0 })
+        .await
+        .unwrap_err();
+
+    assert_eq!(refused.code(), Code::InvalidArgument);
+    // The refused call never reached the resources.
+    assert_eq!(agent.log.count("resources online_vcpus "), 0);
+    // The control: a target of 1 is accepted and reaches them with the target.
+    agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 1 })
+        .await?;
+    assert_eq!(agent.log.count("resources online_vcpus 1"), 1);
     Ok(())
 }
 
@@ -1453,7 +1475,7 @@ async fn a_cpu_that_does_not_come_online_fails_the_call_with_its_name() -> Resul
 
     let failure = agent
         .client
-        .online_vcpus(OnlineVcpusRequest {})
+        .online_vcpus(OnlineVcpusRequest { vcpus: 2 })
         .await
         .unwrap_err();
 
@@ -1461,7 +1483,10 @@ async fn a_cpu_that_does_not_come_online_fails_the_call_with_its_name() -> Resul
     assert!(failure.message().contains("cpu3"), "{}", failure.message());
     // The control: once the kernel accepts the writes, the same call answers.
     agent.resources.failing.store(false, Ordering::SeqCst);
-    agent.client.online_vcpus(OnlineVcpusRequest {}).await?;
+    agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 2 })
+        .await?;
     Ok(())
 }
 
