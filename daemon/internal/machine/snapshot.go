@@ -180,44 +180,32 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	}
 	identity, err := s.network.Allocate(ctx, id, held.MAC)
 	if err != nil {
-		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("allocate network: %v", err))
+		reason := s.undoRestore(ctx, id, "", fmt.Sprintf("allocate network: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Policy: policy.clone()}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.
 	if taken, holder, ok := s.claim(id, RootDiskID(id)); !ok {
-		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("disk %q is held by Machine %q", taken, holder))
+		reason := s.undoRestore(ctx, id, "", fmt.Sprintf("disk %q is held by Machine %q", taken, holder))
 		return fail(ErrPreconditionFailed, "%s", reason)
 	}
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
 	if err != nil {
-		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("create root disk: %v", err))
+		reason := s.undoRestore(ctx, id, "", fmt.Sprintf("create root disk: %v", err))
 		s.release(RootDiskID(id))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	m := Machine{ID: id, State: StateRunning, Spec: spec, BootMemoryBytes: held.Spec.BootMemoryBytes, RootDisk: root, RootDiskUUID: held.RootDiskUUID, User: User{UID: uid, GID: uid}, Network: identity}
 
-	if failure, vmm := s.bringUp(ctx, m, request, files); failure != nil {
-		reason, ended := s.undoRestore(ctx, id, root, vmm, failure.Reason)
-		if !ended {
-			return s.faultedRestore(ctx, m, asked, reason)
-		}
-		if failure.Kind == ErrPreconditionFailed {
-			// Nothing was begun that a repeat could not begin again, so the
-			// refusal is not remembered, as Start's is not.
-			return fail(ErrPreconditionFailed, "%s", reason)
-		}
-		return s.failRestore(ctx, id, asked, fail(failure.Kind, "%s", reason))
+	res := s.bringUp(ctx, s.restorePlan(m, request, files))
+	if res.failure != nil {
+		return s.restoreFailed(ctx, m, root, asked, res)
 	}
 
 	rec := &Record{ID: id, Request: Request{ID: request, Snapshot: snapshot, Spec: asked.Spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
-		reason, ended := s.undoRestore(ctx, id, root, true, fmt.Sprintf("record the Machine: %v", err))
-		if !ended {
-			return s.faultedRestore(ctx, m, asked, reason)
-		}
-		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
+		return s.restoreFailed(ctx, m, root, asked, s.unwind(ctx, id, res.begun, fail(ErrFailed, "record the Machine: %v", err)))
 	}
 	s.mu.Lock()
 	s.records[id] = rec
@@ -226,68 +214,65 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	return nil
 }
 
-// bringUp applies the network, has the Driver describe the VMM process,
-// starts it under its supervisor, and loads the snapshot into it. The
-// supervisor start is the fencing service's, so it is the same step that
-// hands over the current expiry. It returns the failure, and whether a VMM
-// process exists when it returns.
-func (s *service) bringUp(ctx context.Context, m Machine, request RequestID, files SnapshotFiles) (failure *Error, vmm bool) {
+// restorePlan is what a restore chooses of the boot pipeline: the snapshot's
+// description, its load into the VMM, and the guest's catch-up. The guest still
+// holds the snapshot's memory, clock and addresses, and the Machine is not
+// Running, nor reported so, until it has caught up (ADR 0016).
+func (s *service) restorePlan(m Machine, request RequestID, files SnapshotFiles) bootPlan {
 	id := m.ID
-	boot := BootSpec{Resources: m.Resources, Ceiling: m.Ceiling}
-	var err error
-	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
-		return fail(ErrFailed, "name the run directory: %v", err), false
+	return bootPlan{
+		machine: m,
+		describe: func(ctx context.Context, boot BootSpec) (ProcessDescription, error) {
+			return s.driver.DescribeRestore(ctx, id, boot, files.State)
+		},
+		vmm: func(ctx context.Context, boot BootSpec) error {
+			if err := s.driver.Restore(ctx, id, boot); err != nil {
+				return fmt.Errorf("load the snapshot: %w", err)
+			}
+			return nil
+		},
+		guest: func(ctx context.Context, _ LocatedImage) error {
+			// Entropy is drawn afresh here: two restores sent the same bytes
+			// would share random state again.
+			entropy := make([]byte, catchUpEntropy)
+			if _, err := rand.Read(entropy); err != nil {
+				return fmt.Errorf("draw entropy for the guest: %w", err)
+			}
+			catchUp := CatchUp{RestoreID: request, Entropy: entropy, HostTime: s.clock.Now(), Network: m.Network.guestNetwork()}
+			if err := s.guest.CatchUp(ctx, id, catchUp); err != nil {
+				return fmt.Errorf("catch the guest up: %w", err)
+			}
+			return nil
+		},
+		guestWhile: "catching up",
 	}
-	if boot.Devices, _, err = s.bootDevices(ctx, m); err != nil {
-		var e *Error
-		if errors.As(err, &e) {
-			return e, false
-		}
-		return fail(ErrFailed, "%v", err), false
-	}
-	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
-	if err != nil {
-		return fail(ErrPreconditionFailed, "the network policy was not applied: %v", err), false
-	}
-	boot.Network = NetworkDevice{Tap: tap, MAC: m.Network.MAC}
-	process, err := s.driver.DescribeRestore(ctx, id, boot, files.State)
-	if err != nil {
-		return fail(ErrFailed, "describe the VMM process: %v", err), false
-	}
-	if err := s.supervisor.Start(ctx, id, process.For(boot), m.User); err != nil {
-		return fail(ErrFailed, "start the VMM process: %v", err), false
-	}
-	if err := s.awaitVMM(ctx, id, func(ctx context.Context) error { return s.driver.Restore(ctx, id, boot) }); err != nil {
-		return fail(ErrFailed, "load the snapshot: %v", err), true
-	}
-	// The guest still holds the snapshot's memory, clock and addresses. The
-	// Machine is not Running, nor reported so, until it has caught up
-	// (ADR 0016). Entropy is drawn afresh here: two restores sent the same
-	// bytes would share random state again.
-	entropy := make([]byte, catchUpEntropy)
-	if _, err := rand.Read(entropy); err != nil {
-		return fail(ErrFailed, "draw entropy for the guest: %v", err), true
-	}
-	catchUp := CatchUp{RestoreID: request, Entropy: entropy, HostTime: s.clock.Now(), Network: m.Network.guestNetwork()}
-	if err := s.guest.CatchUp(ctx, id, catchUp); err != nil {
-		return fail(ErrFailed, "catch the guest up: %v", err), true
-	}
-	return nil, true
 }
 
-// undoRestore ends what a failed restore made and returns the failure's
-// reason, extended by anything that could not be undone. A VMM that cannot be
-// ended is not undone around: its tap, disk and UID stay held, since taking
-// them from a running VMM is worse than keeping them, and ended is false; the
-// caller then makes the Machine Faulted, which Delete releases.
-func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vmm bool, reason string) (_ string, ended bool) {
+// restoreFailed ends a failed restore, whose VMM the pipeline has already
+// ended: the Machine does not exist, or is Faulted if its VMM could not be
+// ended.
+func (s *service) restoreFailed(ctx context.Context, m Machine, root DiskID, asked Request, res bootResult) error {
+	reason := res.reason()
+	if res.endErr != nil {
+		return s.faultedRestore(ctx, m, asked, reason+"; nothing it holds was released")
+	}
+	reason = s.undoRestore(ctx, m.ID, root, reason)
+	if res.failure.Kind == ErrPreconditionFailed {
+		// Nothing was begun that a repeat could not begin again, so the
+		// refusal is not remembered, as Start's is not.
+		return fail(ErrPreconditionFailed, "%s", reason)
+	}
+	return s.failRestore(ctx, m.ID, asked, fail(res.failure.Kind, "%s", reason))
+}
+
+// undoRestore releases what a failed restore allocated and returns the
+// failure's reason, extended by anything that could not be undone. It is not
+// called for a VMM that could not be ended: its tap, disk and UID stay held,
+// since taking them from a running VMM is worse than keeping them, and the
+// caller makes the Machine Faulted, which Delete releases.
+func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, reason string) string {
 	ctx, cancel := s.compensating(ctx)
 	defer cancel()
-	if vmm {
-		if err := s.supervisor.Terminate(ctx, id); err != nil {
-			return reason + fmt.Sprintf("; the VMM could not be ended, so nothing it holds was released: %v", err), false
-		}
-	}
 	if err := s.network.Release(ctx, id); err != nil {
 		reason += fmt.Sprintf("; the network could not be released: %v", err)
 	}
@@ -298,7 +283,7 @@ func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, vm
 		s.release(root)
 	}
 	s.uids.ReleaseMachine(id)
-	return reason, true
+	return reason
 }
 
 // faultedRestore is the outcome of a failed restore whose VMM could not be
