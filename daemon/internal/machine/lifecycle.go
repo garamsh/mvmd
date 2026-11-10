@@ -55,6 +55,9 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		}
 		disks = append(disks, a.Disk)
 	}
+	// The root disk's name is held with the attached disks, before its file is
+	// published, so Delete disk cannot remove it between the two.
+	disks = append(disks, RootDiskID(id))
 	if taken, holder, ok := s.claim(id, disks...); !ok {
 		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", taken, holder)
 	}
@@ -73,15 +76,14 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	root, uuid, err := s.disks.CreateRoot(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, spec.RootDiskBytes)
 	if err != nil {
 		reason := fmt.Sprintf("create root disk: %v", err)
-		s.release(append(disks, root)...)
+		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", reason)))
 	}
-	s.claim(id, root) // a root disk is new, so no one else holds it
 	m := Machine{ID: id, State: StateCreated, Spec: held, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
 	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
 		reason := fmt.Sprintf("record the Machine: %v", err)
-		s.release(append(disks, root)...)
+		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, reason)))
 	}
 	s.mu.Lock()

@@ -210,3 +210,50 @@ func TestAttachDisk_ADiskCreateDiskMade(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, diskIDs(got), machine.DiskID("data"))
 }
+
+// ADR 0036 §5: a Machine's root disk has its Machine as holder from before
+// its file is published, so Delete disk cannot remove it while Create Machine
+// is making it.
+func TestDeleteDisk_RefusesARootDiskWhileCreateIsPublishingIt(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	entered, release := e.disks.Hold("create-root")
+	created := make(chan error, 1)
+	go func() { created <- e.svc.Create(ctx, "m", request("m"), baseSpec()) }()
+	<-entered
+
+	requireKind(t, e.svc.DeleteDisk(ctx, "m-root"), machine.ErrPreconditionFailed)
+	release()
+
+	require.NoError(t, <-created)
+	_, held := e.disks.Holds("m-root")
+	assert.True(t, held, "the Machine was created with its root disk present")
+	requireKind(t, e.svc.DeleteDisk(ctx, "m-root"), machine.ErrPreconditionFailed)
+}
+
+func TestDeleteDisk_ARootDiskNameIsFreeAfterAFailedCreate(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.disks.FailAt("create-root", errBoom)
+	requireKind(t, e.svc.Create(ctx, "m", request("m"), baseSpec()), machine.ErrFailed)
+
+	require.NoError(t, e.svc.CreateDisk(ctx, "m-root", "req", 1<<20))
+	require.NoError(t, e.svc.DeleteDisk(ctx, "m-root"), "nothing holds the name any longer")
+}
+
+func TestDeleteDisk_RefusesARootDiskWhileRestoreIsPublishingIt(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(snapshotCaps...)
+	e.snapshotted(t, "src", machine.StateRunning)
+	entered, release := e.disks.Hold("create-root-from")
+	restored := make(chan error, 1)
+	go func() { restored <- e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", machine.NetworkPolicy{}) }()
+	<-entered
+
+	requireKind(t, e.svc.DeleteDisk(ctx, "new-root"), machine.ErrPreconditionFailed)
+	release()
+
+	require.NoError(t, <-restored)
+	_, held := e.disks.Holds("new-root")
+	assert.True(t, held, "the Machine was restored with its root disk present")
+}

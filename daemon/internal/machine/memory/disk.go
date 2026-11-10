@@ -52,7 +52,7 @@ func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes 
 	if err := d.Enter("create-root"); err != nil {
 		return "", "", err
 	}
-	disk := machine.DiskID(string(owner.ID) + "-root")
+	disk := machine.RootDiskID(owner.ID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, held := d.disks[disk]; held {
@@ -68,7 +68,7 @@ func (d *Disk) CreateRootFrom(_ context.Context, owner machine.DiskOwner, source
 	if err := d.Enter("create-root-from"); err != nil {
 		return "", err
 	}
-	disk := machine.DiskID(string(owner.ID) + "-root")
+	disk := machine.RootDiskID(owner.ID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, held := d.disks[disk]; held {

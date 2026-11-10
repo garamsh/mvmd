@@ -16,6 +16,11 @@ var ErrDiskExists = errors.New("disk already held by the node")
 // name a disk file.
 var ErrDiskInvalid = errors.New("not a disk identifier")
 
+// RootDiskID is the identifier of a Machine's root disk. The inside holds the
+// name before it asks the Disk port to publish the file, so no call removes the
+// disk between the two.
+func RootDiskID(id MachineID) DiskID { return DiskID(string(id) + "-root") }
+
 // DiskEntry is a disk the node holds as the Disk adapter records it: the
 // request that made it, which a root disk has none of, and its size.
 type DiskEntry struct {

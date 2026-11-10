@@ -69,7 +69,7 @@ func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes 
 	if err != nil {
 		return "", "", fmt.Errorf("generate uuid: %w", err)
 	}
-	name := string(owner.ID) + "-root"
+	name := string(machine.RootDiskID(owner.ID))
 	if !validDiskName(name) {
 		return "", "", fmt.Errorf("invalid disk name %q: must not contain / and must not be . or ..", name)
 	}
@@ -115,7 +115,7 @@ func (d *Disk) CreateRootFrom(ctx context.Context, owner machine.DiskOwner, sour
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	name := string(owner.ID) + "-root"
+	name := string(machine.RootDiskID(owner.ID))
 	if !validDiskName(name) {
 		return "", fmt.Errorf("invalid disk name %q: must not contain / and must not be . or ..", name)
 	}
