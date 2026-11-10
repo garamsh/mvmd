@@ -147,6 +147,17 @@ Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its l
 - **An image becomes visible only after conversion and integrity verification finish** ([image.md](./image.md)), so a failed pull leaves no partial image. Each step of a pull and the state its failure leaves are listed in [ADR 0007](./adr/0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md) §Pull image.
 - **A boot checks the image.** Start and restore measure the image's root hash before the boot begins; a mismatch fails the call in its prior state, with the reason ([image.md](./image.md) §Integrity).
 
+### Snapshots
+
+| Operation | Needs | On success | Repeat | After failure |
+|---|---|---|---|---|
+| List snapshots | Nothing | Every snapshot the node holds, ordered by identifier, each with its identifier, source Machine, image digest, Driver name and version, CPU model and root disk size | The node's snapshots at that time | Failed with no partial list; nothing changed |
+| Delete snapshot | A snapshot identifier; no Snapshot or Restore call is using the snapshot | The snapshot and its files are removed from the node | Already absent: success | The snapshot is unchanged or already removed, never half-listed; a repeat deletes it |
+
+- **A snapshot is a public resource, listed for reconciliation.** The list reports what the node holds, so a client that lost its own records can reconcile. There is no separate inspect call. A snapshot a Snapshot call is still writing is already listed ([ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md)).
+- **Delete refuses a snapshot a call is using, with precondition failed.** A Restore holds the snapshot until it returns, and a Snapshot call until it ends. The refusal is atomic with that call: delete takes the per-snapshot lock Snapshot and Restore already take, exclusively and without waiting, so it refuses only the snapshot in use and not another. A snapshot whose Machine exists is not refused, since a snapshot is a copy. A Machine restored from the snapshot is not using it once Restore has returned.
+- **Delete only unlinks.** A file a restored VMM has open or mapped stays readable until that VMM ends, and the node's space comes back then. The reasoning is in ADR 0034.
+
 ## Fencing deadline
 
 The deadline exists so a Machine cannot run on two nodes when its client is gone ([runtime.md](./runtime.md) §Fencing). The client chooses its length; mvmd keeps it and acts on it. It is one deadline for the node, covering every Machine on it.
@@ -173,6 +184,7 @@ The deadline exists so a Machine cannot run on two nodes when its client is gone
 - Client-chosen identifiers and state-targeting calls are the two ways a retry becomes safe without a transaction: the first names the object before it exists, the second makes the repeat a no-op.
 - The deadline's recorded-before-acknowledged rule and the receipt-time rule follow the safety requirement stated in garamsh/mvmd#4 Context: the client keeps the deadline at or below its own validity, which it can do only if mvmd's expiry is what the client was told.
 - The mechanism that enforces the expiry while mvmd is not running: [ADR 0003](./adr/0003-a-per-machine-supervisor-enforces-the-fencing-expiry.md).
+- Why the node reclaims nothing by its own policy, and the rule that refuses a snapshot's delete: [ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md).
 - The scope and why the API is not CRI: [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md).
 - Why the policy is an order-free allow-list of prefix, protocol and port rules, and what it leaves for later: [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md).
 
@@ -187,6 +199,6 @@ The deadline exists so a Machine cannot run on two nodes when its client is gone
 - **Authorisation of callers beyond the socket.** Authentication is the socket's filesystem permissions (ADR 0004); #2 states no finer rule.
 - **How a disk other than a root disk comes to exist on the node** (creation, class, durability, movement): depends on #2 §6 item 9 ([runtime.md](./runtime.md) §Open questions). Attach assumes the node already holds it. A root disk is created by Create Machine and deleted by Delete Machine ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)).
 - **Changing a running Machine's policy.** A policy is fixed for the Machine's life in v1alpha1; a replace operation would be an addition.
-- **Removal and retention of snapshots and images**, including garbage collection of the node cache.
+- **Removal and retention of images**, including garbage collection of the node cache. The snapshot half is decided: the node reclaims nothing by its own policy, and a client lists and deletes snapshots (§Snapshots). The image half is garamsh/mvmd#234's.
 - **How long events are kept**, how long request IDs are kept after their object is deleted, and how many API versions are served at once.
-- **Whether a snapshot is a public resource** with its own list and inspect (#2 §6 item 8). Here a snapshot is created and used by identifier only.
+- **Whether a snapshot has an inspect call.** A snapshot is a public resource with a list and a delete (§Snapshots), and the list carries what a client needs to decide, so no separate inspect exists.

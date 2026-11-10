@@ -64,5 +64,6 @@ Decisions:
 - [ADR 0031](./adr/0031-the-snapshot-store-publishes-a-snapshots-state-files-owned-by-mvmd-and-read-only.md) — the Snapshot Store publishes a snapshot's state files owned by mvmd and read-only
 - [ADR 0032](./adr/0032-the-guest-agent-ends-the-machine-by-the-method-the-kernel-command-line-names.md) — the Guest Agent ends the Machine by the method the kernel command line names
 - [ADR 0033](./adr/0033-a-vmm-that-ends-on-its-own-moves-its-machine-to-stopped-with-the-reason.md) — a VMM that ends on its own moves its Machine to Stopped with the reason (the daemon finds it through the supervisors it lists)
+- [ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md) — the node reclaims nothing by its own policy, and the runtime API lists and removes the snapshots and images it holds
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

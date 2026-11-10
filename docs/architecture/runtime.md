@@ -31,12 +31,13 @@ The runtime API models a Machine, not a Pod or a container, and is not CRI (#2 �
 - Disk attach and detach, and resource resize.
 - Inspect, list and events.
 - Exec, a file API and a console.
+- List snapshots and delete a snapshot. A snapshot is a public resource of the runtime API: the identifier a client gives Snapshot is the one it gives Restore, and the client sees what the node holds and removes it ([ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md)). Its files stay inside the node.
 
 mvmd defines and versions it. Each operation states its idempotency and the state a Machine is left in after a failure (#2 §3 principle 5). The contract is published as `lib/runtimeapi/` and is a leaf module ([structure.md](./structure.md) §Repository layout). Its operations, calling rules and version are in [runtime-api.md](./runtime-api.md).
 
 ## State and stability
 
-mvmd owns the actual VM state on its node and the snapshot and image caches; they are not exposed outside it (#2 §3 state ownership table). Desired state, binding and epochs are its client's.
+mvmd owns the actual VM state on its node and the snapshot and image caches; their files are not exposed outside it, and a client sees a snapshot only through the runtime API's list and delete (#2 §3 state ownership table). Desired state, binding and epochs are its client's.
 
 - VMs survive an mvmd restart, until the recorded fencing expiry. The VMM runs as a separate process under its supervisor (§Fencing). Before serving any call, mvmd reattaches to each supervisor through its socket in the Machine's state directory, then to the VMMs through the Driver's `List` (#2 §5 design principle 4; [driver.md](./driver.md)). A VMM's end while mvmd runs reaches the daemon through the supervisors it already lists, since a supervisor exits with its VMM, and not through the guest: the daemon lists them every second and moves a Running or Paused Machine that has none to Stopped, and the start-up reconciliation does the same for one that ended while mvmd was down ([ADR 0033](./adr/0033-a-vmm-that-ends-on-its-own-moves-its-machine-to-stopped-with-the-reason.md)).
 - mvmd keeps its own state durably on local storage and continues after a restart (#2 §3 stability structure, the node as the reference for actual state).
@@ -112,6 +113,7 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 - The disk backing and how the one-writer rule is enforced on the node: [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md).
 - The node network and its enforcement: [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md), [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md).
 - Why the supervisor confines every VMM itself rather than each VMM's own mechanism, and what each VMM needs open: [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md).
+- Why the node reclaims nothing by its own policy, and what a snapshot's delete refuses: [ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md).
 - Why a VMM sees the Machine's files at fixed paths, and how the file checked is the file presented: [ADR 0019](./adr/0019-a-vmm-sees-its-machines-files-at-fixed-paths-in-its-root.md).
 - Why the boundary sits at a runtime API and not at gaon's resource API: the original requirement of swappable components behind interfaces, and a one-way dependency (#2 §3 principle 3).
 
@@ -119,7 +121,7 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 
 These are #2 §6 questions inside mvmd's scope, as they apply to the runtime. They bind nothing.
 
-- **Preservation default (#2 §6 item 8):** whether a Machine keeps its disk only or its memory as well by default, and whether a snapshot is a public resource of the runtime API. #2 §2 offers disk-only as a proposal, not a decision.
+- **Preservation default (#2 §6 item 8):** whether a Machine keeps its disk only or its memory as well by default. #2 §2 offers disk-only as a proposal, not a decision. That a snapshot is a public resource of the runtime API is decided (§Runtime API scope).
 - **Volume classes (item 9):** classes, durability (replication, backup) and movement between nodes, as far as the runtime stores or moves a volume. A Machine's root disk is decided, a node-local sparse raw file ([ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)); any other disk is not.
 - **I/O limits per Machine.** A VMM's cgroup limits memory, tasks and CPU, not disk I/O, which needs per-device figures from the node's storage (§VMM confinement).
 - **Density and restore numbers (item 13):** the fencing deadline's default, restore time and the latency right after a restore, and idle and active memory per node. None is measured; a value is set only after the single-node prototype of #2 §6 measures it.
