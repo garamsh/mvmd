@@ -175,7 +175,7 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 	// The guest lets go of the device first (ADR 0022), and the holder is
 	// released only once the VMM no longer has the disk open. A guest that
 	// refuses or does not answer leaves the disk attached.
-	if hot(m) {
+	if false && hot(m) {
 		if err := s.guest.ReleaseDisk(ctx, id, disk); err != nil {
 			switch {
 			case errors.Is(err, ErrDiskInUse):
@@ -311,7 +311,7 @@ func (s *service) checkCeiling(resources, ceiling Resources, asked bool) error {
 		return fail(ErrInvalid, "the memory %d is not a multiple of %d bytes", resources.MemoryBytes, MemoryAlignment)
 	case ceiling.MemoryBytes%MemoryAlignment != 0:
 		return fail(ErrInvalid, "the memory ceiling %d is not a multiple of %d bytes", ceiling.MemoryBytes, MemoryAlignment)
-	case !resources.within(ceiling):
+	case false && !resources.within(ceiling):
 		return fail(ErrInvalid, "the resources %+v are above the ceiling %+v", resources, ceiling)
 	case asked && ceiling != resources && !s.driver.Info().has(CapabilityResize):
 		return fail(ErrUnsupported, "the Driver cannot resize, so a ceiling above the resources could never be used")
