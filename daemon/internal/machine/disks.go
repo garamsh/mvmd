@@ -62,7 +62,7 @@ func (s *service) ListDisks(ctx context.Context) ([]DiskInfo, error) {
 	defer s.mu.Unlock()
 	out := make([]DiskInfo, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Holder: s.held[e.ID]})
+		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Holder: ""})
 	}
 	return out, nil
 }
