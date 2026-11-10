@@ -80,6 +80,14 @@ service GuestService {
   // served before Boot has succeeded.
   rpc ReleaseDisk(ReleaseDiskRequest) returns (ReleaseDiskResponse);
 
+  // Bring online every vCPU the kernel has and has not brought online, which
+  // a hot-added vCPU is: the agent writes 1 to the online file of each present,
+  // offline CPU, then returns the vCPU count and the memory the kernel reports.
+  // A CPU that does not come online fails the call, and the message names it.
+  // A repeat with nothing to bring online returns the same counts. It is served
+  // before Boot has succeeded.
+  rpc OnlineVcpus(OnlineVcpusRequest) returns (OnlineVcpusResponse);
+
   // Whether the agent serves.
   rpc Health(HealthRequest) returns (HealthResponse);
   // The agent version and the contract versions it serves.
@@ -353,6 +361,15 @@ message ReleaseDiskRequest {
 }
 
 message ReleaseDiskResponse {}
+
+message OnlineVcpusRequest {}
+
+message OnlineVcpusResponse {
+  // The number of online vCPUs, as the kernel reports them after the writes.
+  uint32 vcpus = 1;
+  // The memory the kernel reports as its total (MemTotal), in bytes.
+  uint64 memory_bytes = 2;
+}
 
 message HealthRequest {}
 

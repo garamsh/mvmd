@@ -110,6 +110,22 @@ pub trait Disks: Send + Sync {
     fn release(&self, disk_id: &str) -> Result<(), DiskError>;
 }
 
+/// What the kernel reports of the guest's size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GuestSize {
+    /// The vCPUs online.
+    pub vcpus: u32,
+    /// The kernel's total memory, in bytes.
+    pub memory_bytes: u64,
+}
+
+/// The guest's vCPUs and memory.
+pub trait Resources: Send + Sync {
+    /// Bring online every present vCPU that is offline, then report what the kernel has. An error
+    /// names the CPU that did not come online.
+    fn online_vcpus(&self) -> io::Result<GuestSize>;
+}
+
 /// Where the agent writes the lines that say why it ended, which the VMM's console carries to
 /// the daemon.
 pub trait Console: Send + Sync {
@@ -134,6 +150,8 @@ pub struct System {
     pub clock: Arc<dyn Clock>,
     /// The disks hot-plugged into the Machine.
     pub disks: Arc<dyn Disks>,
+    /// The guest's vCPUs and memory.
+    pub resources: Arc<dyn Resources>,
 }
 
 /// Ends the Machine through the `reboot` system call.

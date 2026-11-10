@@ -9,7 +9,7 @@ use tokio::sync::watch;
 use crate::description::{BootDescription, CatchUp, NetworkConfig};
 use crate::error::{BootStep, Error, Unbooted};
 use crate::exec::Execs;
-use crate::system::{Disks, System};
+use crate::system::{Disks, Resources, System};
 use crate::uuid::Filesystem;
 use crate::v1alpha1::{ExecRequest, ExecStatus};
 
@@ -120,6 +120,18 @@ impl Boot {
             .ok_or_else(|| {
                 Error::PreconditionFailed(
                     "this agent is not the guest's init and has no disks".into(),
+                )
+            })
+    }
+
+    /// The resources of this guest, or why there are none, for the reason `disks` gives.
+    pub(crate) fn resources(&self) -> Result<Arc<dyn Resources>, Error> {
+        self.system
+            .as_ref()
+            .map(|system| system.resources.clone())
+            .ok_or_else(|| {
+                Error::PreconditionFailed(
+                    "this agent is not the guest's init and has no vCPUs to bring online".into(),
                 )
             })
     }

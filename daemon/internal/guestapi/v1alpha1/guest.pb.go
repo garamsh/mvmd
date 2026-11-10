@@ -2331,6 +2331,96 @@ func (*ReleaseDiskResponse) Descriptor() ([]byte, []int) {
 	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{36}
 }
 
+type OnlineVcpusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OnlineVcpusRequest) Reset() {
+	*x = OnlineVcpusRequest{}
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OnlineVcpusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OnlineVcpusRequest) ProtoMessage() {}
+
+func (x *OnlineVcpusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OnlineVcpusRequest.ProtoReflect.Descriptor instead.
+func (*OnlineVcpusRequest) Descriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{37}
+}
+
+type OnlineVcpusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The number of online vCPUs, as the kernel reports them after the writes.
+	Vcpus uint32 `protobuf:"varint,1,opt,name=vcpus,proto3" json:"vcpus,omitempty"`
+	// The memory the kernel reports as its total (MemTotal), in bytes.
+	MemoryBytes   uint64 `protobuf:"varint,2,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OnlineVcpusResponse) Reset() {
+	*x = OnlineVcpusResponse{}
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OnlineVcpusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OnlineVcpusResponse) ProtoMessage() {}
+
+func (x *OnlineVcpusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OnlineVcpusResponse.ProtoReflect.Descriptor instead.
+func (*OnlineVcpusResponse) Descriptor() ([]byte, []int) {
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *OnlineVcpusResponse) GetVcpus() uint32 {
+	if x != nil {
+		return x.Vcpus
+	}
+	return 0
+}
+
+func (x *OnlineVcpusResponse) GetMemoryBytes() uint64 {
+	if x != nil {
+		return x.MemoryBytes
+	}
+	return 0
+}
+
 type HealthRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2339,7 +2429,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[37]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2351,7 +2441,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[37]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2364,7 +2454,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{37}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{39}
 }
 
 type HealthResponse struct {
@@ -2375,7 +2465,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[38]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2387,7 +2477,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[38]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2400,7 +2490,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{38}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{40}
 }
 
 type InfoRequest struct {
@@ -2411,7 +2501,7 @@ type InfoRequest struct {
 
 func (x *InfoRequest) Reset() {
 	*x = InfoRequest{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[39]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2423,7 +2513,7 @@ func (x *InfoRequest) String() string {
 func (*InfoRequest) ProtoMessage() {}
 
 func (x *InfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[39]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2436,7 +2526,7 @@ func (x *InfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfoRequest.ProtoReflect.Descriptor instead.
 func (*InfoRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{39}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{41}
 }
 
 type InfoResponse struct {
@@ -2451,7 +2541,7 @@ type InfoResponse struct {
 
 func (x *InfoResponse) Reset() {
 	*x = InfoResponse{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[40]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2463,7 +2553,7 @@ func (x *InfoResponse) String() string {
 func (*InfoResponse) ProtoMessage() {}
 
 func (x *InfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[40]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2476,7 +2566,7 @@ func (x *InfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfoResponse.ProtoReflect.Descriptor instead.
 func (*InfoResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{40}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *InfoResponse) GetAgentVersion() string {
@@ -2505,7 +2595,7 @@ type ExecOutputGone struct {
 
 func (x *ExecOutputGone) Reset() {
 	*x = ExecOutputGone{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[41]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2517,7 +2607,7 @@ func (x *ExecOutputGone) String() string {
 func (*ExecOutputGone) ProtoMessage() {}
 
 func (x *ExecOutputGone) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[41]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2530,7 +2620,7 @@ func (x *ExecOutputGone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecOutputGone.ProtoReflect.Descriptor instead.
 func (*ExecOutputGone) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{41}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ExecOutputGone) GetEarliestOffset() uint64 {
@@ -2553,7 +2643,7 @@ type BootFailed struct {
 
 func (x *BootFailed) Reset() {
 	*x = BootFailed{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[42]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2565,7 +2655,7 @@ func (x *BootFailed) String() string {
 func (*BootFailed) ProtoMessage() {}
 
 func (x *BootFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[42]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2578,7 +2668,7 @@ func (x *BootFailed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootFailed.ProtoReflect.Descriptor instead.
 func (*BootFailed) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{42}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *BootFailed) GetStep() BootStep {
@@ -2609,7 +2699,7 @@ type WrongFileKind struct {
 
 func (x *WrongFileKind) Reset() {
 	*x = WrongFileKind{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[43]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2621,7 +2711,7 @@ func (x *WrongFileKind) String() string {
 func (*WrongFileKind) ProtoMessage() {}
 
 func (x *WrongFileKind) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[43]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2634,7 +2724,7 @@ func (x *WrongFileKind) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WrongFileKind.ProtoReflect.Descriptor instead.
 func (*WrongFileKind) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{43}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *WrongFileKind) GetPath() string {
@@ -2662,7 +2752,7 @@ type NotBooted struct {
 
 func (x *NotBooted) Reset() {
 	*x = NotBooted{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[44]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2674,7 +2764,7 @@ func (x *NotBooted) String() string {
 func (*NotBooted) ProtoMessage() {}
 
 func (x *NotBooted) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[44]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2687,7 +2777,7 @@ func (x *NotBooted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotBooted.ProtoReflect.Descriptor instead.
 func (*NotBooted) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{44}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *NotBooted) GetState() BootState {
@@ -2709,7 +2799,7 @@ type DiskInUse struct {
 
 func (x *DiskInUse) Reset() {
 	*x = DiskInUse{}
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[45]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2721,7 +2811,7 @@ func (x *DiskInUse) String() string {
 func (*DiskInUse) ProtoMessage() {}
 
 func (x *DiskInUse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1alpha1_guest_proto_msgTypes[45]
+	mi := &file_guest_v1alpha1_guest_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2734,7 +2824,7 @@ func (x *DiskInUse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiskInUse.ProtoReflect.Descriptor instead.
 func (*DiskInUse) Descriptor() ([]byte, []int) {
-	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{45}
+	return file_guest_v1alpha1_guest_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *DiskInUse) GetDiskId() string {
@@ -2867,7 +2957,11 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\tread_only\x18\x03 \x01(\bR\breadOnly\"-\n" +
 	"\x12ReleaseDiskRequest\x12\x17\n" +
 	"\adisk_id\x18\x01 \x01(\tR\x06diskId\"\x15\n" +
-	"\x13ReleaseDiskResponse\"\x0f\n" +
+	"\x13ReleaseDiskResponse\"\x14\n" +
+	"\x12OnlineVcpusRequest\"N\n" +
+	"\x13OnlineVcpusResponse\x12\x14\n" +
+	"\x05vcpus\x18\x01 \x01(\rR\x05vcpus\x12!\n" +
+	"\fmemory_bytes\x18\x02 \x01(\x04R\vmemoryBytes\"\x0f\n" +
 	"\rHealthRequest\"\x10\n" +
 	"\x0eHealthResponse\"\r\n" +
 	"\vInfoRequest\"V\n" +
@@ -2920,7 +3014,7 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\tBootState\x12\x1a\n" +
 	"\x16BOOT_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12BOOT_STATE_PENDING\x10\x01\x12\x15\n" +
-	"\x11BOOT_STATE_FAILED\x10\x022\xb4\v\n" +
+	"\x11BOOT_STATE_FAILED\x10\x022\x96\f\n" +
 	"\fGuestService\x12K\n" +
 	"\x04Boot\x12 .mvmd.guest.v1alpha1.BootRequest\x1a!.mvmd.guest.v1alpha1.BootResponse\x12f\n" +
 	"\rUpdateNetwork\x12).mvmd.guest.v1alpha1.UpdateNetworkRequest\x1a*.mvmd.guest.v1alpha1.UpdateNetworkResponse\x12T\n" +
@@ -2935,7 +3029,8 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\vSearchFiles\x12'.mvmd.guest.v1alpha1.SearchFilesRequest\x1a(.mvmd.guest.v1alpha1.SearchFilesResponse0\x01\x12Z\n" +
 	"\tTerminate\x12%.mvmd.guest.v1alpha1.TerminateRequest\x1a&.mvmd.guest.v1alpha1.TerminateResponse\x12W\n" +
 	"\bFindDisk\x12$.mvmd.guest.v1alpha1.FindDiskRequest\x1a%.mvmd.guest.v1alpha1.FindDiskResponse\x12`\n" +
-	"\vReleaseDisk\x12'.mvmd.guest.v1alpha1.ReleaseDiskRequest\x1a(.mvmd.guest.v1alpha1.ReleaseDiskResponse\x12Q\n" +
+	"\vReleaseDisk\x12'.mvmd.guest.v1alpha1.ReleaseDiskRequest\x1a(.mvmd.guest.v1alpha1.ReleaseDiskResponse\x12`\n" +
+	"\vOnlineVcpus\x12'.mvmd.guest.v1alpha1.OnlineVcpusRequest\x1a(.mvmd.guest.v1alpha1.OnlineVcpusResponse\x12Q\n" +
 	"\x06Health\x12\".mvmd.guest.v1alpha1.HealthRequest\x1a#.mvmd.guest.v1alpha1.HealthResponse\x12K\n" +
 	"\x04Info\x12 .mvmd.guest.v1alpha1.InfoRequest\x1a!.mvmd.guest.v1alpha1.InfoResponseB\xdc\x01\n" +
 	"\x17com.mvmd.guest.v1alpha1B\n" +
@@ -2954,7 +3049,7 @@ func file_guest_v1alpha1_guest_proto_rawDescGZIP() []byte {
 }
 
 var file_guest_v1alpha1_guest_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_guest_v1alpha1_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_guest_v1alpha1_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_guest_v1alpha1_guest_proto_goTypes = []any{
 	(ExecStatus)(0),                // 0: mvmd.guest.v1alpha1.ExecStatus
 	(OutputStream)(0),              // 1: mvmd.guest.v1alpha1.OutputStream
@@ -2999,28 +3094,30 @@ var file_guest_v1alpha1_guest_proto_goTypes = []any{
 	(*FindDiskResponse)(nil),       // 40: mvmd.guest.v1alpha1.FindDiskResponse
 	(*ReleaseDiskRequest)(nil),     // 41: mvmd.guest.v1alpha1.ReleaseDiskRequest
 	(*ReleaseDiskResponse)(nil),    // 42: mvmd.guest.v1alpha1.ReleaseDiskResponse
-	(*HealthRequest)(nil),          // 43: mvmd.guest.v1alpha1.HealthRequest
-	(*HealthResponse)(nil),         // 44: mvmd.guest.v1alpha1.HealthResponse
-	(*InfoRequest)(nil),            // 45: mvmd.guest.v1alpha1.InfoRequest
-	(*InfoResponse)(nil),           // 46: mvmd.guest.v1alpha1.InfoResponse
-	(*ExecOutputGone)(nil),         // 47: mvmd.guest.v1alpha1.ExecOutputGone
-	(*BootFailed)(nil),             // 48: mvmd.guest.v1alpha1.BootFailed
-	(*WrongFileKind)(nil),          // 49: mvmd.guest.v1alpha1.WrongFileKind
-	(*NotBooted)(nil),              // 50: mvmd.guest.v1alpha1.NotBooted
-	(*DiskInUse)(nil),              // 51: mvmd.guest.v1alpha1.DiskInUse
-	nil,                            // 52: mvmd.guest.v1alpha1.RunConfig.EnvEntry
-	nil,                            // 53: mvmd.guest.v1alpha1.ExecRequest.EnvEntry
+	(*OnlineVcpusRequest)(nil),     // 43: mvmd.guest.v1alpha1.OnlineVcpusRequest
+	(*OnlineVcpusResponse)(nil),    // 44: mvmd.guest.v1alpha1.OnlineVcpusResponse
+	(*HealthRequest)(nil),          // 45: mvmd.guest.v1alpha1.HealthRequest
+	(*HealthResponse)(nil),         // 46: mvmd.guest.v1alpha1.HealthResponse
+	(*InfoRequest)(nil),            // 47: mvmd.guest.v1alpha1.InfoRequest
+	(*InfoResponse)(nil),           // 48: mvmd.guest.v1alpha1.InfoResponse
+	(*ExecOutputGone)(nil),         // 49: mvmd.guest.v1alpha1.ExecOutputGone
+	(*BootFailed)(nil),             // 50: mvmd.guest.v1alpha1.BootFailed
+	(*WrongFileKind)(nil),          // 51: mvmd.guest.v1alpha1.WrongFileKind
+	(*NotBooted)(nil),              // 52: mvmd.guest.v1alpha1.NotBooted
+	(*DiskInUse)(nil),              // 53: mvmd.guest.v1alpha1.DiskInUse
+	nil,                            // 54: mvmd.guest.v1alpha1.RunConfig.EnvEntry
+	nil,                            // 55: mvmd.guest.v1alpha1.ExecRequest.EnvEntry
 }
 var file_guest_v1alpha1_guest_proto_depIdxs = []int32{
 	8,  // 0: mvmd.guest.v1alpha1.BootRequest.run:type_name -> mvmd.guest.v1alpha1.RunConfig
 	9,  // 1: mvmd.guest.v1alpha1.BootRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
-	52, // 2: mvmd.guest.v1alpha1.RunConfig.env:type_name -> mvmd.guest.v1alpha1.RunConfig.EnvEntry
+	54, // 2: mvmd.guest.v1alpha1.RunConfig.env:type_name -> mvmd.guest.v1alpha1.RunConfig.EnvEntry
 	10, // 3: mvmd.guest.v1alpha1.NetworkConfig.ipv4:type_name -> mvmd.guest.v1alpha1.Ipv4Config
 	11, // 4: mvmd.guest.v1alpha1.NetworkConfig.ipv6:type_name -> mvmd.guest.v1alpha1.Ipv6Config
 	9,  // 5: mvmd.guest.v1alpha1.UpdateNetworkRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
 	9,  // 6: mvmd.guest.v1alpha1.CatchUpRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
 	0,  // 7: mvmd.guest.v1alpha1.ExecRecord.status:type_name -> mvmd.guest.v1alpha1.ExecStatus
-	53, // 8: mvmd.guest.v1alpha1.ExecRequest.env:type_name -> mvmd.guest.v1alpha1.ExecRequest.EnvEntry
+	55, // 8: mvmd.guest.v1alpha1.ExecRequest.env:type_name -> mvmd.guest.v1alpha1.ExecRequest.EnvEntry
 	16, // 9: mvmd.guest.v1alpha1.ExecResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
 	1,  // 10: mvmd.guest.v1alpha1.OutputChunk.stream:type_name -> mvmd.guest.v1alpha1.OutputStream
 	20, // 11: mvmd.guest.v1alpha1.ReadExecOutputResponse.chunk:type_name -> mvmd.guest.v1alpha1.OutputChunk
@@ -3048,26 +3145,28 @@ var file_guest_v1alpha1_guest_proto_depIdxs = []int32{
 	37, // 33: mvmd.guest.v1alpha1.GuestService.Terminate:input_type -> mvmd.guest.v1alpha1.TerminateRequest
 	39, // 34: mvmd.guest.v1alpha1.GuestService.FindDisk:input_type -> mvmd.guest.v1alpha1.FindDiskRequest
 	41, // 35: mvmd.guest.v1alpha1.GuestService.ReleaseDisk:input_type -> mvmd.guest.v1alpha1.ReleaseDiskRequest
-	43, // 36: mvmd.guest.v1alpha1.GuestService.Health:input_type -> mvmd.guest.v1alpha1.HealthRequest
-	45, // 37: mvmd.guest.v1alpha1.GuestService.Info:input_type -> mvmd.guest.v1alpha1.InfoRequest
-	7,  // 38: mvmd.guest.v1alpha1.GuestService.Boot:output_type -> mvmd.guest.v1alpha1.BootResponse
-	13, // 39: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:output_type -> mvmd.guest.v1alpha1.UpdateNetworkResponse
-	15, // 40: mvmd.guest.v1alpha1.GuestService.CatchUp:output_type -> mvmd.guest.v1alpha1.CatchUpResponse
-	18, // 41: mvmd.guest.v1alpha1.GuestService.Exec:output_type -> mvmd.guest.v1alpha1.ExecResponse
-	21, // 42: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:output_type -> mvmd.guest.v1alpha1.ReadExecOutputResponse
-	23, // 43: mvmd.guest.v1alpha1.GuestService.Signal:output_type -> mvmd.guest.v1alpha1.SignalResponse
-	25, // 44: mvmd.guest.v1alpha1.GuestService.ReadFile:output_type -> mvmd.guest.v1alpha1.ReadFileResponse
-	29, // 45: mvmd.guest.v1alpha1.GuestService.WriteFile:output_type -> mvmd.guest.v1alpha1.WriteFileResponse
-	31, // 46: mvmd.guest.v1alpha1.GuestService.PatchFile:output_type -> mvmd.guest.v1alpha1.PatchFileResponse
-	34, // 47: mvmd.guest.v1alpha1.GuestService.ListFiles:output_type -> mvmd.guest.v1alpha1.ListFilesResponse
-	36, // 48: mvmd.guest.v1alpha1.GuestService.SearchFiles:output_type -> mvmd.guest.v1alpha1.SearchFilesResponse
-	38, // 49: mvmd.guest.v1alpha1.GuestService.Terminate:output_type -> mvmd.guest.v1alpha1.TerminateResponse
-	40, // 50: mvmd.guest.v1alpha1.GuestService.FindDisk:output_type -> mvmd.guest.v1alpha1.FindDiskResponse
-	42, // 51: mvmd.guest.v1alpha1.GuestService.ReleaseDisk:output_type -> mvmd.guest.v1alpha1.ReleaseDiskResponse
-	44, // 52: mvmd.guest.v1alpha1.GuestService.Health:output_type -> mvmd.guest.v1alpha1.HealthResponse
-	46, // 53: mvmd.guest.v1alpha1.GuestService.Info:output_type -> mvmd.guest.v1alpha1.InfoResponse
-	38, // [38:54] is the sub-list for method output_type
-	22, // [22:38] is the sub-list for method input_type
+	43, // 36: mvmd.guest.v1alpha1.GuestService.OnlineVcpus:input_type -> mvmd.guest.v1alpha1.OnlineVcpusRequest
+	45, // 37: mvmd.guest.v1alpha1.GuestService.Health:input_type -> mvmd.guest.v1alpha1.HealthRequest
+	47, // 38: mvmd.guest.v1alpha1.GuestService.Info:input_type -> mvmd.guest.v1alpha1.InfoRequest
+	7,  // 39: mvmd.guest.v1alpha1.GuestService.Boot:output_type -> mvmd.guest.v1alpha1.BootResponse
+	13, // 40: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:output_type -> mvmd.guest.v1alpha1.UpdateNetworkResponse
+	15, // 41: mvmd.guest.v1alpha1.GuestService.CatchUp:output_type -> mvmd.guest.v1alpha1.CatchUpResponse
+	18, // 42: mvmd.guest.v1alpha1.GuestService.Exec:output_type -> mvmd.guest.v1alpha1.ExecResponse
+	21, // 43: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:output_type -> mvmd.guest.v1alpha1.ReadExecOutputResponse
+	23, // 44: mvmd.guest.v1alpha1.GuestService.Signal:output_type -> mvmd.guest.v1alpha1.SignalResponse
+	25, // 45: mvmd.guest.v1alpha1.GuestService.ReadFile:output_type -> mvmd.guest.v1alpha1.ReadFileResponse
+	29, // 46: mvmd.guest.v1alpha1.GuestService.WriteFile:output_type -> mvmd.guest.v1alpha1.WriteFileResponse
+	31, // 47: mvmd.guest.v1alpha1.GuestService.PatchFile:output_type -> mvmd.guest.v1alpha1.PatchFileResponse
+	34, // 48: mvmd.guest.v1alpha1.GuestService.ListFiles:output_type -> mvmd.guest.v1alpha1.ListFilesResponse
+	36, // 49: mvmd.guest.v1alpha1.GuestService.SearchFiles:output_type -> mvmd.guest.v1alpha1.SearchFilesResponse
+	38, // 50: mvmd.guest.v1alpha1.GuestService.Terminate:output_type -> mvmd.guest.v1alpha1.TerminateResponse
+	40, // 51: mvmd.guest.v1alpha1.GuestService.FindDisk:output_type -> mvmd.guest.v1alpha1.FindDiskResponse
+	42, // 52: mvmd.guest.v1alpha1.GuestService.ReleaseDisk:output_type -> mvmd.guest.v1alpha1.ReleaseDiskResponse
+	44, // 53: mvmd.guest.v1alpha1.GuestService.OnlineVcpus:output_type -> mvmd.guest.v1alpha1.OnlineVcpusResponse
+	46, // 54: mvmd.guest.v1alpha1.GuestService.Health:output_type -> mvmd.guest.v1alpha1.HealthResponse
+	48, // 55: mvmd.guest.v1alpha1.GuestService.Info:output_type -> mvmd.guest.v1alpha1.InfoResponse
+	39, // [39:56] is the sub-list for method output_type
+	22, // [22:39] is the sub-list for method input_type
 	22, // [22:22] is the sub-list for extension type_name
 	22, // [22:22] is the sub-list for extension extendee
 	0,  // [0:22] is the sub-list for field type_name
@@ -3093,7 +3192,7 @@ func file_guest_v1alpha1_guest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_guest_v1alpha1_guest_proto_rawDesc), len(file_guest_v1alpha1_guest_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   48,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

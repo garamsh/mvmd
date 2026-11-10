@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use guest_agent::{
-    Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, Mounts, Network,
-    NetworkConfig, Power, System, Uuid,
+    Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, GuestSize, Mounts, Network,
+    NetworkConfig, Power, Resources, System, Uuid,
 };
 
 type Log = Arc<Mutex<Vec<String>>>;
@@ -98,6 +98,15 @@ impl Disks for Unused {
     }
 }
 
+impl Resources for Unused {
+    fn online_vcpus(&self) -> io::Result<GuestSize> {
+        Ok(GuestSize {
+            vcpus: 1,
+            memory_bytes: 0,
+        })
+    }
+}
+
 fn system(log: &Log) -> System {
     System {
         mounts: Arc::new(Unused),
@@ -107,6 +116,7 @@ fn system(log: &Log) -> System {
         entropy: Arc::new(Unused),
         clock: Arc::new(Unused),
         disks: Arc::new(Unused),
+        resources: Arc::new(Unused),
     }
 }
 

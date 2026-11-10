@@ -37,6 +37,7 @@ const (
 	GuestService_Terminate_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/Terminate"
 	GuestService_FindDisk_FullMethodName       = "/mvmd.guest.v1alpha1.GuestService/FindDisk"
 	GuestService_ReleaseDisk_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/ReleaseDisk"
+	GuestService_OnlineVcpus_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/OnlineVcpus"
 	GuestService_Health_FullMethodName         = "/mvmd.guest.v1alpha1.GuestService/Health"
 	GuestService_Info_FullMethodName           = "/mvmd.guest.v1alpha1.GuestService/Info"
 )
@@ -112,6 +113,13 @@ type GuestServiceClient interface {
 	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
 	// served before Boot has succeeded.
 	ReleaseDisk(ctx context.Context, in *ReleaseDiskRequest, opts ...grpc.CallOption) (*ReleaseDiskResponse, error)
+	// Bring online every vCPU the kernel has and has not brought online, which
+	// a hot-added vCPU is: the agent writes 1 to the online file of each present,
+	// offline CPU, then returns the vCPU count and the memory the kernel reports.
+	// A CPU that does not come online fails the call, and the message names it.
+	// A repeat with nothing to bring online returns the same counts. It is served
+	// before Boot has succeeded.
+	OnlineVcpus(ctx context.Context, in *OnlineVcpusRequest, opts ...grpc.CallOption) (*OnlineVcpusResponse, error)
 	// Whether the agent serves.
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
 	// The agent version and the contract versions it serves.
@@ -305,6 +313,16 @@ func (c *guestServiceClient) ReleaseDisk(ctx context.Context, in *ReleaseDiskReq
 	return out, nil
 }
 
+func (c *guestServiceClient) OnlineVcpus(ctx context.Context, in *OnlineVcpusRequest, opts ...grpc.CallOption) (*OnlineVcpusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OnlineVcpusResponse)
+	err := c.cc.Invoke(ctx, GuestService_OnlineVcpus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *guestServiceClient) Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthResponse)
@@ -396,6 +414,13 @@ type GuestServiceServer interface {
 	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
 	// served before Boot has succeeded.
 	ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error)
+	// Bring online every vCPU the kernel has and has not brought online, which
+	// a hot-added vCPU is: the agent writes 1 to the online file of each present,
+	// offline CPU, then returns the vCPU count and the memory the kernel reports.
+	// A CPU that does not come online fails the call, and the message names it.
+	// A repeat with nothing to bring online returns the same counts. It is served
+	// before Boot has succeeded.
+	OnlineVcpus(context.Context, *OnlineVcpusRequest) (*OnlineVcpusResponse, error)
 	// Whether the agent serves.
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
 	// The agent version and the contract versions it serves.
@@ -451,6 +476,9 @@ func (UnimplementedGuestServiceServer) FindDisk(context.Context, *FindDiskReques
 }
 func (UnimplementedGuestServiceServer) ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseDisk not implemented")
+}
+func (UnimplementedGuestServiceServer) OnlineVcpus(context.Context, *OnlineVcpusRequest) (*OnlineVcpusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method OnlineVcpus not implemented")
 }
 func (UnimplementedGuestServiceServer) Health(context.Context, *HealthRequest) (*HealthResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Health not implemented")
@@ -692,6 +720,24 @@ func _GuestService_ReleaseDisk_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GuestService_OnlineVcpus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OnlineVcpusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GuestServiceServer).OnlineVcpus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GuestService_OnlineVcpus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GuestServiceServer).OnlineVcpus(ctx, req.(*OnlineVcpusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GuestService_Health_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthRequest)
 	if err := dec(in); err != nil {
@@ -770,6 +816,10 @@ var GuestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseDisk",
 			Handler:    _GuestService_ReleaseDisk_Handler,
+		},
+		{
+			MethodName: "OnlineVcpus",
+			Handler:    _GuestService_OnlineVcpus_Handler,
 		},
 		{
 			MethodName: "Health",
