@@ -2,8 +2,6 @@ package cloudhypervisor
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -20,21 +19,6 @@ const ejectWait = 10 * time.Second
 
 // ejectPoll is how often DetachDisk asks whether the device is gone.
 const ejectPoll = 50 * time.Millisecond
-
-// driveID names a block device to the VMM. A device that holds a disk is named
-// by it, so a detach finds the device whether the disk was given at boot or
-// attached later, and a Machine's image, which holds none, by its position. The
-// name is also a file name in the run directory, so it is the hex of the ID's
-// SHA-256: the same length for any ID, free of the "__" prefix Cloud
-// Hypervisor reserves for its own, and distinct for two IDs. It is the name the
-// Firecracker Driver gives a drive.
-func driveID(position int, disk machine.DiskID) string {
-	if disk == "" {
-		return fmt.Sprintf("disk%d", position)
-	}
-	sum := sha256.Sum256([]byte(disk))
-	return "disk_" + hex.EncodeToString(sum[:])
-}
 
 // AttachDisk implements machine.Driver. The VMM opens what is in its root,
 // which the supervisor fixed at its start, so the disk's file is hard linked
@@ -62,7 +46,7 @@ func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machi
 	if err != nil {
 		return err
 	}
-	name := driveID(0, dev.Disk)
+	name := diskdevice.Name(0, dev.Disk)
 	link := filepath.Join(dir, name)
 	// What stands at the link is a leftover of an attach that failed, or
 	// something the VMM's user put there; neither is followed.
@@ -74,7 +58,7 @@ func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machi
 	}
 	body := map[string]any{"id": name, "path": inRun(name), "readonly": dev.ReadOnly, "image_type": "Raw"}
 	if err := newClient(filepath.Join(dir, apiSocketName)).do(ctx, "PUT", "/vm.add-disk", body, nil); err != nil {
-		return errors.Join(err, removeLink(link))
+		return errors.Join(err, diskdevice.RemoveLink(link))
 	}
 	return nil
 }
@@ -96,7 +80,7 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 	if err != nil {
 		return err
 	}
-	name := driveID(0, disk)
+	name := diskdevice.Name(0, disk)
 	c := newClient(filepath.Join(dir, apiSocketName))
 	info, err := c.info(ctx)
 	if err != nil {
@@ -109,7 +93,7 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 	}
 	err = awaitEjected(ctx, c, name)
 	// The VMM no longer holds the file, ejected or not.
-	return errors.Join(err, removeLink(filepath.Join(dir, name)))
+	return errors.Join(err, diskdevice.RemoveLink(filepath.Join(dir, name)))
 }
 
 // awaitEjected polls the VMM's device tree until it has no device of the name.
@@ -148,7 +132,7 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 	if err != nil {
 		return machine.DriveAbsent, err
 	}
-	name := driveID(0, disk)
+	name := diskdevice.Name(0, disk)
 	for _, have := range info.Config.Disks {
 		switch {
 		case have.ID != name:
@@ -187,13 +171,4 @@ func (i vmInfo) holdsDisk(name string) bool {
 		}
 	}
 	return false
-}
-
-// removeLink removes the link of an attached disk, which is absent for a disk
-// given at boot.
-func removeLink(link string) error {
-	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove %s: %w", link, err)
-	}
-	return nil
 }
