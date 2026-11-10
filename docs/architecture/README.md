@@ -40,7 +40,7 @@ Decisions:
 - [ADR 0007](./adr/0007-the-node-image-cache-is-an-oci-image-layout-published-by-one-index-swap.md) — the node image cache is an OCI image layout, published by one index swap
 - [ADR 0008](./adr/0008-fs-verity-on-the-host-guards-every-read-of-a-machineimage.md) — fs-verity on the host guards every read of a MachineImage
 - [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) — a Machine's root disk is a sparse raw file with one holder (the location of the root disk is amended by ADR 0021)
-- [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md) — a Machine boots a pinned kernel and the Guest Agent initrd from raw block devices
+- [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md) — a Machine boots a pinned kernel and the Guest Agent initrd from raw block devices (the pin is extended to the initrd by ADR 0030)
 - [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md) — each Machine gets a routed tap and addresses mvmd assigns
 - [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) — nftables on the host enforces each Machine's policy at its tap
 - [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md) — a network policy is an allow-list of address, protocol and port rules
@@ -57,7 +57,7 @@ Decisions:
 - [ADR 0024](./adr/0024-the-converters-user-holds-the-output-file-only-while-its-vmm-runs.md) — the converter's user holds the output file only while its VMM runs (adds to the steps 6 and 7 of ADR 0007's Pull image)
 - [ADR 0025](./adr/0025-the-supervisor-gives-the-vmm-a-raw-mode-pseudo-terminal-as-its-console.md) — the supervisor gives the VMM a raw-mode pseudo-terminal as its console (supersedes ADR 0020's pipes)
 - [ADR 0026](./adr/0026-the-supervisor-ends-a-vmm-whose-event-pipe-reports-a-guest-reset.md) — the supervisor ends a VMM whose event pipe reports a guest reset (extends what ADR 0015's description carries)
-- [ADR 0027](./adr/0027-a-restored-vmms-root-holds-the-boot-files-its-vmm-opens-on-restore.md) — a restored VMM's root holds the boot files its VMM opens on restore (replaces driver.md's rule that a restored root holds no kernel and no initrd)
+- [ADR 0027](./adr/0027-a-restored-vmms-root-holds-the-boot-files-its-vmm-opens-on-restore.md) — a restored VMM's root holds the boot files its VMM opens on restore (replaces driver.md's rule that a restored root holds no kernel and no initrd; the initrd it binds carries its digest since ADR 0030)
 - [ADR 0028](./adr/0028-find-disk-takes-the-one-virtio-block-device-the-agent-has-not-accounted-for.md) — `FindDisk` takes the one virtio block device the agent has not accounted for (supersedes ADR 0022's rule for which device `FindDisk` takes)
 - [ADR 0029](./adr/0029-a-machine-has-a-resource-ceiling-chosen-at-create-which-bounds-a-live-resize-and-the-vmms-limits.md) — a Machine has a resource ceiling chosen at create, which bounds a live resize and the VMM's limits
 - [ADR 0030](./adr/0030-the-guest-agent-and-converter-initrds-are-pinned-by-digest-as-the-kernel-is.md) — the Guest Agent and converter initrds are pinned by digest, as the kernel is (extends ADR 0010's pin from the kernel to the initrd, and ADR 0027's restore binding)
