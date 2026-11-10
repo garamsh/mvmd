@@ -525,6 +525,20 @@ func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine
 	})
 }
 
+// OnlineVcpus implements machine.Guest (ADR 0029).
+func (g *Guest) OnlineVcpus(ctx context.Context, id machine.MachineID, vcpus uint32) (machine.GuestSize, error) {
+	var size machine.GuestSize
+	err := g.run(ctx, id, opOther, func(c guestv1alpha1.GuestServiceClient) error {
+		r, err := c.OnlineVcpus(ctx, &guestv1alpha1.OnlineVcpusRequest{Vcpus: vcpus})
+		if err != nil {
+			return err
+		}
+		size = machine.GuestSize{VCPUs: r.GetVcpus(), MemoryBytes: r.GetMemoryBytes()}
+		return nil
+	})
+	return size, err
+}
+
 // ReleaseDisk implements machine.Guest (ADR 0022).
 func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
 	return g.run(ctx, id, opDisk, func(c guestv1alpha1.GuestServiceClient) error {

@@ -7,3 +7,7 @@ var (
 	Cmdline      = cmdline
 	CPUReadFiles = cpuReadFiles
 )
+
+// SetGOARCH names the architecture the Driver runs its VMM on, so a test runs
+// either branch on any host.
+func SetGOARCH(d *Driver, goarch string) { d.goarch = goarch }

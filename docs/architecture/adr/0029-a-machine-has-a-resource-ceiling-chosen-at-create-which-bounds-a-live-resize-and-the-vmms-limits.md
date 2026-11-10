@@ -55,3 +55,7 @@ Candidates weighed:
 - A VMM is found that resizes past its start-time limits, so the ceiling bounds nothing for it.
 - A Driver is found that needs a different alignment than 2 MiB, so the lifecycle's rule has to learn a per-Driver figure.
 - Changing the ceiling of a running Machine becomes a common request, and stopping the Machine for it is the complaint.
+
+## Errata
+
+- 2026-11-10. The decision stands. §Decision chose virtio-mem because it shrinks, and that holds only for memory the guest onlined to ZONE_MOVABLE. It was found while implementing the Cloud Hypervisor Driver's resize (#176, PR #201): on kernel 6.18.56 with no memory hot-plug policy, a Machine resized from 512 to 256 MiB stopped 4 MiB above the target, because the guest had onlined part of the added memory where it could not be unplugged, and the Driver's wait for `memory_actual_size` ran out. The Driver's guest command line on x86_64 now adds `memhp_default_state=online memory_hotplug.online_policy=auto-movable`: the guest onlines hot-plugged memory to ZONE_MOVABLE within the kernel's default ratio of movable to kernel memory (301%), and a shrink of memory added within it completes. With that policy the same shrink reached the target in the real scenario. Memory hot-plugged beyond the ratio goes to ZONE_NORMAL, and a shrink of it may fail; stopping the Machine applies the smaller target.

@@ -152,6 +152,13 @@ type GuestBoot struct {
 	Network      GuestNetwork
 }
 
+// GuestSize is what a guest reports of its size: the vCPUs online and the
+// memory its kernel holds, in bytes.
+type GuestSize struct {
+	VCPUs       uint32
+	MemoryBytes uint64
+}
+
 // Guest is the conversation with the Guest Agent inside a Machine, over the
 // channel the Driver's VMM provides. Calls other than Health reach a guest that
 // is Running; the lifecycle checks that and the port does not. A call that did
@@ -196,6 +203,14 @@ type Guest interface {
 	// find exactly one new device. Repeating it for a disk it holds is safe, and
 	// for a disk it released it rescans, as for a new one.
 	FindDisk(ctx context.Context, id MachineID, disk DiskID) error
+	// OnlineVcpus asks the agent to bring online the vCPUs the Driver has just
+	// hot-plugged, up to vcpus, and returns how many are online and the memory
+	// the guest holds (ADR 0029). It onlines only a CPU that is present and
+	// offline, so a count the VMM has not yet presented comes back lower than
+	// asked, which is not an error: the caller asks again. It is served before
+	// the guest has booted. A vcpus of zero is refused. Repeating it is safe
+	// and returns the same counts.
+	OnlineVcpus(ctx context.Context, id MachineID, vcpus uint32) (GuestSize, error)
 	// ReleaseDisk asks the agent to release the device it recorded for the
 	// disk, so the Driver may unplug it. It returns ErrDiskInUse when the
 	// device is mounted or held, and ErrDiskUnknown when the agent never found

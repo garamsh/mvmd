@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 )
 
 func hot(m Machine) bool {
@@ -245,9 +246,21 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 		return fail(ErrPreconditionFailed, "a running VMM reaches no less memory than it booted with, %d bytes; stop the Machine to apply %d", m.BootMemoryBytes, target.MemoryBytes)
 	}
 
+	if m.State == StatePaused {
+		return fail(ErrPreconditionFailed, "Machine %q is Paused and its guest cannot take part in a resize; resume it first", id)
+	}
+
 	if hot(m) {
 		if err := s.driver.Resize(ctx, id, target); err != nil {
 			return fail(ErrFailed, "resize: %v", err)
+		}
+		// The VMM has presented the vCPUs; the guest brings them online
+		// (ADR 0029), as it finds a disk the Driver has plugged (ADR 0022).
+		// A guest that fails leaves the record at the old target, and a
+		// retried resize converges: the Driver sends nothing for what the VMM
+		// already holds, and the agent repeats safely.
+		if err := s.awaitVcpusOnline(ctx, id, target.VCPUs); err != nil {
+			return fail(ErrFailed, "the guest of Machine %q did not bring %d vCPUs online: %v", id, target.VCPUs, err)
 		}
 	}
 	next := m.clone()
@@ -260,6 +273,32 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 		return fail(ErrFailed, "record the target: %v", err)
 	}
 	return nil
+}
+
+// resizePoll is how often awaitVcpusOnline asks the guest again for a count the
+// VMM has not finished presenting.
+const resizePoll = 50 * time.Millisecond
+
+// awaitVcpusOnline asks the guest to bring vcpus online until it reports that
+// many, or the resize timeout passes. A count below the target is the VMM's
+// hot-plug not yet seen by the guest, not a failure; an error of the guest is.
+func (s *service) awaitVcpusOnline(ctx context.Context, id MachineID, vcpus uint32) error {
+	ctx, cancel := context.WithTimeout(ctx, s.resizeTimeout)
+	defer cancel()
+	for {
+		size, err := s.guest.OnlineVcpus(ctx, id, vcpus)
+		if err != nil {
+			return err
+		}
+		if size.VCPUs == vcpus {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%d are online: %w", size.VCPUs, ctx.Err())
+		case <-time.After(resizePoll):
+		}
+	}
 }
 
 // checkCeiling refuses resources and a ceiling that break ADR 0029's rules:

@@ -473,7 +473,7 @@ func TestSetResources_Needs(t *testing.T) {
 	target := machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}
 	smaller := machine.Resources{VCPUs: 1, MemoryBytes: 512 << 20}
 
-	t.Run("resize capability if Running or Paused", func(t *testing.T) {
+	t.Run("resize capability on a Running or Paused Machine", func(t *testing.T) {
 		for _, state := range []machine.State{machine.StateRunning, machine.StatePaused} {
 			e := newEnv()
 			e.inState(t, "m", state)
@@ -483,7 +483,13 @@ func TestSetResources_Needs(t *testing.T) {
 
 			with := newEnv(machine.CapabilityResize)
 			with.inState(t, "m", state)
-			require.NoError(t, with.svc.SetResources(ctx, "m", smaller, machine.Resources{}))
+			if state == machine.StateRunning {
+				require.NoError(t, with.svc.SetResources(ctx, "m", smaller, machine.Resources{}))
+			} else {
+				// Paused: with the capability it is the guest that cannot answer,
+				// a refusal of another kind than the capability's.
+				requireKind(t, with.svc.SetResources(ctx, "m", smaller, machine.Resources{}), machine.ErrPreconditionFailed)
+			}
 		}
 	})
 

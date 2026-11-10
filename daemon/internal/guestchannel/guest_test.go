@@ -44,6 +44,7 @@ type state struct {
 	catchUp    *guestv1alpha1.CatchUpRequest
 	terminates int
 	disks      []string // "find:<id>" and "release:<id>", in the order they arrived
+	onlined    []uint32 // the vCPU counts OnlineVcpus asked for, in order
 	exec       *guestv1alpha1.ExecRequest
 	execStatus guestv1alpha1.ExecStatus
 	outStream  guestv1alpha1.OutputStream
@@ -189,6 +190,16 @@ func (a *agent) FindDisk(_ context.Context, r *guestv1alpha1.FindDiskRequest) (*
 		return nil, err
 	}
 	return &guestv1alpha1.FindDiskResponse{Device: "/dev/vdb"}, nil
+}
+
+func (a *agent) OnlineVcpus(_ context.Context, r *guestv1alpha1.OnlineVcpusRequest) (*guestv1alpha1.OnlineVcpusResponse, error) {
+	a.mu.Lock()
+	a.onlined = append(a.onlined, r.GetVcpus())
+	a.mu.Unlock()
+	if err := a.failure("OnlineVcpus"); err != nil {
+		return nil, err
+	}
+	return &guestv1alpha1.OnlineVcpusResponse{Vcpus: r.GetVcpus(), MemoryBytes: 512 << 20}, nil
 }
 
 func (a *agent) ReleaseDisk(_ context.Context, r *guestv1alpha1.ReleaseDiskRequest) (*guestv1alpha1.ReleaseDiskResponse, error) {
@@ -585,6 +596,28 @@ func TestDisks_SendTheDiskNamed(t *testing.T) {
 	assert.Equal(t, 2, a.connections())
 }
 
+// OnlineVcpus sends the count wanted and returns the counts the agent reports,
+// and a connection that breaks before the answer is replaced: the call repeats
+// safely.
+func TestOnlineVcpus_SendsTheCountAndReturnsTheGuestsSize(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	size, err := h.guest.OnlineVcpus(ctx, "m", 4)
+	require.NoError(t, err)
+	assert.Equal(t, machine.GuestSize{VCPUs: 4, MemoryBytes: 512 << 20}, size)
+	assert.Equal(t, []uint32{4}, a.onlined)
+
+	h = newHarness(t)
+	a = h.agentOf(t, "m")
+	a.dropOnConnect = func(n int) bool { return n == 1 }
+	size, err = h.guest.OnlineVcpus(ctx, "m", 3)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(3), size.VCPUs)
+	assert.Equal(t, []uint32{3}, a.onlined)
+	assert.Equal(t, 2, a.connections())
+}
+
 // Each status of the agent becomes the error the port promises, by what the
 // call was doing. The rows whose want is nil are controls: a status that must
 // not become that sentinel.
@@ -605,6 +638,10 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		"Terminate":   func(h *harness) error { return h.guest.Terminate(ctx, "m") },
 		"FindDisk":    func(h *harness) error { return h.guest.FindDisk(ctx, "m", "d") },
 		"ReleaseDisk": func(h *harness) error { return h.guest.ReleaseDisk(ctx, "m", "d") },
+		"OnlineVcpus": func(h *harness) error {
+			_, err := h.guest.OnlineVcpus(ctx, "m", 2)
+			return err
+		},
 		"Exec": func(h *harness) error {
 			_, err := h.guest.Exec(ctx, "m", "x", machine.ExecSpec{})
 			return err
@@ -666,6 +703,11 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		{name: "a disk to find that is not found", call: "FindDisk", answer: st(codes.NotFound, "not found: disk d"), want: machine.ErrDiskUnknown},
 		{name: "a find that failed in the guest", call: "FindDisk", answer: st(codes.Internal, "no new device appeared")},
 		{name: "a release to an agent that is gone", call: "ReleaseDisk", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
+		// OnlineVcpus: a refusal or a failure in the guest is an answer, and
+		// only a lost agent is unreachable.
+		{name: "a vCPU count the agent refuses", call: "OnlineVcpus", answer: st(codes.InvalidArgument, "invalid request: vcpus must be at least 1")},
+		{name: "a vCPU online that failed in the guest", call: "OnlineVcpus", answer: st(codes.Internal, "cpu1: online: busy")},
+		{name: "a vCPU online whose agent is gone", call: "OnlineVcpus", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
 		{name: "a connection the agent lost", call: "Health", answer: st(codes.Unavailable, "transport is closing"), want: machine.ErrGuestUnreachable},
 		// ExecOutputGone, with the same code and no detail as the control.
 		{

@@ -95,3 +95,7 @@ func TestReal_ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T) {
 func TestReal_AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.T) {
 	drivertest.AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t, subject(t))
 }
+
+func TestReal_AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize(t *testing.T) {
+	drivertest.AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize(t, subject(t))
+}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
-	"strconv"
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -46,12 +45,14 @@ var rebootingEvent = []byte(`"event": "rebooting"`)
 // run directory's log, and the guest parameters that make a panic reset the
 // guest through the keyboard controller (ADR 0026). x86_64's serial port is
 // ttyS0 and aarch64's PL011 is ttyAMA0 (docs/device_model.md). The i8042
-// parameters, x86_64's, are the Firecracker Driver's.
+// parameters, x86_64's, are the Firecracker Driver's. On x86_64 the guest onlines
+// hot-plugged memory to ZONE_MOVABLE within the auto-movable policy's ratio, so
+// that a resize can unplug it again (ADR 0029).
 func cmdline(goarch string) string {
 	if goarch == "arm64" {
 		return "console=ttyAMA0 reboot=k panic=1"
 	}
-	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable"
 }
 
 // verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It
@@ -82,7 +83,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
 		d.initrd(),
 	}
-	return d.process(spec, args(spec, runtime.GOARCH), boot), nil
+	return d.process(spec, args(spec, d.goarch), boot), nil
 }
 
 // initrd is the initrd file of a description, the same at boot and on restore.
@@ -106,7 +107,7 @@ func (d *Driver) process(spec machine.BootSpec, args []string, boot []machine.Fi
 		EndOn:           machine.PipeTrigger{FD: eventDescriptor, Match: rebootingEvent},
 		Overhead: machine.ProcessOverhead{
 			MemoryBytes: overheadMemory,
-			Tasks:       spec.Resources.VCPUs + overheadTasks + uint32(len(spec.Devices)),
+			Tasks:       ceiling(spec).VCPUs + overheadTasks + uint32(len(spec.Devices)),
 			CPUs:        overheadCPUs,
 		},
 	}
@@ -124,8 +125,8 @@ func args(spec machine.BootSpec, goarch string) []string {
 		"--kernel", machine.InKernel,
 		"--initramfs", machine.InInitrd,
 		"--cmdline", cmdline(goarch),
-		"--cpus", "boot=" + strconv.FormatUint(uint64(spec.Resources.VCPUs), 10),
-		"--memory", "size=" + strconv.FormatUint(spec.Resources.MemoryBytes/mib, 10) + "M",
+		"--cpus", cpusArg(spec, goarch),
+		"--memory", memoryArg(spec, goarch),
 		"--serial", "tty",
 		"--console", "off",
 		"--event-monitor", fmt.Sprintf("fd=%d", eventDescriptor),
@@ -141,6 +142,35 @@ func args(spec machine.BootSpec, goarch string) []string {
 	}
 	if spec.Network.Tap != "" {
 		a = append(a, "--net", fmt.Sprintf("id=%s,fd=[%d],mac=%s", netID, tapDescriptor, spec.Network.MAC))
+	}
+	return a
+}
+
+// ceiling is the figures the VM is configured to grow to: the Machine's
+// ceiling, each figure it leaves unset being the resources (ADR 0029).
+func ceiling(spec machine.BootSpec) machine.Resources {
+	return spec.Ceiling.OrElse(spec.Resources)
+}
+
+// cpusArg is the --cpus value: the vCPUs booted and, where a resize is
+// possible, the most it can bring up. aarch64 has no resize (Info), so its VM
+// is configured as it was before ceilings.
+func cpusArg(spec machine.BootSpec, goarch string) string {
+	a := fmt.Sprintf("boot=%d", spec.Resources.VCPUs)
+	if resizeCapable(goarch) {
+		a += fmt.Sprintf(",max=%d", ceiling(spec).VCPUs)
+	}
+	return a
+}
+
+// memoryArg is the --memory value: the memory at boot and, when a resize is
+// possible and the ceiling is above it, a virtio-mem region the size of the
+// difference, which a resize plugs into and out of. A ceiling equal to the
+// resources adds no device.
+func memoryArg(spec machine.BootSpec, goarch string) string {
+	a := fmt.Sprintf("size=%dM", spec.Resources.MemoryBytes/mib)
+	if extra := ceiling(spec).MemoryBytes - spec.Resources.MemoryBytes; extra > 0 && resizeCapable(goarch) {
+		a += fmt.Sprintf(",hotplug_method=virtio-mem,hotplug_size=%dM", extra/mib)
 	}
 	return a
 }
@@ -169,6 +199,10 @@ func validate(spec machine.BootSpec) error {
 		return fmt.Errorf("%d vCPUs is outside 1 to %d", spec.Resources.VCPUs, maxVCPUs)
 	case spec.Resources.MemoryBytes == 0 || spec.Resources.MemoryBytes%mib != 0:
 		return fmt.Errorf("%d bytes of memory is not a whole number of MiB", spec.Resources.MemoryBytes)
+	case ceiling(spec).VCPUs < spec.Resources.VCPUs || ceiling(spec).VCPUs > maxVCPUs:
+		return fmt.Errorf("a ceiling of %d vCPUs is outside %d to %d", ceiling(spec).VCPUs, spec.Resources.VCPUs, maxVCPUs)
+	case ceiling(spec).MemoryBytes < spec.Resources.MemoryBytes || ceiling(spec).MemoryBytes%mib != 0:
+		return fmt.Errorf("a ceiling of %d bytes of memory is below the resources or not a whole number of MiB", ceiling(spec).MemoryBytes)
 	case len(spec.Devices) == 0:
 		return fmt.Errorf("a Machine boots with at least one block device")
 	}

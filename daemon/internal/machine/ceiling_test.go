@@ -110,10 +110,14 @@ func TestSetResources_ACeilingChangeNeedsAMachineNotRunningOrPaused(t *testing.T
 		e.ceiling = large
 		e.inState(t, "m", state)
 		bigger := machine.Resources{VCPUs: 8, MemoryBytes: 2 << 30}
-		requireKind(t, e.svc.SetResources(ctx, "m", small, bigger), machine.ErrPreconditionFailed)
+		err := e.svc.SetResources(ctx, "m", small, bigger)
+		requireKind(t, err, machine.ErrPreconditionFailed)
+		assert.Contains(t, err.Error(), "ceiling", "the ceiling's own refusal, which a Paused Machine's resize refusal does not name")
 		assert.Equal(t, large, e.requireState(t, "m", state).Ceiling)
 
-		require.NoError(t, e.svc.SetResources(ctx, "m", large, large), "control: the ceiling it has, in %s", state)
+		if state == machine.StateRunning {
+			require.NoError(t, e.svc.SetResources(ctx, "m", large, large), "control: the ceiling it has, with a target that changes")
+		}
 	}
 
 	e := newEnv(hotplugAndResize...)
@@ -149,7 +153,9 @@ func TestSetResources_AHotTargetBelowTheBootMemoryNeedsTheMachineStopped(t *test
 		assert.Equal(t, small, e.requireState(t, "m", state).Resources)
 
 		at := machine.Resources{VCPUs: 2, MemoryBytes: 512 << 20}
-		require.NoError(t, e.svc.SetResources(ctx, "m", at, machine.Resources{}), "control: the boot memory, in %s", state)
+		if state == machine.StateRunning {
+			require.NoError(t, e.svc.SetResources(ctx, "m", at, machine.Resources{}), "control: the boot memory, in %s", state)
+		}
 	}
 
 	e := newEnv(hotplugAndResize...)

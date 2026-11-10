@@ -102,6 +102,9 @@ type service struct {
 	events     Events
 	// bootTimeout bounds the wait for the guest's boot in Start.
 	bootTimeout time.Duration
+	// resizeTimeout bounds the wait for the guest to bring the target's vCPUs
+	// online in SetResources.
+	resizeTimeout time.Duration
 	// callTimeout bounds an accepted call; callContext applies it, detaching
 	// the call from its caller. A test replaces callContext to run a call on the
 	// caller's own context.
@@ -135,6 +138,10 @@ type service struct {
 // node names no other bound.
 const DefaultBootTimeout = 2 * time.Minute
 
+// DefaultResizeTimeout is how long SetResources waits for the guest to bring
+// the vCPUs of a live resize online when the node names no other bound.
+const DefaultResizeTimeout = 30 * time.Second
+
 // DefaultCallTimeout is how long an accepted call may run, from the moment it
 // holds its Machine's lock, when the node names no other bound. A Stop has its
 // grace period on top.
@@ -146,6 +153,17 @@ func WithCallTimeout(d time.Duration) Option {
 	return func(s *service) {
 		if d > 0 {
 			s.callTimeout = d
+		}
+	}
+}
+
+// WithResizeTimeout bounds how long SetResources waits for the guest to bring
+// the target's vCPUs online after the Driver has resized, whatever the caller's
+// context says. A bound that is not positive is ignored.
+func WithResizeTimeout(d time.Duration) Option {
+	return func(s *service) {
+		if d > 0 {
+			s.resizeTimeout = d
 		}
 	}
 }
@@ -200,27 +218,28 @@ func WithBootTimeout(d time.Duration) Option {
 func NewService(driver Driver, supervisor Supervision, network Network, disks Disk, images ImageStore, snapshots SnapshotStore, guest Guest, clock WallClock, store StateStore, permitter StartPermitter, uids *UIDs, events Events, options ...Option) Service {
 	driver.Observe(events.Reported)
 	s := &service{
-		bootTimeout: DefaultBootTimeout,
-		callTimeout: DefaultCallTimeout,
-		callContext: detached,
-		compensate:  detached,
-		driver:      driver,
-		supervisor:  supervisor,
-		network:     network,
-		disks:       disks,
-		images:      images,
-		snapshots:   snapshots,
-		guest:       guest,
-		clock:       clock,
-		execs:       make(map[ExecID]*ExecEntry),
-		store:       store,
-		permitter:   permitter,
-		uids:        uids,
-		events:      events,
-		records:     make(map[MachineID]*Record),
-		locks:       make(map[MachineID]*machineLock),
-		snapLocks:   make(map[SnapshotID]*snapshotLock),
-		held:        make(map[DiskID]MachineID),
+		bootTimeout:   DefaultBootTimeout,
+		callTimeout:   DefaultCallTimeout,
+		resizeTimeout: DefaultResizeTimeout,
+		callContext:   detached,
+		compensate:    detached,
+		driver:        driver,
+		supervisor:    supervisor,
+		network:       network,
+		disks:         disks,
+		images:        images,
+		snapshots:     snapshots,
+		guest:         guest,
+		clock:         clock,
+		execs:         make(map[ExecID]*ExecEntry),
+		store:         store,
+		permitter:     permitter,
+		uids:          uids,
+		events:        events,
+		records:       make(map[MachineID]*Record),
+		locks:         make(map[MachineID]*machineLock),
+		snapLocks:     make(map[SnapshotID]*snapshotLock),
+		held:          make(map[DiskID]MachineID),
 	}
 	for _, o := range options {
 		o(s)

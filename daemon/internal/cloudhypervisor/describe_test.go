@@ -20,8 +20,8 @@ var wantArgs = []string{
 	"--log-file", "/run/cloud-hypervisor.log",
 	"--kernel", "/boot/kernel",
 	"--initramfs", "/boot/initrd",
-	"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd",
-	"--cpus", "boot=2",
+	"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable",
+	"--cpus", "boot=2,max=2",
 	"--memory", "size=256M",
 	"--serial", "tty",
 	"--console", "off",
@@ -66,13 +66,72 @@ func TestDescribe_ConfiguresEachPartOfTheVMFromTheSpec(t *testing.T) {
 	require.NoError(t, err)
 
 	joined := strings.Join(p.Args, " ")
-	assert.Contains(t, joined, "--cpus boot=4 ")
+	assert.Contains(t, joined, "--cpus boot=4,max=4 ")
 	assert.Contains(t, joined, "--memory size=512M ")
 	assert.Contains(t, joined, "--disk path=/disk/0,readonly=on,image_type=raw,id=disk0")
 	assert.NotContains(t, joined, "/disk/1")
 	assert.NotContains(t, joined, "--net", "a converter has no network device")
 	assert.False(t, p.TapByDescriptor, "and no tap to pass")
 	assert.Equal(t, uint32(4+16+1), p.Overhead.Tasks)
+}
+
+// A ceiling above the resources is the VM's maximum vCPUs and a virtio-mem
+// region the size of the difference; with no ceiling, or one equal to the
+// resources, there is no region to plug (ADR 0029).
+func TestArgs_ConfigureTheCeilingAsMaxVCPUsAndAVirtioMemRegion(t *testing.T) {
+	n := newNode(t)
+	tests := []struct {
+		name         string
+		ceiling      machine.Resources
+		goarch       string
+		cpus, memory string
+	}{
+		{"a ceiling above both", machine.Resources{VCPUs: 8, MemoryBytes: 1 << 30}, "amd64",
+			"boot=2,max=8", "size=256M,hotplug_method=virtio-mem,hotplug_size=768M"},
+		{"a ceiling above the vCPUs only", machine.Resources{VCPUs: 8}, "amd64",
+			"boot=2,max=8", "size=256M"},
+		{"a ceiling above the memory only", machine.Resources{MemoryBytes: 512 << 20}, "amd64",
+			"boot=2,max=2", "size=256M,hotplug_method=virtio-mem,hotplug_size=256M"},
+		{"a ceiling equal to the resources", machine.Resources{VCPUs: 2, MemoryBytes: 256 << 20}, "amd64",
+			"boot=2,max=2", "size=256M"},
+		{"no ceiling", machine.Resources{}, "amd64", "boot=2,max=2", "size=256M"},
+		{"a ceiling on aarch64, which cannot resize", machine.Resources{VCPUs: 8, MemoryBytes: 1 << 30}, "arm64",
+			"boot=2", "size=256M"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := n.spec()
+			spec.Ceiling = tt.ceiling
+			got := cloudhypervisor.Args(spec, tt.goarch)
+			assert.Equal(t, tt.cpus, argAfter(t, got, "--cpus"))
+			assert.Equal(t, tt.memory, argAfter(t, got, "--memory"))
+		})
+	}
+}
+
+func argAfter(t *testing.T, args []string, flag string) string {
+	t.Helper()
+	for i, a := range args {
+		if a == flag {
+			return args[i+1]
+		}
+	}
+	t.Fatalf("no %s in %v", flag, args)
+	return ""
+}
+
+// The VMM's limits follow the ceiling, as its vCPU threads do (ADR 0029).
+func TestDescribe_BoundsTheVMMsTasksByTheCeilingsVCPUs(t *testing.T) {
+	n := newNode(t)
+	spec := n.spec()
+	p, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(2+16+2), p.Overhead.Tasks, "control: no ceiling, the resources' vCPUs")
+
+	spec.Ceiling = machine.Resources{VCPUs: 8}
+	p, err = n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(8+16+2), p.Overhead.Tasks)
 }
 
 func TestDescribe_RefusesWhatTheVMMWould(t *testing.T) {
@@ -85,6 +144,10 @@ func TestDescribe_RefusesWhatTheVMMWould(t *testing.T) {
 		{"more vCPUs than a Machine has", func(s *machine.BootSpec) { s.Resources.VCPUs = 33 }, "vCPUs"},
 		{"memory that is not whole MiB", func(s *machine.BootSpec) { s.Resources.MemoryBytes = 256<<20 + 1 }, "MiB"},
 		{"no memory", func(s *machine.BootSpec) { s.Resources.MemoryBytes = 0 }, "MiB"},
+		{"a ceiling below the vCPUs", func(s *machine.BootSpec) { s.Ceiling = machine.Resources{VCPUs: 1} }, "ceiling"},
+		{"a ceiling of more vCPUs than a Machine has", func(s *machine.BootSpec) { s.Ceiling = machine.Resources{VCPUs: 33} }, "ceiling"},
+		{"a ceiling of memory below the resources", func(s *machine.BootSpec) { s.Ceiling = machine.Resources{MemoryBytes: 128 << 20} }, "ceiling"},
+		{"a ceiling of memory that is not whole MiB", func(s *machine.BootSpec) { s.Ceiling = machine.Resources{MemoryBytes: 512<<20 + 1} }, "ceiling"},
 		{"no block device", func(s *machine.BootSpec) { s.Devices = nil }, "block device"},
 		{"a relative device path", func(s *machine.BootSpec) { s.Devices[0].Path = "erofs" }, "not absolute"},
 		{"a tap name over the 15 bytes an interface name holds", func(s *machine.BootSpec) { s.Network.Tap = "tap-0123456789ab" }, "interface name"},
@@ -127,15 +190,16 @@ func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T)
 	}
 }
 
-func TestArgs_DifferOnAarch64ByTheSerialPortOnly(t *testing.T) {
+func TestArgs_DifferOnAarch64ByTheSerialPortAndNoCeiling(t *testing.T) {
 	n := newNode(t)
 	want := append([]string(nil), wantArgs...)
 	want[9] = "console=ttyAMA0 reboot=k panic=1"
+	want[11] = "boot=2"
 	assert.Equal(t, want, cloudhypervisor.Args(n.spec(), "arm64"))
 }
 
-func TestCmdline_NamesTheSerialPortOfTheArchitecture(t *testing.T) {
-	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd", cloudhypervisor.Cmdline("amd64"))
+func TestCmdline_NamesTheSerialPortOfTheArchitectureAndOnX8664TheMovableHotplugPolicy(t *testing.T) {
+	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable", cloudhypervisor.Cmdline("amd64"))
 	assert.Equal(t, "console=ttyAMA0 reboot=k panic=1", cloudhypervisor.Cmdline("arm64"))
 }
 
