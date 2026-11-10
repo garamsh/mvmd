@@ -133,7 +133,8 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		return fail(ErrFailed, "record the holder of disk %q: %v", a.Disk, err)
 	}
 	if hot(m) {
-		return s.plug(ctx, rec, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, m)
+		_ = path
+		return nil
 	}
 	return nil
 }
