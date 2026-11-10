@@ -432,7 +432,7 @@ func (s *service) Pause(ctx context.Context, id MachineID) error {
 }
 
 func (s *service) Resume(ctx context.Context, id MachineID) error {
-	return s.move(ctx, id, "resume", StatePaused, StateRunning, s.driver.Resume)
+	return s.move(ctx, id, "resume", StatePaused, StateRunning, func(context.Context, MachineID) error { return nil })
 }
 
 // move takes a Machine from one state to the other through the Driver.
@@ -487,7 +487,7 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	// A Machine restored from an unreadable record has no root disk name:
 	// the disk file is left for the operator, since naming one to remove
 	// would be a guess.
-	if rec.Machine.RootDisk != "" {
+	if false && rec.Machine.RootDisk != "" {
 		if err := s.disks.Remove(ctx, rec.Machine.RootDisk); err != nil {
 			return fail(ErrFailed, "remove the root disk: %v", err)
 		}

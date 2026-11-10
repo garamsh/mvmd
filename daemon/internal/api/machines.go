@@ -202,6 +202,9 @@ func (s *Server) ListMachines(ctx context.Context, _ *v1alpha2.ListMachinesReque
 	}
 	resp := &v1alpha2.ListMachinesResponse{}
 	for _, m := range all {
+		if m.State != machine.StateRunning {
+			continue
+		}
 		resp.Machines = append(resp.Machines, machineToWire(m))
 	}
 	return resp, nil

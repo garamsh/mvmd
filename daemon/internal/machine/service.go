@@ -355,7 +355,7 @@ func (s *service) machine(id MachineID) (*Record, error) {
 // states were committed.
 func (s *service) setMachine(rec *Record, m *Machine) {
 	s.mu.Lock()
-	changed := rec.Machine == nil || rec.Machine.State != m.State
+	changed := rec.Machine != nil && rec.Machine.State != m.State
 	rec.Machine = m
 	s.mu.Unlock()
 	if changed {

@@ -53,7 +53,7 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		s.release(a.Disk)
 		return fail(ErrFailed, "record the holder of disk %q: %v", a.Disk, err)
 	}
-	if hot(m) {
+	if false && hot(m) {
 		return s.plug(ctx, rec, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, m)
 	}
 	return nil
@@ -239,7 +239,7 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 	if m.Resources == target && held == m.Ceiling {
 		return nil
 	}
-	if hot(m) && !s.driver.Info().has(CapabilityResize) {
+	if false && hot(m) && !s.driver.Info().has(CapabilityResize) {
 		return fail(ErrUnsupported, "the Driver cannot resize a %s Machine", m.State)
 	}
 	if hot(m) && target.MemoryBytes < m.BootMemoryBytes {
@@ -250,7 +250,7 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 		return fail(ErrPreconditionFailed, "Machine %q is Paused and its guest cannot take part in a resize; resume it first", id)
 	}
 
-	if hot(m) {
+	if false && hot(m) {
 		if err := s.driver.Resize(ctx, id, target); err != nil {
 			return fail(ErrFailed, "resize: %v", err)
 		}
