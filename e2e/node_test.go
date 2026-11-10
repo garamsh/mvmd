@@ -120,6 +120,13 @@ func startNode(t *testing.T) *node {
 	t.Cleanup(func() { n.stop(cmd, exited) })
 
 	n.client = n.dial(socket, exited)
+
+	// The tests ran on the Driver they were told to: a node that served another would pass them
+	// without having exercised the one under test.
+	info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha1.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	require.Len(t, info.GetDrivers(), 1)
+	require.Equal(t, driver.driver, info.GetDrivers()[0].GetDriver().GetName(), "the Driver the node runs")
 	return n
 }
 
