@@ -569,6 +569,51 @@ func searched(ctx context.Context, svc machine.Service, path, pattern string) ([
 	return got, err
 }
 
+// Rows "Read file", "Write file", "Patch file", "List" and "Search": a path
+// that is not absolute is rejected as invalid before the Guest is called, with
+// the same operation on an absolute path as the control.
+func TestGuestFileOperations_RejectAPathThatIsNotAbsolute(t *testing.T) {
+	ctx := context.Background()
+	noop := func([]byte) error { return nil }
+	base, expected := memory.Digest([]byte("old")), memory.Digest([]byte("new"))
+	ops := map[string]func(e *env, path string) error{
+		"read file": func(e *env, path string) error { return e.svc.ReadFile(ctx, "m", path, noop) },
+		"write file": func(e *env, path string) error {
+			return e.svc.WriteFile(ctx, "m", path, bytes.NewReader([]byte("new")))
+		},
+		"patch file": func(e *env, path string) error {
+			return e.svc.PatchFile(ctx, "m", path, base, expected, []byte("new"))
+		},
+		"list files": func(e *env, path string) error { _, err := listEntries(ctx, e.svc, path); return err },
+		"search files": func(e *env, path string) error {
+			_, err := searched(ctx, e.svc, path, "*")
+			return err
+		},
+	}
+	for name, op := range ops {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv()
+			e.inState(t, "m", machine.StateRunning)
+			e.guest.PutFile("m", "/d/f", "old")
+
+			for _, relative := range []string{"d/f", "./d/f", "d", " /d/f"} {
+				err := op(e, relative)
+				requireKind(t, err, machine.ErrInvalid)
+				assert.ErrorContains(t, err, relative, "the reason names the path")
+			}
+			e.requireState(t, "m", machine.StateRunning)
+			got, _ := e.guest.File("m", "/d/f")
+			assert.Equal(t, "old", string(got), "nothing changed")
+
+			absolute := "/d/f"
+			if name == "list files" || name == "search files" {
+				absolute = "/d"
+			}
+			require.NoError(t, op(e, absolute), "control: an absolute path of the same operation is not refused")
+		})
+	}
+}
+
 // A listing and a search are passed on in the runs the guest sends them in,
 // sorted across the runs, and a failure of send ends the call.
 func TestListFiles_PassesRunsOn(t *testing.T) {
