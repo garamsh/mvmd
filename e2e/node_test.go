@@ -196,10 +196,6 @@ func (n *node) conversionLogs() string {
 	if len(dirs) == 0 {
 		return "no VM state directory under " + n.stateDir
 	}
-	// Who owns each snapshot file and who may read it: a restored VMM runs as another user than
-	// the Machine the snapshot was taken of.
-	owners, _ := exec.Command("ls", "-lnR", filepath.Join(n.stateDir, "snapshots")).CombinedOutput()
-	fmt.Fprintf(&b, "snapshots:\n%s\n", owners)
 	for _, dir := range dirs {
 		for _, name := range []string{"supervisor.log", filepath.Join("run", "vmm.log")} {
 			path := filepath.Join(dir, name)
