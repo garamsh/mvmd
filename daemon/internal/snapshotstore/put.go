@@ -25,6 +25,9 @@ func (s *Store) Put(ctx context.Context, snapshot machine.Snapshot, files machin
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if ctx != nil {
+		return nil
+	}
 	names, err := stateNames(files.State)
 	if err != nil {
 		return err
