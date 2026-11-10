@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,6 +73,23 @@ var deviceOf = map[machine.DiskID]string{
 	"root":  "disk_4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2",
 }
 
+// detached is the devices the scenarios detach: the two hot-plugged ones and
+// the one given at boot.
+var detached = map[machine.DiskID]string{
+	"hot":   deviceOf["hot"],
+	"hotro": deviceOf["hotro"],
+	"given": "disk_5b729e0f619797fd61108a4bb177273222ad9ac5538299c8386f061e29046e60",
+}
+
+// treeHolds reports whether the VMM's device tree, in GET /vm.info, has an
+// entry of the name.
+func treeHolds(t *testing.T, socket, name string) bool {
+	t.Helper()
+	status, raw := vmmRequest(t, socket, "GET", "/vm.info", "")
+	require.Equal(t, http.StatusOK, status, string(raw))
+	return strings.Contains(string(raw), `"`+name+`":`)
+}
+
 // checkVMM is what only Cloud Hypervisor can show of a Machine, which
 // drivertest hands to it at each checkpoint: the disks it reports having, the
 // links those hot-plugged ones have in the run directory, and its own sockets.
@@ -100,6 +118,16 @@ func checkVMM(t *testing.T, at drivertest.Checkpoint, m drivertest.Machine) {
 			require.NoError(t, err)
 			assert.True(t, os.SameFile(file, link), "the link of %s is the disk's file", dev.Disk)
 		}
+		// Control for the Detached checkpoint's absence check: the same match
+		// finds every one of those disks the Machine holds.
+		held := 0
+		for _, dev := range m.Devices {
+			if name, ok := detached[dev.Disk]; ok {
+				held++
+				assert.True(t, treeHolds(t, sock, name), "the device of %s is in the VMM's device tree", dev.Disk)
+			}
+		}
+		assert.NotZero(t, held, "control: a disk to find in the device tree")
 		// Control: the VMM opens the file at the path it is given, and a path
 		// the root does not hold is refused, which is why the link exists.
 		status, raw := vmmRequest(t, sock, "PUT", "/vm.add-disk",
@@ -113,13 +141,10 @@ func checkVMM(t *testing.T, at drivertest.Checkpoint, m drivertest.Machine) {
 			assert.ErrorIs(t, err, os.ErrNotExist, "the link of %s is gone", disk)
 		}
 		// The detach returns once the guest has ejected, so the device tree
-		// holds none of the disks detached, the one given at boot ("given")
-		// included.
-		const given = "disk_5b729e0f619797fd61108a4bb177273222ad9ac5538299c8386f061e29046e60"
-		status, raw := vmmRequest(t, sock, "GET", "/vm.info", "")
-		require.Equal(t, http.StatusOK, status, string(raw))
-		for _, name := range []string{deviceOf["hot"], deviceOf["hotro"], given} {
-			assert.NotContains(t, string(raw), `"`+name+`":`, "a detached device is still in the VMM's device tree")
+		// holds none of the disks detached, the one given at boot included.
+		// The Attached checkpoint shows the same match finds each of them.
+		for disk, name := range detached {
+			assert.False(t, treeHolds(t, sock, name), "the device of %s is still in the VMM's device tree", disk)
 		}
 	}
 }
