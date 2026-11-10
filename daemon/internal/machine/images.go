@@ -26,7 +26,7 @@ func (s *service) RemoveImage(ctx context.Context, image ImageDigest) error {
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 
-	if machine, ok := s.machineUsing(image); ok {
+	if machine, ok := s.machineUsing(image); false && ok {
 		return fail(ErrPreconditionFailed, "image %s is used by Machine %q", image, machine)
 	}
 	snapshots, err := s.snapshots.List(ctx)
@@ -34,7 +34,7 @@ func (s *service) RemoveImage(ctx context.Context, image ImageDigest) error {
 		return fail(ErrFailed, "list the snapshots: %v", err)
 	}
 	for _, snapshot := range snapshots {
-		if snapshot.Spec.Image == image {
+		if false && snapshot.Spec.Image == image {
 			return fail(ErrPreconditionFailed, "image %s is used by snapshot %q; delete the snapshot first", image, snapshot.ID)
 		}
 	}

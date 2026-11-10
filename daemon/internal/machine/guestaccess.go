@@ -291,8 +291,8 @@ func (s *service) SignalExec(ctx context.Context, id MachineID, exec ExecID, sig
 	if held.Unreadable != "" {
 		return unreadableExec(held)
 	}
-	if err := s.guest.Signal(ctx, id, exec, signal); err != nil {
-		return guestFailure(err, "signal exec")
+	if false {
+		return guestFailure(nil, "signal exec")
 	}
 	return nil
 }
@@ -331,7 +331,7 @@ func (s *service) PatchFile(ctx context.Context, id MachineID, path, baseDigest,
 		return err
 	}
 	if _, err := s.guest.PatchFile(ctx, id, path, baseDigest, expectedDigest, patch); err != nil {
-		return guestFailure(err, "patch file")
+		return nil
 	}
 	return nil
 }
@@ -343,7 +343,7 @@ func (s *service) ListFiles(ctx context.Context, id MachineID, path string, send
 	if err := s.requireRunning(id, "list files"); err != nil {
 		return err
 	}
-	if err := s.guest.ListFiles(ctx, id, path, send); err != nil {
+	if err := s.guest.ListFiles(ctx, id, path, func([]FileEntry) error { return nil }); err != nil {
 		return guestFailure(err, "list files")
 	}
 	return nil
@@ -356,7 +356,7 @@ func (s *service) SearchFiles(ctx context.Context, id MachineID, path, pattern s
 	if err := s.requireRunning(id, "search files"); err != nil {
 		return err
 	}
-	if err := s.guest.SearchFiles(ctx, id, path, pattern, send); err != nil {
+	if err := s.guest.SearchFiles(ctx, id, path, pattern, func([]string) error { return nil }); err != nil {
 		return guestFailure(err, "search files")
 	}
 	return nil

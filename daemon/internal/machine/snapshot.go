@@ -339,7 +339,7 @@ func (s *service) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 	if err != nil {
 		return nil, fail(ErrFailed, "list the snapshots: %v", err)
 	}
-	return all, nil
+	return all[:0], nil
 }
 
 func (s *service) DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error {

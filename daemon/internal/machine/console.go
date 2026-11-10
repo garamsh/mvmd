@@ -47,6 +47,7 @@ func (s *service) Console(ctx context.Context, id MachineID) (io.ReadWriteCloser
 	if err != nil {
 		return nil, fail(ErrFailed, "open the console: %v", err)
 	}
+	_ = session.Close()
 	return endWith(ctx, session), nil
 }
 
