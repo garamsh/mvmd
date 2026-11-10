@@ -12,7 +12,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/garamsh/mvmd/daemon/internal/cloudhypervisor"
+	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
+	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -32,32 +35,41 @@ const DriverMemory = "memory"
 // Conversion, Disk and Supervision sections.
 const DriverFirecracker = "firecracker"
 
+// DriverCloudHypervisor selects the Cloud Hypervisor Driver, and wires
+// everything DriverFirecracker does over it. It needs the CloudHypervisor,
+// Conversion, Disk and Supervision sections.
+const DriverCloudHypervisor = "cloud-hypervisor"
+
 // Config is mvmd's one configuration file.
 type Config struct {
 	Socket SocketConfig `json:"socket"`
 	// StateDir holds mvmd's database. It is created if absent. Under the
-	// Firecracker Driver it also holds the Image Store, in "images", on a
+	// real Drivers it also holds the Image Store, in "images", on a
 	// filesystem with fs-verity enabled (image.md §Layout), and the state
 	// directories of the converter VMs' supervisors, in "conversions", the
 	// root disks, in "disks", and the snapshots, in "snapshots".
 	StateDir string `json:"state_dir"`
-	// Driver selects the adapters behind the ports: "memory" or "firecracker".
-	// "firecracker" replaces the Driver, the Guest, the Image Store, the Disk
-	// and the Snapshot Store with the real adapters, so a Machine can be
-	// created, started, snapshotted and restored on the node. Root disks are
+	// Driver selects the adapters behind the ports: "memory", "firecracker" or
+	// "cloud-hypervisor". A real Driver replaces the Driver, the Guest, the
+	// Image Store, the Disk and the Snapshot Store with the real adapters, so a
+	// Machine can be created, started, snapshotted and restored on the node. Root disks are
 	// then in "disks" under StateDir and snapshots in "snapshots", which must
 	// be on the same file system as the Machines' run directories.
 	Driver string `json:"driver"`
-	// Disk names what the Disk adapter needs. It is required by the
-	// Firecracker Driver and refused with any other.
+	// Disk names what the Disk adapter needs. It is required by a real Driver
+	// and refused with the memory one.
 	Disk *DiskConfig `json:"disk,omitempty"`
 	// Firecracker names the pinned binary, kernel and initrd the Firecracker
 	// Driver boots; it is required by that Driver and refused with any other.
 	Firecracker *FirecrackerConfig `json:"firecracker,omitempty"`
+	// CloudHypervisor names the pinned binary, kernel and initrd the Cloud
+	// Hypervisor Driver boots; it is required by that Driver and refused with
+	// any other.
+	CloudHypervisor *CloudHypervisorConfig `json:"cloud_hypervisor,omitempty"`
 	// Conversion names what the converter VM of a pull needs: its kernel and
-	// initrd, its size and its time limit. It is required by the Firecracker
-	// Driver and refused with any other. The converter VM boots with the
-	// Firecracker binary of the firecracker section and runs under a
+	// initrd, its size and its time limit. It is required by a real Driver and
+	// refused with the memory one. The converter VM boots on the selected
+	// Driver, with the binary of that Driver's section, and runs under a
 	// supervisor of the supervision section, in a state directory and a VMM
 	// cgroup of its own, so that it is not one of the Machines the fencing
 	// deadline renews.
@@ -164,10 +176,10 @@ func (c ConversionConfig) limit() (time.Duration, error) {
 }
 
 // check refuses a section that names no absolute path, no digest or no size.
-// The converter VM boots with the Firecracker binary of the firecracker
-// section, which supplies the binary and its digest.
-func (c ConversionConfig) check(f FirecrackerConfig) error {
-	if err := (firecracker.Config{Binary: f.Binary, BinarySHA256: f.BinarySHA256, Kernel: c.Kernel, KernelSHA256: c.KernelSHA256, Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256}).Validate(); err != nil {
+// The converter VM boots with the binary of the selected Driver's section,
+// which supplies the binary and its digest.
+func (c ConversionConfig) check(driver string, vmm FirecrackerConfig) error {
+	if err := c.files(vmm).validate(driver); err != nil {
 		return fmt.Errorf("conversion: %w", err)
 	}
 	switch {
@@ -184,6 +196,14 @@ func (c ConversionConfig) check(f FirecrackerConfig) error {
 	}
 	_, err := c.limit()
 	return err
+}
+
+// files are the converter's boot files with the selected Driver's binary.
+func (c ConversionConfig) files(vmm FirecrackerConfig) FirecrackerConfig {
+	return FirecrackerConfig{
+		Binary: vmm.Binary, BinarySHA256: vmm.BinarySHA256,
+		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256, Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256,
+	}
 }
 
 // settings is the image domain's view of the section.
@@ -277,6 +297,56 @@ func (c FirecrackerConfig) toDriver(dirs firecracker.RunDirs) firecracker.Config
 		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
 		Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256, Dirs: dirs,
 	}
+}
+
+// CloudHypervisorConfig is what the node says about Cloud Hypervisor and the
+// guest it boots, in the shape of FirecrackerConfig.
+type CloudHypervisorConfig FirecrackerConfig
+
+// toDriver names the Driver's files; it adds the run directories.
+func (c CloudHypervisorConfig) toDriver(dirs cloudhypervisor.RunDirs) cloudhypervisor.Config {
+	return cloudhypervisor.Config{
+		Binary: c.Binary, BinarySHA256: c.BinarySHA256,
+		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
+		Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256, Dirs: dirs,
+	}
+}
+
+// vmm is the section of the selected real Driver, in the one shape both
+// sections have; it is false under the memory driver.
+func (c Config) vmm() (FirecrackerConfig, bool) {
+	switch {
+	case c.Firecracker != nil:
+		return *c.Firecracker, true
+	case c.CloudHypervisor != nil:
+		return FirecrackerConfig(*c.CloudHypervisor), true
+	}
+	return FirecrackerConfig{}, false
+}
+
+// realDriver is what both real Drivers are: the Driver port, and the
+// connector the Guest Agent's and the converter's channels reach a guest by.
+type realDriver interface {
+	machine.Driver
+	guestchannel.Connector
+}
+
+// validate runs the selected Driver's own check over these files; it reads no
+// file.
+func (c FirecrackerConfig) validate(name string) error {
+	if name == DriverCloudHypervisor {
+		return CloudHypervisorConfig(c).toDriver(nil).Validate()
+	}
+	return c.toDriver(nil).Validate()
+}
+
+// driver is the selected real Driver over these files. The Driver checks every
+// file against its digest.
+func (c FirecrackerConfig) driver(name string, dirs fencing.Supervisors) (realDriver, error) {
+	if name == DriverCloudHypervisor {
+		return cloudhypervisor.New(CloudHypervisorConfig(c).toDriver(dirs))
+	}
+	return firecracker.New(c.toDriver(dirs))
 }
 
 // NetworkConfig is what the node says about its network (ADR 0011). A node
@@ -393,32 +463,42 @@ func (c Config) check() error {
 		return fmt.Errorf("socket.path %q is not an absolute path", c.Socket.Path)
 	case !filepath.IsAbs(c.StateDir):
 		return fmt.Errorf("state_dir %q is not an absolute path", c.StateDir)
-	case c.Driver != DriverMemory && c.Driver != DriverFirecracker:
-		return fmt.Errorf("driver %q is not one of %q", c.Driver, []string{DriverMemory, DriverFirecracker})
+	case c.Driver != DriverMemory && c.Driver != DriverFirecracker && c.Driver != DriverCloudHypervisor:
+		return fmt.Errorf("driver %q is not one of %q", c.Driver, []string{DriverMemory, DriverFirecracker, DriverCloudHypervisor})
 	case c.Driver == DriverFirecracker && c.Firecracker == nil:
 		return fmt.Errorf("driver %q needs the firecracker section", c.Driver)
-	case c.Driver == DriverFirecracker && c.Supervision == nil:
-		return fmt.Errorf("driver %q needs the supervision section: its VMM runs under a supervisor", c.Driver)
-	case c.Driver == DriverFirecracker && c.Conversion == nil:
-		return fmt.Errorf("driver %q needs the conversion section: PullImage converts in a converter VM", c.Driver)
-	case c.Driver == DriverFirecracker && c.Disk == nil:
-		return fmt.Errorf("driver %q needs the disk section: a Machine's root disk is formatted by mkfs.ext4", c.Driver)
-	case c.Driver != DriverFirecracker && c.Disk != nil:
-		return fmt.Errorf("the disk section is for driver %q, not %q", DriverFirecracker, c.Driver)
+	case c.Driver == DriverCloudHypervisor && c.CloudHypervisor == nil:
+		return fmt.Errorf("driver %q needs the cloud_hypervisor section", c.Driver)
 	case c.Driver != DriverFirecracker && c.Firecracker != nil:
 		return fmt.Errorf("the firecracker section is for driver %q, not %q", DriverFirecracker, c.Driver)
-	case c.Driver != DriverFirecracker && c.Conversion != nil:
-		return fmt.Errorf("the conversion section is for driver %q, not %q", DriverFirecracker, c.Driver)
-	case c.Driver != DriverFirecracker && c.Registry != nil:
-		return fmt.Errorf("the registry section is for driver %q, not %q", DriverFirecracker, c.Driver)
+	case c.Driver != DriverCloudHypervisor && c.CloudHypervisor != nil:
+		return fmt.Errorf("the cloud_hypervisor section is for driver %q, not %q", DriverCloudHypervisor, c.Driver)
+	case c.Driver != DriverMemory && c.Supervision == nil:
+		return fmt.Errorf("driver %q needs the supervision section: its VMM runs under a supervisor", c.Driver)
+	case c.Driver != DriverMemory && c.Conversion == nil:
+		return fmt.Errorf("driver %q needs the conversion section: PullImage converts in a converter VM", c.Driver)
+	case c.Driver != DriverMemory && c.Disk == nil:
+		return fmt.Errorf("driver %q needs the disk section: a Machine's root disk is formatted by mkfs.ext4", c.Driver)
+	case c.Driver == DriverMemory && c.Disk != nil:
+		return fmt.Errorf("the disk section is for a real driver, not %q", c.Driver)
+	case c.Driver == DriverMemory && c.Conversion != nil:
+		return fmt.Errorf("the conversion section is for a real driver, not %q", c.Driver)
+	case c.Driver == DriverMemory && c.Registry != nil:
+		return fmt.Errorf("the registry section is for a real driver, not %q", c.Driver)
 	}
 	if f := c.Firecracker; f != nil {
 		if err := f.toDriver(nil).Validate(); err != nil {
 			return err
 		}
 	}
+	if h := c.CloudHypervisor; h != nil {
+		if err := h.toDriver(nil).Validate(); err != nil {
+			return err
+		}
+	}
 	if cv := c.Conversion; cv != nil {
-		if err := cv.check(*c.Firecracker); err != nil {
+		vmm, _ := c.vmm()
+		if err := cv.check(c.Driver, vmm); err != nil {
 			return err
 		}
 	}

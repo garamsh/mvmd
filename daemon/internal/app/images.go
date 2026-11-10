@@ -11,7 +11,6 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/convertchannel"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
-	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	imagememory "github.com/garamsh/mvmd/daemon/internal/image/memory"
 	"github.com/garamsh/mvmd/daemon/internal/imagestore"
@@ -63,6 +62,9 @@ func (c conversionSupervision) Live(ctx context.Context) ([]machine.MachineID, e
 type images struct {
 	service     image.Service
 	conversions machine.Supervision
+	// driver is the Driver the converter VMs boot on; the memory images leave
+	// it to the substitutes.
+	driver machine.Driver
 }
 
 // reap ends the converter VMs a previous mvmd left running, before anything is
@@ -123,7 +125,8 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 	if err != nil {
 		return images{}, nil, err
 	}
-	f, s := cfg.Firecracker, cfg.Supervision
+	vmm, _ := cfg.vmm()
+	s := cfg.Supervision
 	vmmCgroup := s.VMMCgroup
 	if vmmCgroup == "" {
 		vmmCgroup = supervision.DefaultVMMCgroup
@@ -138,11 +141,7 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 		return images{}, nil, err
 	}
 	conversions := conversionSupervision{sup: sup, clock: clock, limit: settings.Limit}
-	driver, err := firecracker.New(firecracker.Config{
-		Binary: f.Binary, BinarySHA256: f.BinarySHA256,
-		Kernel: cfg.Conversion.Kernel, KernelSHA256: cfg.Conversion.KernelSHA256, Initrd: cfg.Conversion.Initrd, InitrdSHA256: cfg.Conversion.InitrdSHA256,
-		Dirs: sup,
-	})
+	driver, err := cfg.Conversion.files(vmm).driver(cfg.Driver, sup)
 	if err != nil {
 		return images{}, nil, fmt.Errorf("the converter's Driver: %w", err)
 	}
@@ -159,7 +158,7 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 		opts.Credentials = creds
 	}
 	service := image.NewService(ociregistry.New(opts), convertchannel.New(driver), store, uids, driver, conversions, settings, image.WithPullTimeout(pullTimeout))
-	return images{service: service, conversions: conversions}, store, nil
+	return images{service: service, conversions: conversions, driver: driver}, store, nil
 }
 
 // loadCredentials reads the credentials file and returns the lookup the
