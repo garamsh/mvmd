@@ -1,7 +1,8 @@
 package machine
 
 // DriverEvent is something a Driver reports on its own, outside any call the
-// lifecycle made: a VMM that exited, a device that failed.
+// lifecycle made, such as a device that failed. A VMM that ended is not one:
+// the lifecycle finds it through the supervisors it lists.
 type DriverEvent struct {
 	Name   string
 	Detail string
