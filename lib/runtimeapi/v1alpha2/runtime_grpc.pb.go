@@ -30,6 +30,9 @@ const (
 	RuntimeService_SnapshotMachine_FullMethodName = "/mvmd.runtime.v1alpha2.RuntimeService/SnapshotMachine"
 	RuntimeService_RestoreMachine_FullMethodName  = "/mvmd.runtime.v1alpha2.RuntimeService/RestoreMachine"
 	RuntimeService_DeleteMachine_FullMethodName   = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteMachine"
+	RuntimeService_CreateDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/CreateDisk"
+	RuntimeService_ListDisks_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/ListDisks"
+	RuntimeService_DeleteDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteDisk"
 	RuntimeService_AttachDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/AttachDisk"
 	RuntimeService_DetachDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/DetachDisk"
 	RuntimeService_SetResources_FullMethodName    = "/mvmd.runtime.v1alpha2.RuntimeService/SetResources"
@@ -73,6 +76,9 @@ type RuntimeServiceClient interface {
 	RestoreMachine(ctx context.Context, in *RestoreMachineRequest, opts ...grpc.CallOption) (*RestoreMachineResponse, error)
 	DeleteMachine(ctx context.Context, in *DeleteMachineRequest, opts ...grpc.CallOption) (*DeleteMachineResponse, error)
 	// Disks and resources.
+	CreateDisk(ctx context.Context, in *CreateDiskRequest, opts ...grpc.CallOption) (*CreateDiskResponse, error)
+	ListDisks(ctx context.Context, in *ListDisksRequest, opts ...grpc.CallOption) (*ListDisksResponse, error)
+	DeleteDisk(ctx context.Context, in *DeleteDiskRequest, opts ...grpc.CallOption) (*DeleteDiskResponse, error)
 	AttachDisk(ctx context.Context, in *AttachDiskRequest, opts ...grpc.CallOption) (*AttachDiskResponse, error)
 	DetachDisk(ctx context.Context, in *DetachDiskRequest, opts ...grpc.CallOption) (*DetachDiskResponse, error)
 	SetResources(ctx context.Context, in *SetResourcesRequest, opts ...grpc.CallOption) (*SetResourcesResponse, error)
@@ -185,6 +191,36 @@ func (c *runtimeServiceClient) DeleteMachine(ctx context.Context, in *DeleteMach
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteMachineResponse)
 	err := c.cc.Invoke(ctx, RuntimeService_DeleteMachine_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeServiceClient) CreateDisk(ctx context.Context, in *CreateDiskRequest, opts ...grpc.CallOption) (*CreateDiskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateDiskResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_CreateDisk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeServiceClient) ListDisks(ctx context.Context, in *ListDisksRequest, opts ...grpc.CallOption) (*ListDisksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDisksResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_ListDisks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeServiceClient) DeleteDisk(ctx context.Context, in *DeleteDiskRequest, opts ...grpc.CallOption) (*DeleteDiskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteDiskResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_DeleteDisk_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -490,6 +526,9 @@ type RuntimeServiceServer interface {
 	RestoreMachine(context.Context, *RestoreMachineRequest) (*RestoreMachineResponse, error)
 	DeleteMachine(context.Context, *DeleteMachineRequest) (*DeleteMachineResponse, error)
 	// Disks and resources.
+	CreateDisk(context.Context, *CreateDiskRequest) (*CreateDiskResponse, error)
+	ListDisks(context.Context, *ListDisksRequest) (*ListDisksResponse, error)
+	DeleteDisk(context.Context, *DeleteDiskRequest) (*DeleteDiskResponse, error)
 	AttachDisk(context.Context, *AttachDiskRequest) (*AttachDiskResponse, error)
 	DetachDisk(context.Context, *DetachDiskRequest) (*DetachDiskResponse, error)
 	SetResources(context.Context, *SetResourcesRequest) (*SetResourcesResponse, error)
@@ -551,6 +590,15 @@ func (UnimplementedRuntimeServiceServer) RestoreMachine(context.Context, *Restor
 }
 func (UnimplementedRuntimeServiceServer) DeleteMachine(context.Context, *DeleteMachineRequest) (*DeleteMachineResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteMachine not implemented")
+}
+func (UnimplementedRuntimeServiceServer) CreateDisk(context.Context, *CreateDiskRequest) (*CreateDiskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateDisk not implemented")
+}
+func (UnimplementedRuntimeServiceServer) ListDisks(context.Context, *ListDisksRequest) (*ListDisksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListDisks not implemented")
+}
+func (UnimplementedRuntimeServiceServer) DeleteDisk(context.Context, *DeleteDiskRequest) (*DeleteDiskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteDisk not implemented")
 }
 func (UnimplementedRuntimeServiceServer) AttachDisk(context.Context, *AttachDiskRequest) (*AttachDiskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AttachDisk not implemented")
@@ -782,6 +830,60 @@ func _RuntimeService_DeleteMachine_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RuntimeServiceServer).DeleteMachine(ctx, req.(*DeleteMachineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RuntimeService_CreateDisk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDiskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).CreateDisk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_CreateDisk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).CreateDisk(ctx, req.(*CreateDiskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RuntimeService_ListDisks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDisksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).ListDisks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_ListDisks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).ListDisks(ctx, req.(*ListDisksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RuntimeService_DeleteDisk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteDiskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).DeleteDisk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_DeleteDisk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).DeleteDisk(ctx, req.(*DeleteDiskRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1181,6 +1283,18 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteMachine",
 			Handler:    _RuntimeService_DeleteMachine_Handler,
+		},
+		{
+			MethodName: "CreateDisk",
+			Handler:    _RuntimeService_CreateDisk_Handler,
+		},
+		{
+			MethodName: "ListDisks",
+			Handler:    _RuntimeService_ListDisks_Handler,
+		},
+		{
+			MethodName: "DeleteDisk",
+			Handler:    _RuntimeService_DeleteDisk_Handler,
 		},
 		{
 			MethodName: "AttachDisk",

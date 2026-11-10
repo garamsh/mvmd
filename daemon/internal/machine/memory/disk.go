@@ -2,13 +2,14 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
 // Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
-// "create-root-from" and "remove".
+// "create-root-from", "create", "get", "list" and "remove".
 type Disk struct {
 	Failures
 
@@ -16,11 +17,13 @@ type Disk struct {
 	disks  map[machine.DiskID]uint64
 	owner  map[machine.DiskID]machine.DiskOwner
 	source map[machine.DiskID]string
+	// request is the request ID of each disk Create made.
+	request map[machine.DiskID]machine.RequestID
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -51,9 +54,12 @@ func (d *Disk) CreateRoot(_ context.Context, owner machine.DiskOwner, sizeBytes 
 	}
 	disk := machine.DiskID(string(owner.ID) + "-root")
 	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[disk]; held {
+		return "", "", machine.ErrDiskExists
+	}
 	d.disks[disk] = sizeBytes
 	d.owner[disk] = owner
-	d.mu.Unlock()
 	return disk, "ext4-uuid-of-" + string(disk), nil
 }
 
@@ -64,11 +70,58 @@ func (d *Disk) CreateRootFrom(_ context.Context, owner machine.DiskOwner, source
 	}
 	disk := machine.DiskID(string(owner.ID) + "-root")
 	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[disk]; held {
+		return "", machine.ErrDiskExists
+	}
 	d.disks[disk] = 0
 	d.owner[disk] = owner
 	d.source[disk] = source
-	d.mu.Unlock()
 	return disk, nil
+}
+
+// Create implements machine.Disk.
+func (d *Disk) Create(_ context.Context, entry machine.DiskEntry) error {
+	if err := d.Enter("create"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[entry.ID]; held {
+		return machine.ErrDiskExists
+	}
+	d.disks[entry.ID] = entry.SizeBytes
+	d.request[entry.ID] = entry.Request
+	return nil
+}
+
+// Get implements machine.Disk.
+func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, error) {
+	if err := d.Enter("get"); err != nil {
+		return machine.DiskEntry{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	size, held := d.disks[disk]
+	if !held {
+		return machine.DiskEntry{}, machine.ErrDiskAbsent
+	}
+	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size}, nil
+}
+
+// List implements machine.Disk.
+func (d *Disk) List(_ context.Context) ([]machine.DiskEntry, error) {
+	if err := d.Enter("list"); err != nil {
+		return nil, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]machine.DiskEntry, 0, len(d.disks))
+	for disk, size := range d.disks {
+		out = append(out, machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 // Source returns the file a root disk made by CreateRootFrom was copied from.
@@ -92,6 +145,7 @@ func (d *Disk) Remove(ctx context.Context, disk machine.DiskID) error {
 	delete(d.disks, disk)
 	delete(d.owner, disk)
 	delete(d.source, disk)
+	delete(d.request, disk)
 	d.mu.Unlock()
 	return nil
 }

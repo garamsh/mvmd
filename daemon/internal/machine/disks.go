@@ -12,6 +12,82 @@ func hot(m Machine) bool {
 	return m.State == StateRunning || m.State == StatePaused
 }
 
+// deleting is the holder a disk takes while DeleteDisk removes it, so that no
+// attach or create holds a file on its way out.
+const deleting MachineID = ""
+
+func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64) error {
+	switch {
+	case disk == "":
+		return fail(ErrInvalid, "the disk identifier is empty")
+	case request == "":
+		return fail(ErrInvalid, "the request ID is empty")
+	case sizeBytes == 0:
+		return fail(ErrInvalid, "the disk size is zero")
+	}
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
+	asked := DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes}
+	for attempt := 0; ; attempt++ {
+		switch have, err := s.disks.Get(ctx, disk); {
+		case err == nil:
+			if have == asked {
+				return nil
+			}
+			return fail(ErrConflict, "disk %q exists under another request ID or size", disk)
+		case !errors.Is(err, ErrDiskAbsent):
+			return fail(ErrFailed, "look up disk %q: %v", disk, err)
+		}
+		err := s.disks.Create(ctx, asked)
+		switch {
+		case err == nil:
+			return nil
+		case errors.Is(err, ErrDiskInvalid):
+			return fail(ErrInvalid, "%v", err)
+		case errors.Is(err, ErrDiskExists) && attempt == 0:
+			// A call made the disk between the lookup and the create: what it
+			// made is what the lookup now answers for.
+		default:
+			return fail(ErrFailed, "create disk %q: %v", disk, err)
+		}
+	}
+}
+
+func (s *service) ListDisks(ctx context.Context) ([]DiskInfo, error) {
+	entries, err := s.disks.List(ctx)
+	if err != nil {
+		return nil, fail(ErrFailed, "list the disks: %v", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]DiskInfo, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Holder: s.held[e.ID]})
+	}
+	return out, nil
+}
+
+func (s *service) DeleteDisk(ctx context.Context, disk DiskID) error {
+	if disk == "" {
+		return fail(ErrInvalid, "the disk identifier is empty")
+	}
+	// Taking the holder slot refuses a disk with a holder and keeps an attach
+	// from holding the file while it is removed.
+	if _, holder, ok := s.claim(deleting, disk); !ok {
+		if holder == deleting {
+			return fail(ErrPreconditionFailed, "disk %q is being deleted by another call", disk)
+		}
+		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", disk, holder)
+	}
+	defer s.release(disk)
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
+	if err := s.disks.Remove(ctx, disk); err != nil {
+		return fail(ErrFailed, "remove disk %q: %v", disk, err)
+	}
+	return nil
+}
+
 func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment) error {
 	defer s.lock(id)()
 	ctx, cancel := s.accepted(ctx, 0)
@@ -43,6 +119,9 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	// One holder per disk (ADR 0009): a disk another Machine holds, as writer
 	// or as reader, takes no second holder.
 	if _, holder, ok := s.claim(id, a.Disk); !ok {
+		if holder == deleting {
+			return fail(ErrPreconditionFailed, "disk %q is being deleted", a.Disk)
+		}
 		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", a.Disk, holder)
 	}
 
