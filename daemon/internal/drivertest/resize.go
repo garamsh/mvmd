@@ -20,7 +20,7 @@ var ceiling = machine.Resources{VCPUs: 4, MemoryBytes: 512 << 20}
 // AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize boots a Machine with a
 // ceiling above its resources, resizes it to the ceiling, and has the Guest
 // Agent bring the new vCPUs online (ADR 0029): the guest then sees the new vCPU
-// count and more memory than it booted with. A resize repeated converges. A
+// count and more memory than it booted with. A resize repeated converges, and a shrink back to the resources returns the guest to its boot figures. A
 // Driver that reports no resize capability is held to refusing the resize
 // instead.
 func AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize(t *testing.T, s Subject) {
@@ -74,12 +74,22 @@ func AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize(t *testing.T, s Subj
 	require.NoError(t, d.Resize(ctx, "m1", ceiling))
 	require.NoError(t, d.Resize(ctx, "m1", ceiling), "a repeat converges")
 
+	// The guest reports both figures the resize changed, so the wait is on both.
+	added := ceiling.MemoryBytes - resources.MemoryBytes
 	var after machine.GuestSize
 	require.Eventually(t, func() bool {
 		after, err = online(ceiling.VCPUs)
-		return err == nil && after.VCPUs == ceiling.VCPUs
-	}, time.Minute, 500*time.Millisecond, "the guest did not bring the new vCPUs online: %v", err)
-	assert.Greater(t, after.MemoryBytes, before.MemoryBytes+(ceiling.MemoryBytes-resources.MemoryBytes)/2,
-		"the guest holds the memory the resize added")
+		return err == nil && after.VCPUs == ceiling.VCPUs && after.MemoryBytes > before.MemoryBytes+added/2
+	}, time.Minute, 500*time.Millisecond, "the guest did not reach %d vCPUs and the added memory: %v, %+v", ceiling.VCPUs, err, after)
 	assert.True(t, healthy(ctx, guest, "m1", 5*time.Second), "the guest still answers after the resize")
+
+	// A shrink back to the resources: the VMM removes the vCPUs and unplugs the
+	// memory, and the guest reports the boot count and less memory than grown.
+	require.NoError(t, d.Resize(ctx, "m1", resources))
+	var shrunk machine.GuestSize
+	require.Eventually(t, func() bool {
+		shrunk, err = online(ceiling.VCPUs)
+		return err == nil && shrunk.VCPUs == resources.VCPUs && shrunk.MemoryBytes < after.MemoryBytes-added/2
+	}, time.Minute, 500*time.Millisecond, "the guest did not give up the vCPUs and memory: %v, %+v after %+v", err, shrunk, after)
+	assert.True(t, healthy(ctx, guest, "m1", 5*time.Second), "the guest still answers after the shrink")
 }
