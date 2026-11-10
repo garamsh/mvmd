@@ -1,7 +1,7 @@
 // Command entry is the entrypoint of the e2e's bootable image. Run without arguments it prints one
 // line and stays running, so the Machine is Running while the test reads the line. Run as a command
 // of an exec, or as arguments of the image's entrypoint, it does one short thing: "echo WORDS..."
-// prints them, "exit N" ends with code N.
+// prints them, "exit N" ends with code N, and "cat FILE" prints the file.
 package main
 
 import (
@@ -32,6 +32,13 @@ func command(name string, args []string) {
 			os.Exit(2)
 		}
 		os.Exit(code)
+	case "cat":
+		content, err := os.ReadFile(args[0])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Stdout.Write(content)
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command", name)
 		os.Exit(2)
