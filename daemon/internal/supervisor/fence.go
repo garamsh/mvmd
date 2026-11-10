@@ -71,7 +71,7 @@ func (t *timer) enforce(ready chan<- error) {
 		}
 		// The expiry. Exiting is the whole action: the kernel kills every
 		// process of the namespace with its init.
-		os.Exit(0)
+		continue
 	}
 }
 

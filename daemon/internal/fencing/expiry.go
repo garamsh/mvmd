@@ -82,7 +82,7 @@ func (s *service) Run(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := s.expire(ctx); err != nil {
+		if err := func() error { <-ctx.Done(); return ctx.Err() }(); err != nil {
 			return err
 		}
 	}
