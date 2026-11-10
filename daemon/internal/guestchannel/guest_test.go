@@ -41,6 +41,10 @@ type state struct {
 	// fail is the status a method answers with, by method name.
 	fail map[string]error
 
+	// apiVersions are the contract versions Info reports, "v1alpha1" alone
+	// when it is unset.
+	apiVersions []string
+
 	boot       *guestv1alpha1.BootRequest
 	catchUp    *guestv1alpha1.CatchUpRequest
 	terminates int
@@ -158,6 +162,16 @@ type agent struct {
 
 func (a *agent) Health(context.Context, *guestv1alpha1.HealthRequest) (*guestv1alpha1.HealthResponse, error) {
 	return &guestv1alpha1.HealthResponse{}, a.failure("Health")
+}
+
+func (a *agent) Info(context.Context, *guestv1alpha1.InfoRequest) (*guestv1alpha1.InfoResponse, error) {
+	a.mu.Lock()
+	versions := a.apiVersions
+	a.mu.Unlock()
+	if versions == nil {
+		versions = []string{"v1alpha1"}
+	}
+	return &guestv1alpha1.InfoResponse{AgentVersion: "9.9.9", ApiVersions: versions}, a.failure("Info")
 }
 
 func (a *agent) Boot(_ context.Context, r *guestv1alpha1.BootRequest) (*guestv1alpha1.BootResponse, error) {
@@ -472,6 +486,41 @@ func TestBoot_SendsTheWholeDescriptionToTheMachineNamed(t *testing.T) {
 	require.NoError(t, h.guest.Boot(context.Background(), "b", boot))
 	assert.Equal(t, "10.0.0.5/32", b.boot.GetNetwork().GetIpv4().GetAddress())
 	assert.Nil(t, b.boot.GetNetwork().GetIpv6(), "a family not served gets nothing")
+}
+
+// Boot sends the description only to an agent that serves the version the
+// daemon speaks, and says which versions the refused agent served.
+func TestBoot_RefusesAnAgentThatDoesNotServeTheDaemonsVersion(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	serving, other := h.agentOf(t, "serving"), h.agentOf(t, "other")
+	other.apiVersions = []string{"v1beta1"}
+
+	require.NoError(t, h.guest.Boot(ctx, "serving", machine.GuestBoot{}))
+	assert.NotNil(t, serving.boot, "the control: an agent serving v1alpha1 is sent the description")
+
+	err := h.guest.Boot(ctx, "other", machine.GuestBoot{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "v1alpha1", "the version the daemon speaks")
+	assert.Contains(t, err.Error(), "v1beta1", "the version the agent serves")
+	assert.NotErrorIs(t, err, machine.ErrGuestUnreachable, "the agent answered")
+	assert.Nil(t, other.boot, "nothing was sent to the refused agent")
+}
+
+// An agent that serves several versions, the daemon's among them, boots.
+func TestBoot_AcceptsAnAgentServingSeveralVersions(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	a.apiVersions = []string{"v1alpha0", "v1alpha1", "v1beta1"}
+
+	require.NoError(t, h.guest.Boot(context.Background(), "m", machine.GuestBoot{}))
+	assert.NotNil(t, a.boot)
+
+	// Control: the same list without the daemon's version is refused.
+	b := h.agentOf(t, "n")
+	b.apiVersions = []string{"v1alpha0", "v1beta1"}
+	require.Error(t, h.guest.Boot(context.Background(), "n", machine.GuestBoot{}))
+	assert.Nil(t, b.boot)
 }
 
 // CatchUp carries the restore, the entropy, the host's time and the whole
