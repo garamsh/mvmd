@@ -39,8 +39,6 @@ func (s *Store) Remove(ctx context.Context, digest machine.ImageDigest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	s.swap.Lock()
-	defer s.swap.Unlock()
 
 	idx, err := s.readIndex()
 	if err != nil {
