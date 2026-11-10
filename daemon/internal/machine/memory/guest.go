@@ -18,8 +18,8 @@ import (
 // Guest is an in-memory machine.Guest: one guest per Machine, holding files
 // and commands. It does not model a VMM, so it answers whether or not the
 // Machine runs; the lifecycle is what refuses a call. Its steps are "health",
-// "boot", "catch-up", "exec", "read-exec-output", "read-file",
-// "write-file", "patch-file", "search-files", "terminate", "find-disk",
+// "boot", "catch-up", "exec", "read-exec-output", "signal",
+// "read-file", "write-file", "patch-file", "list-files", "search-files", "terminate", "find-disk",
 // "release-disk" and "online-vcpus"; a failing step
 // answers machine.ErrGuestUnreachable unless told another error.
 type Guest struct {
@@ -29,6 +29,7 @@ type Guest struct {
 	files     map[machine.MachineID]map[string][]byte
 	special   map[machine.MachineID]map[string]bool
 	execs     map[machine.ExecID]*guestExec
+	signals   map[machine.ExecID][]int32
 	catchUps  map[machine.MachineID][]machine.CatchUp
 	boots     map[machine.MachineID][]machine.GuestBoot
 	refused   map[machine.ExecID]string
@@ -58,6 +59,7 @@ func NewGuest(retention int) *Guest {
 		files:     make(map[machine.MachineID]map[string][]byte),
 		special:   make(map[machine.MachineID]map[string]bool),
 		execs:     make(map[machine.ExecID]*guestExec),
+		signals:   make(map[machine.ExecID][]int32),
 		catchUps:  make(map[machine.MachineID][]machine.CatchUp),
 		boots:     make(map[machine.MachineID][]machine.GuestBoot),
 		refused:   make(map[machine.ExecID]string),
@@ -217,6 +219,32 @@ func (g *Guest) Finish(exec machine.ExecID, exitCode int32) {
 	r.Status, r.ExitCode = machine.ExecExited, exitCode
 }
 
+// Signal implements machine.Guest: a command that runs takes the signal, which
+// Signals reports, and one that has ended refuses it.
+func (g *Guest) Signal(_ context.Context, _ machine.MachineID, exec machine.ExecID, signal int32) error {
+	if err := g.enter("signal"); err != nil {
+		return err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	e, ok := g.execs[exec]
+	switch {
+	case !ok:
+		return machine.ErrExecAbsent
+	case e.record.Status != machine.ExecStarted:
+		return machine.ErrExecNotRunning
+	}
+	g.signals[exec] = append(g.signals[exec], signal)
+	return nil
+}
+
+// Signals returns the signals the command took, in order.
+func (g *Guest) Signals(exec machine.ExecID) []int32 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.signals[exec])
+}
+
 // ReadExecOutput implements machine.Guest.
 func (g *Guest) ReadExecOutput(_ context.Context, _ machine.MachineID, exec machine.ExecID, after uint64, send func(machine.OutputChunk) error) (machine.ExecRecord, error) {
 	if err := g.enter("read-exec-output"); err != nil {
@@ -351,6 +379,42 @@ func (g *Guest) PatchFile(_ context.Context, id machine.MachineID, path, base, e
 		return machine.PatchApplied, nil
 	}
 	return 0, machine.ErrPatchPrecondition
+}
+
+// ListFiles implements machine.Guest: the files directly under path, and the
+// directories that hold deeper ones. A path with nothing under it is absent.
+func (g *Guest) ListFiles(_ context.Context, id machine.MachineID, path string) ([]machine.FileEntry, error) {
+	if err := g.enter("list-files"); err != nil {
+		return nil, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	dir := strings.TrimSuffix(path, "/") + "/"
+	dirs := make(map[string]bool)
+	var out []machine.FileEntry
+	for p, content := range g.files[id] {
+		rest, under := strings.CutPrefix(p, dir)
+		if !under {
+			continue
+		}
+		if name, _, deeper := strings.Cut(rest, "/"); deeper {
+			if !dirs[name] {
+				dirs[name] = true
+				out = append(out, machine.FileEntry{Path: dir + name, Kind: machine.EntryDirectory})
+			}
+			continue
+		}
+		kind := machine.EntryFile
+		if g.special[id][p] {
+			kind = machine.EntryOther
+		}
+		out = append(out, machine.FileEntry{Path: p, Kind: kind, Size: uint64(len(content))})
+	}
+	if len(out) == 0 {
+		return nil, machine.ErrFileAbsent
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
 }
 
 // SearchFiles implements machine.Guest: the files under path whose name

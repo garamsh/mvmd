@@ -57,10 +57,14 @@ type Service interface {
 	// Running with a guest that no longer answers, its record is what the
 	// Guest Agent wrote to the console log, and no output is sent.
 	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error)
+	// SignalExec delivers the signal to the exec's command. The guest answers
+	// for a command that has ended: ErrPreconditionFailed.
+	SignalExec(ctx context.Context, id MachineID, exec ExecID, signal int32) error
 	ReadFile(ctx context.Context, id MachineID, path string, send func(chunk []byte) error) error
 	// WriteFile commits the whole content or leaves the old.
 	WriteFile(ctx context.Context, id MachineID, path string, content io.Reader) error
 	PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) error
+	ListFiles(ctx context.Context, id MachineID, path string) ([]FileEntry, error)
 	SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error)
 
 	// Console opens a session to the console of a Running or Paused Machine,
