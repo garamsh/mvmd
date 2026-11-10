@@ -106,11 +106,12 @@ Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its l
 
 | Operation | Result |
 |---|---|
-| Runtime info | The API versions served, the Drivers in service and their capabilities, so the client can match a Machine's required capabilities to this node (#2 §5 design principle 1) |
+| Runtime info | The API versions served, the Drivers in service, their capabilities and each one's CPU model, so the client can match a Machine's required capabilities and a snapshot to this node (#2 §5 design principle 1) |
 | Inspect | One Machine, as under Machine states |
 | List | Every Machine on the node |
 | Events | A stream of state changes, Machine deletions, deadline events and Driver events, each with the Machine identifier and a sequence number that grows on this node |
 
+- **A Driver's CPU model is the value Restore compares a snapshot's CPU model with.** A restore needs a snapshot whose Driver name, Driver version and CPU model equal those of the Driver in service, so a client that lists snapshots and reads runtime info tells which are restorable on this node without calling Restore. The field is an addition, so the version stays `v1alpha2`.
 - **Events are resumable and not the source of truth.** The client may resume from a sequence number. If mvmd no longer holds events that far back, it says so and the client lists to resynchronise, so a missed event never leaves the client wrong (#2 §3, level-triggered reconciliation). How long events are kept is an open question.
 - **One ordered sequence.** Events held after the requested sequence, then each new event, come as one sequence with no gap or repeat between them. A sequence of zero starts at the oldest event held, and a sequence equal to the latest one waits for the next event. Mvmd answers "resync required" and ends the stream when the events after the requested sequence are no longer held, when the sequence is ahead of what this node has emitted (its log starts empty at each start), or when a client that reads too slowly falls behind what is held; a stream never skips an event.
 - **What is emitted.** Every committed change of a Machine's state, among them a VMM's own end, each change of the fencing deadline (armed, renewed, expired) and each event a Driver raises. A deleted Machine has no state to name, so Delete Machine emits its own event, Machine deleted, once the deletion has committed; a repeat that finds the Machine absent emits nothing. A stream ends cleanly when mvmd stops, and the client resumes from the last sequence it holds.

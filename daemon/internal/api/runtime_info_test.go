@@ -77,6 +77,19 @@ func TestGetRuntimeInfo_EveryDriverCapabilityHasAWireValue(t *testing.T) {
 	}
 }
 
+func TestGetRuntimeInfo_ReportsEachDriversCPUModel(t *testing.T) {
+	srv := api.New(nil, nil, nil, []machine.DriverInfo{
+		{Name: "a", Version: "1", CPUModel: "model of a"},
+		{Name: "b", Version: "1", CPUModel: "model of b"},
+	}, nil)
+	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetDrivers(), 2)
+	for i, want := range []string{"model of a", "model of b"} {
+		assert.Equal(t, want, resp.GetDrivers()[i].GetCpuModel(), "driver %s", resp.GetDrivers()[i].GetDriver().GetName())
+	}
+}
+
 func TestGetRuntimeInfo_ReportsSnapshotAndConsole(t *testing.T) {
 	assert.Equal(t, []v1alpha2.Capability{v1alpha2.Capability_CAPABILITY_SNAPSHOT},
 		runtimeInfo(t, machine.CapabilitySnapshot))
