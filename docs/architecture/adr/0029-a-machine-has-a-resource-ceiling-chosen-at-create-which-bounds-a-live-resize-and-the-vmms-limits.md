@@ -17,8 +17,9 @@ Raised as garamsh/mvmd#176 and implemented by garamsh/mvmd#187. The research it 
 Candidates weighed:
 
 - **A ceiling chosen at create, held on the Machine** — chosen.
-- **A node-wide ceiling.** Rejected: it sizes every VMM's reserve for the largest Machine the node allows.
-- **No ceiling, the VMM started with the largest figure the node allows.** Rejected: the same reservation for every Machine, and the cgroup would bound nothing.
+- **A node-wide ceiling (option A).** Rejected: every Machine pays for it, about 10 MB of VMM RSS and 6.8 MB of guest memory at 32 vCPUs (#176, section 4). It is also not part of the Machine's record, so a change to the node leaves running and snapshotted Machines inconsistent with the configuration. A node-wide default can be added on top of a per-Machine ceiling later; the reverse cannot be recovered.
+- **`max` equal to `boot`, no ceiling (option C).** Rejected: Cloud Hypervisor could then not grow a Machine at all, and the goal does not allow skipping resize on it. The cold path stays as it is: a target outside what a running VMM can reach applies at the next start.
+- **ACPI memory hotplug instead of virtio-mem.** Rejected: it cannot shrink. A shrink answers 204, leaves the guest unchanged, and leaves the VMM's `config.memory.size` disagreeing with the guest (#176, section 2). virtio-mem shrinks, refuses a target below the boot memory, and steps in 2 MiB.
 
 ## Decision
 
@@ -27,9 +28,16 @@ Candidates weighed:
 - **Resources above the ceiling are `invalid`,** at create and at set resources, in either figure.
 - **At set resources a ceiling figure left unset leaves the Machine's figure as it is.** Update and create differ on purpose: at create there is nothing to leave.
 - **A ceiling change on a Running or Paused Machine is `precondition failed`.** A VMM's limits are fixed when it starts, so the ceiling changes only while the Machine is Created or Stopped, and applies at its next start.
-- **A ceiling above the resources on a Driver without the resize capability is `unsupported`,** at create and at set resources.
+- **A ceiling above the resources on a Driver without the resize capability is `unsupported`,** at create and at set resources. On such a Driver the held ceiling always equals the resources: a set resources with no ceiling moves the ceiling with the target, in either direction, so the VMM's cgroup is never sized for a guest that can never reach it. A Driver that can resize keeps the ceiling it holds.
 - **A hot target below the memory the VMM booted with is `precondition failed`, and the reason says stopping the Machine applies it.** The Machine holds `BootMemoryBytes`, set when it becomes Running; a snapshot records it and a restore sets it from the snapshot. A record written before it existed reads back with the memory of its resources.
 - **The guest figures in the process description are the ceiling.** `BootSpec` carries `Ceiling`; `ProcessDescription.For` takes the guest from it, falling back to the resources when it is unset. The supervisor's cgroup is therefore sized for the most the guest can have; the `supervisor.proto` comment on `guest_memory_bytes` and `guest_vcpus` says so, and the message is otherwise unchanged.
+- **Cloud Hypervisor boots with the ceiling, and a resize reaches it** (item 6 of the decision on #176; implemented by #176, not here).
+  - Boot: `--cpus boot=N,max=<ceiling>` and `--memory size=<resources>,hotplug_method=virtio-mem,hotplug_size=<ceiling minus resources>`. The hotplug part is omitted when the ceiling equals the resources.
+  - `Resize` sends `PUT /vm.resize` and waits until the VMM reports the target: `memory_actual_size` for memory, and the vCPU count. A timeout is `failed`, and a retried resize converges, as detach does after #177.
+  - `Info` reports `resize` only on x86_64: Cloud Hypervisor documents CPU hotplug as x86 only (`docs/hotplug.md`), and `resize` holds for both resources or is not reported.
+- **The guest brings new vCPUs online** (item 7 of the decision on #176, with its amendment; the operation is merged in #189, the call is #176's).
+  - The Guest Agent's `OnlineVcpus(target)` brings present, offline vCPUs online only up to the target, writes nothing at or above it, and refuses a target of 0. It answers with the online vCPU count and the guest's memory.
+  - After `Driver.Resize` the lifecycle calls it with the target, as it calls `FindDisk` after `AttachDisk` (ADR 0022), and waits until the reported count equals the target. A guest that fails the call fails the resize. Removing vCPUs needs no guest action, and the report still confirms the new count. The kernel auto-onlines new memory, so memory needs no call.
 - **The memory alignment is enforced in the lifecycle, not in a Driver.** A memory figure of the resources or the ceiling that is not a multiple of 2 MiB (`MemoryAlignment`) is `invalid`, so every Driver sees only aligned figures.
 - **A snapshot carries the ceiling, and a restore uses the snapshot's.** A record in either store written before the ceiling existed reads back with the ceiling equal to its resources.
 

@@ -222,7 +222,13 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 	if target.VCPUs == 0 || target.MemoryBytes == 0 {
 		return fail(ErrInvalid, "the target needs at least one vCPU and some memory")
 	}
+	// A Driver that cannot resize holds a ceiling equal to the resources, so a
+	// figure left unset follows the target of a Machine that is not hot (a hot
+	// one is refused below); a Driver that can resize keeps the held figure.
 	held := ceiling.OrElse(m.Ceiling)
+	if !hot(m) && !s.driver.Info().has(CapabilityResize) {
+		held = ceiling.OrElse(target)
+	}
 	if err := s.checkCeiling(target, held, ceiling != Resources{}); err != nil {
 		return err
 	}

@@ -199,3 +199,33 @@ func TestSnapshot_CarriesTheCeilingAndTheBootMemoryAndARestoreUsesThem(t *testin
 	assert.Equal(t, small.MemoryBytes, restored.BootMemoryBytes)
 	assert.Equal(t, large, e.driver.BootSpec("copy").Ceiling)
 }
+
+// On a Driver that cannot resize the ceiling is the resources, so it follows a
+// cold target in either direction and never loosens the VMM's cgroup; on one
+// that can, the held ceiling is kept (ADR 0029).
+func TestSetResources_WithoutResizeTheCeilingFollowsTheTarget(t *testing.T) {
+	ctx := context.Background()
+	less := machine.Resources{VCPUs: 1, MemoryBytes: 256 << 20}
+
+	e := newEnv()
+	e.created(t, "m")
+	require.NoError(t, e.svc.SetResources(ctx, "m", less, machine.Resources{}))
+	got := e.requireState(t, "m", machine.StateCreated)
+	assert.Equal(t, less, got.Resources)
+	assert.Equal(t, less, got.Ceiling, "a decrease lowers the ceiling with it")
+
+	require.NoError(t, e.svc.SetResources(ctx, "m", large, machine.Resources{}))
+	got = e.requireState(t, "m", machine.StateCreated)
+	assert.Equal(t, large, got.Resources)
+	assert.Equal(t, large, got.Ceiling, "an increase needs no ceiling and raises it")
+
+	requireKind(t, e.svc.SetResources(ctx, "m", less, large), machine.ErrUnsupported)
+
+	with := newEnv(machine.CapabilityResize)
+	with.ceiling = large
+	with.created(t, "m")
+	require.NoError(t, with.svc.SetResources(ctx, "m", less, machine.Resources{}))
+	got = with.requireState(t, "m", machine.StateCreated)
+	assert.Equal(t, less, got.Resources, "control: a Driver that resizes")
+	assert.Equal(t, large, got.Ceiling, "keeps the ceiling it holds")
+}
