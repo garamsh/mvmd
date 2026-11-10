@@ -36,6 +36,9 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return err
 	}
 
+	// Shared from Locate until the record is set, so RemoveImage cannot pass
+	// between the two.
+	defer s.imageLocks.lock(spec.Image, false)()
 	if _, err := s.images.Locate(ctx, spec.Image); err != nil {
 		if errors.Is(err, ErrImageAbsent) {
 			return fail(ErrNotFound, "image %s is not on the node", spec.Image)

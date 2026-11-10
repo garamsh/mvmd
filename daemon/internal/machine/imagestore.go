@@ -27,4 +27,10 @@ type LocatedImage struct {
 type ImageStore interface {
 	// Locate returns what the node holds of the image, or ErrImageAbsent.
 	Locate(ctx context.Context, image ImageDigest) (LocatedImage, error)
+	// List returns the digest of every image the node holds, ordered.
+	List(ctx context.Context) ([]ImageDigest, error)
+	// Remove unlists the image and reclaims the blobs only it reached. An
+	// absent image succeeds. A failure after the image was unlisted leaves it
+	// unlisted, and its blobs for the next start's sweep.
+	Remove(ctx context.Context, image ImageDigest) error
 }

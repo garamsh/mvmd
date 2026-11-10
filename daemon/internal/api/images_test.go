@@ -64,3 +64,71 @@ func TestPullImage_PassesTheReferenceAndMapsTheUseCaseOutcome(t *testing.T) {
 		})
 	}
 }
+
+// imager is a machine.Service whose image calls answer fixed values and record
+// what they were asked.
+type imager struct {
+	machine.Service
+	listed  []machine.ImageDigest
+	err     error
+	removed []machine.ImageDigest
+}
+
+func (i *imager) ListImages(context.Context) ([]machine.ImageDigest, error) {
+	return i.listed, i.err
+}
+
+func (i *imager) RemoveImage(_ context.Context, digest machine.ImageDigest) error {
+	i.removed = append(i.removed, digest)
+	return i.err
+}
+
+func TestListImages_ReportsEveryImageAndMapsTheUseCaseOutcome(t *testing.T) {
+	m := &imager{listed: []machine.ImageDigest{pulled, "sha256:b"}}
+	resp, err := api.New(m, nil, nil, nil, nil).ListImages(context.Background(), &v1alpha1.ListImagesRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.Images, 2)
+	assert.Equal(t, pulled, resp.Images[0].Digest)
+	assert.Equal(t, "sha256:b", resp.Images[1].Digest)
+
+	failing := &imager{err: machine.NewError(machine.ErrFailed, "list: boom")}
+	resp, err = api.New(failing, nil, nil, nil, nil).ListImages(context.Background(), &v1alpha1.ListImagesRequest{})
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Equal(t, v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED, v1alpha1.KindOf(err))
+}
+
+func TestRemoveImage_PassesTheDigestAndMapsTheUseCaseOutcome(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		kind v1alpha1.OutcomeKind
+	}{
+		{"success", nil, v1alpha1.OutcomeKind_OUTCOME_KIND_SUCCESS},
+		{"in use", machine.NewError(machine.ErrPreconditionFailed, "in use"), v1alpha1.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED},
+		{"store failure", machine.NewError(machine.ErrFailed, "remove: boom"), v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &imager{err: tt.err}
+
+			_, err := api.New(m, nil, nil, nil, nil).RemoveImage(context.Background(), &v1alpha1.RemoveImageRequest{Digest: pulled})
+
+			assert.Equal(t, tt.kind, v1alpha1.KindOf(err))
+			assert.Equal(t, []machine.ImageDigest{pulled}, m.removed)
+		})
+	}
+}
+
+func TestRemoveImage_RejectsAnEmptyDigestBeforeTheUseCase(t *testing.T) {
+	m := &imager{}
+	server := api.New(m, nil, nil, nil, nil)
+
+	_, err := server.RemoveImage(context.Background(), &v1alpha1.RemoveImageRequest{})
+	assert.Equal(t, v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha1.KindOf(err))
+	assert.Empty(t, m.removed, "the use case was not asked")
+
+	_, err = server.RemoveImage(context.Background(), &v1alpha1.RemoveImageRequest{Digest: pulled}) // control
+	assert.NoError(t, err)
+	assert.Equal(t, []machine.ImageDigest{pulled}, m.removed)
+}

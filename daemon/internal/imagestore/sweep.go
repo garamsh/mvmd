@@ -3,7 +3,6 @@ package imagestore
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -20,19 +19,9 @@ func (s *Store) Sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	reached := make(map[string]bool)
-	for _, entry := range idx.Manifests {
-		_, digests, err := s.reaches(entry)
-		if err != nil {
-			return fmt.Errorf("find what the listed image reaches: %w", err)
-		}
-		for _, d := range digests {
-			h, err := hexOf(d)
-			if err != nil {
-				return err
-			}
-			reached[h] = true
-		}
+	reached, err := s.reached(idx)
+	if err != nil {
+		return err
 	}
 
 	staged, err := os.ReadDir(s.stagingDir())

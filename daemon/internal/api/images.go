@@ -17,3 +17,28 @@ func (s *Server) PullImage(ctx context.Context, req *v1alpha1.PullImageRequest) 
 	}
 	return &v1alpha1.PullImageResponse{}, nil
 }
+
+// ListImages and RemoveImage go to the lifecycle, not the image use case: a
+// removal needs the Machine records, the snapshots and the locks Create and
+// restore hold.
+func (s *Server) ListImages(ctx context.Context, _ *v1alpha1.ListImagesRequest) (*v1alpha1.ListImagesResponse, error) {
+	all, err := s.machines.ListImages(ctx)
+	if err != nil {
+		return nil, status(err)
+	}
+	resp := &v1alpha1.ListImagesResponse{}
+	for _, digest := range all {
+		resp.Images = append(resp.Images, &v1alpha1.Image{Digest: string(digest)})
+	}
+	return resp, nil
+}
+
+func (s *Server) RemoveImage(ctx context.Context, req *v1alpha1.RemoveImageRequest) (*v1alpha1.RemoveImageResponse, error) {
+	if req.GetDigest() == "" {
+		return nil, rejected("digest is empty")
+	}
+	if err := s.machines.RemoveImage(ctx, machine.ImageDigest(req.GetDigest())); err != nil {
+		return nil, status(err)
+	}
+	return &v1alpha1.RemoveImageResponse{}, nil
+}

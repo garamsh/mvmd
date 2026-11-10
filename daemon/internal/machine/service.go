@@ -87,19 +87,20 @@ type Service interface {
 	// succeeds. A snapshot a Snapshot or a restore call is using is refused
 	// with ErrPreconditionFailed; a snapshot whose Machine exists is not.
 	DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error
+
+	// ListImages returns the digest of every image the node holds, ordered.
+	ListImages(ctx context.Context) ([]ImageDigest, error)
+	// RemoveImage unlists the image and reclaims its blobs. An absent image
+	// succeeds. An image a Machine record references, a snapshot references,
+	// or a Create or restore call is locating is refused with
+	// ErrPreconditionFailed.
+	RemoveImage(ctx context.Context, image ImageDigest) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which
 // mu guards.
 type machineLock struct {
 	sync.Mutex
-	users int
-}
-
-// snapshotLock is one snapshot's lock and the number of calls using it, which
-// mu guards. Snapshot holds it exclusively; a restore holds it shared.
-type snapshotLock struct {
-	sync.RWMutex
 	users int
 }
 
@@ -146,8 +147,13 @@ type service struct {
 	execMu sync.Mutex
 	execs  map[ExecID]*ExecEntry
 	// snapLocks serializes Snapshot against the restores of the same snapshot.
-	// A call takes a Machine's lock before a snapshot's.
-	snapLocks map[SnapshotID]*snapshotLock
+	// A call takes a Machine's lock before a snapshot's, and a snapshot's
+	// before an image's.
+	snapLocks keyedLocks[SnapshotID]
+	// imageLocks serializes the removal of an image against the Create and
+	// restore calls that locate it: they hold it shared from Locate until the
+	// Machine's record is set.
+	imageLocks keyedLocks[ImageDigest]
 	// held maps each disk to its one holder (ADR 0009).
 	held map[DiskID]MachineID
 }
@@ -271,7 +277,6 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		events:        events,
 		records:       make(map[MachineID]*Record),
 		locks:         make(map[MachineID]*machineLock),
-		snapLocks:     make(map[SnapshotID]*snapshotLock),
 		held:          make(map[DiskID]MachineID),
 	}
 	for _, o := range options {
@@ -322,55 +327,6 @@ func (s *service) enter(id MachineID) (*machineLock, func()) {
 		defer s.mu.Unlock()
 		if l.users--; l.users == 0 {
 			delete(s.locks, id)
-		}
-	}
-}
-
-// lockSnapshot takes the snapshot's lock, exclusively or shared, and returns
-// the unlock. The entry exists while a call holds or waits for it.
-func (s *service) lockSnapshot(id SnapshotID, exclusive bool) func() {
-	l, release := s.enterSnapshot(id)
-	lock, unlock := l.RLock, l.RUnlock
-	if exclusive {
-		lock, unlock = l.Lock, l.Unlock
-	}
-	lock()
-	return func() {
-		unlock()
-		release()
-	}
-}
-
-// tryLockSnapshotExclusive takes the snapshot's lock exclusively only if no
-// call holds or waits on it for use, and returns the unlock, or false.
-func (s *service) tryLockSnapshotExclusive(id SnapshotID) (func(), bool) {
-	l, release := s.enterSnapshot(id)
-	if !l.TryLock() {
-		release()
-		return nil, false
-	}
-	return func() {
-		l.Unlock()
-		release()
-	}, true
-}
-
-// enterSnapshot counts a user of the snapshot's lock, creating the lock for
-// the first, and returns it with the function that stops counting.
-func (s *service) enterSnapshot(id SnapshotID) (*snapshotLock, func()) {
-	s.mu.Lock()
-	l, ok := s.snapLocks[id]
-	if !ok {
-		l = new(snapshotLock)
-		s.snapLocks[id] = l
-	}
-	l.users++
-	s.mu.Unlock()
-	return l, func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if l.users--; l.users == 0 {
-			delete(s.snapLocks, id)
 		}
 	}
 }

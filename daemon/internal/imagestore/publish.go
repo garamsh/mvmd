@@ -41,6 +41,10 @@ func (s *Store) Publish(ctx context.Context, staging image.Staging) error {
 		return fmt.Errorf("set the mode of the image: %w", err)
 	}
 
+	// A Remove lands wholly before the first blob moves or wholly after the
+	// swap, so it never deletes a blob this Publish found in place.
+	s.swap.Lock()
+	defer s.swap.Unlock()
 	blobs := []struct{ from, hex string }{
 		{"output", st.sealed.hex},
 		{"config", st.record.configHex},

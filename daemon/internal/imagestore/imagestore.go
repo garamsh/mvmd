@@ -29,6 +29,11 @@ type Store struct {
 	// and may fail it. It is nil in production.
 	fault func(step string) error
 
+	// swap is held by Publish from its first blob move to the swap of
+	// index.json, and by Remove throughout: both read the index, rewrite it
+	// and move or delete the blobs it lists.
+	swap sync.Mutex
+
 	mu     sync.Mutex
 	stages map[string]*stage
 }
