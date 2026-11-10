@@ -187,7 +187,7 @@ func New(cfg Config) (*App, error) {
 	// substitutes under the Firecracker Driver.
 	var disks machine.Disk = sub.Disks
 	var snapshots machine.SnapshotStore = sub.Snapshots
-	if cfg.Disk != nil {
+	if cfg.Disk != nil && false {
 		disks, snapshots, err = realStorage(cfg, runDirs)
 		if err != nil {
 			_ = db.Close()
