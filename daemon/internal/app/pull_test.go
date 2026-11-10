@@ -15,14 +15,14 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	imagememory "github.com/garamsh/mvmd/daemon/internal/image/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
-const failed = v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED
+const failed = v1alpha2.OutcomeKind_OUTCOME_KIND_FAILED
 
 // addImage puts an image in the memory Registry for the platform the node
 // selects, and returns the request that pulls it.
-func addImage(a *app.App, tag string) *v1alpha1.PullImageRequest {
+func addImage(a *app.App, tag string) *v1alpha2.PullImageRequest {
 	ref := a.Substitutes.Registry.Add("registry.example/app", imagememory.Image{
 		Platform: image.Platform{OS: "linux", Architecture: runtime.GOARCH},
 		Config:   image.Config{Entrypoint: []string{"/bin/app"}, Cmd: []string{tag}},
@@ -30,13 +30,13 @@ func addImage(a *app.App, tag string) *v1alpha1.PullImageRequest {
 			{MediaType: "application/vnd.oci.image.layer.v1.tar", Content: []byte("layer of " + tag)},
 		},
 	})
-	return &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: ref.Repository, Digest: string(ref.Digest)}}
+	return &v1alpha2.PullImageRequest{Image: &v1alpha2.ImageRef{Repository: ref.Repository, Digest: string(ref.Digest)}}
 }
 
 // PullImage reaches the use case, which publishes the image to the cache.
 func TestPull_ThroughTheAPIPublishesTheImage(t *testing.T) {
 	ctx := context.Background()
-	var req *v1alpha1.PullImageRequest
+	var req *v1alpha2.PullImageRequest
 	n := startWith(t, testConfig(t), func(a *app.App) { req = addImage(a, "one") })
 	cache := n.app.Substitutes.Cache
 	require.Empty(t, cache.Listed(), "the setup: nothing is listed before the pull")
@@ -51,7 +51,7 @@ func TestPull_ThroughTheAPIPublishesTheImage(t *testing.T) {
 
 	// The control: an image the registry does not hold fails the call and
 	// lists nothing more.
-	_, err = n.client.PullImage(ctx, &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: "registry.example/app", Digest: digest}})
+	_, err = n.client.PullImage(ctx, &v1alpha2.PullImageRequest{Image: &v1alpha2.ImageRef{Repository: "registry.example/app", Digest: digest}})
 	requireKind(t, err, failed)
 	assert.Len(t, cache.Listed(), 1)
 }
@@ -69,7 +69,7 @@ func TestPull_AFailedStepEndsTheCallWithItsReason(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var req *v1alpha1.PullImageRequest
+			var req *v1alpha2.PullImageRequest
 			n := startWith(t, testConfig(t), func(a *app.App) {
 				req = addImage(a, tt.name)
 				tt.fail(a, errors.New("injected "+tt.name))
@@ -100,12 +100,12 @@ func TestPull_AFailedStepEndsTheCallWithItsReason(t *testing.T) {
 // A reference the validator refuses never reaches the registry.
 func TestPull_AnInvalidReferenceIsRejectedBeforeTheUseCase(t *testing.T) {
 	ctx := context.Background()
-	var good *v1alpha1.PullImageRequest
+	var good *v1alpha2.PullImageRequest
 	n := startWith(t, testConfig(t), func(a *app.App) { good = addImage(a, "one") })
 	raw := n.raw(t)
 	registry := n.app.Substitutes.Registry
 
-	for name, ref := range map[string]*v1alpha1.ImageRef{
+	for name, ref := range map[string]*v1alpha2.ImageRef{
 		"a tag":           {Repository: "registry.example/app:latest", Digest: good.GetImage().GetDigest()},
 		"a digest in it":  {Repository: "registry.example/app@" + digest, Digest: good.GetImage().GetDigest()},
 		"a short digest":  {Repository: "registry.example/app", Digest: "sha256:abc"},
@@ -114,7 +114,7 @@ func TestPull_AnInvalidReferenceIsRejectedBeforeTheUseCase(t *testing.T) {
 		"an md5 digest":   {Repository: "registry.example/app", Digest: "md5:0123456789abcdef0123456789abcdef"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := raw.PullImage(ctx, &v1alpha1.PullImageRequest{Image: ref})
+			_, err := raw.PullImage(ctx, &v1alpha2.PullImageRequest{Image: ref})
 			requireKind(t, err, rejected)
 		})
 	}
@@ -138,7 +138,7 @@ func TestPull_TheConfiguredBoundEndsAPull(t *testing.T) {
 
 	cfg := testConfig(t)
 	cfg.PullTimeout = "100ms"
-	var req *v1alpha1.PullImageRequest
+	var req *v1alpha2.PullImageRequest
 	n := startWith(t, cfg, func(a *app.App) {
 		req = addImage(a, "slow")
 		a.Substitutes.Converter.Serve(slow)
@@ -223,7 +223,7 @@ func TestPull_ConversionsOfAPreviousMvmdAreEndedAtStart(t *testing.T) {
 	_, err = n.client.CreateMachine(ctx, create("m"))
 	renew(t, n, 1)
 	require.NoError(t, err)
-	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "m"})
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
 	user2, ok := n.app.Substitutes.Supervisors.User("m")
 	require.True(t, ok)
@@ -262,6 +262,6 @@ func TestPull_ConversionsAreNotTheLifecyclesMachines(t *testing.T) {
 	live, err := sub.Supervisors.Live(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, live, "a conversion is not among the supervisors the deadline renews")
-	_, err = n.client.ListMachines(ctx, &v1alpha1.ListMachinesRequest{})
+	_, err = n.client.ListMachines(ctx, &v1alpha2.ListMachinesRequest{})
 	assert.NoError(t, err)
 }

@@ -11,35 +11,35 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 const (
-	success      = v1alpha1.OutcomeKind_OUTCOME_KIND_SUCCESS
-	rejected     = v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED
-	notFound     = v1alpha1.OutcomeKind_OUTCOME_KIND_NOT_FOUND
-	conflict     = v1alpha1.OutcomeKind_OUTCOME_KIND_CONFLICT
-	precondition = v1alpha1.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED
+	success      = v1alpha2.OutcomeKind_OUTCOME_KIND_SUCCESS
+	rejected     = v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED
+	notFound     = v1alpha2.OutcomeKind_OUTCOME_KIND_NOT_FOUND
+	conflict     = v1alpha2.OutcomeKind_OUTCOME_KIND_CONFLICT
+	precondition = v1alpha2.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED
 )
 
-func create(id string) *v1alpha1.CreateMachineRequest {
-	return &v1alpha1.CreateMachineRequest{
+func create(id string) *v1alpha2.CreateMachineRequest {
+	return &v1alpha2.CreateMachineRequest{
 		MachineId:     id,
 		RequestId:     "req-" + id,
 		ImageDigest:   digest,
-		Resources:     &v1alpha1.Resources{CpuCount: 2, MemoryBytes: 1 << 30},
+		Resources:     &v1alpha2.Resources{CpuCount: 2, MemoryBytes: 1 << 30},
 		RootDiskBytes: 1 << 30,
-		NetworkPolicy: &v1alpha1.NetworkPolicy{Egress: []*v1alpha1.NetworkRule{{
+		NetworkPolicy: &v1alpha2.NetworkPolicy{Egress: []*v1alpha2.NetworkRule{{
 			Prefix:   "10.0.0.0/8",
-			Protocol: v1alpha1.Protocol_PROTOCOL_TCP,
-			Ports:    []*v1alpha1.PortRange{{First: 443, Last: 443}},
+			Protocol: v1alpha2.Protocol_PROTOCOL_TCP,
+			Ports:    []*v1alpha2.PortRange{{First: 443, Last: 443}},
 		}}},
 	}
 }
 
-func renew(t *testing.T, n *node, number uint64) *v1alpha1.DeadlineStatus {
+func renew(t *testing.T, n *node, number uint64) *v1alpha2.DeadlineStatus {
 	t.Helper()
-	resp, err := n.client.RenewDeadline(context.Background(), &v1alpha1.RenewDeadlineRequest{
+	resp, err := n.client.RenewDeadline(context.Background(), &v1alpha2.RenewDeadlineRequest{
 		Length: durationpb.New(time.Hour), RenewalNumber: number,
 	})
 	require.NoError(t, err)
@@ -54,26 +54,26 @@ func TestAPI_DrivesTheWholeLifecycle(t *testing.T) {
 	n.app.Substitutes.Images.Provide(digest)
 	n.app.Substitutes.Disks.Provide("data")
 
-	info, err := n.client.GetRuntimeInfo(ctx, &v1alpha1.GetRuntimeInfoRequest{})
+	info, err := n.client.GetRuntimeInfo(ctx, &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"mvmd.runtime.v1alpha1"}, info.GetApiVersions())
+	assert.Equal(t, []string{"mvmd.runtime.v1alpha2"}, info.GetApiVersions())
 	require.Len(t, info.GetDrivers(), 1)
 	assert.Equal(t, "memory", info.GetDrivers()[0].GetDriver().GetName())
-	assert.ElementsMatch(t, []v1alpha1.Capability{
-		v1alpha1.Capability_CAPABILITY_SNAPSHOT, v1alpha1.Capability_CAPABILITY_CONSOLE, v1alpha1.Capability_CAPABILITY_DISK_HOTPLUG,
-		v1alpha1.Capability_CAPABILITY_CPU_RESIZE, v1alpha1.Capability_CAPABILITY_MEMORY_RESIZE,
+	assert.ElementsMatch(t, []v1alpha2.Capability{
+		v1alpha2.Capability_CAPABILITY_SNAPSHOT, v1alpha2.Capability_CAPABILITY_CONSOLE, v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG,
+		v1alpha2.Capability_CAPABILITY_CPU_RESIZE, v1alpha2.Capability_CAPABILITY_MEMORY_RESIZE,
 	}, info.GetDrivers()[0].GetCapabilities())
 
 	// The deadline is not armed: a start is refused with its outcome.
-	st, err := n.client.InspectDeadline(ctx, &v1alpha1.InspectDeadlineRequest{})
+	st, err := n.client.InspectDeadline(ctx, &v1alpha2.InspectDeadlineRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.DeadlinePhase_DEADLINE_PHASE_NOT_ARMED, st.GetStatus().GetPhase())
+	assert.Equal(t, v1alpha2.DeadlinePhase_DEADLINE_PHASE_NOT_ARMED, st.GetStatus().GetPhase())
 
 	req := create("m")
-	req.ResourceCeiling = &v1alpha1.Resources{CpuCount: 4, MemoryBytes: 2 << 30}
+	req.ResourceCeiling = &v1alpha2.Resources{CpuCount: 4, MemoryBytes: 2 << 30}
 	created, err := n.client.CreateMachine(ctx, req)
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, created.GetMachine().GetState())
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_CREATED, created.GetMachine().GetState())
 	assert.Equal(t, "m", created.GetMachine().GetId())
 	assert.Equal(t, uint32(2), created.GetMachine().GetResources().GetCpuCount())
 	assert.Equal(t, uint32(4), created.GetMachine().GetResourceCeiling().GetCpuCount(), "the ceiling asked for")
@@ -84,74 +84,74 @@ func TestAPI_DrivesTheWholeLifecycle(t *testing.T) {
 	rule := created.GetMachine().GetNetworkPolicy().GetEgress()
 	require.Len(t, rule, 1)
 	assert.Equal(t, "10.0.0.0/8", rule[0].GetPrefix())
-	assert.Equal(t, v1alpha1.Protocol_PROTOCOL_TCP, rule[0].GetProtocol())
+	assert.Equal(t, v1alpha2.Protocol_PROTOCOL_TCP, rule[0].GetProtocol())
 	assert.Equal(t, uint32(443), rule[0].GetPorts()[0].GetFirst())
 
-	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "m"})
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "m"})
 	requireKind(t, err, precondition)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 
 	armed := renew(t, n, 1)
-	assert.Equal(t, v1alpha1.DeadlinePhase_DEADLINE_PHASE_ARMED, armed.GetPhase())
+	assert.Equal(t, v1alpha2.DeadlinePhase_DEADLINE_PHASE_ARMED, armed.GetPhase())
 	assert.Equal(t, time.Hour, armed.GetLength().AsDuration())
 	assert.Equal(t, uint64(1), armed.GetLastRenewalNumber())
 	assert.LessOrEqual(t, armed.GetRemaining().AsDuration(), time.Hour)
 	again := renew(t, n, 1)
 	assert.Equal(t, uint64(1), again.GetLastRenewalNumber(), "a number not greater changes nothing")
-	inspected, err := n.client.InspectDeadline(ctx, &v1alpha1.InspectDeadlineRequest{})
+	inspected, err := n.client.InspectDeadline(ctx, &v1alpha2.InspectDeadlineRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(1), inspected.GetStatus().GetLastRenewalNumber())
 
-	started, err := n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "m"})
+	started, err := n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, started.GetMachine().GetState())
-	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "m"})
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, started.GetMachine().GetState())
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "m"})
 	require.NoError(t, err, "a repeat in the target state succeeds")
 
-	paused, err := n.client.PauseMachine(ctx, &v1alpha1.PauseMachineRequest{MachineId: "m"})
+	paused, err := n.client.PauseMachine(ctx, &v1alpha2.PauseMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_PAUSED, paused.GetMachine().GetState())
-	resumed, err := n.client.ResumeMachine(ctx, &v1alpha1.ResumeMachineRequest{MachineId: "m"})
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_PAUSED, paused.GetMachine().GetState())
+	resumed, err := n.client.ResumeMachine(ctx, &v1alpha2.ResumeMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, resumed.GetMachine().GetState())
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, resumed.GetMachine().GetState())
 
-	attached, err := n.client.AttachDisk(ctx, &v1alpha1.AttachDiskRequest{MachineId: "m", Disk: &v1alpha1.DiskAttachment{DiskId: "data", ReadOnly: true}})
+	attached, err := n.client.AttachDisk(ctx, &v1alpha2.AttachDiskRequest{MachineId: "m", Disk: &v1alpha2.DiskAttachment{DiskId: "data", ReadOnly: true}})
 	require.NoError(t, err)
 	require.Len(t, attached.GetMachine().GetDisks(), 1)
 	assert.True(t, attached.GetMachine().GetDisks()[0].GetReadOnly())
-	detached, err := n.client.DetachDisk(ctx, &v1alpha1.DetachDiskRequest{MachineId: "m", DiskId: "data"})
+	detached, err := n.client.DetachDisk(ctx, &v1alpha2.DetachDiskRequest{MachineId: "m", DiskId: "data"})
 	require.NoError(t, err)
 	assert.Empty(t, detached.GetMachine().GetDisks())
 
-	resized, err := n.client.SetResources(ctx, &v1alpha1.SetResourcesRequest{MachineId: "m", Target: &v1alpha1.Resources{CpuCount: 4, MemoryBytes: 2 << 30}})
+	resized, err := n.client.SetResources(ctx, &v1alpha2.SetResourcesRequest{MachineId: "m", Target: &v1alpha2.Resources{CpuCount: 4, MemoryBytes: 2 << 30}})
 	require.NoError(t, err)
 	assert.Equal(t, uint32(4), resized.GetResources().GetCpuCount())
 	assert.Equal(t, uint64(2<<30), resized.GetResources().GetMemoryBytes())
 	assert.Equal(t, uint32(4), resized.GetResourceCeiling().GetCpuCount(), "the ceiling in effect")
 	assert.Equal(t, uint64(2<<30), resized.GetResourceCeiling().GetMemoryBytes())
 
-	one, err := n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "m"})
+	one, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
 	assert.Equal(t, uint32(4), one.GetMachine().GetResources().GetCpuCount())
 	assert.Equal(t, uint64(2<<30), one.GetMachine().GetResourceCeiling().GetMemoryBytes())
 	_, err = n.client.CreateMachine(ctx, create("a"))
 	require.NoError(t, err)
-	list, err := n.client.ListMachines(ctx, &v1alpha1.ListMachinesRequest{})
+	list, err := n.client.ListMachines(ctx, &v1alpha2.ListMachinesRequest{})
 	require.NoError(t, err)
 	require.Len(t, list.GetMachines(), 2)
 	assert.Equal(t, "a", list.GetMachines()[0].GetId())
 
-	_, err = n.client.DeleteMachine(ctx, &v1alpha1.DeleteMachineRequest{MachineId: "m"})
+	_, err = n.client.DeleteMachine(ctx, &v1alpha2.DeleteMachineRequest{MachineId: "m"})
 	requireKind(t, err, precondition) // Running
 
-	stopped, err := n.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
+	stopped, err := n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_STOPPED, stopped.GetMachine().GetState())
-	_, err = n.client.DeleteMachine(ctx, &v1alpha1.DeleteMachineRequest{MachineId: "m"})
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_STOPPED, stopped.GetMachine().GetState())
+	_, err = n.client.DeleteMachine(ctx, &v1alpha2.DeleteMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	_, err = n.client.DeleteMachine(ctx, &v1alpha1.DeleteMachineRequest{MachineId: "m"})
+	_, err = n.client.DeleteMachine(ctx, &v1alpha2.DeleteMachineRequest{MachineId: "m"})
 	require.NoError(t, err, "absent: success")
-	_, err = n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "m"})
+	_, err = n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "m"})
 	requireKind(t, err, notFound)
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
@@ -185,7 +185,7 @@ func TestAPI_CreateOutcomes(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err))
 
 	noDisk := create("y")
-	noDisk.Disks = []*v1alpha1.DiskAttachment{{DiskId: "absent"}}
+	noDisk.Disks = []*v1alpha2.DiskAttachment{{DiskId: "absent"}}
 	_, err = n.client.CreateMachine(ctx, noDisk)
 	requireKind(t, err, notFound)
 }
@@ -208,7 +208,7 @@ func TestAPI_ServerValidatesEveryRequest(t *testing.T) {
 	requireKind(t, err, rejected)
 
 	badPolicy := create("m")
-	badPolicy.NetworkPolicy.Egress[0].Ports = []*v1alpha1.PortRange{{First: 9, Last: 8}}
+	badPolicy.NetworkPolicy.Egress[0].Ports = []*v1alpha2.PortRange{{First: 9, Last: 8}}
 	_, err = raw.CreateMachine(ctx, badPolicy)
 	requireKind(t, err, rejected)
 
@@ -217,50 +217,50 @@ func TestAPI_ServerValidatesEveryRequest(t *testing.T) {
 	_, err = raw.CreateMachine(ctx, noResources)
 	requireKind(t, err, rejected)
 
-	_, err = n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "m"})
+	_, err = n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "m"})
 	requireKind(t, err, notFound) // none of the above created it
 
 	calls := map[string]func() error{
-		"start":   func() error { _, err := raw.StartMachine(ctx, &v1alpha1.StartMachineRequest{}); return err },
-		"stop":    func() error { _, err := raw.StopMachine(ctx, &v1alpha1.StopMachineRequest{}); return err },
-		"pause":   func() error { _, err := raw.PauseMachine(ctx, &v1alpha1.PauseMachineRequest{}); return err },
-		"resume":  func() error { _, err := raw.ResumeMachine(ctx, &v1alpha1.ResumeMachineRequest{}); return err },
-		"delete":  func() error { _, err := raw.DeleteMachine(ctx, &v1alpha1.DeleteMachineRequest{}); return err },
-		"inspect": func() error { _, err := raw.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{}); return err },
+		"start":   func() error { _, err := raw.StartMachine(ctx, &v1alpha2.StartMachineRequest{}); return err },
+		"stop":    func() error { _, err := raw.StopMachine(ctx, &v1alpha2.StopMachineRequest{}); return err },
+		"pause":   func() error { _, err := raw.PauseMachine(ctx, &v1alpha2.PauseMachineRequest{}); return err },
+		"resume":  func() error { _, err := raw.ResumeMachine(ctx, &v1alpha2.ResumeMachineRequest{}); return err },
+		"delete":  func() error { _, err := raw.DeleteMachine(ctx, &v1alpha2.DeleteMachineRequest{}); return err },
+		"inspect": func() error { _, err := raw.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{}); return err },
 		"attach": func() error {
-			_, err := raw.AttachDisk(ctx, &v1alpha1.AttachDiskRequest{Disk: &v1alpha1.DiskAttachment{DiskId: "d"}})
+			_, err := raw.AttachDisk(ctx, &v1alpha2.AttachDiskRequest{Disk: &v1alpha2.DiskAttachment{DiskId: "d"}})
 			return err
 		},
 		"attach, no disk": func() error {
-			_, err := raw.AttachDisk(ctx, &v1alpha1.AttachDiskRequest{MachineId: "m"})
+			_, err := raw.AttachDisk(ctx, &v1alpha2.AttachDiskRequest{MachineId: "m"})
 			return err
 		},
-		"detach": func() error { _, err := raw.DetachDisk(ctx, &v1alpha1.DetachDiskRequest{DiskId: "d"}); return err },
+		"detach": func() error { _, err := raw.DetachDisk(ctx, &v1alpha2.DetachDiskRequest{DiskId: "d"}); return err },
 		"detach, no disk": func() error {
-			_, err := raw.DetachDisk(ctx, &v1alpha1.DetachDiskRequest{MachineId: "m"})
+			_, err := raw.DetachDisk(ctx, &v1alpha2.DetachDiskRequest{MachineId: "m"})
 			return err
 		},
 		"set resources, no target": func() error {
-			_, err := raw.SetResources(ctx, &v1alpha1.SetResourcesRequest{MachineId: "m"})
+			_, err := raw.SetResources(ctx, &v1alpha2.SetResourcesRequest{MachineId: "m"})
 			return err
 		},
 		"stop, negative grace": func() error {
-			_, err := raw.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(-time.Second)})
+			_, err := raw.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(-time.Second)})
 			return err
 		},
 		"renew, no length": func() error {
-			_, err := raw.RenewDeadline(ctx, &v1alpha1.RenewDeadlineRequest{RenewalNumber: 1})
+			_, err := raw.RenewDeadline(ctx, &v1alpha2.RenewDeadlineRequest{RenewalNumber: 1})
 			return err
 		},
 		"renew, zero length": func() error {
-			_, err := raw.RenewDeadline(ctx, &v1alpha1.RenewDeadlineRequest{Length: durationpb.New(0), RenewalNumber: 1})
+			_, err := raw.RenewDeadline(ctx, &v1alpha2.RenewDeadlineRequest{Length: durationpb.New(0), RenewalNumber: 1})
 			return err
 		},
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) { requireKind(t, call(), rejected) })
 	}
-	st, err := n.client.InspectDeadline(ctx, &v1alpha1.InspectDeadlineRequest{})
+	st, err := n.client.InspectDeadline(ctx, &v1alpha2.InspectDeadlineRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.DeadlinePhase_DEADLINE_PHASE_NOT_ARMED, st.GetStatus().GetPhase(), "a rejected renewal arms nothing")
+	assert.Equal(t, v1alpha2.DeadlinePhase_DEADLINE_PHASE_NOT_ARMED, st.GetStatus().GetPhase(), "a rejected renewal arms nothing")
 }

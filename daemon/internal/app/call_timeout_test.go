@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // createHeldPastTheBound creates "m" with its root disk held for 150ms, and
@@ -48,14 +48,14 @@ func createHeldPastTheBound(t *testing.T, callTimeout string) (*node, error) {
 // default bound lets the same Create finish.
 func TestCallTimeout_TheConfiguredBoundReachesTheLifecycle(t *testing.T) {
 	n, err := createHeldPastTheBound(t, "50ms")
-	requireKind(t, err, v1alpha1.OutcomeKind_OUTCOME_KIND_FAILED)
-	_, err = n.client.InspectMachine(context.Background(), &v1alpha1.InspectMachineRequest{MachineId: "m"})
-	requireKind(t, err, v1alpha1.OutcomeKind_OUTCOME_KIND_NOT_FOUND)
+	requireKind(t, err, v1alpha2.OutcomeKind_OUTCOME_KIND_FAILED)
+	_, err = n.client.InspectMachine(context.Background(), &v1alpha2.InspectMachineRequest{MachineId: "m"})
+	requireKind(t, err, v1alpha2.OutcomeKind_OUTCOME_KIND_NOT_FOUND)
 
 	// Control: the default bound.
 	n, err = createHeldPastTheBound(t, "")
 	require.NoError(t, err)
-	got, err := n.client.InspectMachine(context.Background(), &v1alpha1.InspectMachineRequest{MachineId: "m"})
+	got, err := n.client.InspectMachine(context.Background(), &v1alpha2.InspectMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, got.GetMachine().GetState())
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_CREATED, got.GetMachine().GetState())
 }

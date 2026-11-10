@@ -1,5 +1,5 @@
 // Package runtimeapi dials the mvmd runtime API on its Unix socket. The
-// service stubs live in the version packages beside it, such as v1alpha1.
+// service stubs live in the version packages beside it, such as v1alpha2.
 package runtimeapi
 
 import (

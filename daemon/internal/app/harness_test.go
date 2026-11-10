@@ -17,7 +17,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/app"
 	"github.com/garamsh/mvmd/lib/runtimeapi"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -27,7 +27,7 @@ const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef012345678
 type node struct {
 	app    *app.App
 	cfg    app.Config
-	client v1alpha1.RuntimeServiceClient
+	client v1alpha2.RuntimeServiceClient
 	conn   *grpc.ClientConn
 	stop   context.CancelFunc
 	done   chan error
@@ -69,7 +69,7 @@ func startWith(t *testing.T, cfg app.Config, beforeServe func(*app.App)) *node {
 	var err error
 	n.conn, err = runtimeapi.Dial(dial, cfg.Socket.Path)
 	require.NoError(t, err)
-	n.client = v1alpha1.NewRuntimeServiceClient(n.conn)
+	n.client = v1alpha2.NewRuntimeServiceClient(n.conn)
 	return n
 }
 
@@ -124,7 +124,7 @@ func (n *node) shutdown(t *testing.T) {
 
 // raw connects without lib/runtimeapi's client-side validation, to send what
 // the client would have refused.
-func (n *node) raw(t *testing.T) v1alpha1.RuntimeServiceClient {
+func (n *node) raw(t *testing.T) v1alpha2.RuntimeServiceClient {
 	t.Helper()
 	conn, err := grpc.NewClient("passthrough:///"+n.cfg.Socket.Path,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -133,17 +133,17 @@ func (n *node) raw(t *testing.T) v1alpha1.RuntimeServiceClient {
 		}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	return v1alpha1.NewRuntimeServiceClient(conn)
+	return v1alpha2.NewRuntimeServiceClient(conn)
 }
 
 // requireKind requires err to end a call in the kind, with a reason.
-func requireKind(t *testing.T, err error, kind v1alpha1.OutcomeKind) {
+func requireKind(t *testing.T, err error, kind v1alpha2.OutcomeKind) {
 	t.Helper()
 	require.Error(t, err)
-	require.Equal(t, kind, v1alpha1.KindOf(err), "%v", err)
+	require.Equal(t, kind, v1alpha2.KindOf(err), "%v", err)
 	reason := ""
 	for _, d := range statusDetails(err) {
-		if f, ok := d.(*v1alpha1.Failure); ok {
+		if f, ok := d.(*v1alpha2.Failure); ok {
 			assert.Equal(t, kind, f.GetKind())
 			reason = f.GetReason()
 		}

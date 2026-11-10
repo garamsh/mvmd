@@ -1,12 +1,12 @@
-// The mvmd runtime API, version v1alpha1. Its meaning is fixed by
+// The mvmd runtime API, version v1alpha2. Its meaning is fixed by
 // docs/architecture/runtime-api.md; this file is the encoding.
 syntax = "proto3";
 
-package mvmd.runtime.v1alpha1;
+package mvmd.runtime.v1alpha2;
 
 import "google/protobuf/duration.proto";
 
-option go_package = "github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1;v1alpha1";
+option go_package = "github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2;v1alpha2";
 
 // RuntimeService is the whole runtime API. Every call ends in an outcome kind
 // (OutcomeKind). A success is an OK status; every other kind is a non-OK
@@ -315,7 +315,7 @@ message DriverInfo {
 
 message GetRuntimeInfoResponse {
   // The API versions served, as package identifiers (for example
-  // "mvmd.runtime.v1alpha1").
+  // "mvmd.runtime.v1alpha2").
   repeated string api_versions = 1;
   repeated DriverInfo drivers = 2;
 }

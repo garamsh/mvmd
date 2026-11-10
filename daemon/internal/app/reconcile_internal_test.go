@@ -15,7 +15,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/bootclock"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/lib/runtimeapi"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 func config(t *testing.T) Config {
@@ -100,18 +100,18 @@ func TestServe_FirstCallSeesTheReconciledDeadline(t *testing.T) {
 	tests := []struct {
 		name   string
 		record func(now fencing.BootTime, bootID string) fencing.Record
-		phase  v1alpha1.DeadlinePhase
+		phase  v1alpha2.DeadlinePhase
 		last   uint64
 	}{
 		{"a live expiry is kept, with the time left", func(now fencing.BootTime, id string) fencing.Record {
 			return fencing.Record{Expiry: now.Add(time.Hour), BootID: id, Length: 2 * time.Hour, Renewal: 5}
-		}, v1alpha1.DeadlinePhase_DEADLINE_PHASE_ARMED, 5},
+		}, v1alpha2.DeadlinePhase_DEADLINE_PHASE_ARMED, 5},
 		{"a passed expiry stops everything", func(now fencing.BootTime, id string) fencing.Record {
 			return fencing.Record{Expiry: now.Add(-time.Second), BootID: id, Length: time.Minute, Renewal: 6}
-		}, v1alpha1.DeadlinePhase_DEADLINE_PHASE_STOPPED_EVERYTHING, 6},
+		}, v1alpha2.DeadlinePhase_DEADLINE_PHASE_STOPPED_EVERYTHING, 6},
 		{"another boot is not armed", func(now fencing.BootTime, _ string) fencing.Record {
 			return fencing.Record{Expiry: now.Add(time.Hour), BootID: "another-boot", Length: time.Hour, Renewal: 7}
-		}, v1alpha1.DeadlinePhase_DEADLINE_PHASE_NOT_ARMED, 0},
+		}, v1alpha2.DeadlinePhase_DEADLINE_PHASE_NOT_ARMED, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -126,11 +126,11 @@ func TestServe_FirstCallSeesTheReconciledDeadline(t *testing.T) {
 			conn, err := runtimeapi.Dial(context.Background(), cfg.Socket.Path)
 			require.NoError(t, err)
 			defer conn.Close()
-			resp, err := v1alpha1.NewRuntimeServiceClient(conn).InspectDeadline(context.Background(), &v1alpha1.InspectDeadlineRequest{})
+			resp, err := v1alpha2.NewRuntimeServiceClient(conn).InspectDeadline(context.Background(), &v1alpha2.InspectDeadlineRequest{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.phase, resp.GetStatus().GetPhase())
 			assert.Equal(t, tt.last, resp.GetStatus().GetLastRenewalNumber())
-			if tt.phase == v1alpha1.DeadlinePhase_DEADLINE_PHASE_ARMED {
+			if tt.phase == v1alpha2.DeadlinePhase_DEADLINE_PHASE_ARMED {
 				assert.Less(t, resp.GetStatus().GetRemaining().AsDuration(), 61*time.Minute, "what is left, not the length")
 			}
 		})

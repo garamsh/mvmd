@@ -14,7 +14,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/app"
 	"github.com/garamsh/mvmd/daemon/internal/boltstore"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 func provide(a *app.App) {
@@ -29,13 +29,13 @@ func populate(t *testing.T, n *node) {
 	ctx := context.Background()
 	provide(n.app)
 	withDisk := create("a")
-	withDisk.Disks = []*v1alpha1.DiskAttachment{{DiskId: "data"}}
+	withDisk.Disks = []*v1alpha2.DiskAttachment{{DiskId: "data"}}
 	_, err := n.client.CreateMachine(ctx, withDisk)
 	require.NoError(t, err)
 	_, err = n.client.CreateMachine(ctx, create("b"))
 	require.NoError(t, err)
 	renew(t, n, 1)
-	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "a"})
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "a"})
 	require.NoError(t, err)
 }
 
@@ -54,13 +54,13 @@ func requireKept(t *testing.T, n *node) {
 	t.Helper()
 	ctx := context.Background()
 
-	a, err := n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})
+	a, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "a"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, a.GetMachine().GetState())
-	b, err := n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "b"})
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, a.GetMachine().GetState())
+	b, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "b"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, b.GetMachine().GetState())
-	list, err := n.client.ListMachines(ctx, &v1alpha1.ListMachinesRequest{})
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_CREATED, b.GetMachine().GetState())
+	list, err := n.client.ListMachines(ctx, &v1alpha2.ListMachinesRequest{})
 	require.NoError(t, err)
 	require.Len(t, list.GetMachines(), 2)
 
@@ -75,7 +75,7 @@ func requireKept(t *testing.T, n *node) {
 	requireKind(t, err, conflict)
 
 	// The disk-holder index: "a" holds "data", so "b" cannot have it.
-	_, err = n.client.AttachDisk(ctx, &v1alpha1.AttachDiskRequest{MachineId: "b", Disk: &v1alpha1.DiskAttachment{DiskId: "data"}})
+	_, err = n.client.AttachDisk(ctx, &v1alpha2.AttachDiskRequest{MachineId: "b", Disk: &v1alpha2.DiskAttachment{DiskId: "data"}})
 	requireKind(t, err, precondition)
 }
 
@@ -101,9 +101,9 @@ func TestRestore_AMachineWithoutASupervisorIsStopped(t *testing.T) {
 	t.Run("same process", func(t *testing.T) {
 		n := start(t, testConfig(t))
 		populate(t, n)
-		a, err := n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})
+		a, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "a"})
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, a.GetMachine().GetState())
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, a.GetMachine().GetState())
 		assert.Empty(t, a.GetMachine().GetLastFailureReason())
 	})
 	t.Run("after a restart, no supervisor", func(t *testing.T) {
@@ -118,23 +118,23 @@ func TestRestore_AMachineWithoutASupervisorIsStopped(t *testing.T) {
 			_, err := a.Substitutes.Network.Apply(ctx, "a", machine.User{}, machine.NetworkPolicy{})
 			require.NoError(t, err)
 		})
-		a, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})
+		a, err := second.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "a"})
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_STOPPED, a.GetMachine().GetState())
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_STOPPED, a.GetMachine().GetState())
 		assert.Contains(t, a.GetMachine().GetLastFailureReason(), "the VMM ended while mvmd was not running: ")
 		_, tap := second.app.Substitutes.Network.Applied("a")
 		assert.False(t, tap, "the network of an ended VMM is withdrawn")
 
-		b, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "b"})
+		b, err := second.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "b"})
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, b.GetMachine().GetState(), "a Machine that was not running is left as it was")
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_CREATED, b.GetMachine().GetState(), "a Machine that was not running is left as it was")
 
 		// The stopped state is durable: it is what the next restart loads.
 		second.shutdown(t)
 		third := start(t, cfg)
-		a, err = third.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})
+		a, err = third.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "a"})
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_STOPPED, a.GetMachine().GetState())
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_STOPPED, a.GetMachine().GetState())
 	})
 }
 
@@ -156,9 +156,9 @@ func TestRestore_FaultsWhatItCannotEstablish(t *testing.T) {
 		n := startWith(t, cfg, func(a *app.App) {
 			a.Substitutes.Supervisors.FailAt("live", errors.New("supervisor socket directory unreadable"))
 		})
-		a, err := n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})
+		a, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "a"})
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_FAULTED, a.GetMachine().GetState())
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_FAULTED, a.GetMachine().GetState())
 		assert.Contains(t, a.GetMachine().GetLastFailureReason(), "supervisor socket directory unreadable")
 	})
 
@@ -176,12 +176,12 @@ func TestRestore_FaultsWhatItCannotEstablish(t *testing.T) {
 		require.NoError(t, raw.Close())
 
 		second := startWith(t, cfg, superviseA)
-		b, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "b"})
+		b, err := second.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "b"})
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_FAULTED, b.GetMachine().GetState())
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_FAULTED, b.GetMachine().GetState())
 		assert.Contains(t, b.GetMachine().GetLastFailureReason(), "could not be read")
-		a, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})
+		a, err := second.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "a"})
 		require.NoError(t, err)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, a.GetMachine().GetState(), "one bad record does not touch the others")
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, a.GetMachine().GetState(), "one bad record does not touch the others")
 	})
 }

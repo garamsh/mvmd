@@ -12,29 +12,29 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // watch opens WatchEvents after the sequence on the wired daemon.
-func watch(t *testing.T, n *node, after uint64) v1alpha1.RuntimeService_WatchEventsClient {
+func watch(t *testing.T, n *node, after uint64) v1alpha2.RuntimeService_WatchEventsClient {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
-	s, err := n.client.WatchEvents(ctx, &v1alpha1.WatchEventsRequest{AfterSequence: after})
+	s, err := n.client.WatchEvents(ctx, &v1alpha2.WatchEventsRequest{AfterSequence: after})
 	require.NoError(t, err)
 	return s
 }
 
-func recv(t *testing.T, s v1alpha1.RuntimeService_WatchEventsClient) *v1alpha1.WatchEventsResponse {
+func recv(t *testing.T, s v1alpha2.RuntimeService_WatchEventsClient) *v1alpha2.WatchEventsResponse {
 	t.Helper()
 	e, err := s.Recv()
 	require.NoError(t, err)
 	return e
 }
 
-func recvN(t *testing.T, s v1alpha1.RuntimeService_WatchEventsClient, n int) []*v1alpha1.WatchEventsResponse {
+func recvN(t *testing.T, s v1alpha2.RuntimeService_WatchEventsClient, n int) []*v1alpha2.WatchEventsResponse {
 	t.Helper()
-	out := make([]*v1alpha1.WatchEventsResponse, n)
+	out := make([]*v1alpha2.WatchEventsResponse, n)
 	for i := range out {
 		out[i] = recv(t, s)
 	}
@@ -43,9 +43,9 @@ func recvN(t *testing.T, s v1alpha1.RuntimeService_WatchEventsClient, n int) []*
 
 // requireWaiting requires the stream to deliver nothing for a moment: the
 // server holds it open and does not end it or send a resync.
-func requireWaiting(t *testing.T, s v1alpha1.RuntimeService_WatchEventsClient) (got chan *v1alpha1.WatchEventsResponse) {
+func requireWaiting(t *testing.T, s v1alpha2.RuntimeService_WatchEventsClient) (got chan *v1alpha2.WatchEventsResponse) {
 	t.Helper()
-	got = make(chan *v1alpha1.WatchEventsResponse, 1)
+	got = make(chan *v1alpha2.WatchEventsResponse, 1)
 	go func() {
 		e, err := s.Recv()
 		if err != nil {
@@ -62,7 +62,7 @@ func requireWaiting(t *testing.T, s v1alpha1.RuntimeService_WatchEventsClient) (
 	return got
 }
 
-func sequences(events []*v1alpha1.WatchEventsResponse) []uint64 {
+func sequences(events []*v1alpha2.WatchEventsResponse) []uint64 {
 	out := make([]uint64, len(events))
 	for i, e := range events {
 		out[i] = e.GetSequence()
@@ -89,27 +89,27 @@ func TestEvents_ALiveStreamCarriesEveryChangeAndAReplayIsTheSameSequence(t *test
 	_, err := n.client.CreateMachine(ctx, create("m"))
 	require.NoError(t, err)
 	renew(t, n, 1)
-	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "m"})
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	_, err = n.client.PauseMachine(ctx, &v1alpha1.PauseMachineRequest{MachineId: "m"})
+	_, err = n.client.PauseMachine(ctx, &v1alpha2.PauseMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	_, err = n.client.ResumeMachine(ctx, &v1alpha1.ResumeMachineRequest{MachineId: "m"})
+	_, err = n.client.ResumeMachine(ctx, &v1alpha2.ResumeMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
-	_, err = n.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
+	_, err = n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(time.Second)})
 	require.NoError(t, err)
 
-	events := append([]*v1alpha1.WatchEventsResponse{<-got}, recvN(t, live, 5)...)
+	events := append([]*v1alpha2.WatchEventsResponse{<-got}, recvN(t, live, 5)...)
 	assert.Equal(t, []uint64{1, 2, 3, 4, 5, 6}, sequences(events))
 
 	// The second event is the deadline's arming; the rest are the states.
 	assert.Empty(t, events[1].GetMachineId(), "a deadline event belongs to the node")
-	assert.Equal(t, v1alpha1.DeadlineEvent_KIND_ARMED, events[1].GetDeadline().GetKind())
-	states := map[int]v1alpha1.MachineState{
-		0: v1alpha1.MachineState_MACHINE_STATE_CREATED,
-		2: v1alpha1.MachineState_MACHINE_STATE_RUNNING,
-		3: v1alpha1.MachineState_MACHINE_STATE_PAUSED,
-		4: v1alpha1.MachineState_MACHINE_STATE_RUNNING,
-		5: v1alpha1.MachineState_MACHINE_STATE_STOPPED,
+	assert.Equal(t, v1alpha2.DeadlineEvent_KIND_ARMED, events[1].GetDeadline().GetKind())
+	states := map[int]v1alpha2.MachineState{
+		0: v1alpha2.MachineState_MACHINE_STATE_CREATED,
+		2: v1alpha2.MachineState_MACHINE_STATE_RUNNING,
+		3: v1alpha2.MachineState_MACHINE_STATE_PAUSED,
+		4: v1alpha2.MachineState_MACHINE_STATE_RUNNING,
+		5: v1alpha2.MachineState_MACHINE_STATE_STOPPED,
 	}
 	for i, want := range states {
 		assert.Equal(t, "m", events[i].GetMachineId())
@@ -136,14 +136,14 @@ func TestEvents_ADeletedMachineIsOnTheStream(t *testing.T) {
 	require.NoError(t, err)
 	_, err = n.client.CreateMachine(ctx, create("control"))
 	require.NoError(t, err)
-	_, err = n.client.DeleteMachine(ctx, &v1alpha1.DeleteMachineRequest{MachineId: "gone"})
+	_, err = n.client.DeleteMachine(ctx, &v1alpha2.DeleteMachineRequest{MachineId: "gone"})
 	require.NoError(t, err)
 
 	events := recvN(t, s, 3)
 	assert.Equal(t, "gone", events[0].GetMachineId())
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, events[0].GetStateChanged().GetState())
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_CREATED, events[0].GetStateChanged().GetState())
 	assert.Equal(t, "control", events[1].GetMachineId())
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_CREATED, events[1].GetStateChanged().GetState())
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_CREATED, events[1].GetStateChanged().GetState())
 	assert.Equal(t, "gone", events[2].GetMachineId())
 	assert.NotNil(t, events[2].GetMachineDeleted(), "the deletion is its own event")
 	assert.Nil(t, events[2].GetStateChanged(), "a deleted Machine has no state")
@@ -247,14 +247,14 @@ func TestEvents_TheDriversEventsAreOnTheStream(t *testing.T) {
 func TestEvents_TheExpiryIsOnTheStream(t *testing.T) {
 	n := start(t, testConfig(t))
 	s := watch(t, n, 0)
-	_, err := n.client.RenewDeadline(context.Background(), &v1alpha1.RenewDeadlineRequest{
+	_, err := n.client.RenewDeadline(context.Background(), &v1alpha2.RenewDeadlineRequest{
 		Length: durationpb.New(50 * time.Millisecond), RenewalNumber: 1,
 	})
 	require.NoError(t, err)
 
 	events := recvN(t, s, 2)
-	assert.Equal(t, v1alpha1.DeadlineEvent_KIND_ARMED, events[0].GetDeadline().GetKind())
-	assert.Equal(t, v1alpha1.DeadlineEvent_KIND_EXPIRED, events[1].GetDeadline().GetKind())
+	assert.Equal(t, v1alpha2.DeadlineEvent_KIND_ARMED, events[0].GetDeadline().GetKind())
+	assert.Equal(t, v1alpha2.DeadlineEvent_KIND_EXPIRED, events[1].GetDeadline().GetKind())
 }
 
 // Machines changing state together are one consecutive sequence, and each
@@ -276,19 +276,19 @@ func TestEvents_ConcurrentStateChangesAreOneOrderedSequence(t *testing.T) {
 			for _, call := range []func() error{
 				func() error { _, err := n.client.CreateMachine(ctx, create(id)); return err },
 				func() error {
-					_, err := n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: id})
+					_, err := n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: id})
 					return err
 				},
 				func() error {
-					_, err := n.client.PauseMachine(ctx, &v1alpha1.PauseMachineRequest{MachineId: id})
+					_, err := n.client.PauseMachine(ctx, &v1alpha2.PauseMachineRequest{MachineId: id})
 					return err
 				},
 				func() error {
-					_, err := n.client.ResumeMachine(ctx, &v1alpha1.ResumeMachineRequest{MachineId: id})
+					_, err := n.client.ResumeMachine(ctx, &v1alpha2.ResumeMachineRequest{MachineId: id})
 					return err
 				},
 				func() error {
-					_, err := n.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: id, GracePeriod: durationpb.New(time.Second)})
+					_, err := n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: id, GracePeriod: durationpb.New(time.Second)})
 					return err
 				},
 			} {
@@ -302,18 +302,18 @@ func TestEvents_ConcurrentStateChangesAreOneOrderedSequence(t *testing.T) {
 	for i, e := range events {
 		assert.Equal(t, uint64(i+1), e.GetSequence(), "one consecutive sequence")
 	}
-	byMachine := map[string][]v1alpha1.MachineState{}
+	byMachine := map[string][]v1alpha2.MachineState{}
 	for _, e := range events[1:] {
 		byMachine[e.GetMachineId()] = append(byMachine[e.GetMachineId()], e.GetStateChanged().GetState())
 	}
 	require.Len(t, byMachine, machines)
 	for id, got := range byMachine {
-		assert.Equal(t, []v1alpha1.MachineState{
-			v1alpha1.MachineState_MACHINE_STATE_CREATED,
-			v1alpha1.MachineState_MACHINE_STATE_RUNNING,
-			v1alpha1.MachineState_MACHINE_STATE_PAUSED,
-			v1alpha1.MachineState_MACHINE_STATE_RUNNING,
-			v1alpha1.MachineState_MACHINE_STATE_STOPPED,
+		assert.Equal(t, []v1alpha2.MachineState{
+			v1alpha2.MachineState_MACHINE_STATE_CREATED,
+			v1alpha2.MachineState_MACHINE_STATE_RUNNING,
+			v1alpha2.MachineState_MACHINE_STATE_PAUSED,
+			v1alpha2.MachineState_MACHINE_STATE_RUNNING,
+			v1alpha2.MachineState_MACHINE_STATE_STOPPED,
 		}, got, "events of %s", id)
 	}
 }

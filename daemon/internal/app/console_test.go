@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // serveConsole makes the console of "m" write the banner and echo its input.
@@ -32,7 +32,7 @@ func serveConsole(n *node, banner string) {
 	})
 }
 
-func recvOutput(t *testing.T, s v1alpha1.RuntimeService_ConsoleClient, want string) {
+func recvOutput(t *testing.T, s v1alpha2.RuntimeService_ConsoleClient, want string) {
 	t.Helper()
 	var got []byte
 	for len(got) < len(want) {
@@ -53,9 +53,9 @@ func TestAPI_ConsoleIsServedBothWays(t *testing.T) {
 
 	s, err := n.client.Console(ctx)
 	require.NoError(t, err)
-	require.NoError(t, s.Send(&v1alpha1.ConsoleRequest{MachineId: "m"}))
+	require.NoError(t, s.Send(&v1alpha2.ConsoleRequest{MachineId: "m"}))
 	recvOutput(t, s, "login: ")
-	require.NoError(t, s.Send(&v1alpha1.ConsoleRequest{Input: []byte("root")}))
+	require.NoError(t, s.Send(&v1alpha2.ConsoleRequest{Input: []byte("root")}))
 	recvOutput(t, s, "echo:root")
 
 	require.NoError(t, s.CloseSend())
@@ -73,7 +73,7 @@ func TestAPI_ConsoleEndsCleanlyWhenTheConsoleDoes(t *testing.T) {
 	})
 	s, err := n.client.Console(ctx)
 	require.NoError(t, err)
-	require.NoError(t, s.Send(&v1alpha1.ConsoleRequest{MachineId: "m"}))
+	require.NoError(t, s.Send(&v1alpha2.ConsoleRequest{MachineId: "m"}))
 	recvOutput(t, s, "bye")
 	_, err = s.Recv()
 	assert.Equal(t, io.EOF, err)
@@ -89,7 +89,7 @@ func TestAPI_ConsoleRefusals(t *testing.T) {
 	_, err := n.client.CreateMachine(ctx, create("idle"))
 	require.NoError(t, err)
 
-	open := func(first *v1alpha1.ConsoleRequest) error {
+	open := func(first *v1alpha2.ConsoleRequest) error {
 		s, err := n.client.Console(ctx)
 		require.NoError(t, err)
 		if first != nil {
@@ -101,18 +101,18 @@ func TestAPI_ConsoleRefusals(t *testing.T) {
 		return err
 	}
 	t.Run("a Machine that is not Running or Paused", func(t *testing.T) {
-		err := open(&v1alpha1.ConsoleRequest{MachineId: "idle"})
-		requireKind(t, err, v1alpha1.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED)
+		err := open(&v1alpha2.ConsoleRequest{MachineId: "idle"})
+		requireKind(t, err, v1alpha2.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED)
 		assert.NotContains(t, status.Convert(err).Message(), "#60")
 		assert.NotEqual(t, codes.Unimplemented, status.Code(err))
 	})
 	t.Run("an absent Machine", func(t *testing.T) {
-		requireKind(t, open(&v1alpha1.ConsoleRequest{MachineId: "nope"}), v1alpha1.OutcomeKind_OUTCOME_KIND_NOT_FOUND)
+		requireKind(t, open(&v1alpha2.ConsoleRequest{MachineId: "nope"}), v1alpha2.OutcomeKind_OUTCOME_KIND_NOT_FOUND)
 	})
 	t.Run("a first message that names no Machine", func(t *testing.T) {
-		requireKind(t, open(&v1alpha1.ConsoleRequest{Input: []byte("x")}), v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED)
+		requireKind(t, open(&v1alpha2.ConsoleRequest{Input: []byte("x")}), v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED)
 	})
 	t.Run("an empty stream", func(t *testing.T) {
-		requireKind(t, open(nil), v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED)
+		requireKind(t, open(nil), v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED)
 	})
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // A Machine of a pulled image runs a command, pauses, is snapshotted and restored as a new Machine
@@ -42,7 +42,7 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 	assert.True(t, info.Mode().IsRegular())
 	assert.Equal(t, int64(1<<30), info.Size(), "the root disk is the size the Machine was created with")
 
-	_, err = n.client.StartMachine(ctx, &v1alpha1.StartMachineRequest{MachineId: "origin"})
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "origin"})
 	require.NoError(t, err)
 
 	// The exit code is read from the command: the first exits 0, the control exits 3.
@@ -54,27 +54,27 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 
 	n.writeFile(t, ctx, "origin", "/marker", "written before the snapshot")
 
-	paused, err := n.client.PauseMachine(ctx, &v1alpha1.PauseMachineRequest{MachineId: "origin"})
+	paused, err := n.client.PauseMachine(ctx, &v1alpha2.PauseMachineRequest{MachineId: "origin"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_PAUSED, paused.Machine.State)
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_PAUSED, paused.Machine.State)
 
-	_, err = n.client.SnapshotMachine(ctx, &v1alpha1.SnapshotMachineRequest{SnapshotId: "snap", RequestId: "snapshot-snap", MachineId: "origin"})
+	_, err = n.client.SnapshotMachine(ctx, &v1alpha2.SnapshotMachineRequest{SnapshotId: "snap", RequestId: "snapshot-snap", MachineId: "origin"})
 	require.NoError(t, err)
 	snapshotDisks, err := filepath.Glob(filepath.Join(n.stateDir, "snapshots", "*", "root.disk"))
 	require.NoError(t, err)
 	assert.Len(t, snapshotDisks, 1, "the snapshot is a directory under <state_dir>/snapshots holding a copy of the root disk")
 	assert.Len(t, n.snapshots(t), 1)
-	inspected, err := n.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "origin"})
+	inspected, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "origin"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_PAUSED, inspected.Machine.State, "a snapshot leaves the Machine in the state it was in")
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_PAUSED, inspected.Machine.State, "a snapshot leaves the Machine in the state it was in")
 
 	// A restore that never returns fails the test, with the node's logs, well before the test
 	// binary's own timeout would kill it with none.
 	restoreCtx, cancelRestore := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancelRestore()
-	restored, err := n.client.RestoreMachine(restoreCtx, &v1alpha1.RestoreMachineRequest{MachineId: "copy", RequestId: "restore-copy", SnapshotId: "snap"})
+	restored, err := n.client.RestoreMachine(restoreCtx, &v1alpha2.RestoreMachineRequest{MachineId: "copy", RequestId: "restore-copy", SnapshotId: "snap"})
 	require.NoError(t, err)
-	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, restored.Machine.State)
+	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, restored.Machine.State)
 	assert.NotEqual(t, created.Machine.Addresses, restored.Machine.Addresses, "the restored Machine has an address of its own")
 	assert.Len(t, n.entries(t, "disks"), 2, "the restored Machine has a root disk of its own beside the origin's")
 
@@ -84,9 +84,9 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 	assert.Equal(t, int32(0), code)
 
 	for _, id := range []string{"copy", "origin"} {
-		stopped, err := n.client.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: id, GracePeriod: durationpb.New(10 * time.Second)})
+		stopped, err := n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: id, GracePeriod: durationpb.New(10 * time.Second)})
 		require.NoError(t, err, "stop %s", id)
-		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_STOPPED, stopped.Machine.State, id)
+		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_STOPPED, stopped.Machine.State, id)
 	}
 	assert.Len(t, n.entries(t, "disks"), 2, "a stop retains the disks")
 	assert.Len(t, n.snapshots(t), 1, "a stop leaves the snapshot")
@@ -121,20 +121,20 @@ func (n *node) snapshots(t *testing.T) []string {
 // output and the exit code.
 func (n *node) exec(t *testing.T, ctx context.Context, machine, id string, command ...string) (string, int32) {
 	t.Helper()
-	started, err := n.client.Exec(ctx, &v1alpha1.ExecRequest{ExecId: id, RequestId: "exec-" + id, MachineId: machine, Command: command})
+	started, err := n.client.Exec(ctx, &v1alpha2.ExecRequest{ExecId: id, RequestId: "exec-" + id, MachineId: machine, Command: command})
 	require.NoError(t, err)
-	require.Equal(t, v1alpha1.ExecStatus_EXEC_STATUS_STARTED, started.Record.Status, started.Record.Reason)
+	require.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_STARTED, started.Record.Status, started.Record.Reason)
 
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	stream, err := n.client.ReadExecOutput(ctx, &v1alpha1.ReadExecOutputRequest{MachineId: machine, ExecId: id})
+	stream, err := n.client.ReadExecOutput(ctx, &v1alpha2.ReadExecOutputRequest{MachineId: machine, ExecId: id})
 	require.NoError(t, err)
 	var out strings.Builder
 	for {
 		part, err := stream.Recv()
 		require.NoError(t, err, "the output of %s so far: %q", id, out.String())
 		if record := part.GetRecord(); record != nil {
-			require.Equal(t, v1alpha1.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
+			require.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
 			return out.String(), record.ExitCode
 		}
 		out.Write(part.GetChunk().GetData())
@@ -145,15 +145,15 @@ func (n *node) writeFile(t *testing.T, ctx context.Context, machine, path, conte
 	t.Helper()
 	stream, err := n.client.WriteFile(ctx)
 	require.NoError(t, err)
-	require.NoError(t, stream.Send(&v1alpha1.WriteFileRequest{Part: &v1alpha1.WriteFileRequest_Start{Start: &v1alpha1.WriteFileStart{MachineId: machine, Path: path}}}))
-	require.NoError(t, stream.Send(&v1alpha1.WriteFileRequest{Part: &v1alpha1.WriteFileRequest_Chunk{Chunk: []byte(content)}}))
+	require.NoError(t, stream.Send(&v1alpha2.WriteFileRequest{Part: &v1alpha2.WriteFileRequest_Start{Start: &v1alpha2.WriteFileStart{MachineId: machine, Path: path}}}))
+	require.NoError(t, stream.Send(&v1alpha2.WriteFileRequest{Part: &v1alpha2.WriteFileRequest_Chunk{Chunk: []byte(content)}}))
 	_, err = stream.CloseAndRecv()
 	require.NoError(t, err)
 }
 
 func (n *node) readFile(t *testing.T, ctx context.Context, machine, path string) string {
 	t.Helper()
-	stream, err := n.client.ReadFile(ctx, &v1alpha1.ReadFileRequest{MachineId: machine, Path: path})
+	stream, err := n.client.ReadFile(ctx, &v1alpha2.ReadFileRequest{MachineId: machine, Path: path})
 	require.NoError(t, err)
 	var out strings.Builder
 	for {

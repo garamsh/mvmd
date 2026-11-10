@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/garamsh/mvmd/daemon/internal/api"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // feed is a server stream whose received message is a fixed one.
@@ -32,7 +32,7 @@ func receive(t *testing.T, msg proto.Message) (err error, handled bool) {
 	t.Helper()
 	err = api.StreamInterceptor(nil, feed{msg: msg}, &grpc.StreamServerInfo{}, func(_ any, ss grpc.ServerStream) error {
 		handled = true
-		return ss.RecvMsg(&v1alpha1.CreateMachineRequest{})
+		return ss.RecvMsg(&v1alpha2.CreateMachineRequest{})
 	})
 	return err, handled
 }
@@ -40,20 +40,20 @@ func receive(t *testing.T, msg proto.Message) (err error, handled bool) {
 // No streaming request of the runtime API has a Validate today, so the
 // interceptor is tested over a message that has one.
 func TestStreamInterceptor_RefusesAnInvalidReceivedMessageAsRejected(t *testing.T) {
-	invalid := &v1alpha1.CreateMachineRequest{}
+	invalid := &v1alpha2.CreateMachineRequest{}
 	require.Error(t, invalid.Validate(), "the setup: the message is invalid")
-	valid := &v1alpha1.CreateMachineRequest{
+	valid := &v1alpha2.CreateMachineRequest{
 		MachineId:     "m",
 		RequestId:     "r",
 		ImageDigest:   "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 2 << 20},
+		Resources:     &v1alpha2.Resources{CpuCount: 1, MemoryBytes: 2 << 20},
 		RootDiskBytes: 1 << 20,
 	}
 	require.NoError(t, valid.Validate(), "the setup: the control is valid")
 
 	err, handled := receive(t, invalid)
 	assert.True(t, handled, "the handler ran, and its read of the message failed")
-	assert.Equal(t, v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha1.KindOf(err))
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
 
 	// Control: the same stream with a valid message is not refused.
 	err, _ = receive(t, valid)

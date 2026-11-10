@@ -3,10 +3,10 @@ package api
 import (
 	"context"
 
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
-func (s *Server) RenewDeadline(ctx context.Context, req *v1alpha1.RenewDeadlineRequest) (*v1alpha1.RenewDeadlineResponse, error) {
+func (s *Server) RenewDeadline(ctx context.Context, req *v1alpha2.RenewDeadlineRequest) (*v1alpha2.RenewDeadlineResponse, error) {
 	if req.GetLength() == nil {
 		return nil, rejected("length is missing")
 	}
@@ -17,13 +17,13 @@ func (s *Server) RenewDeadline(ctx context.Context, req *v1alpha1.RenewDeadlineR
 	if err != nil {
 		return nil, status(err)
 	}
-	return &v1alpha1.RenewDeadlineResponse{Status: deadlineToWire(st)}, nil
+	return &v1alpha2.RenewDeadlineResponse{Status: deadlineToWire(st)}, nil
 }
 
-func (s *Server) InspectDeadline(ctx context.Context, _ *v1alpha1.InspectDeadlineRequest) (*v1alpha1.InspectDeadlineResponse, error) {
+func (s *Server) InspectDeadline(ctx context.Context, _ *v1alpha2.InspectDeadlineRequest) (*v1alpha2.InspectDeadlineResponse, error) {
 	st, err := s.deadline.Inspect(ctx)
 	if err != nil {
 		return nil, status(err)
 	}
-	return &v1alpha1.InspectDeadlineResponse{Status: deadlineToWire(st)}, nil
+	return &v1alpha2.InspectDeadlineResponse{Status: deadlineToWire(st)}, nil
 }

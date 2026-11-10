@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/app"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 const chSection = `,"cloud_hypervisor":{"binary":"/opt/cloud-hypervisor","binary_sha256":"` + digest64 + `","kernel":"/opt/vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/initrd.cpio","initrd_sha256":"` + digest64 + `"}`
@@ -63,7 +63,7 @@ func TestDriverSelection_BothTheMachinesAndTheConvertersRunOnTheSelectedDriver(t
 			cfg := tt.config(t)
 			n := start(t, cfg)
 
-			info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha1.GetRuntimeInfoRequest{})
+			info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 			require.NoError(t, err)
 			require.Len(t, info.GetDrivers(), 1)
 			assert.Equal(t, tt.driver, info.GetDrivers()[0].GetDriver().GetName(), "the Machines' Driver")

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 // target names the Machine of a request, which every call except the creating
@@ -17,7 +17,7 @@ func target(id string) (machine.MachineID, error) {
 }
 
 // view reads the Machine back as the response to a call that changed it.
-func (s *Server) view(ctx context.Context, id machine.MachineID) (*v1alpha1.Machine, error) {
+func (s *Server) view(ctx context.Context, id machine.MachineID) (*v1alpha2.Machine, error) {
 	m, err := s.machines.Inspect(ctx, id)
 	if err != nil {
 		return nil, status(err)
@@ -25,7 +25,7 @@ func (s *Server) view(ctx context.Context, id machine.MachineID) (*v1alpha1.Mach
 	return machineToWire(m), nil
 }
 
-func (s *Server) CreateMachine(ctx context.Context, req *v1alpha1.CreateMachineRequest) (*v1alpha1.CreateMachineResponse, error) {
+func (s *Server) CreateMachine(ctx context.Context, req *v1alpha2.CreateMachineRequest) (*v1alpha2.CreateMachineResponse, error) {
 	spec, err := specOf(req)
 	if err != nil {
 		return nil, rejected("%v", err)
@@ -35,10 +35,10 @@ func (s *Server) CreateMachine(ctx context.Context, req *v1alpha1.CreateMachineR
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.CreateMachineResponse{Machine: m}, err
+	return &v1alpha2.CreateMachineResponse{Machine: m}, err
 }
 
-func (s *Server) StartMachine(ctx context.Context, req *v1alpha1.StartMachineRequest) (*v1alpha1.StartMachineResponse, error) {
+func (s *Server) StartMachine(ctx context.Context, req *v1alpha2.StartMachineRequest) (*v1alpha2.StartMachineResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -47,10 +47,10 @@ func (s *Server) StartMachine(ctx context.Context, req *v1alpha1.StartMachineReq
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.StartMachineResponse{Machine: m}, err
+	return &v1alpha2.StartMachineResponse{Machine: m}, err
 }
 
-func (s *Server) StopMachine(ctx context.Context, req *v1alpha1.StopMachineRequest) (*v1alpha1.StopMachineResponse, error) {
+func (s *Server) StopMachine(ctx context.Context, req *v1alpha2.StopMachineRequest) (*v1alpha2.StopMachineResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -67,10 +67,10 @@ func (s *Server) StopMachine(ctx context.Context, req *v1alpha1.StopMachineReque
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.StopMachineResponse{Machine: m}, err
+	return &v1alpha2.StopMachineResponse{Machine: m}, err
 }
 
-func (s *Server) PauseMachine(ctx context.Context, req *v1alpha1.PauseMachineRequest) (*v1alpha1.PauseMachineResponse, error) {
+func (s *Server) PauseMachine(ctx context.Context, req *v1alpha2.PauseMachineRequest) (*v1alpha2.PauseMachineResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -79,10 +79,10 @@ func (s *Server) PauseMachine(ctx context.Context, req *v1alpha1.PauseMachineReq
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.PauseMachineResponse{Machine: m}, err
+	return &v1alpha2.PauseMachineResponse{Machine: m}, err
 }
 
-func (s *Server) ResumeMachine(ctx context.Context, req *v1alpha1.ResumeMachineRequest) (*v1alpha1.ResumeMachineResponse, error) {
+func (s *Server) ResumeMachine(ctx context.Context, req *v1alpha2.ResumeMachineRequest) (*v1alpha2.ResumeMachineResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -91,10 +91,10 @@ func (s *Server) ResumeMachine(ctx context.Context, req *v1alpha1.ResumeMachineR
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.ResumeMachineResponse{Machine: m}, err
+	return &v1alpha2.ResumeMachineResponse{Machine: m}, err
 }
 
-func (s *Server) DeleteMachine(ctx context.Context, req *v1alpha1.DeleteMachineRequest) (*v1alpha1.DeleteMachineResponse, error) {
+func (s *Server) DeleteMachine(ctx context.Context, req *v1alpha2.DeleteMachineRequest) (*v1alpha2.DeleteMachineResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -102,10 +102,10 @@ func (s *Server) DeleteMachine(ctx context.Context, req *v1alpha1.DeleteMachineR
 	if err := s.machines.Delete(ctx, id); err != nil {
 		return nil, status(err)
 	}
-	return &v1alpha1.DeleteMachineResponse{}, nil
+	return &v1alpha2.DeleteMachineResponse{}, nil
 }
 
-func (s *Server) SnapshotMachine(ctx context.Context, req *v1alpha1.SnapshotMachineRequest) (*v1alpha1.SnapshotMachineResponse, error) {
+func (s *Server) SnapshotMachine(ctx context.Context, req *v1alpha2.SnapshotMachineRequest) (*v1alpha2.SnapshotMachineResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -114,10 +114,10 @@ func (s *Server) SnapshotMachine(ctx context.Context, req *v1alpha1.SnapshotMach
 	if err := s.machines.Snapshot(ctx, id, snapshot, machine.RequestID(req.GetRequestId())); err != nil {
 		return nil, status(err)
 	}
-	return &v1alpha1.SnapshotMachineResponse{SnapshotId: string(snapshot)}, nil
+	return &v1alpha2.SnapshotMachineResponse{SnapshotId: string(snapshot)}, nil
 }
 
-func (s *Server) RestoreMachine(ctx context.Context, req *v1alpha1.RestoreMachineRequest) (*v1alpha1.RestoreMachineResponse, error) {
+func (s *Server) RestoreMachine(ctx context.Context, req *v1alpha2.RestoreMachineRequest) (*v1alpha2.RestoreMachineResponse, error) {
 	if req.GetSnapshotId() == "" {
 		return nil, rejected("snapshot_id is empty")
 	}
@@ -134,10 +134,10 @@ func (s *Server) RestoreMachine(ctx context.Context, req *v1alpha1.RestoreMachin
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.RestoreMachineResponse{Machine: m}, err
+	return &v1alpha2.RestoreMachineResponse{Machine: m}, err
 }
 
-func (s *Server) AttachDisk(ctx context.Context, req *v1alpha1.AttachDiskRequest) (*v1alpha1.AttachDiskResponse, error) {
+func (s *Server) AttachDisk(ctx context.Context, req *v1alpha2.AttachDiskRequest) (*v1alpha2.AttachDiskResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -150,10 +150,10 @@ func (s *Server) AttachDisk(ctx context.Context, req *v1alpha1.AttachDiskRequest
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.AttachDiskResponse{Machine: m}, err
+	return &v1alpha2.AttachDiskResponse{Machine: m}, err
 }
 
-func (s *Server) DetachDisk(ctx context.Context, req *v1alpha1.DetachDiskRequest) (*v1alpha1.DetachDiskResponse, error) {
+func (s *Server) DetachDisk(ctx context.Context, req *v1alpha2.DetachDiskRequest) (*v1alpha2.DetachDiskResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -165,10 +165,10 @@ func (s *Server) DetachDisk(ctx context.Context, req *v1alpha1.DetachDiskRequest
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.DetachDiskResponse{Machine: m}, err
+	return &v1alpha2.DetachDiskResponse{Machine: m}, err
 }
 
-func (s *Server) SetResources(ctx context.Context, req *v1alpha1.SetResourcesRequest) (*v1alpha1.SetResourcesResponse, error) {
+func (s *Server) SetResources(ctx context.Context, req *v1alpha2.SetResourcesRequest) (*v1alpha2.SetResourcesResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
@@ -183,24 +183,24 @@ func (s *Server) SetResources(ctx context.Context, req *v1alpha1.SetResourcesReq
 	if err != nil {
 		return nil, err
 	}
-	return &v1alpha1.SetResourcesResponse{Resources: m.GetResources(), ResourceCeiling: m.GetResourceCeiling()}, nil
+	return &v1alpha2.SetResourcesResponse{Resources: m.GetResources(), ResourceCeiling: m.GetResourceCeiling()}, nil
 }
 
-func (s *Server) InspectMachine(ctx context.Context, req *v1alpha1.InspectMachineRequest) (*v1alpha1.InspectMachineResponse, error) {
+func (s *Server) InspectMachine(ctx context.Context, req *v1alpha2.InspectMachineRequest) (*v1alpha2.InspectMachineResponse, error) {
 	id, err := target(req.GetMachineId())
 	if err != nil {
 		return nil, err
 	}
 	m, err := s.view(ctx, id)
-	return &v1alpha1.InspectMachineResponse{Machine: m}, err
+	return &v1alpha2.InspectMachineResponse{Machine: m}, err
 }
 
-func (s *Server) ListMachines(ctx context.Context, _ *v1alpha1.ListMachinesRequest) (*v1alpha1.ListMachinesResponse, error) {
+func (s *Server) ListMachines(ctx context.Context, _ *v1alpha2.ListMachinesRequest) (*v1alpha2.ListMachinesResponse, error) {
 	all, err := s.machines.List(ctx)
 	if err != nil {
 		return nil, status(err)
 	}
-	resp := &v1alpha1.ListMachinesResponse{}
+	resp := &v1alpha2.ListMachinesResponse{}
 	for _, m := range all {
 		resp.Machines = append(resp.Machines, machineToWire(m))
 	}

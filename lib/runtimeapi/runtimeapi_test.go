@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/garamsh/mvmd/lib/runtimeapi"
-	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
+	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
 const validDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -27,14 +27,14 @@ const validDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123
 const fileChunk = 64 << 10
 
 type server struct {
-	v1alpha1.UnimplementedRuntimeServiceServer
+	v1alpha2.UnimplementedRuntimeServiceServer
 	pulls   atomic.Int32
 	creates atomic.Int32
 	mu      sync.Mutex
 	files   map[string][]byte
 }
 
-func (s *server) WriteFile(stream grpc.ClientStreamingServer[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]) error {
+func (s *server) WriteFile(stream grpc.ClientStreamingServer[v1alpha2.WriteFileRequest, v1alpha2.WriteFileResponse]) error {
 	first, err := stream.Recv()
 	if err != nil {
 		return err
@@ -57,16 +57,16 @@ func (s *server) WriteFile(stream grpc.ClientStreamingServer[v1alpha1.WriteFileR
 		s.files = map[string][]byte{}
 	}
 	s.files[path] = content
-	return stream.SendAndClose(&v1alpha1.WriteFileResponse{})
+	return stream.SendAndClose(&v1alpha2.WriteFileResponse{})
 }
 
-func (s *server) ReadFile(req *v1alpha1.ReadFileRequest, stream grpc.ServerStreamingServer[v1alpha1.ReadFileResponse]) error {
+func (s *server) ReadFile(req *v1alpha2.ReadFileRequest, stream grpc.ServerStreamingServer[v1alpha2.ReadFileResponse]) error {
 	s.mu.Lock()
 	content := s.files[req.GetPath()]
 	s.mu.Unlock()
 	for len(content) > 0 {
 		n := min(fileChunk, len(content))
-		if err := stream.Send(&v1alpha1.ReadFileResponse{Chunk: content[:n]}); err != nil {
+		if err := stream.Send(&v1alpha2.ReadFileResponse{Chunk: content[:n]}); err != nil {
 			return err
 		}
 		content = content[n:]
@@ -74,18 +74,18 @@ func (s *server) ReadFile(req *v1alpha1.ReadFileRequest, stream grpc.ServerStrea
 	return nil
 }
 
-func (s *server) GetRuntimeInfo(context.Context, *v1alpha1.GetRuntimeInfoRequest) (*v1alpha1.GetRuntimeInfoResponse, error) {
-	return &v1alpha1.GetRuntimeInfoResponse{ApiVersions: []string{"mvmd.runtime.v1alpha1"}}, nil
+func (s *server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest) (*v1alpha2.GetRuntimeInfoResponse, error) {
+	return &v1alpha2.GetRuntimeInfoResponse{ApiVersions: []string{"mvmd.runtime.v1alpha2"}}, nil
 }
 
-func (s *server) PullImage(context.Context, *v1alpha1.PullImageRequest) (*v1alpha1.PullImageResponse, error) {
+func (s *server) PullImage(context.Context, *v1alpha2.PullImageRequest) (*v1alpha2.PullImageResponse, error) {
 	s.pulls.Add(1)
-	return &v1alpha1.PullImageResponse{}, nil
+	return &v1alpha2.PullImageResponse{}, nil
 }
 
-func (s *server) CreateMachine(context.Context, *v1alpha1.CreateMachineRequest) (*v1alpha1.CreateMachineResponse, error) {
+func (s *server) CreateMachine(context.Context, *v1alpha2.CreateMachineRequest) (*v1alpha2.CreateMachineResponse, error) {
 	s.creates.Add(1)
-	return &v1alpha1.CreateMachineResponse{}, nil
+	return &v1alpha2.CreateMachineResponse{}, nil
 }
 
 // serve starts s on a Unix socket in a short temporary directory and returns
@@ -99,41 +99,41 @@ func serve(t *testing.T, s *server) string {
 	lis, err := net.Listen("unix", path)
 	require.NoError(t, err)
 	srv := grpc.NewServer()
-	v1alpha1.RegisterRuntimeServiceServer(srv, s)
+	v1alpha2.RegisterRuntimeServiceServer(srv, s)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 	return path
 }
 
-func dial(t *testing.T, path string) v1alpha1.RuntimeServiceClient {
+func dial(t *testing.T, path string) v1alpha2.RuntimeServiceClient {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, err := runtimeapi.Dial(ctx, path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	return v1alpha1.NewRuntimeServiceClient(conn)
+	return v1alpha2.NewRuntimeServiceClient(conn)
 }
 
 func TestDial_RoundTrip(t *testing.T) {
 	client := dial(t, serve(t, &server{}))
 
-	resp, err := client.GetRuntimeInfo(context.Background(), &v1alpha1.GetRuntimeInfoRequest{})
+	resp, err := client.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"mvmd.runtime.v1alpha1"}, resp.GetApiVersions())
+	assert.Equal(t, []string{"mvmd.runtime.v1alpha2"}, resp.GetApiVersions())
 }
 
 func TestDial_RefusesTagImageReference(t *testing.T) {
 	s := &server{}
 	client := dial(t, serve(t, s))
 
-	_, err := client.PullImage(context.Background(), &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: "app:latest", Digest: validDigest}})
+	_, err := client.PullImage(context.Background(), &v1alpha2.PullImageRequest{Image: &v1alpha2.ImageRef{Repository: "app:latest", Digest: validDigest}})
 	require.Error(t, err)
-	assert.Equal(t, v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha1.KindOf(err))
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
 	assert.Zero(t, s.pulls.Load(), "a refused request must not reach the server")
 
-	_, err = client.PullImage(context.Background(), &v1alpha1.PullImageRequest{Image: &v1alpha1.ImageRef{Repository: "registry:5000/app", Digest: validDigest}})
+	_, err = client.PullImage(context.Background(), &v1alpha2.PullImageRequest{Image: &v1alpha2.ImageRef{Repository: "registry:5000/app", Digest: validDigest}})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), s.pulls.Load(), "the digest form must reach the server")
 }
@@ -142,28 +142,28 @@ func TestDial_RefusesInvalidNetworkPolicy(t *testing.T) {
 	s := &server{}
 	client := dial(t, serve(t, s))
 
-	_, err := client.CreateMachine(context.Background(), &v1alpha1.CreateMachineRequest{
+	_, err := client.CreateMachine(context.Background(), &v1alpha2.CreateMachineRequest{
 		MachineId:     "m",
 		RequestId:     "r",
 		ImageDigest:   validDigest,
-		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 1024},
+		Resources:     &v1alpha2.Resources{CpuCount: 1, MemoryBytes: 1024},
 		RootDiskBytes: 1 << 30,
-		NetworkPolicy: &v1alpha1.NetworkPolicy{
-			Egress: []*v1alpha1.NetworkRule{{Prefix: "fd00::/64", Protocol: v1alpha1.Protocol_PROTOCOL_ICMP}},
+		NetworkPolicy: &v1alpha2.NetworkPolicy{
+			Egress: []*v1alpha2.NetworkRule{{Prefix: "fd00::/64", Protocol: v1alpha2.Protocol_PROTOCOL_ICMP}},
 		},
 	})
 	require.Error(t, err)
-	assert.Equal(t, v1alpha1.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha1.KindOf(err))
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
 	assert.Zero(t, s.creates.Load(), "a refused request must not reach the server")
 
-	_, err = client.CreateMachine(context.Background(), &v1alpha1.CreateMachineRequest{
+	_, err = client.CreateMachine(context.Background(), &v1alpha2.CreateMachineRequest{
 		MachineId:     "m2",
 		RequestId:     "r2",
 		ImageDigest:   validDigest,
-		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 1024},
+		Resources:     &v1alpha2.Resources{CpuCount: 1, MemoryBytes: 1024},
 		RootDiskBytes: 1 << 30,
-		NetworkPolicy: &v1alpha1.NetworkPolicy{
-			Egress: []*v1alpha1.NetworkRule{{Prefix: "10.0.0.0/24", Protocol: v1alpha1.Protocol_PROTOCOL_TCP, Ports: []*v1alpha1.PortRange{{First: 80, Last: 80}}}},
+		NetworkPolicy: &v1alpha2.NetworkPolicy{
+			Egress: []*v1alpha2.NetworkRule{{Prefix: "10.0.0.0/24", Protocol: v1alpha2.Protocol_PROTOCOL_TCP, Ports: []*v1alpha2.PortRange{{First: 80, Last: 80}}}},
 		},
 	})
 	require.NoError(t, err)
@@ -179,16 +179,16 @@ func TestFiles_RoundTripAboveDefaultMessageLimit(t *testing.T) {
 
 	writer, err := client.WriteFile(context.Background())
 	require.NoError(t, err)
-	require.NoError(t, writer.Send(&v1alpha1.WriteFileRequest{Part: &v1alpha1.WriteFileRequest_Start{Start: &v1alpha1.WriteFileStart{MachineId: "m", Path: "/big"}}}))
+	require.NoError(t, writer.Send(&v1alpha2.WriteFileRequest{Part: &v1alpha2.WriteFileRequest_Start{Start: &v1alpha2.WriteFileStart{MachineId: "m", Path: "/big"}}}))
 	for rest := content; len(rest) > 0; {
 		n := min(fileChunk, len(rest))
-		require.NoError(t, writer.Send(&v1alpha1.WriteFileRequest{Part: &v1alpha1.WriteFileRequest_Chunk{Chunk: rest[:n]}}))
+		require.NoError(t, writer.Send(&v1alpha2.WriteFileRequest{Part: &v1alpha2.WriteFileRequest_Chunk{Chunk: rest[:n]}}))
 		rest = rest[n:]
 	}
 	_, err = writer.CloseAndRecv()
 	require.NoError(t, err)
 
-	reader, err := client.ReadFile(context.Background(), &v1alpha1.ReadFileRequest{MachineId: "m", Path: "/big"})
+	reader, err := client.ReadFile(context.Background(), &v1alpha2.ReadFileRequest{MachineId: "m", Path: "/big"})
 	require.NoError(t, err)
 	var got []byte
 	for {
