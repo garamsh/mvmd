@@ -486,6 +486,30 @@ func TestSearchFiles(t *testing.T) {
 	requireKind(t, err, machine.ErrFailed)
 }
 
+// Row "Search", a pattern that is not a valid glob: rejected and nothing
+// changes, with a valid pattern of the same call as the control. A failure of
+// another kind keeps its outcome.
+func TestSearchFiles_RejectsAPatternThatIsNotAGlob(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	e.guest.PutFile("m", "/var/a.log", "")
+
+	for _, pattern := range []string{"[a", "{a"} {
+		_, err := searched(ctx, e.svc, "/var/", pattern)
+		requireKind(t, err, machine.ErrInvalid)
+		assert.ErrorContains(t, err, pattern, "the reason names the pattern")
+	}
+	got, err := searched(ctx, e.svc, "/var/", "*.log")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/var/a.log"}, got, "control: a valid pattern is not refused")
+	e.requireState(t, "m", machine.StateRunning)
+
+	e.guest.FailAt("search-files", errors.New("boom"))
+	_, err = searched(ctx, e.svc, "/var/", "*.log")
+	requireKind(t, err, machine.ErrFailed)
+}
+
 // Row "List": the entries directly under the directory, with their kind and
 // size, and the directories that hold deeper files.
 func TestListFiles(t *testing.T) {

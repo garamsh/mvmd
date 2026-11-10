@@ -64,6 +64,7 @@ const (
 	opExec
 	opSignal
 	opFile
+	opSearch
 	opPatch
 	opDisk
 )
@@ -221,7 +222,7 @@ func mapError(op operation, err error) error {
 		switch op {
 		case opExec, opSignal:
 			return fmt.Errorf("%w: %s", machine.ErrExecAbsent, msg)
-		case opFile, opPatch:
+		case opFile, opSearch, opPatch:
 			return fmt.Errorf("%w: %s", machine.ErrFileAbsent, msg)
 		case opDisk:
 			return fmt.Errorf("%w: %s", machine.ErrDiskUnknown, msg)
@@ -236,8 +237,11 @@ func mapError(op operation, err error) error {
 			}
 		}
 	case codes.InvalidArgument:
-		if op == opSignal {
+		switch op {
+		case opSignal:
 			return fmt.Errorf("%w: %s", machine.ErrSignalInvalid, msg)
+		case opSearch:
+			return fmt.Errorf("%w: %s", machine.ErrPatternInvalid, msg)
 		}
 	}
 	return fmt.Errorf("guest agent answered %s: %s", st.Code(), msg)
@@ -636,7 +640,7 @@ func (g *Guest) ListFiles(ctx context.Context, id machine.MachineID, path string
 func (g *Guest) SearchFiles(ctx context.Context, id machine.MachineID, path, pattern string, send func(paths []string) error) error {
 	var last string
 	var sent bool
-	return g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
+	return g.run(ctx, id, opSearch, func(c guestv1alpha1.GuestServiceClient) error {
 		stream, err := c.SearchFiles(ctx, &guestv1alpha1.SearchFilesRequest{Path: path, Pattern: pattern})
 		if err != nil {
 			return err

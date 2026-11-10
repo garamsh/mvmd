@@ -763,7 +763,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 			return h.guest.SearchFiles(ctx, "m", "/", "*", func([]string) error { return nil })
 		},
 	}
-	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown, machine.ErrExecNotRunning, machine.ErrSignalInvalid, machine.ErrNotDirectory}
+	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown, machine.ErrExecNotRunning, machine.ErrSignalInvalid, machine.ErrNotDirectory, machine.ErrPatternInvalid}
 	tests := []struct {
 		name   string
 		call   string
@@ -781,6 +781,10 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		{name: "a number that is not a signal", call: "Signal", answer: st(codes.InvalidArgument, "invalid request: 99 is not a signal number"), want: machine.ErrSignalInvalid},
 		{name: "a signal the kernel refused", call: "Signal", answer: st(codes.Internal, "signal exec x: EPERM")},
 		{name: "the same code on an exec is not a signal number", call: "Exec", answer: st(codes.InvalidArgument, "invalid request: x")},
+		// A pattern the agent refuses is the caller's, for a search only: the same
+		// code on a listing is not.
+		{name: "a pattern the agent refuses", call: "SearchFiles", answer: st(codes.InvalidArgument, `invalid request: pattern "[a": unclosed character class; missing ']'`), want: machine.ErrPatternInvalid},
+		{name: "the same code on a listing is not a pattern", call: "ListFiles", answer: st(codes.InvalidArgument, "invalid request: path f is not absolute")},
 		{name: "a path that names nothing, listed", call: "ListFiles", answer: st(codes.NotFound, "not found: /"), want: machine.ErrFileAbsent},
 		{name: "a file where a directory is needed, listed", call: "ListFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY}), want: machine.ErrNotDirectory},
 		{name: "a path that names nothing, read", call: "ReadFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
@@ -1083,6 +1087,29 @@ func TestWriteFile_SendsTheDigestAndIsNotRepeatedOnceRead(t *testing.T) {
 		assert.Equal(t, 1, h.driver.Calls("guest-conn"), "the content was not sent again")
 		assert.Empty(t, a.written, "the agent kept the old file")
 	})
+}
+
+func TestSearchFiles_ARefusedPatternIsTheCallers(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	a.paths = []string{"/a/x"}
+	search := func(pattern string) ([]string, error) {
+		var got []string
+		err := h.guest.SearchFiles(context.Background(), "m", "/", pattern, func(run []string) error {
+			got = append(got, run...)
+			return nil
+		})
+		return got, err
+	}
+
+	got, err := search("**/x")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/a/x"}, got, "control: a pattern the agent takes is not refused")
+
+	a.fail["SearchFiles"] = status.Error(codes.InvalidArgument, `invalid request: pattern "[a": unclosed character class; missing ']'`)
+	_, err = search("[a")
+	require.ErrorIs(t, err, machine.ErrPatternInvalid)
+	assert.ErrorContains(t, err, `pattern "[a"`, "the reason names the pattern")
 }
 
 func TestSearchFiles_ReturnsThePaths(t *testing.T) {

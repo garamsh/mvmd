@@ -123,6 +123,9 @@ var (
 	// ErrSignalInvalid is a signal the guest does not take: a number that is
 	// not a signal.
 	ErrSignalInvalid = errors.New("not a signal number")
+	// ErrPatternInvalid is a Search pattern the guest refuses because it is
+	// not a valid glob; the reason names it.
+	ErrPatternInvalid = errors.New("not a valid glob pattern")
 	// ErrNotDirectory is a path that resolves to something that is not a
 	// directory, where one is listed.
 	ErrNotDirectory = errors.New("not a directory")
@@ -225,7 +228,8 @@ type Guest interface {
 	ListFiles(ctx context.Context, id MachineID, path string, send func(entries []FileEntry) error) error
 	// SearchFiles sends the paths under path that match the pattern, in runs
 	// sorted across the runs, as ListFiles does. The pattern is a glob
-	// (runtime-api.md §Guest access).
+	// (runtime-api.md §Guest access); one the guest refuses is
+	// ErrPatternInvalid.
 	SearchFiles(ctx context.Context, id MachineID, path, pattern string, send func(paths []string) error) error
 	// Terminate asks the agent to apply its Termination rule (guest.md): send
 	// SIGTERM to the entrypoint, or end the Machine when none runs. It returns
