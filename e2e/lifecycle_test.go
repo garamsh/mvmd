@@ -20,7 +20,8 @@ import (
 
 // A Machine of a pulled image runs a command, pauses, is snapshotted and restored as a new Machine
 // that holds the guest's state, and stops, with its root disk and the snapshot on the node's real
-// Disk and Snapshot Store under the state directory.
+// Disk and Snapshot Store under the state directory. The snapshot is listed with what describes
+// it, and Delete removes it from the list and the store.
 func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *testing.T) {
 	n := startNode(t)
 	n.arm(t)
@@ -31,7 +32,7 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 	// The control of the two directory checks below: before any Machine and snapshot there is
 	// nothing in them, so what shows up afterwards was put there by the call.
 	require.Empty(t, n.entries(t, "disks"), "a node with no Machine holds no root disk")
-	require.Empty(t, n.snapshots(t), "a node with no snapshot holds none")
+	require.Empty(t, n.listedSnapshots(t, ctx), "a node with no snapshot holds none")
 
 	created, err := n.client.CreateMachine(ctx, createRequest("origin", pulled.Digest))
 	require.NoError(t, err)
@@ -63,7 +64,20 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 	snapshotDisks, err := filepath.Glob(filepath.Join(n.stateDir, "snapshots", "*", "root.disk"))
 	require.NoError(t, err)
 	assert.Len(t, snapshotDisks, 1, "the snapshot is a directory under <state_dir>/snapshots holding a copy of the root disk")
-	assert.Len(t, n.snapshots(t), 1)
+	snapshots := n.listedSnapshots(t, ctx)
+	require.Len(t, snapshots, 1, "List snapshots lists the snapshot the call took")
+	listed := snapshots[0]
+	assert.Equal(t, "snap", listed.Id)
+	assert.Equal(t, "origin", listed.MachineId)
+	assert.Equal(t, pulled.Digest, listed.ImageDigest)
+	assert.Equal(t, uint64(1<<30), listed.RootDiskBytes)
+	runtimeInfo, err := n.client.GetRuntimeInfo(ctx, &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, runtimeInfo.Drivers[0].Driver.Name, listed.Driver.Name, "the Driver that made the snapshot")
+	assert.Equal(t, runtimeInfo.Drivers[0].Driver.Version, listed.Driver.Version)
+	assert.NotEmpty(t, listed.Driver.Version)
+	assert.Equal(t, runtimeInfo.Drivers[0].CpuModel, listed.CpuModel, "the CPU model a restore compares")
+	assert.NotEmpty(t, listed.CpuModel)
 	inspected, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "origin"})
 	require.NoError(t, err)
 	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_PAUSED, inspected.Machine.State, "a snapshot leaves the Machine in the state it was in")
@@ -89,7 +103,25 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 		assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_STOPPED, stopped.Machine.State, id)
 	}
 	assert.Len(t, n.entries(t, "disks"), 2, "a stop retains the disks")
-	assert.Len(t, n.snapshots(t), 1, "a stop leaves the snapshot")
+	assert.Len(t, n.listedSnapshots(t, ctx), 1, "a stop leaves the snapshot")
+
+	// The snapshot is in the store until Delete removes it, with its files, and a repeat that
+	// finds it absent succeeds.
+	require.Len(t, n.snapshots(t), 1)
+	_, err = n.client.DeleteSnapshot(ctx, &v1alpha2.DeleteSnapshotRequest{SnapshotId: "snap"})
+	require.NoError(t, err)
+	assert.Empty(t, n.listedSnapshots(t, ctx), "a deleted snapshot is not listed")
+	assert.Empty(t, n.snapshots(t), "the deleted snapshot's directory is gone from the store")
+	_, err = n.client.DeleteSnapshot(ctx, &v1alpha2.DeleteSnapshotRequest{SnapshotId: "snap"})
+	assert.NoError(t, err, "a snapshot that is absent is deleted with no change")
+}
+
+// listedSnapshots is what List snapshots answers.
+func (n *node) listedSnapshots(t *testing.T, ctx context.Context) []*v1alpha2.Snapshot {
+	t.Helper()
+	listed, err := n.client.ListSnapshots(ctx, &v1alpha2.ListSnapshotsRequest{})
+	require.NoError(t, err)
+	return listed.Snapshots
 }
 
 // entries lists the names in a directory of the state directory.
@@ -104,8 +136,8 @@ func (n *node) entries(t *testing.T, name string) []string {
 	return names
 }
 
-// snapshots lists the snapshots of the Snapshot Store, which are its directories but for the one
-// it builds them in.
+// snapshots lists the snapshots of the Snapshot Store in the state directory, which are its
+// directories but for the one it builds them in.
 func (n *node) snapshots(t *testing.T) []string {
 	t.Helper()
 	var names []string
