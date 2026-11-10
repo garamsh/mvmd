@@ -53,6 +53,44 @@ func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID
 	}
 }
 
+// ownerOf is who owns a disk file while the Machine holds the disk: the user
+// its VMM runs as.
+func ownerOf(m Machine) DiskOwner {
+	return DiskOwner{ID: m.ID, UID: m.User.UID, GID: m.User.GID}
+}
+
+// give makes the files of the disks the owner's, all or none: a failure gives
+// back the ones already given and reports what could not be undone.
+func (s *service) give(ctx context.Context, owner DiskOwner, disks ...DiskID) error {
+	for i, disk := range disks {
+		if err := s.disks.Give(ctx, disk, owner); err != nil {
+			ctx, cancel := s.compensating(ctx)
+			defer cancel()
+			return errors.Join(fmt.Errorf("give disk %q to Machine %q: %w", disk, owner.ID, err), s.reclaim(ctx, disks[:i]...))
+		}
+	}
+	return nil
+}
+
+// reclaim makes the files of the disks mvmd's again. A disk the node no longer
+// holds has no file to give back.
+func (s *service) reclaim(ctx context.Context, disks ...DiskID) error {
+	var errs []error
+	for _, disk := range disks {
+		if err := s.disks.Reclaim(ctx, disk); err != nil && !errors.Is(err, ErrDiskAbsent) {
+			errs = append(errs, fmt.Errorf("give disk %q back: %w", disk, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// giveBack ends a Machine's hold on the disks: the files are mvmd's again and
+// the holder slots are free, whether or not the first succeeded.
+func (s *service) giveBack(ctx context.Context, disks ...DiskID) error {
+	defer s.release(disks...)
+	return s.reclaim(ctx, disks...)
+}
+
 func (s *service) ListDisks(ctx context.Context) ([]DiskInfo, error) {
 	entries, err := s.disks.List(ctx)
 	if err != nil {
@@ -125,12 +163,17 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", a.Disk, holder)
 	}
 
+	// The file is the holder's before a Driver is asked to open it (ADR 0038).
+	if err := s.give(ctx, ownerOf(m), a.Disk); err != nil {
+		s.release(a.Disk)
+		return fail(ErrFailed, "%v", err)
+	}
+
 	// The holder is recorded durably before a Driver is asked to attach.
 	next := m.clone()
 	next.Disks = append(next.Disks, a)
 	if err := s.commit(ctx, rec, next); err != nil {
-		s.release(a.Disk)
-		return fail(ErrFailed, "record the holder of disk %q: %v", a.Disk, err)
+		return fail(ErrFailed, "record the holder of disk %q: %v", a.Disk, errors.Join(err, s.giveBack(ctx, a.Disk)))
 	}
 	if hot(m) {
 		return s.plug(ctx, rec, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, m)
@@ -163,8 +206,7 @@ func (s *service) plug(ctx context.Context, rec *Record, dev BlockDevice, withou
 		if cerr := s.commit(ctx, rec, without); cerr != nil {
 			return s.unrecorded(rec, cerr)
 		}
-		s.release(disk)
-		return fail(ErrFailed, "attach disk %q: %v", disk, err)
+		return fail(ErrFailed, "attach disk %q: %v", disk, errors.Join(err, s.giveBack(ctx, disk)))
 	}
 	// The guest finds the device it is not told of (ADR 0022). A guest
 	// that cannot leaves the disk on the VMM and not in the guest, so it
@@ -178,8 +220,7 @@ func (s *service) plug(ctx context.Context, rec *Record, dev BlockDevice, withou
 		if cerr := s.commit(ctx, rec, without); cerr != nil {
 			return s.unrecorded(rec, cerr)
 		}
-		s.release(disk)
-		return fail(ErrFailed, "the guest could not find disk %q: %v", disk, err)
+		return fail(ErrFailed, "the guest could not find disk %q: %v", disk, errors.Join(err, s.giveBack(ctx, disk)))
 	}
 	return nil
 }
@@ -283,7 +324,9 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 		}
 		return fail(ErrFailed, "record the release of disk %q: %v", disk, err)
 	}
-	s.release(disk)
+	if err := s.giveBack(ctx, disk); err != nil {
+		return fail(ErrFailed, "disk %q is detached and could not be given back to mvmd: %v", disk, err)
+	}
 	return nil
 }
 

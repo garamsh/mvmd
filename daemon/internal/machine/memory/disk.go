@@ -9,7 +9,7 @@ import (
 )
 
 // Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
-// "create-root-from", "create", "get", "list" and "remove".
+// "create-root-from", "create", "get", "list", "give", "reclaim" and "remove".
 type Disk struct {
 	Failures
 
@@ -124,6 +124,34 @@ func (d *Disk) List(_ context.Context) ([]machine.DiskEntry, error) {
 	return out, nil
 }
 
+// Give implements machine.Disk.
+func (d *Disk) Give(_ context.Context, disk machine.DiskID, owner machine.DiskOwner) error {
+	if err := d.Enter("give"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[disk]; !held {
+		return machine.ErrDiskAbsent
+	}
+	d.owner[disk] = owner
+	return nil
+}
+
+// Reclaim implements machine.Disk.
+func (d *Disk) Reclaim(_ context.Context, disk machine.DiskID) error {
+	if err := d.Enter("reclaim"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[disk]; !held {
+		return machine.ErrDiskAbsent
+	}
+	delete(d.owner, disk)
+	return nil
+}
+
 // Source returns the file a root disk made by CreateRootFrom was copied from.
 func (d *Disk) Source(disk machine.DiskID) (string, bool) {
 	d.mu.Lock()
@@ -159,7 +187,8 @@ func (d *Disk) Holds(disk machine.DiskID) (size uint64, held bool) {
 	return size, held
 }
 
-// Owner reports the DiskOwner for a disk created by CreateRoot.
+// Owner reports the DiskOwner of a disk a Machine owns, as CreateRoot or Give
+// made it, and false for a disk mvmd owns.
 func (d *Disk) Owner(disk machine.DiskID) (machine.DiskOwner, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
