@@ -52,7 +52,6 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 	_, code = n.exec(t, ctx, "origin", "exit-3", "/bin/entry", "exit", "3")
 	assert.Equal(t, int32(3), code)
 
-	n.writeFile(t, ctx, "origin", "/marker", "written before the snapshot")
 
 	paused, err := n.client.PauseMachine(ctx, &v1alpha1.PauseMachineRequest{MachineId: "origin"})
 	require.NoError(t, err)
