@@ -20,7 +20,7 @@ var wantArgs = []string{
 	"--log-file", "/run/cloud-hypervisor.log",
 	"--kernel", "/boot/kernel",
 	"--initramfs", "/boot/initrd",
-	"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd",
+	"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable",
 	"--cpus", "boot=2,max=2",
 	"--memory", "size=256M",
 	"--serial", "tty",
@@ -198,8 +198,8 @@ func TestArgs_DifferOnAarch64ByTheSerialPortAndNoCeiling(t *testing.T) {
 	assert.Equal(t, want, cloudhypervisor.Args(n.spec(), "arm64"))
 }
 
-func TestCmdline_NamesTheSerialPortOfTheArchitecture(t *testing.T) {
-	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd", cloudhypervisor.Cmdline("amd64"))
+func TestCmdline_NamesTheSerialPortOfTheArchitectureAndOnX8664TheMovableHotplugPolicy(t *testing.T) {
+	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable", cloudhypervisor.Cmdline("amd64"))
 	assert.Equal(t, "console=ttyAMA0 reboot=k panic=1", cloudhypervisor.Cmdline("arm64"))
 }
 

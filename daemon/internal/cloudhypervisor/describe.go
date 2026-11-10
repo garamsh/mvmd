@@ -45,12 +45,14 @@ var rebootingEvent = []byte(`"event": "rebooting"`)
 // run directory's log, and the guest parameters that make a panic reset the
 // guest through the keyboard controller (ADR 0026). x86_64's serial port is
 // ttyS0 and aarch64's PL011 is ttyAMA0 (docs/device_model.md). The i8042
-// parameters, x86_64's, are the Firecracker Driver's.
+// parameters, x86_64's, are the Firecracker Driver's. On x86_64 the guest onlines
+// hot-plugged memory to ZONE_MOVABLE within the auto-movable policy's ratio, so
+// that a resize can unplug it again (ADR 0029).
 func cmdline(goarch string) string {
 	if goarch == "arm64" {
 		return "console=ttyAMA0 reboot=k panic=1"
 	}
-	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable"
 }
 
 // verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It
