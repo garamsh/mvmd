@@ -191,7 +191,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err := s.supervisor.Start(ctx, id, process.For(boot), m.User); err != nil {
 		return s.withdrawn(ctx, id, fail(ErrFailed, "start the VMM process: %v", err))
 	}
-	if err := s.driver.Boot(ctx, id, boot); err != nil {
+	if err := s.awaitVMM(ctx, id, func(ctx context.Context) error { return s.driver.Boot(ctx, id, boot) }); err != nil {
 		return s.bootFailed(ctx, rec, err)
 	}
 	// The guest waits for this description before it does anything else, and
@@ -233,6 +233,36 @@ func (s *service) bootGuest(ctx context.Context, id MachineID, description Guest
 		return nil
 	case <-timer.C:
 		return fmt.Errorf("the guest did not finish booting within %s", s.bootTimeout)
+	}
+}
+
+// awaitVMM runs a Driver step that waits for the started VMM's VM to run, for
+// at most the node's boot timeout, and gives up when the Machine's supervisor
+// is no longer listed, which is the VMM having ended (ADR 0003). The Driver
+// waits on a socket the VMM binds, which a VMM that has ended never does, so the
+// step's own end would come only with the call's bound. Like bootGuest it holds
+// when the Driver ignores the context it is given.
+func (s *service) awaitVMM(ctx context.Context, id MachineID, step func(context.Context) error) error {
+	stepCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- step(stepCtx) }()
+	timer := time.NewTimer(s.bootTimeout)
+	defer timer.Stop()
+	tick := time.NewTicker(s.vmmEndPoll)
+	defer tick.Stop()
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-timer.C:
+			return fmt.Errorf("the VMM did not reach Running within %s", s.bootTimeout)
+		case <-tick.C:
+			// A listing that fails observes nothing; the next one tries again.
+			if live, err := s.supervisor.Live(ctx); err == nil && !slices.Contains(live, id) {
+				return errors.New("the VMM ended before its VM reached Running")
+			}
+		}
 	}
 }
 

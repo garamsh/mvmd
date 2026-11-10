@@ -251,7 +251,7 @@ func (s *service) bringUp(ctx context.Context, m Machine, request RequestID, fil
 	if err := s.supervisor.Start(ctx, id, process.For(boot), m.User); err != nil {
 		return fail(ErrFailed, "start the VMM process: %v", err), false
 	}
-	if err := s.driver.Restore(ctx, id, boot); err != nil {
+	if err := s.awaitVMM(ctx, id, func(ctx context.Context) error { return s.driver.Restore(ctx, id, boot) }); err != nil {
 		return fail(ErrFailed, "load the snapshot: %v", err), true
 	}
 	// The guest still holds the snapshot's memory, clock and addresses. The
