@@ -22,7 +22,7 @@ pub enum EndMethod {
 
 /// Why the command line names no method.
 #[derive(Debug, PartialEq, Eq, Error)]
-pub enum EndMethodError {
+pub(crate) enum EndMethodError {
     /// The command line has no `mvmd.end`.
     #[error("the kernel command line has no {PARAMETER}")]
     Absent,
@@ -34,7 +34,7 @@ pub enum EndMethodError {
 impl EndMethod {
     /// Parse the method from a kernel command line. The last `mvmd.end` counts, as it does for
     /// the kernel's own parameters.
-    pub fn from_command_line(line: &str) -> Result<Self, EndMethodError> {
+    pub(crate) fn from_command_line(line: &str) -> Result<Self, EndMethodError> {
         let value = line
             .split_whitespace()
             .filter_map(|word| {

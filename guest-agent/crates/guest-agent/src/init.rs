@@ -117,7 +117,10 @@ fn read_end_method(system: &System) {
         EndMethod::PowerOff
     });
     // The agent reads once, so the cell is empty.
-    let _ = system.end_method.set(method);
+    assert!(
+        system.end_method.set(method).is_ok(),
+        "the end method is read once"
+    );
 }
 
 /// Write the line for a failure of the agent itself, then end the Machine. For the code that

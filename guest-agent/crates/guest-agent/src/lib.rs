@@ -35,7 +35,7 @@ use tonic::transport::server::Connected;
 pub use boot::ENTRYPOINT;
 pub use description::{Addressing, NetworkConfig};
 pub use disks::LinuxDisks;
-pub use end_method::{EndMethod, EndMethodCell, EndMethodError, LinuxCommandLine};
+pub use end_method::{EndMethod, EndMethodCell, LinuxCommandLine};
 pub use error::{BootStep, Error};
 pub use init::{end_on_panic, fail, run};
 pub use mounts::LinuxMounts;

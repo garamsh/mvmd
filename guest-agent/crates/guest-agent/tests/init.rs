@@ -169,11 +169,14 @@ impl Network for TestNetwork {
 /// The kernel command line of a Machine whose Driver names the power-off.
 const POWER_OFF_COMMAND_LINE: &str = "console=ttyS0 mvmd.end=poweroff";
 
-struct TestCommandLine(&'static str);
+/// A command line that reads as the text, or fails to read when there is none.
+struct TestCommandLine(Option<&'static str>);
 
 impl KernelCommandLine for TestCommandLine {
     fn read(&self) -> io::Result<String> {
-        Ok(self.0.to_owned())
+        self.0
+            .map(str::to_owned)
+            .ok_or_else(|| io::Error::other("injected failure"))
     }
 }
 
@@ -340,6 +343,8 @@ struct Setup {
     fail_restart: bool,
     /// The kernel command line; the power-off's when none.
     command_line: Option<&'static str>,
+    /// The command line cannot be read.
+    unreadable_command_line: bool,
     fail_account: bool,
     overlay_takes: Duration,
     listener_ends: bool,
@@ -424,7 +429,8 @@ impl Agent {
             disks: disks.clone(),
             resources: resources.clone(),
             command_line: Arc::new(TestCommandLine(
-                setup.command_line.unwrap_or(POWER_OFF_COMMAND_LINE),
+                (!setup.unreadable_command_line)
+                    .then_some(setup.command_line.unwrap_or(POWER_OFF_COMMAND_LINE)),
             )),
             end_method: Arc::default(),
         };
@@ -1631,6 +1637,24 @@ async fn an_unknown_value_is_said_on_the_console_and_the_machine_powers_off() ->
         [
             "mvmd-guest-agent: mvmd.end=\"halt\" is neither poweroff nor reset; ending by power off"
                 .to_owned(),
+            "mvmd-guest-agent: terminated before the entrypoint ran".to_owned(),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unreadable_command_line_is_said_on_the_console_and_the_machine_powers_off() -> Result {
+    let (calls, console) = ended_by(Setup {
+        unreadable_command_line: true,
+        ..Setup::default()
+    })
+    .await?;
+    assert_eq!(calls, ["power_off"]);
+    assert_eq!(
+        console,
+        [
+            "mvmd-guest-agent: failed to read the kernel command line: injected failure".to_owned(),
             "mvmd-guest-agent: terminated before the entrypoint ran".to_owned(),
         ]
     );
