@@ -7,7 +7,7 @@ func (s *service) ListImages(ctx context.Context) ([]ImageDigest, error) {
 	if err != nil {
 		return nil, fail(ErrFailed, "list the images: %v", err)
 	}
-	return all, nil
+	return all[:0], nil
 }
 
 func (s *service) RemoveImage(ctx context.Context, image ImageDigest) error {
