@@ -46,6 +46,12 @@ func TestCreateMachineRequest_Validate_RefusesNonDigestImage(t *testing.T) {
 	assert.Error(t, tagged.Validate())
 }
 
+func TestCreateDiskRequest_Validate_RefusesAMissingIdentifierOrRequestID(t *testing.T) {
+	assert.NoError(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", RequestId: "r", SizeBytes: 1}).Validate())
+	assert.Error(t, (&v1alpha2.CreateDiskRequest{RequestId: "r", SizeBytes: 1}).Validate())
+	assert.Error(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", SizeBytes: 1}).Validate())
+}
+
 func TestNetworkRule_Validate(t *testing.T) {
 	tests := []struct {
 		name     string

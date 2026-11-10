@@ -184,12 +184,18 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Policy: policy.clone()}
+	// The root disk's name is held before its file is published, so Delete
+	// disk cannot remove it between the two.
+	if taken, holder, ok := s.claim(id, RootDiskID(id)); !ok {
+		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("disk %q is held by Machine %q", taken, holder))
+		return fail(ErrPreconditionFailed, "%s", reason)
+	}
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
 	if err != nil {
 		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("create root disk: %v", err))
+		s.release(RootDiskID(id))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
-	s.claim(id, root) // a root disk is new, so no one else holds it
 	m := Machine{ID: id, State: StateRunning, Spec: spec, BootMemoryBytes: held.Spec.BootMemoryBytes, RootDisk: root, RootDiskUUID: held.RootDiskUUID, User: User{UID: uid, GID: uid}, Network: identity}
 
 	if failure, vmm := s.bringUp(ctx, m, request, files); failure != nil {

@@ -37,6 +37,16 @@ type Service interface {
 	Inspect(ctx context.Context, id MachineID) (Machine, error)
 	// List returns every Machine on the node, ordered by identifier.
 	List(ctx context.Context) ([]Machine, error)
+	// CreateDisk makes a disk of the size the node holds, at most once per
+	// request ID, so that a Machine can be attached it. The same identifier
+	// under another request ID or size is ErrConflict.
+	CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64) error
+	// ListDisks returns every disk the node holds, root disks included, with
+	// the Machine that holds each, ordered by identifier.
+	ListDisks(ctx context.Context) ([]DiskInfo, error)
+	// DeleteDisk removes the disk. An absent disk succeeds; a disk with a
+	// holder, a root disk among them, is refused with ErrPreconditionFailed.
+	DeleteDisk(ctx context.Context, disk DiskID) error
 	AttachDisk(ctx context.Context, id MachineID, attachment DiskAttachment) error
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
 	// SetResources sets the Machine's resources, and its ceiling when one is

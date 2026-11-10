@@ -23,6 +23,9 @@ service RuntimeService {
   rpc DeleteMachine(DeleteMachineRequest) returns (DeleteMachineResponse);
 
   // Disks and resources.
+  rpc CreateDisk(CreateDiskRequest) returns (CreateDiskResponse);
+  rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
+  rpc DeleteDisk(DeleteDiskRequest) returns (DeleteDiskResponse);
   rpc AttachDisk(AttachDiskRequest) returns (AttachDiskResponse);
   rpc DetachDisk(DetachDiskRequest) returns (DetachDiskResponse);
   rpc SetResources(SetResourcesRequest) returns (SetResourcesResponse);
@@ -272,6 +275,39 @@ message DeleteMachineRequest {
 }
 
 message DeleteMachineResponse {}
+
+message CreateDiskRequest {
+  // The disk's identifier, chosen by the client.
+  string disk_id = 1;
+  string request_id = 2;
+  // The size of the sparse raw file, which the node formats ext4.
+  uint64 size_bytes = 3;
+}
+
+message CreateDiskResponse {
+  Disk disk = 1;
+}
+
+// Disk is a disk the node holds: a Machine's root disk or one CreateDisk made.
+message Disk {
+  string id = 1;
+  uint64 size_bytes = 2;
+  // The Machine that holds the disk; empty when none does.
+  string holder_machine_id = 3;
+}
+
+message ListDisksRequest {}
+
+message ListDisksResponse {
+  // Ordered by id.
+  repeated Disk disks = 1;
+}
+
+message DeleteDiskRequest {
+  string disk_id = 1;
+}
+
+message DeleteDiskResponse {}
 
 message AttachDiskRequest {
   string machine_id = 1;

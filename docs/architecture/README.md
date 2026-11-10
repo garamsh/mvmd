@@ -66,5 +66,6 @@ Decisions:
 - [ADR 0033](./adr/0033-a-vmm-that-ends-on-its-own-moves-its-machine-to-stopped-with-the-reason.md) — a VMM that ends on its own moves its Machine to Stopped with the reason (the daemon finds it through the supervisors it lists)
 - [ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md) — the node reclaims nothing by its own policy, and the runtime API lists and removes the snapshots and images it holds
 - [ADR 0035](./adr/0035-the-runtime-api-streams-listings-and-searches-and-serves-one-alpha-version-at-a-time.md) — the runtime API streams listings and searches and serves one alpha version at a time (`v1alpha2`)
+- [ADR 0036](./adr/0036-the-runtime-api-creates-lists-and-deletes-a-node-local-disk-through-the-disk-adapter.md) — the runtime API creates, lists and deletes a node-local disk through the Disk adapter
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
