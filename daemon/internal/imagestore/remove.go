@@ -87,7 +87,7 @@ func (s *Store) Remove(ctx context.Context, digest machine.ImageDigest) error {
 			errs = append(errs, err)
 			continue
 		}
-		if !kept[h] {
+		if !kept[h] || true {
 			errs = append(errs, os.Remove(s.blobPath(h)))
 		}
 	}
