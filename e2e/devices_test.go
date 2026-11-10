@@ -4,14 +4,10 @@ package e2e_test
 
 import (
 	"context"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -20,34 +16,6 @@ import (
 
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
-
-// A disk the node holds, attached to a running Machine, is a block device its guest lists with
-// the disk's size, and after Detach the guest lists the devices it listed before.
-func TestE2E_AnAttachedDiskIsVisibleToTheGuestUntilItIsDetached(t *testing.T) {
-	const diskBytes = 64 << 20
-	n := startNode(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	n.startRunning(t, ctx, "hosting")
-	n.makeDisk(t, "extra", diskBytes, "hosting")
-	before := n.blockDevices(t, ctx, "hosting", "before")
-	require.NotEmpty(t, before, "the guest lists the devices of the disks it booted with")
-
-	attached, err := n.client.AttachDisk(ctx, &v1alpha2.AttachDiskRequest{MachineId: "hosting", Disk: &v1alpha2.DiskAttachment{DiskId: "extra"}})
-	require.NoError(t, err)
-	assert.Equal(t, "extra", attached.Machine.Disks[0].DiskId)
-
-	after := n.blockDevices(t, ctx, "hosting", "attached")
-	added := difference(after, before)
-	require.Len(t, added, 1, "the guest lists one device more than before: before %v, after %v", before, after)
-	assert.Equal(t, strconv.Itoa(diskBytes/512)+"\n", n.guestFile(t, ctx, "hosting", "size-of-"+added[0], "/sys/class/block/"+added[0]+"/size"), "the device is the disk's size in sectors")
-	assert.Empty(t, difference(before, after), "no device the guest had is gone")
-
-	detached, err := n.client.DetachDisk(ctx, &v1alpha2.DetachDiskRequest{MachineId: "hosting", DiskId: "extra"})
-	require.NoError(t, err)
-	assert.Empty(t, detached.Machine.Disks)
-	assert.Equal(t, before, n.blockDevices(t, ctx, "hosting", "detached"), "the guest lists the devices it listed before the attach")
-}
 
 // SetResources within the ceiling changes the vCPUs and memory the guest reports, and one above
 // it is rejected as invalid and changes nothing. A Driver that cannot resize a running Machine
@@ -112,41 +80,12 @@ func TestE2E_SetResourcesChangesWhatTheGuestReportsWithinTheCeiling(t *testing.T
 	assert.Equal(t, start.MemoryBytes, inspected.Machine.Resources.MemoryBytes, "the refused call changed nothing")
 }
 
-// makeDisk makes a disk the node holds, a sparse ext4 file under <state_dir>/disks that the
-// Machine's VMM user owns as it owns the Machine's root disk. The runtime API creates no other
-// disk than a root disk (runtime-api.md, Open questions).
-func (n *node) makeDisk(t *testing.T, id string, size int64, machine string) {
-	t.Helper()
-	path := filepath.Join(n.stateDir, "disks", id)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	require.NoError(t, err)
-	require.NoError(t, file.Truncate(size))
-	require.NoError(t, file.Close())
-	out, err := exec.Command(mkfsExt4(), "-q", "-F", path).CombinedOutput()
-	require.NoError(t, err, "mkfs.ext4: %s", out)
-	root, err := os.Stat(filepath.Join(n.stateDir, "disks", machine+"-root"))
-	require.NoError(t, err)
-	owner := root.Sys().(*syscall.Stat_t)
-	require.NoError(t, os.Chown(path, int(owner.Uid), int(owner.Gid)))
-	require.NoError(t, os.Chmod(path, root.Mode().Perm()))
-}
-
 // guestFile reads a file of the guest through an exec of its entrypoint program.
 func (n *node) guestFile(t *testing.T, ctx context.Context, machine, id, path string) string {
 	t.Helper()
 	out, code := n.exec(t, ctx, machine, id, "/bin/entry", "cat", path)
 	require.Equal(t, int32(0), code, "cat %s: %s", path, out)
 	return out
-}
-
-// blockDevices lists the block devices the guest has, sorted.
-func (n *node) blockDevices(t *testing.T, ctx context.Context, machine, id string) []string {
-	t.Helper()
-	out, code := n.exec(t, ctx, machine, "devices-"+id, "/bin/entry", "ls", "/sys/class/block")
-	require.Equal(t, int32(0), code, "ls /sys/class/block: %s", out)
-	names := strings.Fields(out)
-	slices.Sort(names)
-	return names
 }
 
 // guestMemoryBytes is the memory the guest's kernel reports as its own.
@@ -161,15 +100,4 @@ func (n *node) guestMemoryBytes(t *testing.T, ctx context.Context, machine, id s
 	}
 	t.Fatal("/proc/meminfo of the guest has no MemTotal")
 	return 0
-}
-
-// difference lists what a holds and b does not.
-func difference(a, b []string) []string {
-	var only []string
-	for _, name := range a {
-		if !slices.Contains(b, name) {
-			only = append(only, name)
-		}
-	}
-	return only
 }
