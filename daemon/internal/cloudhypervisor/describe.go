@@ -47,12 +47,14 @@ var rebootingEvent = []byte(`"event": "rebooting"`)
 // ttyS0 and aarch64's PL011 is ttyAMA0 (docs/device_model.md). The i8042
 // parameters, x86_64's, are the Firecracker Driver's. On x86_64 the guest onlines
 // hot-plugged memory to ZONE_MOVABLE within the auto-movable policy's ratio, so
-// that a resize can unplug it again (ADR 0029).
+// that a resize can unplug it again (ADR 0029). The guest ends its Machine by
+// power off on both architectures: the VMM ends on a guest shutdown and only
+// reboots on a reset, which the supervisor ends (ADR 0026, ADR 0032).
 func cmdline(goarch string) string {
 	if goarch == "arm64" {
-		return "console=ttyAMA0 reboot=k panic=1"
+		return "console=ttyAMA0 reboot=k panic=1 mvmd.end=poweroff"
 	}
-	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable"
+	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable mvmd.end=poweroff"
 }
 
 // verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It

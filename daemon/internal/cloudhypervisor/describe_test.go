@@ -20,7 +20,7 @@ var wantArgs = []string{
 	"--log-file", "/run/cloud-hypervisor.log",
 	"--kernel", "/boot/kernel",
 	"--initramfs", "/boot/initrd",
-	"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable",
+	"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable mvmd.end=poweroff",
 	"--cpus", "boot=2,max=2",
 	"--memory", "size=256M",
 	"--serial", "tty",
@@ -193,14 +193,14 @@ func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T)
 func TestArgs_DifferOnAarch64ByTheSerialPortAndNoCeiling(t *testing.T) {
 	n := newNode(t)
 	want := append([]string(nil), wantArgs...)
-	want[9] = "console=ttyAMA0 reboot=k panic=1"
+	want[9] = "console=ttyAMA0 reboot=k panic=1 mvmd.end=poweroff"
 	want[11] = "boot=2"
 	assert.Equal(t, want, cloudhypervisor.Args(n.spec(), "arm64"))
 }
 
-func TestCmdline_NamesTheSerialPortOfTheArchitectureAndOnX8664TheMovableHotplugPolicy(t *testing.T) {
-	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable", cloudhypervisor.Cmdline("amd64"))
-	assert.Equal(t, "console=ttyAMA0 reboot=k panic=1", cloudhypervisor.Cmdline("arm64"))
+func TestCmdline_NamesTheSerialPortOfTheArchitectureTheMovableHotplugPolicyOnX8664AndPowerOffAsTheEnd(t *testing.T) {
+	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable mvmd.end=poweroff", cloudhypervisor.Cmdline("amd64"))
+	assert.Equal(t, "console=ttyAMA0 reboot=k panic=1 mvmd.end=poweroff", cloudhypervisor.Cmdline("arm64"))
 }
 
 func TestDescribe_TheSupervisorEndsTheVMMWhenTheEventMonitorSaysTheGuestReset(t *testing.T) {
