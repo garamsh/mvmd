@@ -217,7 +217,8 @@ func (a *App) Ready() <-chan struct{} { return a.ready }
 // Serve ends the converter VMs a previous mvmd left, sweeps the Image Store
 // (ADR 0007), restores the Machines from the state directory and reconciles
 // the fencing deadline against them, then serves the runtime API on the
-// socket until the context ends or the deadline's expiry loop fails. No call
+// socket until the context ends or the deadline's expiry loop fails, and
+// watches for VMMs that end by themselves while it serves. No call
 // is served before all of that has finished: the socket does not exist until
 // then. It closes the database before it returns.
 func (a *App) Serve(ctx context.Context) error {
@@ -255,7 +256,11 @@ func (a *App) Serve(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
-	wg.Add(2)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		a.machines.Watch(ctx)
+	}()
 	go func() {
 		defer wg.Done()
 		if err := a.deadline.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {

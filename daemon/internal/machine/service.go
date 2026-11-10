@@ -13,6 +13,11 @@ import (
 // Calls on one Machine run one at a time; calls on different Machines run
 // together, and share only short critical sections.
 type Service interface {
+	// Watch observes, until ctx ends, the Machines whose VMM ends with no call
+	// asking it to, and moves each to Stopped with the reason
+	// (runtime-api.md §Machine states). The composition site runs it after
+	// Restore.
+	Watch(ctx context.Context)
 	// Restore rebuilds the lifecycle from the State Store after a restart and
 	// reconciles its Machines against the live supervisors. The composition
 	// site calls it once, before the fencing Reconcile and before any other
@@ -105,6 +110,8 @@ type service struct {
 	// resizeTimeout bounds the wait for the guest to bring the target's vCPUs
 	// online in SetResources.
 	resizeTimeout time.Duration
+	// vmmEndPoll is how often Watch looks for a VMM that has ended.
+	vmmEndPoll time.Duration
 	// callTimeout bounds an accepted call; callContext applies it, detaching
 	// the call from its caller. A test replaces callContext to run a call on the
 	// caller's own context.
@@ -146,6 +153,20 @@ const DefaultResizeTimeout = 30 * time.Second
 // holds its Machine's lock, when the node names no other bound. A Stop has its
 // grace period on top.
 const DefaultCallTimeout = 10 * time.Minute
+
+// DefaultVMMEndPoll is how often Watch looks for a VMM that has ended when the
+// node names no other interval.
+const DefaultVMMEndPoll = time.Second
+
+// WithVMMEndPoll sets how often Watch looks for a VMM that has ended. An
+// interval that is not positive is ignored.
+func WithVMMEndPoll(d time.Duration) Option {
+	return func(s *service) {
+		if d > 0 {
+			s.vmmEndPoll = d
+		}
+	}
+}
 
 // WithCallTimeout bounds how long an accepted state-changing call runs,
 // whatever the caller's context says. A bound that is not positive is ignored.
@@ -220,6 +241,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 	s := &service{
 		bootTimeout:   DefaultBootTimeout,
 		callTimeout:   DefaultCallTimeout,
+		vmmEndPoll:    DefaultVMMEndPoll,
 		resizeTimeout: DefaultResizeTimeout,
 		callContext:   detached,
 		compensate:    detached,
@@ -251,6 +273,31 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 // exists while a call holds or waits for it and is removed by the last one,
 // so the map holds only the identifiers being called now.
 func (s *service) lock(id MachineID) func() {
+	l, leave := s.enter(id)
+	l.Lock()
+	return func() {
+		l.Unlock()
+		leave()
+	}
+}
+
+// tryLock is lock for a caller that does not wait: it reports false, holding
+// nothing, when a call holds the Machine.
+func (s *service) tryLock(id MachineID) (func(), bool) {
+	l, leave := s.enter(id)
+	if !l.TryLock() {
+		leave()
+		return nil, false
+	}
+	return func() {
+		l.Unlock()
+		leave()
+	}, true
+}
+
+// enter counts a user of the Machine's lock, creating the lock for the first,
+// and returns it with the function that stops counting.
+func (s *service) enter(id MachineID) (*machineLock, func()) {
 	s.mu.Lock()
 	l, ok := s.locks[id]
 	if !ok {
@@ -259,9 +306,7 @@ func (s *service) lock(id MachineID) func() {
 	}
 	l.users++
 	s.mu.Unlock()
-	l.Lock()
-	return func() {
-		l.Unlock()
+	return l, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if l.users--; l.users == 0 {

@@ -34,3 +34,15 @@ func LockCount(s Service) int {
 	defer svc.mu.Unlock()
 	return len(svc.locks)
 }
+
+// ObserveEnds runs one look for the VMMs that have ended, as Watch does on each
+// tick.
+func ObserveEnds(ctx context.Context, s Service) {
+	s.(*service).observeEnds(ctx)
+}
+
+// SettleEnd settles one Machine as a look does once its listing named it, so a
+// test can give it a listing that is stale.
+func SettleEnd(ctx context.Context, s Service, id MachineID) {
+	s.(*service).settleEnd(ctx, id)
+}

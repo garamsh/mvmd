@@ -36,7 +36,7 @@ func TestRestore_RunningAndPausedMachinesWithoutASupervisorAreStopped(t *testing
 			m, err := e.reopened(t).Inspect(ctx, "m")
 			require.NoError(t, err)
 			assert.Equal(t, machine.StateStopped, m.State)
-			assert.Equal(t, "the VMM ended while mvmd was not running", m.FailureReason)
+			assert.Contains(t, m.FailureReason, "the VMM ended while mvmd was not running: ")
 			_, tap := e.net.Applied("m")
 			assert.False(t, tap)
 			rec, _ := e.store.Record("m")

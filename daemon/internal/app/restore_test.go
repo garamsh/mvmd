@@ -121,7 +121,7 @@ func TestRestore_AMachineWithoutASupervisorIsStopped(t *testing.T) {
 		a, err := second.client.InspectMachine(ctx, &v1alpha1.InspectMachineRequest{MachineId: "a"})
 		require.NoError(t, err)
 		assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_STOPPED, a.GetMachine().GetState())
-		assert.Equal(t, "the VMM ended while mvmd was not running", a.GetMachine().GetLastFailureReason())
+		assert.Contains(t, a.GetMachine().GetLastFailureReason(), "the VMM ended while mvmd was not running: ")
 		_, tap := second.app.Substitutes.Network.Applied("a")
 		assert.False(t, tap, "the network of an ended VMM is withdrawn")
 
