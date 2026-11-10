@@ -61,5 +61,6 @@ Decisions:
 - [ADR 0028](./adr/0028-find-disk-takes-the-one-virtio-block-device-the-agent-has-not-accounted-for.md) — `FindDisk` takes the one virtio block device the agent has not accounted for (supersedes ADR 0022's rule for which device `FindDisk` takes)
 - [ADR 0029](./adr/0029-a-machine-has-a-resource-ceiling-chosen-at-create-which-bounds-a-live-resize-and-the-vmms-limits.md) — a Machine has a resource ceiling chosen at create, which bounds a live resize and the VMM's limits
 - [ADR 0030](./adr/0030-the-guest-agent-and-converter-initrds-are-pinned-by-digest-as-the-kernel-is.md) — the Guest Agent and converter initrds are pinned by digest, as the kernel is (extends ADR 0010's pin from the kernel to the initrd, and ADR 0027's restore binding)
+- [ADR 0031](./adr/0031-the-snapshot-store-publishes-a-snapshots-state-files-owned-by-mvmd-and-read-only.md) — the Snapshot Store publishes a snapshot's state files owned by mvmd and read-only
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

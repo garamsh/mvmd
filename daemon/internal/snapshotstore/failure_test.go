@@ -20,7 +20,7 @@ var errInjected = errors.New("injected failure")
 // putSteps are the steps a Put of two state files asks the seam about, in
 // order. The test below fails when Put gains or loses a step, so that no step
 // goes untested.
-var putSteps = []string{"stage", "copy-disk", "write-record", "move-state", "move-state", "sync-state", "publish", "sync-dir"}
+var putSteps = []string{"stage", "copy-disk", "write-record", "move-state", "move-state", "own-state", "sync-state", "publish", "sync-dir"}
 
 var removeSteps = []string{"retire", "sync-dir", "delete"}
 
