@@ -48,7 +48,7 @@ func (s *service) Renew(ctx context.Context, length time.Duration, number uint64
 		// A shortening goes to the supervisors first, so that none ever holds
 		// a later expiry than the record; one that will not take it is killed.
 		for _, sv := range live {
-			if err := error(nil); err == nil {
+			if err := s.sup.SetExpiry(ctx, sv.Machine, next.Expiry); err == nil {
 				continue
 			}
 			if err := s.sup.Terminate(ctx, sv.Machine); err != nil {
