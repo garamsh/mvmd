@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
 )
@@ -29,7 +30,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 		{"/boot-source", map[string]any{"kernel_image_path": machine.InKernel, "initrd_path": machine.InInitrd, "boot_args": bootArgs(runtime.GOARCH)}},
 	}
 	for i, dev := range spec.Devices {
-		name := driveID(i, dev.Disk)
+		name := diskdevice.Name(i, dev.Disk)
 		steps = append(steps, put{"/drives/" + name, drive(name, machine.InDisk(i), dev.ReadOnly)})
 	}
 	if spec.Network.Tap != "" {

@@ -2,30 +2,15 @@ package firecracker
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
-
-// driveID names a block device to the VMM. A device that holds a disk is named
-// by it, so a detach finds the drive whether the disk was given at boot or
-// attached later, and a Machine's image, which holds none, by its position. The
-// name is also a file name in the run directory, so it is the hex of the ID's
-// SHA-256, which is the same length for any ID, within what Firecracker accepts
-// of an ID (letters, digits and underscores) and distinct for two IDs.
-func driveID(position int, disk machine.DiskID) string {
-	if disk == "" {
-		return fmt.Sprintf("disk%d", position)
-	}
-	sum := sha256.Sum256([]byte(disk))
-	return "disk_" + hex.EncodeToString(sum[:])
-}
 
 // drive is the request that configures a block device, at a path in the VMM's
 // root. A read-write one has cache_type Writeback, so the guest's flushes reach
@@ -64,7 +49,7 @@ func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machi
 	if err != nil {
 		return err
 	}
-	name := driveID(0, dev.Disk)
+	name := diskdevice.Name(0, dev.Disk)
 	link := filepath.Join(dir, name)
 	// What stands at the link is a leftover of an attach that failed, or
 	// something the VMM's user put there; neither is followed.
@@ -76,7 +61,7 @@ func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machi
 	}
 	err = newClient(filepath.Join(dir, apiSocketName)).do(ctx, "PUT", "/drives/"+name, drive(name, inRun(name), dev.ReadOnly), nil)
 	if err != nil {
-		return errors.Join(err, removeLink(link))
+		return errors.Join(err, diskdevice.RemoveLink(link))
 	}
 	return nil
 }
@@ -95,11 +80,11 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 	if err != nil {
 		return err
 	}
-	name := driveID(0, disk)
+	name := diskdevice.Name(0, disk)
 	if err := newClient(filepath.Join(dir, apiSocketName)).do(ctx, "DELETE", "/drives/"+name, nil, nil); err != nil {
 		return err
 	}
-	return removeLink(filepath.Join(dir, name))
+	return diskdevice.RemoveLink(filepath.Join(dir, name))
 }
 
 // Drive implements machine.Driver. It reads the VMM's own configuration
@@ -123,7 +108,7 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 	if err := c.do(ctx, "GET", "/vm/config", nil, &config); err != nil {
 		return machine.DriveAbsent, err
 	}
-	name := driveID(0, disk)
+	name := diskdevice.Name(0, disk)
 	for _, have := range config.Drives {
 		switch {
 		case have.ID != name:
@@ -134,13 +119,4 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 		}
 	}
 	return machine.DriveAbsent, nil
-}
-
-// removeLink removes the link of an attached disk, which is absent for a disk
-// given at boot.
-func removeLink(link string) error {
-	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove %s: %w", link, err)
-	}
-	return nil
 }
