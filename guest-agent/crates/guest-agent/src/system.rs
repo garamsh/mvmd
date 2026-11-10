@@ -9,6 +9,7 @@ use nix::sys::reboot::{RebootMode, reboot};
 use thiserror::Error;
 
 use crate::description::NetworkConfig;
+use crate::end_method::EndMethodCell;
 use crate::uuid::{Filesystem, Uuid};
 
 /// The mounts of the boot. Where each filesystem is mounted is the implementation's.
@@ -52,6 +53,12 @@ pub trait Power: Send + Sync {
     /// Wait for ever, once neither of the others has ended the Machine. It returns only in a
     /// test.
     fn halt(&self);
+}
+
+/// The kernel command line the Machine booted with.
+pub trait KernelCommandLine: Send + Sync {
+    /// The whole line.
+    fn read(&self) -> io::Result<String>;
 }
 
 /// The kernel's random pool, after a restore.
@@ -153,6 +160,10 @@ pub struct System {
     pub disks: Arc<dyn Disks>,
     /// The guest's vCPUs and memory.
     pub resources: Arc<dyn Resources>,
+    /// The kernel command line.
+    pub command_line: Arc<dyn KernelCommandLine>,
+    /// The method that ends the Machine, set once the agent has read `command_line`.
+    pub end_method: EndMethodCell,
 }
 
 /// Ends the Machine through the `reboot` system call.

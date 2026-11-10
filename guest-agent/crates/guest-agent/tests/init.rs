@@ -22,8 +22,8 @@ use guest_agent::v1alpha1::{
     WriteFileRequest, WriteFileStart, read_exec_output_response, write_file_request,
 };
 use guest_agent::{
-    BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, GuestSize, Mounts,
-    Network, NetworkConfig, Power, Resources, System, Uuid,
+    BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, GuestSize,
+    KernelCommandLine, Mounts, Network, NetworkConfig, Power, Resources, System, Uuid,
 };
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
@@ -166,34 +166,58 @@ impl Network for TestNetwork {
     }
 }
 
+/// The kernel command line of a Machine whose Driver names the power-off.
+const POWER_OFF_COMMAND_LINE: &str = "console=ttyS0 mvmd.end=poweroff";
+
+struct TestCommandLine(&'static str);
+
+impl KernelCommandLine for TestCommandLine {
+    fn read(&self) -> io::Result<String> {
+        Ok(self.0.to_owned())
+    }
+}
+
 struct TestPower {
     log: Log,
     done: Mutex<Option<oneshot::Sender<()>>>,
     held: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    /// Both calls fail.
     fail: bool,
+    /// The restart fails and the power-off works.
+    fail_restart: bool,
+}
+
+impl TestPower {
+    /// What a call that works does: report it, then wait until the test drops the agent, which
+    /// drops the sender. The real call does not return.
+    fn works(&self) {
+        if let Some(done) = lock(&self.done).take() {
+            let _ = done.send(());
+        }
+        if let Some(held) = lock(&self.held).take() {
+            let _ = held.recv();
+        }
+    }
 }
 
 impl Power for TestPower {
     /// Returns, which the real call does only when it has failed.
     fn power_off(&self) -> io::Result<()> {
         self.log.push("power_off");
-        if let Some(done) = lock(&self.done).take() {
-            let _ = done.send(());
-        }
         if self.fail {
             return Err(io::Error::other("injected failure"));
         }
-        // A power-off that works does not return. This one waits until the test drops the
-        // agent, which drops the sender.
-        if let Some(held) = lock(&self.held).take() {
-            let _ = held.recv();
-        }
+        self.works();
         Ok(())
     }
 
     fn restart(&self) -> io::Result<()> {
         self.log.push("restart");
-        Err(io::Error::other("injected failure"))
+        if self.fail || self.fail_restart {
+            return Err(io::Error::other("injected failure"));
+        }
+        self.works();
+        Ok(())
     }
 
     /// Waits until the test drops the agent, which a halt that works never does.
@@ -313,6 +337,9 @@ struct Setup {
     fail_mount: Option<&'static str>,
     fail_network: bool,
     fail_power: bool,
+    fail_restart: bool,
+    /// The kernel command line; the power-off's when none.
+    command_line: Option<&'static str>,
     fail_account: bool,
     overlay_takes: Duration,
     listener_ends: bool,
@@ -389,12 +416,17 @@ impl Agent {
                 done: Mutex::new(Some(done)),
                 held: Mutex::new(Some(held)),
                 fail: setup.fail_power,
+                fail_restart: setup.fail_restart,
             }),
             console: Arc::new(TestConsole(log.clone())),
             entropy: entropy.clone(),
             clock: clock.clone(),
             disks: disks.clone(),
             resources: resources.clone(),
+            command_line: Arc::new(TestCommandLine(
+                setup.command_line.unwrap_or(POWER_OFF_COMMAND_LINE),
+            )),
+            end_method: Arc::default(),
         };
         let socket_dir = tempfile::tempdir()?;
         let socket = socket_dir.path().join("agent.sock");
@@ -1520,6 +1552,124 @@ async fn a_power_off_that_fails_falls_back_to_a_restart_and_the_agent_never_retu
     // Both calls have returned, so both have failed; the agent still does not return.
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!agent.run.is_finished());
+    Ok(())
+}
+
+/// Ends an agent that has not booted, by a termination request, and returns what it called to
+/// end the Machine and what it wrote to the console.
+async fn ended_by(
+    setup: Setup,
+) -> std::result::Result<(Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
+    let mut agent = Agent::start_with(setup).await?;
+    agent.terminate.send(Signal::SIGTERM).await?;
+    agent.powered_off().await?;
+    let calls = agent
+        .log
+        .entries()
+        .into_iter()
+        .filter(|entry| entry == "power_off" || entry == "restart")
+        .collect();
+    Ok((calls, agent.console()))
+}
+
+#[tokio::test]
+async fn the_machine_ends_by_the_method_the_command_line_names() -> Result {
+    let (calls, console) = ended_by(Setup {
+        command_line: Some("console=ttyS0 reboot=k mvmd.end=reset"),
+        ..Setup::default()
+    })
+    .await?;
+    assert_eq!(calls, ["restart"]);
+    assert_eq!(
+        console,
+        ["mvmd-guest-agent: terminated before the entrypoint ran".to_owned()]
+    );
+
+    // The control: the other value ends it the other way.
+    let (calls, console) = ended_by(Setup {
+        command_line: Some("console=ttyS0 reboot=k mvmd.end=poweroff"),
+        ..Setup::default()
+    })
+    .await?;
+    assert_eq!(calls, ["power_off"]);
+    assert_eq!(
+        console,
+        ["mvmd-guest-agent: terminated before the entrypoint ran".to_owned()]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_absent_parameter_is_said_on_the_console_and_the_machine_powers_off() -> Result {
+    let (calls, console) = ended_by(Setup {
+        command_line: Some("console=ttyS0 reboot=k"),
+        ..Setup::default()
+    })
+    .await?;
+    assert_eq!(calls, ["power_off"]);
+    assert_eq!(
+        console,
+        [
+            "mvmd-guest-agent: the kernel command line has no mvmd.end; ending by power off"
+                .to_owned(),
+            "mvmd-guest-agent: terminated before the entrypoint ran".to_owned(),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unknown_value_is_said_on_the_console_and_the_machine_powers_off() -> Result {
+    let (calls, console) = ended_by(Setup {
+        command_line: Some("console=ttyS0 mvmd.end=halt"),
+        ..Setup::default()
+    })
+    .await?;
+    assert_eq!(calls, ["power_off"]);
+    assert_eq!(
+        console,
+        [
+            "mvmd-guest-agent: mvmd.end=\"halt\" is neither poweroff nor reset; ending by power off"
+                .to_owned(),
+            "mvmd-guest-agent: terminated before the entrypoint ran".to_owned(),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_reset_that_fails_falls_back_to_a_power_off() -> Result {
+    let (calls, console) = ended_by(Setup {
+        command_line: Some("mvmd.end=reset"),
+        fail_restart: true,
+        ..Setup::default()
+    })
+    .await?;
+    assert_eq!(calls, ["restart", "power_off"]);
+    assert!(
+        console.contains(&"mvmd-guest-agent: failed to restart: injected failure".to_owned()),
+        "{console:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_entrypoints_end_resets_the_machine_when_the_command_line_says_reset() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        command_line: Some("mvmd.end=reset"),
+        ..Setup::default()
+    })
+    .await?;
+    agent.boot("exit 7").await?;
+
+    agent.powered_off().await?;
+
+    assert_eq!(agent.log.count("restart"), 1);
+    assert_eq!(agent.log.count("power_off"), 0);
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: entrypoint exited code=7".to_owned()]
+    );
     Ok(())
 }
 
