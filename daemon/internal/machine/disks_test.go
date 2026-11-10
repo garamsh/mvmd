@@ -471,18 +471,19 @@ func TestDetachDisk_TheGuestReleasesTheDiskFirst(t *testing.T) {
 func TestSetResources_Needs(t *testing.T) {
 	ctx := context.Background()
 	target := machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}
+	smaller := machine.Resources{VCPUs: 1, MemoryBytes: 512 << 20}
 
 	t.Run("resize capability if Running or Paused", func(t *testing.T) {
 		for _, state := range []machine.State{machine.StateRunning, machine.StatePaused} {
 			e := newEnv()
 			e.inState(t, "m", state)
-			requireKind(t, e.svc.SetResources(ctx, "m", target), machine.ErrUnsupported)
+			requireKind(t, e.svc.SetResources(ctx, "m", smaller, machine.Resources{}), machine.ErrUnsupported)
 			assert.Equal(t, baseSpec().Resources, e.requireState(t, "m", state).Resources)
 			assert.Zero(t, e.driver.Calls("resize"))
 
 			with := newEnv(machine.CapabilityResize)
 			with.inState(t, "m", state)
-			require.NoError(t, with.svc.SetResources(ctx, "m", target))
+			require.NoError(t, with.svc.SetResources(ctx, "m", smaller, machine.Resources{}))
 		}
 	})
 
@@ -490,16 +491,16 @@ func TestSetResources_Needs(t *testing.T) {
 		for _, state := range []machine.State{machine.StateCreated, machine.StateStopped} {
 			e := newEnv()
 			e.inState(t, "m", state)
-			require.NoError(t, e.svc.SetResources(ctx, "m", target))
+			require.NoError(t, e.svc.SetResources(ctx, "m", target, target))
 		}
 	})
 
 	t.Run("an absolute target with CPU and memory", func(t *testing.T) {
 		e := newEnv(machine.CapabilityResize)
 		e.created(t, "m")
-		requireKind(t, e.svc.SetResources(ctx, "m", machine.Resources{MemoryBytes: 1}), machine.ErrInvalid)
-		requireKind(t, e.svc.SetResources(ctx, "m", machine.Resources{VCPUs: 1}), machine.ErrInvalid)
-		requireKind(t, e.svc.SetResources(ctx, "absent", target), machine.ErrNotFound)
+		requireKind(t, e.svc.SetResources(ctx, "m", machine.Resources{MemoryBytes: 1}, machine.Resources{}), machine.ErrInvalid)
+		requireKind(t, e.svc.SetResources(ctx, "m", machine.Resources{VCPUs: 1}, machine.Resources{}), machine.ErrInvalid)
+		requireKind(t, e.svc.SetResources(ctx, "absent", target, machine.Resources{}), machine.ErrNotFound)
 		assert.Equal(t, baseSpec().Resources, e.requireState(t, "m", machine.StateCreated).Resources)
 	})
 }
@@ -511,8 +512,9 @@ func TestSetResources_OnSuccess(t *testing.T) {
 
 	t.Run("a Running Machine is resized by the Driver", func(t *testing.T) {
 		e := newEnv(machine.CapabilityResize)
+		e.ceiling = target
 		e.inState(t, "m", machine.StateRunning)
-		require.NoError(t, e.svc.SetResources(ctx, "m", target))
+		require.NoError(t, e.svc.SetResources(ctx, "m", target, machine.Resources{}))
 		assert.Equal(t, target, e.requireState(t, "m", machine.StateRunning).Resources)
 		assert.Equal(t, target, e.driver.Resized("m"))
 		rec, _ := e.store.Record("m")
@@ -522,7 +524,7 @@ func TestSetResources_OnSuccess(t *testing.T) {
 	t.Run("a Created Machine holds the target for its next boot", func(t *testing.T) {
 		e := newEnv()
 		e.created(t, "m")
-		require.NoError(t, e.svc.SetResources(ctx, "m", target))
+		require.NoError(t, e.svc.SetResources(ctx, "m", target, target))
 		require.NoError(t, e.svc.Start(ctx, "m"))
 		assert.Equal(t, target, e.driver.BootSpec("m").Resources)
 		assert.Zero(t, e.driver.Calls("resize"))
@@ -534,17 +536,18 @@ func TestSetResources_Repeat(t *testing.T) {
 	ctx := context.Background()
 	target := machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}
 	e := newEnv(machine.CapabilityResize)
+	e.ceiling = target
 	e.inState(t, "m", machine.StateRunning)
-	require.NoError(t, e.svc.SetResources(ctx, "m", target))
+	require.NoError(t, e.svc.SetResources(ctx, "m", target, machine.Resources{}))
 
-	require.NoError(t, e.svc.SetResources(ctx, "m", target))
+	require.NoError(t, e.svc.SetResources(ctx, "m", target, machine.Resources{}))
 	assert.Equal(t, 1, e.driver.Calls("resize"), "the Driver was not asked again")
 	assert.Equal(t, target, e.requireState(t, "m", machine.StateRunning).Resources)
 
 	// A repeat of the Machine's current value needs no capability either.
 	plain := newEnv()
 	plain.inState(t, "m", machine.StateRunning)
-	require.NoError(t, plain.svc.SetResources(ctx, "m", baseSpec().Resources))
+	require.NoError(t, plain.svc.SetResources(ctx, "m", baseSpec().Resources, machine.Resources{}))
 }
 
 // Row "Set resources", column State after failure.
@@ -554,10 +557,11 @@ func TestSetResources_StateAfterFailure(t *testing.T) {
 
 	t.Run("the Driver fails and inspect shows the prior value", func(t *testing.T) {
 		e := newEnv(machine.CapabilityResize)
+		e.ceiling = target
 		e.inState(t, "m", machine.StateRunning)
 		e.driver.FailAt("resize", errBoom)
 
-		requireKind(t, e.svc.SetResources(ctx, "m", target), machine.ErrFailed)
+		requireKind(t, e.svc.SetResources(ctx, "m", target, machine.Resources{}), machine.ErrFailed)
 		assert.Equal(t, baseSpec().Resources, e.requireState(t, "m", machine.StateRunning).Resources)
 		rec, _ := e.store.Record("m")
 		assert.Equal(t, baseSpec().Resources, rec.Machine.Resources)
@@ -568,7 +572,7 @@ func TestSetResources_StateAfterFailure(t *testing.T) {
 		e.created(t, "m")
 		e.store.FailAt("save", errBoom)
 
-		requireKind(t, e.svc.SetResources(ctx, "m", target), machine.ErrFailed)
+		requireKind(t, e.svc.SetResources(ctx, "m", target, target), machine.ErrFailed)
 		assert.Equal(t, baseSpec().Resources, e.requireState(t, "m", machine.StateCreated).Resources)
 	})
 }

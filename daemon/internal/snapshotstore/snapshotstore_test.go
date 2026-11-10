@@ -76,9 +76,12 @@ func snapshot(id string) machine.Snapshot {
 		Machine: "machine-of-" + machine.MachineID(id),
 		Request: "request-of-" + machine.RequestID(id),
 		Spec: machine.SnapshotSpec{
-			Image:         "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			Resources:     machine.Resources{VCPUs: 3, MemoryBytes: 512 << 20},
-			RootDiskBytes: diskSize,
+			Image:     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Resources: machine.Resources{VCPUs: 3, MemoryBytes: 512 << 20},
+			Ceiling:   machine.Resources{VCPUs: 6, MemoryBytes: 1 << 30},
+			// Differs from the resources, so a reading that defaulted it would show.
+			BootMemoryBytes: 256 << 20,
+			RootDiskBytes:   diskSize,
 		},
 		RootDiskUUID: "uuid-of-" + id,
 		MAC:          "02:00:00:00:00:01",
@@ -455,4 +458,28 @@ func TestRemove_EndedContextRemovesNothing(t *testing.T) {
 	require.NoError(t, s.Remove(ctx, "a")) // control
 	_, _, err := s.Get(ctx, "a")
 	assert.ErrorIs(t, err, machine.ErrSnapshotAbsent)
+}
+
+// A record written before the ceiling and the boot memory existed holds
+// neither; it reads back with the ceiling the resources are, and the memory
+// they boot with (ADR 0029).
+func TestGet_ARecordWithoutACeilingReadsItAsTheResources(t *testing.T) {
+	f := newFixture(t)
+	s := f.open(t)
+	old := snapshot("old")
+	old.Spec.Ceiling = machine.Resources{}
+	old.Spec.BootMemoryBytes = 0
+	require.NoError(t, s.Put(ctx, old, f.files(t, "old")))
+
+	got, _, err := s.Get(ctx, "old")
+	require.NoError(t, err)
+	assert.Equal(t, old.Spec.Resources, got.Spec.Ceiling)
+	assert.Equal(t, old.Spec.Resources.MemoryBytes, got.Spec.BootMemoryBytes)
+
+	kept := snapshot("kept")
+	require.NoError(t, s.Put(ctx, kept, f.files(t, "kept")))
+	got, _, err = s.Get(ctx, "kept")
+	require.NoError(t, err)
+	assert.Equal(t, kept.Spec.Ceiling, got.Spec.Ceiling, "control: one that holds a ceiling keeps it")
+	assert.Equal(t, kept.Spec.BootMemoryBytes, got.Spec.BootMemoryBytes)
 }

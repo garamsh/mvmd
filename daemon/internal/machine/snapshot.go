@@ -103,7 +103,7 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	if err != nil {
 		return locateFailure(err, ErrDiskAbsent, "disk %q", m.RootDisk)
 	}
-	spec := SnapshotSpec{Image: m.Image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}
+	spec := SnapshotSpec{Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
 		Compat: SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: taken.KernelDigest},
@@ -181,14 +181,14 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("allocate network: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
-	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, RootDiskBytes: held.Spec.RootDiskBytes, Policy: policy.clone()}
+	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Policy: policy.clone()}
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
 	if err != nil {
 		reason, _ := s.undoRestore(ctx, id, "", false, fmt.Sprintf("create root disk: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	s.claim(id, root) // a root disk is new, so no one else holds it
-	m := Machine{ID: id, State: StateRunning, Spec: spec, RootDisk: root, RootDiskUUID: held.RootDiskUUID, User: User{UID: uid, GID: uid}, Network: identity}
+	m := Machine{ID: id, State: StateRunning, Spec: spec, BootMemoryBytes: held.Spec.BootMemoryBytes, RootDisk: root, RootDiskUUID: held.RootDiskUUID, User: User{UID: uid, GID: uid}, Network: identity}
 
 	if failure, vmm := s.bringUp(ctx, m, request, files); failure != nil {
 		reason, ended := s.undoRestore(ctx, id, root, vmm, failure.Reason)
@@ -225,7 +225,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 // process exists when it returns.
 func (s *service) bringUp(ctx context.Context, m Machine, request RequestID, files SnapshotFiles) (failure *Error, vmm bool) {
 	id := m.ID
-	boot := BootSpec{Resources: m.Resources}
+	boot := BootSpec{Resources: m.Resources, Ceiling: m.Ceiling}
 	var err error
 	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
 		return fail(ErrFailed, "name the run directory: %v", err), false

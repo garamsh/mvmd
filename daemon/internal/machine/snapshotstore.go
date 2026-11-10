@@ -27,13 +27,16 @@ type SnapshotCompat struct {
 }
 
 // SnapshotSpec is what a snapshot keeps of a Machine's Spec: the image, the
-// resources and the root disk size. It has no field for an attached disk or a
+// resources, their ceiling and the root disk size, and the memory its VMM booted
+// with, which a live resize of the restored Machine needs (ADR 0029). It has no field for an attached disk or a
 // network policy, since a snapshot's Machine is new, with a policy of its own
 // and no disk but its root.
 type SnapshotSpec struct {
-	Image         ImageDigest
-	Resources     Resources
-	RootDiskBytes uint64
+	Image           ImageDigest
+	Resources       Resources
+	Ceiling         Resources
+	BootMemoryBytes uint64
+	RootDiskBytes   uint64
 }
 
 // Snapshot is the record of a snapshot: the Machine it came from, the request

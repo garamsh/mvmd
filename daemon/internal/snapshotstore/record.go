@@ -17,40 +17,48 @@ const recordVersion = 1
 // machine.Snapshot has no field for a network policy or an attached disk, so
 // neither is stored.
 type record struct {
-	Version       int      `json:"version"`
-	ID            string   `json:"id"`
-	Machine       string   `json:"machine"`
-	Request       string   `json:"request"`
-	Image         string   `json:"image"`
-	VCPUs         uint32   `json:"vcpus"`
-	MemoryBytes   uint64   `json:"memory_bytes"`
-	RootDiskBytes uint64   `json:"root_disk_bytes"`
-	RootDiskUUID  string   `json:"root_disk_uuid"`
-	MAC           string   `json:"mac"`
-	Driver        string   `json:"driver"`
-	DriverVersion string   `json:"driver_version"`
-	CPUModel      string   `json:"cpu_model"`
-	KernelDigest  string   `json:"kernel_digest"`
-	State         []string `json:"state"`
+	Version     int    `json:"version"`
+	ID          string `json:"id"`
+	Machine     string `json:"machine"`
+	Request     string `json:"request"`
+	Image       string `json:"image"`
+	VCPUs       uint32 `json:"vcpus"`
+	MemoryBytes uint64 `json:"memory_bytes"`
+	// The ceiling and the boot memory are zero in a record written before
+	// they existed.
+	CeilingVCPUs       uint32   `json:"ceiling_vcpus"`
+	CeilingMemoryBytes uint64   `json:"ceiling_memory_bytes"`
+	BootMemoryBytes    uint64   `json:"boot_memory_bytes"`
+	RootDiskBytes      uint64   `json:"root_disk_bytes"`
+	RootDiskUUID       string   `json:"root_disk_uuid"`
+	MAC                string   `json:"mac"`
+	Driver             string   `json:"driver"`
+	DriverVersion      string   `json:"driver_version"`
+	CPUModel           string   `json:"cpu_model"`
+	KernelDigest       string   `json:"kernel_digest"`
+	State              []string `json:"state"`
 }
 
 func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 	return json.Marshal(record{
-		Version:       recordVersion,
-		ID:            string(s.ID),
-		Machine:       string(s.Machine),
-		Request:       string(s.Request),
-		Image:         string(s.Spec.Image),
-		VCPUs:         s.Spec.Resources.VCPUs,
-		MemoryBytes:   s.Spec.Resources.MemoryBytes,
-		RootDiskBytes: s.Spec.RootDiskBytes,
-		RootDiskUUID:  s.RootDiskUUID,
-		MAC:           s.MAC,
-		Driver:        s.Compat.Driver,
-		DriverVersion: s.Compat.Version,
-		CPUModel:      s.Compat.CPUModel,
-		KernelDigest:  s.Compat.KernelDigest,
-		State:         state,
+		Version:            recordVersion,
+		ID:                 string(s.ID),
+		Machine:            string(s.Machine),
+		Request:            string(s.Request),
+		Image:              string(s.Spec.Image),
+		VCPUs:              s.Spec.Resources.VCPUs,
+		MemoryBytes:        s.Spec.Resources.MemoryBytes,
+		CeilingVCPUs:       s.Spec.Ceiling.VCPUs,
+		CeilingMemoryBytes: s.Spec.Ceiling.MemoryBytes,
+		BootMemoryBytes:    s.Spec.BootMemoryBytes,
+		RootDiskBytes:      s.Spec.RootDiskBytes,
+		RootDiskUUID:       s.RootDiskUUID,
+		MAC:                s.MAC,
+		Driver:             s.Compat.Driver,
+		DriverVersion:      s.Compat.Version,
+		CPUModel:           s.Compat.CPUModel,
+		KernelDigest:       s.Compat.KernelDigest,
+		State:              state,
 	})
 }
 
@@ -69,14 +77,21 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 			return machine.Snapshot{}, nil, err
 		}
 	}
+	resources := machine.Resources{VCPUs: r.VCPUs, MemoryBytes: r.MemoryBytes}
+	ceiling := machine.Resources{VCPUs: r.CeilingVCPUs, MemoryBytes: r.CeilingMemoryBytes}.OrElse(resources)
+	if r.BootMemoryBytes == 0 {
+		r.BootMemoryBytes = resources.MemoryBytes
+	}
 	return machine.Snapshot{
 		ID:      machine.SnapshotID(r.ID),
 		Machine: machine.MachineID(r.Machine),
 		Request: machine.RequestID(r.Request),
 		Spec: machine.SnapshotSpec{
-			Image:         machine.ImageDigest(r.Image),
-			Resources:     machine.Resources{VCPUs: r.VCPUs, MemoryBytes: r.MemoryBytes},
-			RootDiskBytes: r.RootDiskBytes,
+			Image:           machine.ImageDigest(r.Image),
+			Resources:       resources,
+			Ceiling:         ceiling,
+			BootMemoryBytes: r.BootMemoryBytes,
+			RootDiskBytes:   r.RootDiskBytes,
 		},
 		RootDiskUUID: r.RootDiskUUID,
 		MAC:          r.MAC,

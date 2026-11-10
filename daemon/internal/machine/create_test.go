@@ -91,7 +91,9 @@ func TestCreate_OnSuccess(t *testing.T) {
 	require.NoError(t, e.svc.Create(context.Background(), "m", "r", spec))
 
 	m := e.requireState(t, "m", machine.StateCreated)
-	assert.Equal(t, spec, m.Spec)
+	want := spec
+	want.Ceiling = spec.Resources // none was asked for: the ceiling is the resources
+	assert.Equal(t, want, m.Spec)
 	assert.Equal(t, machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: []machine.Capability{machine.CapabilityConsole}}, m.Driver)
 	assert.NotEmpty(t, m.Network.MAC)
 	assert.NotEmpty(t, m.Network.Addresses)

@@ -33,8 +33,11 @@ func storedBytes(t *testing.T, dir string, id string) (record string, execs map[
 }
 
 func pausedMachine() *machine.Machine {
+	spec := legacySpec()
+	spec.Ceiling = spec.Resources
 	return &machine.Machine{
-		ID: "m", State: machine.StatePaused, Spec: legacySpec(), RootDisk: "m-root", RootDiskUUID: "uuid-1",
+		BootMemoryBytes: spec.Resources.MemoryBytes,
+		ID:              "m", State: machine.StatePaused, Spec: spec, RootDisk: "m-root", RootDiskUUID: "uuid-1",
 		User: machine.User{UID: 1001, GID: 1001},
 		Network: machine.NetworkIdentity{
 			MAC:       "02:00:00:00:00:01",
@@ -50,7 +53,7 @@ func pausedMachine() *machine.Machine {
 // explicit name. These bytes are the format; a change to them is a change to
 // what every database holds, and has to be made on purpose.
 const (
-	storedMachineJSON = `{"ID":"m","Machine":{"ID":"m","State":"paused","Image":"sha256:abc","Resources":{"VCPUs":2,"MemoryBytes":1073741824},"RootDiskBytes":2147483648,"Disks":[{"Disk":"data","ReadOnly":true}],"Policy":{"Egress":[{"Prefix":"10.0.0.0/8","Protocol":"tcp","Ports":[{"First":80,"Last":443}]}],"Ingress":[{"Prefix":"fd00::/8","Protocol":"icmpv6","Ports":null}]},"RootDisk":"m-root","RootDiskUUID":"uuid-1","User":{"UID":1001,"GID":1001},"Network":{"MAC":"02:00:00:00:00:01","Addresses":["10.0.0.5","fd00::5"],"Gateways":["10.0.0.1"],"Resolvers":["10.0.0.2"]},"FailureReason":"boot failed: boom"},"Request":{"ID":"r1","Snapshot":"snap","Spec":{"Image":"sha256:abc","Resources":{"VCPUs":2,"MemoryBytes":1073741824},"RootDiskBytes":2147483648,"Disks":[{"Disk":"data","ReadOnly":true}],"Policy":{"Egress":[{"Prefix":"10.0.0.0/8","Protocol":"tcp","Ports":[{"First":80,"Last":443}]}],"Ingress":[{"Prefix":"fd00::/8","Protocol":"icmpv6","Ports":null}]}},"Failure":null}}`
+	storedMachineJSON = `{"ID":"m","Machine":{"ID":"m","State":"paused","Image":"sha256:abc","Resources":{"VCPUs":2,"MemoryBytes":1073741824},"Ceiling":{"VCPUs":2,"MemoryBytes":1073741824},"RootDiskBytes":2147483648,"Disks":[{"Disk":"data","ReadOnly":true}],"Policy":{"Egress":[{"Prefix":"10.0.0.0/8","Protocol":"tcp","Ports":[{"First":80,"Last":443}]}],"Ingress":[{"Prefix":"fd00::/8","Protocol":"icmpv6","Ports":null}]},"RootDisk":"m-root","RootDiskUUID":"uuid-1","User":{"UID":1001,"GID":1001},"Network":{"MAC":"02:00:00:00:00:01","Addresses":["10.0.0.5","fd00::5"],"Gateways":["10.0.0.1"],"Resolvers":["10.0.0.2"]},"FailureReason":"boot failed: boom","BootMemoryBytes":1073741824},"Request":{"ID":"r1","Snapshot":"snap","Spec":{"Image":"sha256:abc","Resources":{"VCPUs":2,"MemoryBytes":1073741824},"Ceiling":{"VCPUs":0,"MemoryBytes":0},"RootDiskBytes":2147483648,"Disks":[{"Disk":"data","ReadOnly":true}],"Policy":{"Egress":[{"Prefix":"10.0.0.0/8","Protocol":"tcp","Ports":[{"First":80,"Last":443}]}],"Ingress":[{"Prefix":"fd00::/8","Protocol":"icmpv6","Ports":null}]}},"Failure":null}}`
 	storedExecJSON    = `{"Machine":"m","ID":"a","Request":"r","Spec":{"Command":["echo","hi"],"Env":{"K":"v"},"WorkingDir":"/tmp"},"Record":{"ID":"a","Status":"exited","Reason":"","ExitCode":3,"TermSignal":9},"Answered":true}`
 )
 
@@ -266,4 +269,28 @@ func TestStore_ARecordSavedAgainIsWrittenInTheNewFormat(t *testing.T) {
 	assert.JSONEq(t, storedMachineJSON, record, "the earlier bytes became the new ones, with the same meaning")
 	failed, _ := storedBytes(t, dir, "failed")
 	assert.JSONEq(t, legacyFailed, failed, "a record not saved again is as it was")
+}
+
+// A ceiling and a boot memory that differ from the resources are stored and
+// read back as they are; only a record that holds none is defaulted (ADR 0029).
+func TestStore_TheCeilingAndTheBootMemoryAreStoredAsTheyAre(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db := open(t, dir)
+	m := pausedMachine()
+	m.Ceiling = machine.Resources{VCPUs: 4, MemoryBytes: 2 << 30}
+	m.BootMemoryBytes = 512 << 20
+	require.NoError(t, db.Machines().Save(ctx, machine.Record{ID: "m", Machine: m}))
+	require.NoError(t, db.Close())
+
+	record, _ := storedBytes(t, dir, "m")
+	assert.Contains(t, record, `"Ceiling":{"VCPUs":4,"MemoryBytes":2147483648}`)
+	assert.Contains(t, record, `"BootMemoryBytes":536870912`)
+
+	db = open(t, dir)
+	defer db.Close()
+	got, err := db.Machines().Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, m, got[0].Machine)
 }

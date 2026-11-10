@@ -34,7 +34,10 @@ type Service interface {
 	List(ctx context.Context) ([]Machine, error)
 	AttachDisk(ctx context.Context, id MachineID, attachment DiskAttachment) error
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
-	SetResources(ctx context.Context, id MachineID, target Resources) error
+	// SetResources sets the Machine's resources, and its ceiling when one is
+	// given: a ceiling figure of zero is left as the Machine holds it
+	// (ADR 0029).
+	SetResources(ctx context.Context, id MachineID, target, ceiling Resources) error
 
 	// The guest access calls need the Machine Running and fail with
 	// ErrPreconditionFailed otherwise.

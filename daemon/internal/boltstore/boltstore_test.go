@@ -20,6 +20,7 @@ func spec() machine.Spec {
 	return machine.Spec{
 		Image:         "sha256:image",
 		Resources:     machine.Resources{VCPUs: 2, MemoryBytes: 1 << 30},
+		Ceiling:       machine.Resources{VCPUs: 4, MemoryBytes: 2 << 30},
 		RootDiskBytes: 1 << 30,
 		Disks:         []machine.DiskAttachment{{Disk: "d", ReadOnly: true}},
 		Policy: machine.NetworkPolicy{
@@ -41,6 +42,8 @@ func records() []machine.Record {
 		RootDisk:      "m-root",
 		Network:       machine.NetworkIdentity{MAC: "02:00:00:00:00:01", Addresses: []netip.Addr{netip.MustParseAddr("10.0.0.1")}},
 		FailureReason: "boot failed: boom",
+		// Differs from the resources, so a reading that defaulted it would show.
+		BootMemoryBytes: 512 << 20,
 	}
 	return []machine.Record{
 		{ID: "m", Machine: &m, Request: machine.Request{ID: "r1", Snapshot: "snap-1", Spec: spec()}},

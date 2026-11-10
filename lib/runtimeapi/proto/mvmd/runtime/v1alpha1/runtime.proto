@@ -145,7 +145,9 @@ message NetworkRule {
   repeated PortRange ports = 3;
 }
 
-// Resources is an absolute target, never a delta.
+// Resources is an absolute target, never a delta. As a resource ceiling, it is
+// the most a live resize of the Machine reaches (runtime-api.md); a figure of
+// zero in a ceiling a call gives is not set.
 message Resources {
   uint32 cpu_count = 1;
   uint64 memory_bytes = 2;
@@ -176,6 +178,9 @@ message Machine {
   repeated string addresses = 8;
   // The network policy in effect for this Machine.
   NetworkPolicy network_policy = 9;
+  // The most a live resize reaches. Never below resources: a Machine created
+  // with none reports its resources.
+  Resources resource_ceiling = 10;
 }
 
 message CreateMachineRequest {
@@ -189,6 +194,8 @@ message CreateMachineRequest {
   uint64 root_disk_bytes = 5;
   repeated DiskAttachment disks = 6;
   NetworkPolicy network_policy = 7;
+  // Optional. A figure not set is the figure of resources.
+  Resources resource_ceiling = 8;
 }
 
 message CreateMachineResponse {
@@ -278,11 +285,16 @@ message DetachDiskResponse {
 message SetResourcesRequest {
   string machine_id = 1;
   Resources target = 2;
+  // Optional. A figure not set leaves the Machine's ceiling figure as it is.
+  // The ceiling changes only while the Machine is not Running or Paused.
+  Resources resource_ceiling = 3;
 }
 
 message SetResourcesResponse {
   // The resources in effect, which differ from the target after a failure.
   Resources resources = 1;
+  // The ceiling in effect.
+  Resources resource_ceiling = 2;
 }
 
 message GetRuntimeInfoRequest {}

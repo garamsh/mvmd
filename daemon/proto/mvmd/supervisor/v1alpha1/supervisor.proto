@@ -86,8 +86,8 @@ message StartRequest {
   // and no descriptor) shares the host's network namespace; every other process
   // gets a network namespace of its own with only its loopback.
   string tap = 4;
-  // The guest's memory and vCPU count, which with the Driver's overhead fix the
-  // cgroup's memory.max and cpu.max.
+  // The most memory and vCPUs the guest can have, its ceiling (ADR 0029),
+  // which with the Driver's overhead fix the cgroup's memory.max and cpu.max.
   uint64 guest_memory_bytes = 5;
   uint32 guest_vcpus = 6;
   // The Machine's run directory on the host: absolute and owned by the

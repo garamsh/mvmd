@@ -176,14 +176,14 @@ func (s *Server) SetResources(ctx context.Context, req *v1alpha1.SetResourcesReq
 	if req.GetTarget() == nil {
 		return nil, rejected("target is missing")
 	}
-	if err := s.machines.SetResources(ctx, id, resourcesOf(req.GetTarget())); err != nil {
+	if err := s.machines.SetResources(ctx, id, resourcesOf(req.GetTarget()), resourcesOf(req.GetResourceCeiling())); err != nil {
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return &v1alpha1.SetResourcesResponse{Resources: m.GetResources()}, nil
+	return &v1alpha1.SetResourcesResponse{Resources: m.GetResources(), ResourceCeiling: m.GetResourceCeiling()}, nil
 }
 
 func (s *Server) InspectMachine(ctx context.Context, req *v1alpha1.InspectMachineRequest) (*v1alpha1.InspectMachineResponse, error) {

@@ -105,6 +105,27 @@ type Resources struct {
 	MemoryBytes uint64
 }
 
+// MemoryAlignment is the unit a memory figure is a multiple of: the step a
+// hot-plugged memory device takes. The lifecycle refuses any other figure for a
+// Machine's resources or ceiling (ADR 0029).
+const MemoryAlignment = 2 << 20
+
+// OrElse returns r with each figure that is zero taken from other.
+func (r Resources) OrElse(other Resources) Resources {
+	if r.VCPUs == 0 {
+		r.VCPUs = other.VCPUs
+	}
+	if r.MemoryBytes == 0 {
+		r.MemoryBytes = other.MemoryBytes
+	}
+	return r
+}
+
+// within reports whether each figure of r is at most that of ceiling.
+func (r Resources) within(ceiling Resources) bool {
+	return r.VCPUs <= ceiling.VCPUs && r.MemoryBytes <= ceiling.MemoryBytes
+}
+
 // DiskAttachment is a disk attached to a Machine and how it is attached.
 type DiskAttachment struct {
 	Disk     DiskID
@@ -113,8 +134,13 @@ type DiskAttachment struct {
 
 // Spec is what Create Machine carries, and what a Machine is configured with.
 type Spec struct {
-	Image         ImageDigest
-	Resources     Resources
+	Image     ImageDigest
+	Resources Resources
+	// Ceiling is the most a live resize of the Machine reaches, and the most
+	// the guest can have (ADR 0029). A figure Create is given as zero is the
+	// Machine's resources; a Machine holds every figure set, and none below
+	// its resources.
+	Ceiling       Resources
 	RootDiskBytes uint64
 	Disks         []DiskAttachment
 	Policy        NetworkPolicy
@@ -130,6 +156,10 @@ type Machine struct {
 	// RootDiskUUID is the ext4 filesystem UUID of the root disk, sent to
 	// the Guest Agent over the channel (ADR 0010).
 	RootDiskUUID string
+	// BootMemoryBytes is the memory the Machine's VMM booted with, the least a
+	// live resize reaches (ADR 0029). It is set at each boot and restore, and is
+	// meaningful while the Machine is Running or Paused.
+	BootMemoryBytes uint64
 	// User is the UID and GID allocated for this Machine's VMM (ADR 0015).
 	User User
 	// Network is the identity mvmd assigned for the Machine's life.

@@ -92,8 +92,13 @@ func TestStore_ARecordWrittenByTheEarlierFormatStillReads(t *testing.T) {
 		},
 	}, got[0])
 
+	// A record from before the ceiling and the boot memory existed reads back
+	// with the ceiling the resources are, and booted with the memory.
+	wantSpec := legacySpec()
+	wantSpec.Ceiling = wantSpec.Resources
 	want := machine.Machine{
-		ID: "m", State: machine.StatePaused, Spec: legacySpec(), RootDisk: "m-root", RootDiskUUID: "uuid-1",
+		BootMemoryBytes: wantSpec.Resources.MemoryBytes,
+		ID:              "m", State: machine.StatePaused, Spec: wantSpec, RootDisk: "m-root", RootDiskUUID: "uuid-1",
 		User: machine.User{UID: 1001, GID: 1001},
 		Network: machine.NetworkIdentity{
 			MAC:       "02:00:00:00:00:01",

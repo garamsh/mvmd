@@ -30,6 +30,11 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if err := validateCreate(id, request, spec); err != nil {
 		return err
 	}
+	held := spec
+	held.Ceiling = spec.Ceiling.OrElse(spec.Resources)
+	if err := s.checkCeiling(held.Resources, held.Ceiling, spec.Ceiling != Resources{}); err != nil {
+		return err
+	}
 
 	if _, err := s.images.Locate(ctx, spec.Image); err != nil {
 		if errors.Is(err, ErrImageAbsent) {
@@ -69,7 +74,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", reason)))
 	}
 	s.claim(id, root) // a root disk is new, so no one else holds it
-	m := Machine{ID: id, State: StateCreated, Spec: spec, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
+	m := Machine{ID: id, State: StateCreated, Spec: held, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
 	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
 		reason := fmt.Sprintf("record the Machine: %v", err)
@@ -163,7 +168,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
 	}
-	boot := BootSpec{Resources: m.Resources}
+	boot := BootSpec{Resources: m.Resources, Ceiling: m.Ceiling}
 	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
 		return fail(ErrFailed, "name the run directory: %v", err)
 	}
@@ -197,6 +202,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 
 	next := m.clone()
 	next.State = StateRunning
+	next.BootMemoryBytes = m.Resources.MemoryBytes
 	next.FailureReason = ""
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)

@@ -38,6 +38,8 @@ type env struct {
 	store  *memory.StateStore
 	permit *memory.StartPermitter
 	events *memory.Events
+	// ceiling is the ceiling created gives a Machine, none by default.
+	ceiling machine.Resources
 }
 
 // newEnv returns an env whose Driver supports the given capabilities and
@@ -81,7 +83,9 @@ func request(id machine.MachineID) machine.RequestID { return machine.RequestID(
 // created creates the Machine with the base spec.
 func (e *env) created(t *testing.T, id machine.MachineID) {
 	t.Helper()
-	require.NoError(t, e.svc.Create(context.Background(), id, request(id), baseSpec()))
+	spec := baseSpec()
+	spec.Ceiling = e.ceiling
+	require.NoError(t, e.svc.Create(context.Background(), id, request(id), spec))
 	e.requireState(t, id, machine.StateCreated)
 }
 
