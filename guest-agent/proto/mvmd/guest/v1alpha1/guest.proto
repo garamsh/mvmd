@@ -10,9 +10,10 @@ service GuestService {
   // Describe the Machine to the agent, which runs as the guest's init and
   // waits for this call before it touches a disk. The call returns once the
   // entrypoint runs, or fails naming the boot step that failed; every other
-  // call except Terminate, Health and Info is refused until it has succeeded. A repeat
-  // with the same description succeeds and changes nothing; a repeat after
-  // a failure fails the same way.
+  // call except Terminate, Health, Info, FindDisk, ReleaseDisk and
+  // OnlineVcpus is refused until it has succeeded. A repeat with the same
+  // description succeeds and changes nothing; a repeat after a failure fails
+  // the same way.
   rpc Boot(BootRequest) returns (BootResponse);
   // Replace the network configuration of a running Machine. The agent
   // applies it whole: what it applied before is removed. After a restore the
@@ -79,6 +80,18 @@ service GuestService {
   // release succeeds. A disk_id the agent never found is NOT_FOUND. It is
   // served before Boot has succeeded.
   rpc ReleaseDisk(ReleaseDiskRequest) returns (ReleaseDiskResponse);
+
+  // Bring vCPUs online up to a target count. The kernel does not bring a
+  // hot-added vCPU online, so the agent counts the online CPUs and, while
+  // fewer than the target are online, writes 1 to the online file of the
+  // lowest-numbered present, offline CPU. At or above the target it writes
+  // nothing, so a CPU the guest took offline, or one being removed, is left
+  // as it is. It returns the online vCPU count and the memory the kernel
+  // reports; the caller judges whether they reached its target. A target of 0
+  // is INVALID_ARGUMENT. A CPU that does not come online fails the call, and
+  // the message names it. A repeat returns the same counts. It is served
+  // before Boot has succeeded.
+  rpc OnlineVcpus(OnlineVcpusRequest) returns (OnlineVcpusResponse);
 
   // Whether the agent serves.
   rpc Health(HealthRequest) returns (HealthResponse);
@@ -353,6 +366,18 @@ message ReleaseDiskRequest {
 }
 
 message ReleaseDiskResponse {}
+
+message OnlineVcpusRequest {
+  // The number of online vCPUs wanted, at least 1.
+  uint32 vcpus = 1;
+}
+
+message OnlineVcpusResponse {
+  // The number of online vCPUs, as the kernel reports them after the writes.
+  uint32 vcpus = 1;
+  // The memory the kernel reports as its total (MemTotal), in bytes.
+  uint64 memory_bytes = 2;
+}
 
 message HealthRequest {}
 

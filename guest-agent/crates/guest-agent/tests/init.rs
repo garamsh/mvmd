@@ -17,13 +17,13 @@ use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
     BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, DiskInUse,
     ExecRecord, ExecRequest, ExecStatus, FindDiskRequest, HealthRequest, Ipv4Config, Ipv6Config,
-    ListFilesRequest, NetworkConfig as WireNetworkConfig, NotBooted, ReadExecOutputRequest,
-    ReleaseDiskRequest, RunConfig, TerminateRequest, UpdateNetworkRequest, WriteFileRequest,
-    WriteFileStart, read_exec_output_response, write_file_request,
+    ListFilesRequest, NetworkConfig as WireNetworkConfig, NotBooted, OnlineVcpusRequest,
+    ReadExecOutputRequest, ReleaseDiskRequest, RunConfig, TerminateRequest, UpdateNetworkRequest,
+    WriteFileRequest, WriteFileStart, read_exec_output_response, write_file_request,
 };
 use guest_agent::{
-    BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, Mounts, Network,
-    NetworkConfig, Power, System, Uuid,
+    BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, GuestSize, Mounts,
+    Network, NetworkConfig, Power, Resources, System, Uuid,
 };
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
@@ -280,6 +280,25 @@ impl Disks for TestDisks {
     }
 }
 
+/// Resources that log each call and report two vCPUs and 1 MiB, or fail naming a CPU.
+struct TestResources {
+    log: Log,
+    failing: AtomicBool,
+}
+
+impl Resources for TestResources {
+    fn online_vcpus(&self, target: u32) -> io::Result<GuestSize> {
+        self.log.push(format!("resources online_vcpus {target}"));
+        if self.failing.load(Ordering::SeqCst) {
+            return Err(io::Error::other("cpu3: Input/output error"));
+        }
+        Ok(GuestSize {
+            vcpus: 2,
+            memory_bytes: 1 << 20,
+        })
+    }
+}
+
 /// A console that keeps its lines in the log, as `console: <line>`.
 struct TestConsole(Log);
 
@@ -310,6 +329,7 @@ struct Agent {
     entropy: Arc<TestEntropy>,
     clock: Arc<TestClock>,
     disks: Arc<TestDisks>,
+    resources: Arc<TestResources>,
     /// Whether the agent has been asked to listen.
     listened: Arc<AtomicBool>,
     terminate: mpsc::Sender<Signal>,
@@ -353,6 +373,10 @@ impl Agent {
             no_device: AtomicBool::new(false),
             fail_account: setup.fail_account,
         });
+        let resources = Arc::new(TestResources {
+            log: log.clone(),
+            failing: AtomicBool::new(false),
+        });
         let system = System {
             mounts: Arc::new(TestMounts {
                 log: log.clone(),
@@ -370,6 +394,7 @@ impl Agent {
             entropy: entropy.clone(),
             clock: clock.clone(),
             disks: disks.clone(),
+            resources: resources.clone(),
         };
         let socket_dir = tempfile::tempdir()?;
         let socket = socket_dir.path().join("agent.sock");
@@ -402,6 +427,7 @@ impl Agent {
             entropy,
             clock,
             disks,
+            resources,
             listened,
             terminate,
             powered_off,
@@ -1402,6 +1428,65 @@ async fn a_disk_the_agent_has_no_record_of_is_not_found_and_a_failed_find_is_not
     assert_eq!(failed.code(), Code::Internal);
     // Only the call that named a disk reached the disks.
     assert_eq!(agent.log.count("disk find "), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_vcpus_are_brought_online_and_reported_before_the_guest_has_booted() -> Result {
+    let mut agent = Agent::start().await?;
+
+    let reported = agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 2 })
+        .await?
+        .into_inner();
+
+    assert_eq!((reported.vcpus, reported.memory_bytes), (2, 1 << 20));
+    assert_eq!(agent.log.count("resources online_vcpus 2"), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_target_of_zero_is_refused_and_a_target_of_one_is_accepted() -> Result {
+    let mut agent = Agent::start().await?;
+
+    let refused = agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 0 })
+        .await
+        .unwrap_err();
+
+    assert_eq!(refused.code(), Code::InvalidArgument);
+    // The refused call never reached the resources.
+    assert_eq!(agent.log.count("resources online_vcpus "), 0);
+    // The control: a target of 1 is accepted and reaches them with the target.
+    agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 1 })
+        .await?;
+    assert_eq!(agent.log.count("resources online_vcpus 1"), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_cpu_that_does_not_come_online_fails_the_call_with_its_name() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.resources.failing.store(true, Ordering::SeqCst);
+
+    let failure = agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 2 })
+        .await
+        .unwrap_err();
+
+    assert_eq!(failure.code(), Code::Internal);
+    assert!(failure.message().contains("cpu3"), "{}", failure.message());
+    // The control: once the kernel accepts the writes, the same call answers.
+    agent.resources.failing.store(false, Ordering::SeqCst);
+    agent
+        .client
+        .online_vcpus(OnlineVcpusRequest { vcpus: 2 })
+        .await?;
     Ok(())
 }
 

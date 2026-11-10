@@ -13,6 +13,7 @@ mod init;
 mod mounts;
 mod network;
 mod reap;
+mod resources;
 mod restore;
 mod service;
 mod system;
@@ -37,10 +38,11 @@ pub use error::{BootStep, Error};
 pub use init::{end_on_panic, fail, run};
 pub use mounts::LinuxMounts;
 pub use network::LinuxNetwork;
+pub use resources::LinuxResources;
 pub use restore::{LinuxClock, LinuxEntropy};
 pub use system::{
-    Clock, Console, DiskDevice, DiskError, Disks, Entropy, LinuxConsole, LinuxPower, Mounts,
-    Network, Power, System,
+    Clock, Console, DiskDevice, DiskError, Disks, Entropy, GuestSize, LinuxConsole, LinuxPower,
+    Mounts, Network, Power, Resources, System,
 };
 pub use uuid::{Filesystem, Uuid};
 

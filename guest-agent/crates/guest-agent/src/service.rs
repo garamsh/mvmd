@@ -21,12 +21,12 @@ use crate::v1alpha1::{
     BootFailed, BootRequest, BootResponse, BootState, BootStep as ProtoStep, CatchUpRequest,
     CatchUpResponse, DiskInUse, EntryKind, ExecOutputGone, ExecRequest, ExecResponse, FileEntry,
     FindDiskRequest, FindDiskResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
-    ListFilesRequest, ListFilesResponse, NotBooted, PatchFileRequest, PatchFileResponse,
-    ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest, ReadFileResponse,
-    ReleaseDiskRequest, ReleaseDiskResponse, SearchFilesRequest, SearchFilesResponse,
-    SignalRequest, SignalResponse, TerminateRequest, TerminateResponse, UpdateNetworkRequest,
-    UpdateNetworkResponse, WriteFileRequest, WriteFileResponse, WrongFileKind,
-    read_exec_output_response, write_file_request,
+    ListFilesRequest, ListFilesResponse, NotBooted, OnlineVcpusRequest, OnlineVcpusResponse,
+    PatchFileRequest, PatchFileResponse, ReadExecOutputRequest, ReadExecOutputResponse,
+    ReadFileRequest, ReadFileResponse, ReleaseDiskRequest, ReleaseDiskResponse, SearchFilesRequest,
+    SearchFilesResponse, SignalRequest, SignalResponse, TerminateRequest, TerminateResponse,
+    UpdateNetworkRequest, UpdateNetworkResponse, WriteFileRequest, WriteFileResponse,
+    WrongFileKind, read_exec_output_response, write_file_request,
 };
 
 /// The contract versions the agent serves.
@@ -422,6 +422,32 @@ impl GuestService for Guest {
                 other => disk_error("release the disk", other),
             })?;
         Ok(Response::new(ReleaseDiskResponse {}))
+    }
+
+    async fn online_vcpus(
+        &self,
+        request: Request<OnlineVcpusRequest>,
+    ) -> Result<Response<OnlineVcpusResponse>, Status> {
+        let target = request.into_inner().vcpus;
+        if target == 0 {
+            return Err(Error::Invalid("vcpus is 0".into()).into());
+        }
+        // Not gated on the boot: the call acts on the kernel's CPU tree.
+        let resources = self.boot.resources()?;
+        let size = tokio::task::spawn_blocking(move || resources.online_vcpus(target))
+            .await
+            .map_err(|joined| Error::Io {
+                context: "bring the vCPUs online".into(),
+                source: io::Error::other(joined),
+            })?
+            .map_err(|source| Error::Io {
+                context: "bring the vCPUs online".into(),
+                source,
+            })?;
+        Ok(Response::new(OnlineVcpusResponse {
+            vcpus: size.vcpus,
+            memory_bytes: size.memory_bytes,
+        }))
     }
 
     async fn health(
