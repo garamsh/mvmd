@@ -34,3 +34,9 @@ func LockCount(s Service) int {
 	defer svc.mu.Unlock()
 	return len(svc.locks)
 }
+
+// ObserveEnds runs one look for the VMMs that have ended, as Watch does on each
+// tick.
+func ObserveEnds(ctx context.Context, s Service) {
+	s.(*service).observeEnds(ctx)
+}

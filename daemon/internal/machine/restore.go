@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	// reasonVMMEnded is the reason of a Machine found without a supervisor.
+	// reasonVMMEnded begins the reason of a Machine found without a supervisor.
 	reasonVMMEnded = "the VMM ended while mvmd was not running"
 	// reasonNetworkLost is the reason of a Machine whose network the node no
 	// longer holds.
@@ -89,7 +89,7 @@ func (s *service) Restore(ctx context.Context) error {
 			case liveErr != nil:
 				err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr))
 			case !live[rec.ID]:
-				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded)
+				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded+": "+s.endCause(ctx, rec.ID))
 			}
 			if err != nil {
 				return err
