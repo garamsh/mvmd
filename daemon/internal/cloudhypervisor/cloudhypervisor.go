@@ -102,8 +102,7 @@ func (d *Driver) Info() machine.DriverInfo {
 	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel, Capabilities: caps}
 }
 
-// Observe implements machine.Driver. The Driver raises no event of its own:
-// the supervisor's pidfds tell the lifecycle when a VMM has ended.
+// Observe implements machine.Driver. It raises no event; see docs/architecture/driver.md.
 func (d *Driver) Observe(func(machine.DriverEvent)) {}
 
 // inRun is the path of a file of the run directory in the VMM's root, which is
