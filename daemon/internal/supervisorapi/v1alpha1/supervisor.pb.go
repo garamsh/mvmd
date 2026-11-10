@@ -317,8 +317,8 @@ type StartRequest struct {
 	// and no descriptor) shares the host's network namespace; every other process
 	// gets a network namespace of its own with only its loopback.
 	Tap string `protobuf:"bytes,4,opt,name=tap,proto3" json:"tap,omitempty"`
-	// The guest's memory and vCPU count, which with the Driver's overhead fix the
-	// cgroup's memory.max and cpu.max.
+	// The most memory and vCPUs the guest can have, its ceiling (ADR 0029),
+	// which with the Driver's overhead fix the cgroup's memory.max and cpu.max.
 	GuestMemoryBytes uint64 `protobuf:"varint,5,opt,name=guest_memory_bytes,json=guestMemoryBytes,proto3" json:"guest_memory_bytes,omitempty"`
 	GuestVcpus       uint32 `protobuf:"varint,6,opt,name=guest_vcpus,json=guestVcpus,proto3" json:"guest_vcpus,omitempty"`
 	// The Machine's run directory on the host: absolute and owned by the

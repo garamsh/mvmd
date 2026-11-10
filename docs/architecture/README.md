@@ -59,5 +59,6 @@ Decisions:
 - [ADR 0026](./adr/0026-the-supervisor-ends-a-vmm-whose-event-pipe-reports-a-guest-reset.md) — the supervisor ends a VMM whose event pipe reports a guest reset (extends what ADR 0015's description carries)
 - [ADR 0027](./adr/0027-a-restored-vmms-root-holds-the-boot-files-its-vmm-opens-on-restore.md) — a restored VMM's root holds the boot files its VMM opens on restore (replaces driver.md's rule that a restored root holds no kernel and no initrd)
 - [ADR 0028](./adr/0028-find-disk-takes-the-one-virtio-block-device-the-agent-has-not-accounted-for.md) — `FindDisk` takes the one virtio block device the agent has not accounted for (supersedes ADR 0022's rule for which device `FindDisk` takes)
+- [ADR 0029](./adr/0029-a-machine-has-a-resource-ceiling-chosen-at-create-which-bounds-a-live-resize-and-the-vmms-limits.md) — a Machine has a resource ceiling chosen at create, which bounds a live resize and the VMM's limits
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

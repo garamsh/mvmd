@@ -32,14 +32,19 @@ type storedMachine struct {
 	User          storedUser     `json:"User"`
 	Network       storedNetwork  `json:"Network"`
 	FailureReason string         `json:"FailureReason"`
+	// BootMemoryBytes is zero in a record written before it existed.
+	BootMemoryBytes uint64 `json:"BootMemoryBytes"`
 }
 
 type storedSpec struct {
-	Image         machine.ImageDigest `json:"Image"`
-	Resources     storedResources     `json:"Resources"`
-	RootDiskBytes uint64              `json:"RootDiskBytes"`
-	Disks         []storedAttachment  `json:"Disks"`
-	Policy        storedPolicy        `json:"Policy"`
+	Image     machine.ImageDigest `json:"Image"`
+	Resources storedResources     `json:"Resources"`
+	// Ceiling is zero in a record written before the ceiling existed, and in a
+	// request that set none.
+	Ceiling       storedResources    `json:"Ceiling"`
+	RootDiskBytes uint64             `json:"RootDiskBytes"`
+	Disks         []storedAttachment `json:"Disks"`
+	Policy        storedPolicy       `json:"Policy"`
 }
 
 type storedResources struct {
@@ -242,6 +247,7 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 	return storedSpec{
 		Image:         s.Image,
 		Resources:     storedResources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
+		Ceiling:       storedResources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
 		RootDiskBytes: s.RootDiskBytes,
 		Disks:         disks,
 		Policy:        storedPolicy{Egress: egress, Ingress: ingress},
@@ -274,6 +280,7 @@ func (s storedSpec) load() (machine.Spec, error) {
 	return machine.Spec{
 		Image:         s.Image,
 		Resources:     machine.Resources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
+		Ceiling:       machine.Resources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
 		RootDiskBytes: s.RootDiskBytes,
 		Disks:         disks,
 		Policy:        machine.NetworkPolicy{Egress: egress, Ingress: ingress},
@@ -308,7 +315,7 @@ func storeMachine(m *machine.Machine) (*storedMachine, error) {
 		RootDisk: m.RootDisk, RootDiskUUID: m.RootDiskUUID,
 		User:          storedUser{UID: m.User.UID, GID: m.User.GID},
 		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers},
-		FailureReason: m.FailureReason,
+		FailureReason: m.FailureReason, BootMemoryBytes: m.BootMemoryBytes,
 	}, nil
 }
 
@@ -324,8 +331,16 @@ func (s *storedMachine) load() (*machine.Machine, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A record written before the ceiling and the boot memory existed holds
+	// neither: the Machine had no ceiling above its resources, and booted
+	// with its memory (ADR 0029).
+	spec.Ceiling = spec.Ceiling.OrElse(spec.Resources)
+	if s.BootMemoryBytes == 0 {
+		s.BootMemoryBytes = spec.Resources.MemoryBytes
+	}
 	return &machine.Machine{
-		ID: s.ID, State: state, Spec: spec,
+		BootMemoryBytes: s.BootMemoryBytes,
+		ID:              s.ID, State: state, Spec: spec,
 		RootDisk: s.RootDisk, RootDiskUUID: s.RootDiskUUID,
 		User:          machine.User{UID: s.User.UID, GID: s.User.GID},
 		Network:       machine.NetworkIdentity{MAC: s.Network.MAC, Addresses: s.Network.Addresses, Gateways: s.Network.Gateways, Resolvers: s.Network.Resolvers},

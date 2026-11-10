@@ -140,7 +140,7 @@ func TestSnapshot_OnSuccess(t *testing.T) {
 		assert.Equal(t, machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a", KernelDigest: memory.KernelDigest}, got.Compat)
 		assert.Equal(t, machine.MachineID("m"), got.Machine)
 		assert.Equal(t, m.Network.MAC, got.MAC, "the MAC the guest uses")
-		assert.Equal(t, machine.SnapshotSpec{Image: image, Resources: m.Resources, RootDiskBytes: m.RootDiskBytes}, got.Spec,
+		assert.Equal(t, machine.SnapshotSpec{Image: image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.Resources.MemoryBytes, RootDiskBytes: m.RootDiskBytes}, got.Spec,
 			"a snapshot carries no policy and no attached disk")
 		assert.Equal(t, "/disks/m-root", files.RootDisk, "the root disk goes with the memory")
 		assert.Equal(t, e.driver.BootSpec("m").RunDir+"/snapshot.mem", files.State[0], "the Driver's files in the run directory")

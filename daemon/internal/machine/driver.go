@@ -92,6 +92,9 @@ type BootSpec struct {
 	Devices   []BlockDevice
 	Network   NetworkDevice
 	Resources Resources
+	// Ceiling is the most the guest can have (ADR 0029). A figure left zero is
+	// the figure of Resources.
+	Ceiling Resources
 	// RunDir is the Machine's run directory on the host, where mvmd connects to
 	// the VMM's API socket and vsock socket by path (ADR 0015); the VMM names
 	// them under InRunDir. The Supervision port names it and the supervisor is
@@ -187,8 +190,8 @@ type ProcessDescription struct {
 	// set; a VMM that opens it by name shares the host's network namespace, and
 	// every other VMM gets one of its own.
 	Tap string
-	// Guest is the guest's memory and vCPUs, which with Overhead fix the
-	// VMM's cgroup limits.
+	// Guest is the most memory and vCPUs the guest can have, its ceiling
+	// (ADR 0029), which with Overhead fix the VMM's cgroup limits.
 	Guest Resources
 	// RunDir is the Machine's run directory on the host, the one its BootSpec
 	// names. The supervisor bind-mounts it read-write at InRunDir in the VMM's
@@ -199,7 +202,7 @@ type ProcessDescription struct {
 // For returns the description with the parts of it that come from the
 // Machine's boot rather than from the Driver (ADR 0015).
 func (p ProcessDescription) For(boot BootSpec) ProcessDescription {
-	p.Tap, p.Guest, p.RunDir = boot.Network.Tap, boot.Resources, boot.RunDir
+	p.Tap, p.Guest, p.RunDir = boot.Network.Tap, boot.Ceiling.OrElse(boot.Resources), boot.RunDir
 	return p
 }
 

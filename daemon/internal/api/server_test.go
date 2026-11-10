@@ -46,7 +46,7 @@ func TestStreamInterceptor_RefusesAnInvalidReceivedMessageAsRejected(t *testing.
 		MachineId:     "m",
 		RequestId:     "r",
 		ImageDigest:   "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 1 << 20},
+		Resources:     &v1alpha1.Resources{CpuCount: 1, MemoryBytes: 2 << 20},
 		RootDiskBytes: 1 << 20,
 	}
 	require.NoError(t, valid.Validate(), "the setup: the control is valid")

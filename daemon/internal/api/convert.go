@@ -37,6 +37,10 @@ func resourcesOf(r *v1alpha1.Resources) machine.Resources {
 	return machine.Resources{VCPUs: r.GetCpuCount(), MemoryBytes: r.GetMemoryBytes()}
 }
 
+func resourcesToWire(r machine.Resources) *v1alpha1.Resources {
+	return &v1alpha1.Resources{CpuCount: r.VCPUs, MemoryBytes: r.MemoryBytes}
+}
+
 func rulesOf(in []*v1alpha1.NetworkRule) ([]machine.NetworkRule, error) {
 	var out []machine.NetworkRule
 	for _, r := range in {
@@ -60,6 +64,7 @@ func specOf(req *v1alpha1.CreateMachineRequest) (machine.Spec, error) {
 	spec := machine.Spec{
 		Image:         machine.ImageDigest(req.GetImageDigest()),
 		Resources:     resourcesOf(req.GetResources()),
+		Ceiling:       resourcesOf(req.GetResourceCeiling()),
 		RootDiskBytes: req.GetRootDiskBytes(),
 	}
 	for _, d := range req.GetDisks() {
@@ -96,7 +101,8 @@ func machineToWire(m machine.Machine) *v1alpha1.Machine {
 		State:             states[m.State],
 		LastFailureReason: m.FailureReason,
 		Driver:            &v1alpha1.Driver{Name: m.Driver.Name, Version: m.Driver.Version},
-		Resources:         &v1alpha1.Resources{CpuCount: m.Resources.VCPUs, MemoryBytes: m.Resources.MemoryBytes},
+		Resources:         resourcesToWire(m.Resources),
+		ResourceCeiling:   resourcesToWire(m.Ceiling),
 		RootDiskBytes:     m.RootDiskBytes,
 		NetworkPolicy: &v1alpha1.NetworkPolicy{
 			Egress:  rulesToWire(m.Policy.Egress),

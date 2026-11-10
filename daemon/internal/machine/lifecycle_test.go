@@ -416,7 +416,7 @@ func TestFaulted_OnlyStopDeleteInspectAndReadsApply(t *testing.T) {
 		"resume":        e.svc.Resume(ctx, "m"),
 		"attach disk":   e.svc.AttachDisk(ctx, "m", machine.DiskAttachment{Disk: "d"}),
 		"detach disk":   e.svc.DetachDisk(ctx, "m", "d"),
-		"set resources": e.svc.SetResources(ctx, "m", machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}),
+		"set resources": e.svc.SetResources(ctx, "m", machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}, machine.Resources{}),
 	}
 	for name, err := range calls {
 		t.Run(name+" is refused", func(t *testing.T) {

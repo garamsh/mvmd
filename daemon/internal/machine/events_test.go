@@ -107,8 +107,9 @@ func TestEvents_ACallThatChangesNoStateReportsNothing(t *testing.T) {
 	})
 	t.Run("a commit that keeps the state", func(t *testing.T) {
 		e := newEnv(hotplugAndResize...)
+		e.ceiling = machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}
 		e.inState(t, "m", running)
-		require.NoError(t, e.svc.SetResources(ctx, "m", machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}))
+		require.NoError(t, e.svc.SetResources(ctx, "m", machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}, machine.Resources{}))
 		m := e.requireState(t, "m", running)
 		require.Equal(t, uint32(4), m.Resources.VCPUs, "the commit happened")
 		e.requireStates(t, "m", created, running)

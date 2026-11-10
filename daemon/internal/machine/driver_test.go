@@ -33,6 +33,21 @@ func TestProcessDescriptionFor_TakesTheTapAndTheGuestFromTheBoot(t *testing.T) {
 	assert.Equal(t, "the Driver's own claim", described.Tap, "the description it was called on is not changed")
 }
 
+// The guest figures are the ceiling (ADR 0029): the cgroup bounds the most the
+// guest can be given, and a live resize stays inside it.
+func TestProcessDescriptionFor_TakesTheGuestFromTheCeiling(t *testing.T) {
+	boot := machine.BootSpec{
+		Resources: machine.Resources{VCPUs: 2, MemoryBytes: 1 << 30},
+		Ceiling:   machine.Resources{VCPUs: 4, MemoryBytes: 2 << 30},
+	}
+	got := machine.ProcessDescription{Executable: "/vmm"}.For(boot)
+	assert.Equal(t, machine.Resources{VCPUs: 4, MemoryBytes: 2 << 30}, got.Guest)
+
+	boot.Ceiling = machine.Resources{}
+	got = machine.ProcessDescription{Executable: "/vmm"}.For(boot)
+	assert.Equal(t, boot.Resources, got.Guest, "control: no ceiling is the resources")
+}
+
 // The run directory is the lifecycle's too: a Driver cannot send the
 // supervisor to another directory than the one it wrote its sockets in.
 func TestProcessDescriptionFor_TakesTheRunDirectoryFromTheBoot(t *testing.T) {

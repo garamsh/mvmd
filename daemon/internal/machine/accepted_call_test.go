@@ -118,7 +118,7 @@ func acceptedCalls() []acceptedCall {
 		{
 			name: "SetResources", arrange: inState(machine.StateCreated), hold: holdStore("save"),
 			call: func(ctx context.Context, svc machine.Service) error {
-				return svc.SetResources(ctx, "m", machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30})
+				return svc.SetResources(ctx, "m", machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}, machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30})
 			},
 			reached: func(t *testing.T, _ *env, svc machine.Service) {
 				m, err := svc.Inspect(context.Background(), "m")
