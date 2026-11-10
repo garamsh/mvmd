@@ -11,7 +11,7 @@ import (
 )
 
 // realStorage constructs the Disk and the Snapshot Store of a node that runs
-// the Firecracker Driver: root disks in "disks" and snapshots in "snapshots",
+// a real Driver: root disks in "disks" and snapshots in "snapshots",
 // both under the state directory (runtime.md §State and stability). Each input
 // is checked here, so a node whose directories cannot be opened, or whose
 // mkfs.ext4 fails the adapter's check, does not start. runDirs is the

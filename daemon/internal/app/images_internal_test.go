@@ -2,6 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,4 +67,34 @@ func TestConversionConfig_SettingsCarryTheSection(t *testing.T) {
 	bad.Limit = "soon"
 	_, err = bad.settings()
 	assert.Error(t, err, "control: a limit that is not a duration is refused, not defaulted")
+}
+
+// The Driver a section builds is the selected one, named by its Info, over the
+// same files: the converter's Driver is built by this, so it follows the
+// selection. The files are the same for both, so only the name tells them apart.
+func TestDriverSelection_TheSectionBuildsTheSelectedDriver(t *testing.T) {
+	dir := t.TempDir()
+	file := func(name, content string) (path, sum string) {
+		path = filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		h := sha256.Sum256([]byte(content))
+		return path, hex.EncodeToString(h[:])
+	}
+	files := FirecrackerConfig{}
+	files.Binary, files.BinarySHA256 = file("vmm", "a binary")
+	files.Kernel, files.KernelSHA256 = file("vmlinux", "a kernel")
+	files.Initrd, files.InitrdSHA256 = file("initrd", "an initrd")
+
+	for _, name := range []string{DriverFirecracker, DriverCloudHypervisor} {
+		d, err := files.driver(name, fencingmemory.NewSupervisors(nil))
+		require.NoError(t, err)
+		assert.Equal(t, name, d.Info().Name)
+	}
+
+	// The control: a file that is not the pinned one is refused by either.
+	files.KernelSHA256 = strings.Repeat("0", 64)
+	for _, name := range []string{DriverFirecracker, DriverCloudHypervisor} {
+		_, err := files.driver(name, fencingmemory.NewSupervisors(nil))
+		assert.ErrorContains(t, err, "digest", name)
+	}
 }
