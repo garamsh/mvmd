@@ -466,16 +466,20 @@ func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk mach
 
 // PresentVcpus sets how many vCPUs the VMM has presented to the guest of the
 // Machine, as a hot-plug that has not finished leaves fewer than the Driver
-// asked for. Until it is set, every vCPU asked for is present.
+// asked for. Until it is set, every vCPU asked for is present. A vCPU the VMM
+// removes goes offline in the guest, so lowering the count lowers what is online.
 func (g *Guest) PresentVcpus(id machine.MachineID, n uint32) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.present[id] = n
+	if g.online[id] > n {
+		g.online[id] = n
+	}
 }
 
 // OnlineVcpus implements machine.Guest: the guest onlines the CPUs asked for
-// that are present, and reports the count online. A count it has online it
-// does not take offline.
+// that are present, and reports the count online. It takes none offline: the
+// count falls only when the VMM removes a vCPU (PresentVcpus).
 func (g *Guest) OnlineVcpus(ctx context.Context, id machine.MachineID, vcpus uint32) (machine.GuestSize, error) {
 	if err := g.enter("online-vcpus"); err != nil {
 		return machine.GuestSize{}, err

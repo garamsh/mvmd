@@ -123,3 +123,30 @@ func TestSetResources_APausedMachineNeedsToBeResumedFirst(t *testing.T) {
 	require.NoError(t, e.svc.Resume(ctx, "m"))
 	require.NoError(t, e.svc.SetResources(ctx, "m", large, machine.Resources{}), "control: Running, the same call resizes")
 }
+
+// Removing vCPUs needs no guest action: the VMM removes them and the guest
+// reports the new count. The call waits for that count, and does not take a
+// count above the target as done.
+func TestSetResources_AShrinkWaitsUntilTheGuestReportsTheTargetsVCPUs(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(hotplugAndResize...)
+	e.ceiling = large
+	e.inState(t, "m", machine.StateRunning)
+	require.NoError(t, e.svc.SetResources(ctx, "m", large, machine.Resources{}))
+	size, err := e.guest.OnlineVcpus(ctx, "m", large.VCPUs)
+	require.NoError(t, err)
+	require.Equal(t, large.VCPUs, size.VCPUs, "setup: the guest has the grown count online")
+	before := e.guest.Calls("online-vcpus")
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		e.guest.PresentVcpus("m", small.VCPUs)
+	}()
+
+	require.NoError(t, e.svc.SetResources(ctx, "m", small, machine.Resources{}))
+
+	assert.Greater(t, e.guest.Calls("online-vcpus")-before, 1, "asked again until the guest reported the smaller count")
+	assert.Equal(t, small, e.requireState(t, "m", machine.StateRunning).Resources)
+	size, err = e.guest.OnlineVcpus(ctx, "m", small.VCPUs)
+	require.NoError(t, err)
+	assert.Equal(t, small.VCPUs, size.VCPUs)
+}
