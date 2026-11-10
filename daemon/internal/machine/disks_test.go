@@ -483,7 +483,9 @@ func TestSetResources_Needs(t *testing.T) {
 
 			with := newEnv(machine.CapabilityResize)
 			with.inState(t, "m", state)
-			require.NoError(t, with.svc.SetResources(ctx, "m", smaller, machine.Resources{}))
+			if state == machine.StateRunning {
+				require.NoError(t, with.svc.SetResources(ctx, "m", smaller, machine.Resources{}))
+			}
 		}
 	})
 

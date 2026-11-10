@@ -19,8 +19,8 @@ import (
 // and commands. It does not model a VMM, so it answers whether or not the
 // Machine runs; the lifecycle is what refuses a call. Its steps are "health",
 // "boot", "catch-up", "exec", "read-exec-output", "read-file",
-// "write-file", "patch-file", "search-files", "terminate", "find-disk" and
-// "release-disk"; a failing step
+// "write-file", "patch-file", "search-files", "terminate", "find-disk",
+// "release-disk" and "online-vcpus"; a failing step
 // answers machine.ErrGuestUnreachable unless told another error.
 type Guest struct {
 	Failures
@@ -40,6 +40,8 @@ type Guest struct {
 	found     map[machine.MachineID]map[machine.DiskID]bool
 	released  map[machine.MachineID]map[machine.DiskID]bool
 	held      map[machine.MachineID]map[machine.DiskID]bool
+	present   map[machine.MachineID]uint32
+	online    map[machine.MachineID]uint32
 }
 
 type guestExec struct {
@@ -63,6 +65,8 @@ func NewGuest(retention int) *Guest {
 		found:     make(map[machine.MachineID]map[machine.DiskID]bool),
 		released:  make(map[machine.MachineID]map[machine.DiskID]bool),
 		held:      make(map[machine.MachineID]map[machine.DiskID]bool),
+		present:   make(map[machine.MachineID]uint32),
+		online:    make(map[machine.MachineID]uint32),
 		retention: retention,
 	}
 }
@@ -458,6 +462,40 @@ func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk mach
 	}
 	g.released[id][disk] = true
 	return nil
+}
+
+// PresentVcpus sets how many vCPUs the VMM has presented to the guest of the
+// Machine, as a hot-plug that has not finished leaves fewer than the Driver
+// asked for. Until it is set, every vCPU asked for is present.
+func (g *Guest) PresentVcpus(id machine.MachineID, n uint32) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.present[id] = n
+}
+
+// OnlineVcpus implements machine.Guest: the guest onlines the CPUs asked for
+// that are present, and reports the count online. A count it has online it
+// does not take offline.
+func (g *Guest) OnlineVcpus(ctx context.Context, id machine.MachineID, vcpus uint32) (machine.GuestSize, error) {
+	if err := g.enter("online-vcpus"); err != nil {
+		return machine.GuestSize{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return machine.GuestSize{}, errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	if vcpus == 0 {
+		return machine.GuestSize{}, errors.New("the guest agent refused 0 vCPUs: at least 1 stays online")
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	reach := vcpus
+	if n, ok := g.present[id]; ok && n < reach {
+		reach = n
+	}
+	if g.online[id] < reach {
+		g.online[id] = reach
+	}
+	return machine.GuestSize{VCPUs: g.online[id]}, nil
 }
 
 // HoldDisk makes the guest use the disk, as a mounted filesystem does, so that
