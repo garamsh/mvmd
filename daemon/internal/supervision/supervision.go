@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -61,6 +62,13 @@ type Config struct {
 // Adapter is a fencing.Supervisors over mvmd-supervisor processes.
 type Adapter struct {
 	cfg Config
+
+	// mu guards starting and orders the beginning of a Start against Live's
+	// removal of what a Machine without a supervisor leaves.
+	mu sync.Mutex
+	// starting counts the Starts in progress by Machine. Until one returns, the
+	// Machine's cgroup and socket are its own and no listing removes them.
+	starting map[machine.MachineID]int
 }
 
 var _ fencing.Supervisors = (*Adapter)(nil)
@@ -85,7 +93,39 @@ func New(cfg Config) (*Adapter, error) {
 	if cfg.VMMCgroup == "" {
 		cfg.VMMCgroup = DefaultVMMCgroup
 	}
-	return &Adapter{cfg: cfg}, nil
+	return &Adapter{cfg: cfg, starting: map[machine.MachineID]int{}}, nil
+}
+
+// beginStart marks the Machine as starting and returns the function that ends
+// the mark.
+func (a *Adapter) beginStart(id machine.MachineID) (end func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.starting[id]++
+	return func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.starting[id]--; a.starting[id] == 0 {
+			delete(a.starting, id)
+		}
+	}
+}
+
+// removeEnded removes the socket and the VMM cgroup of a Machine whose
+// supervisor has ended. It probes again under the lock that orders it against
+// beginStart, so a Machine whose start began or finished after the caller's
+// probe is left as it is.
+func (a *Adapter) removeEnded(id machine.MachineID, sock string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.starting[id] > 0 {
+		return
+	}
+	if _, err := peerPID(sock); !isAbsent(err) {
+		return
+	}
+	_ = os.Remove(sock)
+	a.removeVMMCgroup(id)
 }
 
 // machineDir returns the Machine's state directory. The identifier is the
@@ -125,6 +165,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create the state directory: %w", err)
 	}
+	defer a.beginStart(id)()
 	sock := statedir.SupervisorSocket(dir)
 	switch _, err := peerPID(sock); {
 	case err == nil:
@@ -279,7 +320,8 @@ func (a *Adapter) Terminate(ctx context.Context, id machine.MachineID) error {
 }
 
 // Live implements fencing.Supervisors. A socket nobody listens on belongs to a
-// supervisor that has ended and is removed. A supervisor that listens and does
+// supervisor that has ended and is removed, unless a Start of its Machine is in
+// progress, which owns them. A supervisor that listens and does
 // not answer is listed with the earliest expiry, so that a caller that wants
 // it to hold a given one passes it again.
 func (a *Adapter) Live(ctx context.Context) ([]fencing.Supervisor, error) {
@@ -298,8 +340,7 @@ func (a *Adapter) Live(ctx context.Context) ([]fencing.Supervisor, error) {
 		sock := statedir.SupervisorSocket(filepath.Join(a.cfg.Dir, e.Name()))
 		if _, err := peerPID(sock); err != nil {
 			if isAbsent(err) {
-				_ = os.Remove(sock)
-				a.removeVMMCgroup(machine.MachineID(e.Name()))
+				a.removeEnded(machine.MachineID(e.Name()), sock)
 				continue
 			}
 			return nil, fmt.Errorf("reach the supervisor in %s: %w", e.Name(), err)
