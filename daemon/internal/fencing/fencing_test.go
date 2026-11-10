@@ -67,7 +67,7 @@ func (e *env) running(t *testing.T, ids ...machine.MachineID) {
 	for _, id := range ids {
 		spec := machine.Spec{
 			Image:         image,
-			Resources:     machine.Resources{VCPUs: 1, MemoryBytes: 1 << 20},
+			Resources:     machine.Resources{VCPUs: 1, MemoryBytes: 2 << 20},
 			RootDiskBytes: 1 << 20,
 		}
 		require.NoError(t, e.m.Create(context.Background(), id, machine.RequestID("r-"+id), spec))
