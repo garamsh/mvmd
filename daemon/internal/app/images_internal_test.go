@@ -80,7 +80,7 @@ func TestDriverSelection_TheSectionBuildsTheSelectedDriver(t *testing.T) {
 		h := sha256.Sum256([]byte(content))
 		return path, hex.EncodeToString(h[:])
 	}
-	files := FirecrackerConfig{}
+	files := VMMConfig{}
 	files.Binary, files.BinarySHA256 = file("vmm", "a binary")
 	files.Kernel, files.KernelSHA256 = file("vmlinux", "a kernel")
 	files.Initrd, files.InitrdSHA256 = file("initrd", "an initrd")
@@ -97,4 +97,9 @@ func TestDriverSelection_TheSectionBuildsTheSelectedDriver(t *testing.T) {
 		_, err := files.driver(name, fencingmemory.NewSupervisors(nil))
 		assert.ErrorContains(t, err, "digest", name)
 	}
+
+	// A name that is not a real Driver is an error, never the Firecracker default.
+	_, err := files.driver(DriverMemory, fencingmemory.NewSupervisors(nil))
+	assert.ErrorContains(t, err, "not a real driver")
+	assert.ErrorContains(t, files.validate(DriverMemory), "not a real driver")
 }

@@ -28,7 +28,7 @@ func firecrackerConfig(t *testing.T) app.Config {
 		h := sha256.Sum256([]byte(content))
 		return path, hex.EncodeToString(h[:])
 	}
-	f := &app.FirecrackerConfig{}
+	f := &app.VMMConfig{}
 	f.Binary, f.BinarySHA256 = file("firecracker", "a binary")
 	f.Kernel, f.KernelSHA256 = file("vmlinux", "a kernel")
 	f.Initrd, f.InitrdSHA256 = file("initrd.cpio", "an initrd")
@@ -107,18 +107,18 @@ const (
 	cvSection   = `,"conversion":{"kernel":"/opt/converter-vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/converter-initrd.cpio","initrd_sha256":"` + digest64 + `","converter":"converter-1","vcpus":2,"memory_bytes":536870912,"output_bytes":1073741824,"name_set_bytes":1048576,"limit":"10m"}`
 )
 
-func firecrackerRaw(driver, section, supervision string) string {
+func rawConfig(driver, section, supervision string) string {
 	return `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"` + driver + `","vmm_uid_range":{"first":1000,"count":10}` + section + supervision + `}`
 }
 
 func pullTimeoutRaw(d string) string {
-	return strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"pull_timeout":"`+d+`","driver"`, 1)
+	return strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"pull_timeout":"`+d+`","driver"`, 1)
 }
 
 func TestFirecracker_ConfigParses(t *testing.T) {
-	cfg, err := app.ParseConfig([]byte(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise)))
+	cfg, err := app.ParseConfig([]byte(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise)))
 	require.NoError(t, err)
-	assert.Equal(t, &app.FirecrackerConfig{
+	assert.Equal(t, &app.VMMConfig{
 		Binary: "/opt/firecracker", BinarySHA256: digest64, Kernel: "/opt/vmlinux", KernelSHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
 	}, cfg.Firecracker)
 	assert.Equal(t, &app.ConversionConfig{
@@ -129,7 +129,7 @@ func TestFirecracker_ConfigParses(t *testing.T) {
 	assert.Nil(t, cfg.Registry)
 
 	// Control for the refusals of the registry section and the pull timeout.
-	withRegistry := strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"registry":{"credentials_file":"/etc/mvmd/registry.json"},"pull_timeout":"45m","driver"`, 1)
+	withRegistry := strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"registry":{"credentials_file":"/etc/mvmd/registry.json"},"pull_timeout":"45m","driver"`, 1)
 	cfg, err = app.ParseConfig([]byte(withRegistry))
 	require.NoError(t, err)
 	assert.Equal(t, &app.RegistryConfig{CredentialsFile: "/etc/mvmd/registry.json"}, cfg.Registry)
@@ -140,26 +140,26 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 	changed := func(old, with string) string {
 		section := strings.Replace(fcSection, old, with, 1)
 		require.NotEqual(t, fcSection, section, "the row changes the section")
-		return firecrackerRaw("firecracker", section+cvSection+dkSection, fcSupervise)
+		return rawConfig("firecracker", section+cvSection+dkSection, fcSupervise)
 	}
 	conversion := func(old, with string) string {
 		section := strings.Replace(cvSection, old, with, 1)
 		require.NotEqual(t, cvSection, section, "the row changes the section")
-		return firecrackerRaw("firecracker", fcSection+section+dkSection, fcSupervise)
+		return rawConfig("firecracker", fcSection+section+dkSection, fcSupervise)
 	}
 	registry := func(driver, sections, section string) string {
-		return strings.Replace(firecrackerRaw(driver, sections, fcSupervise), `"driver"`, `"registry":`+section+`,"driver"`, 1)
+		return strings.Replace(rawConfig(driver, sections, fcSupervise), `"driver"`, `"registry":`+section+`,"driver"`, 1)
 	}
 	tests := []struct{ name, raw, reason string }{
-		{"the driver without its section", firecrackerRaw("firecracker", "", fcSupervise), "firecracker section"},
-		{"the driver without supervision", firecrackerRaw("firecracker", fcSection+cvSection+dkSection, ""), "supervision section"},
-		{"the driver without the conversion section", firecrackerRaw("firecracker", fcSection+dkSection, fcSupervise), "conversion section"},
-		{"the section with the memory driver", firecrackerRaw("memory", fcSection+cvSection, fcSupervise), "firecracker section is for"},
-		{"the driver without the disk section", firecrackerRaw("firecracker", fcSection+cvSection, fcSupervise), "disk section"},
-		{"the disk section with the memory driver", firecrackerRaw("memory", dkSection, fcSupervise), "disk section is for"},
-		{"a relative mkfs", strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), "/sbin/mkfs.ext4", "mkfs.ext4", 1), "disk.mkfs"},
-		{"an option the disk section does not read", strings.Replace(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"mkfs":"/sbin/mkfs.ext4"`, `"mkfs":"/sbin/mkfs.ext4","extra":1`, 1), "unknown field"},
-		{"the conversion section with the memory driver", firecrackerRaw("memory", cvSection, fcSupervise), "conversion section is for"},
+		{"the driver without its section", rawConfig("firecracker", "", fcSupervise), "firecracker section"},
+		{"the driver without supervision", rawConfig("firecracker", fcSection+cvSection+dkSection, ""), "supervision section"},
+		{"the driver without the conversion section", rawConfig("firecracker", fcSection+dkSection, fcSupervise), "conversion section"},
+		{"the section with the memory driver", rawConfig("memory", fcSection+cvSection, fcSupervise), "firecracker section is for"},
+		{"the driver without the disk section", rawConfig("firecracker", fcSection+cvSection, fcSupervise), "disk section"},
+		{"the disk section with the memory driver", rawConfig("memory", dkSection, fcSupervise), "disk section is for"},
+		{"a relative mkfs", strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), "/sbin/mkfs.ext4", "mkfs.ext4", 1), "disk.mkfs"},
+		{"an option the disk section does not read", strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"mkfs":"/sbin/mkfs.ext4"`, `"mkfs":"/sbin/mkfs.ext4","extra":1`, 1), "unknown field"},
+		{"the conversion section with the memory driver", rawConfig("memory", cvSection, fcSupervise), "conversion section is for"},
 		{"the registry section with the memory driver", registry("memory", "", `{"credentials_file":"/c"}`), "registry section is for"},
 		{"a relative credentials file", registry("firecracker", fcSection+cvSection+dkSection, `{"credentials_file":"c"}`), "registry.credentials_file"},
 		{"no credentials file", registry("firecracker", fcSection+cvSection+dkSection, `{}`), "registry.credentials_file"},
@@ -186,7 +186,7 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 		{"an initrd digest that is not hex", changed(`"initrd_sha256":"`+digest64, `"initrd_sha256":"sha256:`+digest64), "firecracker initrd digest"},
 		{"no initrd digest", changed(`,"initrd_sha256":"`+digest64+`"`, ``), "firecracker initrd digest"},
 		{"a digest that is not hex", changed(digest64, "sha256:"+digest64), "digest"},
-		{"an option the section does not read", firecrackerRaw("firecracker", `,"firecracker":{"extra":1}`, fcSupervise), "unknown field"},
+		{"an option the section does not read", rawConfig("firecracker", `,"firecracker":{"extra":1}`, fcSupervise), "unknown field"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

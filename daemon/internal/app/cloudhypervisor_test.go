@@ -22,7 +22,7 @@ func cloudHypervisorConfig(t *testing.T) app.Config {
 	t.Helper()
 	cfg := firecrackerConfig(t)
 	cfg.Driver = app.DriverCloudHypervisor
-	cfg.CloudHypervisor = (*app.CloudHypervisorConfig)(cfg.Firecracker)
+	cfg.CloudHypervisor = cfg.Firecracker
 	cfg.Firecracker = nil
 	return cfg
 }
@@ -97,15 +97,11 @@ func TestCloudHypervisor_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *test
 	}
 }
 
-func cloudHypervisorRaw(driver, section, supervision string) string {
-	return firecrackerRaw(driver, section, supervision)
-}
-
 func TestCloudHypervisor_ConfigParses(t *testing.T) {
-	cfg, err := app.ParseConfig([]byte(cloudHypervisorRaw("cloud-hypervisor", chSection+cvSection+dkSection, fcSupervise)))
+	cfg, err := app.ParseConfig([]byte(rawConfig("cloud-hypervisor", chSection+cvSection+dkSection, fcSupervise)))
 	require.NoError(t, err, "no firecracker section is needed: the converter boots on the selected Driver")
 	assert.Equal(t, app.DriverCloudHypervisor, cfg.Driver)
-	assert.Equal(t, &app.CloudHypervisorConfig{
+	assert.Equal(t, &app.VMMConfig{
 		Binary: "/opt/cloud-hypervisor", BinarySHA256: digest64, Kernel: "/opt/vmlinux", KernelSHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
 	}, cfg.CloudHypervisor)
 	assert.Nil(t, cfg.Firecracker)
@@ -116,22 +112,22 @@ func TestCloudHypervisor_ConfigRefuses(t *testing.T) {
 	changed := func(old, with string) string {
 		section := strings.Replace(chSection, old, with, 1)
 		require.NotEqual(t, chSection, section, "the row changes the section")
-		return cloudHypervisorRaw("cloud-hypervisor", section+cvSection+dkSection, fcSupervise)
+		return rawConfig("cloud-hypervisor", section+cvSection+dkSection, fcSupervise)
 	}
 	conversion := func(old, with string) string {
 		section := strings.Replace(cvSection, old, with, 1)
 		require.NotEqual(t, cvSection, section, "the row changes the section")
-		return cloudHypervisorRaw("cloud-hypervisor", chSection+section+dkSection, fcSupervise)
+		return rawConfig("cloud-hypervisor", chSection+section+dkSection, fcSupervise)
 	}
 	tests := []struct{ name, raw, reason string }{
-		{"the driver without its section", cloudHypervisorRaw("cloud-hypervisor", cvSection+dkSection, fcSupervise), "cloud_hypervisor section"},
-		{"the driver with the Firecracker section instead", cloudHypervisorRaw("cloud-hypervisor", fcSection+cvSection+dkSection, fcSupervise), "cloud_hypervisor section"},
-		{"the driver with both sections", cloudHypervisorRaw("cloud-hypervisor", chSection+fcSection+cvSection+dkSection, fcSupervise), "firecracker section is for"},
-		{"the Firecracker driver with the Cloud Hypervisor section", cloudHypervisorRaw("firecracker", fcSection+chSection+cvSection+dkSection, fcSupervise), "cloud_hypervisor section is for"},
-		{"the section with the memory driver", cloudHypervisorRaw("memory", chSection+cvSection, fcSupervise), "cloud_hypervisor section is for"},
-		{"the driver without supervision", cloudHypervisorRaw("cloud-hypervisor", chSection+cvSection+dkSection, ""), "supervision section"},
-		{"the driver without the conversion section", cloudHypervisorRaw("cloud-hypervisor", chSection+dkSection, fcSupervise), "conversion section"},
-		{"the driver without the disk section", cloudHypervisorRaw("cloud-hypervisor", chSection+cvSection, fcSupervise), "disk section"},
+		{"the driver without its section", rawConfig("cloud-hypervisor", cvSection+dkSection, fcSupervise), "cloud_hypervisor section"},
+		{"the driver with the Firecracker section instead", rawConfig("cloud-hypervisor", fcSection+cvSection+dkSection, fcSupervise), "cloud_hypervisor section"},
+		{"the driver with both sections", rawConfig("cloud-hypervisor", chSection+fcSection+cvSection+dkSection, fcSupervise), "firecracker section is for"},
+		{"the Firecracker driver with the Cloud Hypervisor section", rawConfig("firecracker", fcSection+chSection+cvSection+dkSection, fcSupervise), "cloud_hypervisor section is for"},
+		{"the section with the memory driver", rawConfig("memory", chSection+cvSection, fcSupervise), "cloud_hypervisor section is for"},
+		{"the driver without supervision", rawConfig("cloud-hypervisor", chSection+cvSection+dkSection, ""), "supervision section"},
+		{"the driver without the conversion section", rawConfig("cloud-hypervisor", chSection+dkSection, fcSupervise), "conversion section"},
+		{"the driver without the disk section", rawConfig("cloud-hypervisor", chSection+cvSection, fcSupervise), "disk section"},
 		{"a relative binary", changed(`"/opt/cloud-hypervisor"`, `"cloud-hypervisor"`), "cloud-hypervisor binary"},
 		{"a relative kernel", changed(`"/opt/vmlinux"`, `"vmlinux"`), "cloud-hypervisor kernel"},
 		{"a relative initrd", changed(`"/opt/initrd.cpio"`, `"initrd.cpio"`), "cloud-hypervisor initrd"},
@@ -139,7 +135,7 @@ func TestCloudHypervisor_ConfigRefuses(t *testing.T) {
 		{"a binary digest that is not hex", changed(`"binary_sha256":"`+digest64, `"binary_sha256":"sha256:`+digest64), "cloud-hypervisor binary digest"},
 		{"a relative converter kernel", conversion(`"/opt/converter-vmlinux"`, `"vmlinux"`), "conversion: cloud-hypervisor kernel"},
 		{"no converter initrd digest", conversion(`"initrd_sha256":"`+digest64+`",`, ``), "conversion: cloud-hypervisor initrd digest"},
-		{"an option the section does not read", cloudHypervisorRaw("cloud-hypervisor", `,"cloud_hypervisor":{"extra":1}`, fcSupervise), "unknown field"},
+		{"an option the section does not read", rawConfig("cloud-hypervisor", `,"cloud_hypervisor":{"extra":1}`, fcSupervise), "unknown field"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

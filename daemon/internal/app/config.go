@@ -61,11 +61,11 @@ type Config struct {
 	Disk *DiskConfig `json:"disk,omitempty"`
 	// Firecracker names the pinned binary, kernel and initrd the Firecracker
 	// Driver boots; it is required by that Driver and refused with any other.
-	Firecracker *FirecrackerConfig `json:"firecracker,omitempty"`
+	Firecracker *VMMConfig `json:"firecracker,omitempty"`
 	// CloudHypervisor names the pinned binary, kernel and initrd the Cloud
 	// Hypervisor Driver boots; it is required by that Driver and refused with
 	// any other.
-	CloudHypervisor *CloudHypervisorConfig `json:"cloud_hypervisor,omitempty"`
+	CloudHypervisor *VMMConfig `json:"cloud_hypervisor,omitempty"`
 	// Conversion names what the converter VM of a pull needs: its kernel and
 	// initrd, its size and its time limit. It is required by a real Driver and
 	// refused with the memory one. The converter VM boots on the selected
@@ -178,7 +178,7 @@ func (c ConversionConfig) limit() (time.Duration, error) {
 // check refuses a section that names no absolute path, no digest or no size.
 // The converter VM boots with the binary of the selected Driver's section,
 // which supplies the binary and its digest.
-func (c ConversionConfig) check(driver string, vmm FirecrackerConfig) error {
+func (c ConversionConfig) check(driver string, vmm VMMConfig) error {
 	if err := c.files(vmm).validate(driver); err != nil {
 		return fmt.Errorf("conversion: %w", err)
 	}
@@ -199,8 +199,8 @@ func (c ConversionConfig) check(driver string, vmm FirecrackerConfig) error {
 }
 
 // files are the converter's boot files with the selected Driver's binary.
-func (c ConversionConfig) files(vmm FirecrackerConfig) FirecrackerConfig {
-	return FirecrackerConfig{
+func (c ConversionConfig) files(vmm VMMConfig) VMMConfig {
+	return VMMConfig{
 		Binary: vmm.Binary, BinarySHA256: vmm.BinarySHA256,
 		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256, Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256,
 	}
@@ -278,10 +278,11 @@ type DiskConfig struct {
 	MKFS string `json:"mkfs"`
 }
 
-// FirecrackerConfig is what the node says about Firecracker and the guest it
-// boots (ADR 0010, ADR 0030): each file by absolute path, each also by SHA-256
-// in hex, which the Driver checks at start and the supervisor before every boot.
-type FirecrackerConfig struct {
+// VMMConfig is what the node says about the VMM of a real Driver and the guest
+// it boots (ADR 0010, ADR 0030): each file by absolute path, each also by
+// SHA-256 in hex, which the Driver checks at start and the supervisor before
+// every boot. Both real Drivers' sections have this shape.
+type VMMConfig struct {
 	Binary       string `json:"binary"`
 	BinarySHA256 string `json:"binary_sha256"`
 	Kernel       string `json:"kernel"`
@@ -290,8 +291,8 @@ type FirecrackerConfig struct {
 	InitrdSHA256 string `json:"initrd_sha256"`
 }
 
-// toDriver names the Driver's files; it adds the run directories.
-func (c FirecrackerConfig) toDriver(dirs firecracker.RunDirs) firecracker.Config {
+// firecracker names the Firecracker Driver's files; it adds the run directories.
+func (c VMMConfig) firecracker(dirs firecracker.RunDirs) firecracker.Config {
 	return firecracker.Config{
 		Binary: c.Binary, BinarySHA256: c.BinarySHA256,
 		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
@@ -299,12 +300,9 @@ func (c FirecrackerConfig) toDriver(dirs firecracker.RunDirs) firecracker.Config
 	}
 }
 
-// CloudHypervisorConfig is what the node says about Cloud Hypervisor and the
-// guest it boots, in the shape of FirecrackerConfig.
-type CloudHypervisorConfig FirecrackerConfig
-
-// toDriver names the Driver's files; it adds the run directories.
-func (c CloudHypervisorConfig) toDriver(dirs cloudhypervisor.RunDirs) cloudhypervisor.Config {
+// cloudHypervisor names the Cloud Hypervisor Driver's files; it adds the run
+// directories.
+func (c VMMConfig) cloudHypervisor(dirs cloudhypervisor.RunDirs) cloudhypervisor.Config {
 	return cloudhypervisor.Config{
 		Binary: c.Binary, BinarySHA256: c.BinarySHA256,
 		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
@@ -312,16 +310,16 @@ func (c CloudHypervisorConfig) toDriver(dirs cloudhypervisor.RunDirs) cloudhyper
 	}
 }
 
-// vmm is the section of the selected real Driver, in the one shape both
-// sections have; it is false under the memory driver.
-func (c Config) vmm() (FirecrackerConfig, bool) {
+// vmm is the section of the selected real Driver; it is false under the
+// memory driver.
+func (c Config) vmm() (VMMConfig, bool) {
 	switch {
 	case c.Firecracker != nil:
 		return *c.Firecracker, true
 	case c.CloudHypervisor != nil:
-		return FirecrackerConfig(*c.CloudHypervisor), true
+		return *c.CloudHypervisor, true
 	}
-	return FirecrackerConfig{}, false
+	return VMMConfig{}, false
 }
 
 // realDriver is what both real Drivers are: the Driver port, and the
@@ -331,22 +329,28 @@ type realDriver interface {
 	guestchannel.Connector
 }
 
-// validate runs the selected Driver's own check over these files; it reads no
-// file.
-func (c FirecrackerConfig) validate(name string) error {
-	if name == DriverCloudHypervisor {
-		return CloudHypervisorConfig(c).toDriver(nil).Validate()
+// validate runs the named real Driver's own check over these files; it reads
+// no file. Any other name is an error.
+func (c VMMConfig) validate(name string) error {
+	switch name {
+	case DriverFirecracker:
+		return c.firecracker(nil).Validate()
+	case DriverCloudHypervisor:
+		return c.cloudHypervisor(nil).Validate()
 	}
-	return c.toDriver(nil).Validate()
+	return fmt.Errorf("driver %q is not a real driver", name)
 }
 
-// driver is the selected real Driver over these files. The Driver checks every
-// file against its digest.
-func (c FirecrackerConfig) driver(name string, dirs fencing.Supervisors) (realDriver, error) {
-	if name == DriverCloudHypervisor {
-		return cloudhypervisor.New(CloudHypervisorConfig(c).toDriver(dirs))
+// driver is the named real Driver over these files; any other name is an
+// error. The Driver checks every file against its digest.
+func (c VMMConfig) driver(name string, dirs fencing.Supervisors) (realDriver, error) {
+	switch name {
+	case DriverFirecracker:
+		return firecracker.New(c.firecracker(dirs))
+	case DriverCloudHypervisor:
+		return cloudhypervisor.New(c.cloudHypervisor(dirs))
 	}
-	return firecracker.New(c.toDriver(dirs))
+	return nil, fmt.Errorf("driver %q is not a real driver", name)
 }
 
 // NetworkConfig is what the node says about its network (ADR 0011). A node
@@ -487,12 +491,12 @@ func (c Config) check() error {
 		return fmt.Errorf("the registry section is for a real driver, not %q", c.Driver)
 	}
 	if f := c.Firecracker; f != nil {
-		if err := f.toDriver(nil).Validate(); err != nil {
+		if err := f.validate(DriverFirecracker); err != nil {
 			return err
 		}
 	}
 	if h := c.CloudHypervisor; h != nil {
-		if err := h.toDriver(nil).Validate(); err != nil {
+		if err := h.validate(DriverCloudHypervisor); err != nil {
 			return err
 		}
 	}
