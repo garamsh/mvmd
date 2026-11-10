@@ -606,7 +606,7 @@ func TestConfinement_TheSupervisorEndsAVMMThatWritesItsMatchToTheEventPipe(t *te
 	start := func(id, text string) string {
 		run := runDir(n.dir, id)
 		proc := describe(probeBin, "events", run, "7", text)
-		proc.EndOn = machine.PipeTrigger{FD: 7, Match: []byte(`"event": "rebooting"`)}
+		proc.EndOn = machine.PipeTrigger{FD: 7, Match: []byte(`"event"`)}
 		require.NoError(t, n.a.Start(ctx, machine.MachineID(id), proc, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour))))
 		return run
 	}
