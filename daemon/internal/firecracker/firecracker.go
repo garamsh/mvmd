@@ -41,6 +41,7 @@ type Config struct {
 	Kernel       string
 	KernelSHA256 string
 	Initrd       string
+	InitrdSHA256 string
 	Dirs         RunDirs
 }
 
@@ -54,7 +55,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("firecracker %s %q is not an absolute path", f.name, f.path)
 		}
 	}
-	for _, f := range []struct{ name, sum string }{{"binary", c.BinarySHA256}, {"kernel", c.KernelSHA256}} {
+	for _, f := range []struct{ name, sum string }{{"binary", c.BinarySHA256}, {"kernel", c.KernelSHA256}, {"initrd", c.InitrdSHA256}} {
 		if !sha256Hex.MatchString(f.sum) {
 			return fmt.Errorf("firecracker %s digest %q is not 64 lowercase hex digits", f.name, f.sum)
 		}
@@ -68,7 +69,7 @@ type Driver struct {
 	cpuModel string
 }
 
-// New returns the Driver. It refuses a binary or a kernel whose digest is not
+// New returns the Driver. It refuses a binary, a kernel or an initrd whose digest is not
 // the configured one, so a node fails at start and not at its first boot.
 func New(cfg Config) (*Driver, error) {
 	if err := cfg.Validate(); err != nil {

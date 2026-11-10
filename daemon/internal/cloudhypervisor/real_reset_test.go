@@ -55,12 +55,12 @@ func TestReal_AGuestThatPanicsEndsItsVMMAndAGuestThatStaysUpDoesNot(t *testing.T
 	noInit := filepath.Join(state, "no-init.cpio")
 	require.NoError(t, os.WriteFile(noInit, newc("not-init", []byte("x")), 0o600))
 
-	driver := func(initrd string) machine.Driver {
+	driver := func(initrd, initrdSHA256 string) machine.Driver {
 		d, err := cloudhypervisor.New(cloudhypervisor.Config{
 			Binary: input(t, "MVMD_CLOUD_HYPERVISOR"), BinarySHA256: input(t, "MVMD_CLOUD_HYPERVISOR_SHA256"),
 			Kernel: input(t, "MVMD_KERNEL"), KernelSHA256: input(t, "MVMD_KERNEL_SHA256"),
-			Initrd: initrd,
-			Dirs:   dirs,
+			Initrd: initrd, InitrdSHA256: initrdSHA256,
+			Dirs: dirs,
 		})
 		require.NoError(t, err)
 		return d
@@ -98,10 +98,10 @@ func TestReal_AGuestThatPanicsEndsItsVMMAndAGuestThatStaysUpDoesNot(t *testing.T
 		return proc, spec, logPath
 	}
 
-	good := driver(input(t, "MVMD_INITRD"))
+	good := driver(input(t, "MVMD_INITRD"), input(t, "MVMD_INITRD_SHA256"))
 	control, controlSpec, _ := start("control", good)
 	require.NoError(t, good.Boot(ctx, "control", controlSpec))
-	panicProc, _, panicLog := start("panics", driver(noInit))
+	panicProc, _, panicLog := start("panics", driver(noInit, sum(newc("not-init", []byte("x")))))
 	began := time.Now()
 
 	guest := guestchannel.NewGuest(good)

@@ -51,8 +51,8 @@ func subject(t *testing.T) drivertest.Subject {
 			d, err := firecracker.New(firecracker.Config{
 				Binary: input(t, "MVMD_FIRECRACKER"), BinarySHA256: input(t, "MVMD_FIRECRACKER_SHA256"),
 				Kernel: input(t, "MVMD_KERNEL"), KernelSHA256: input(t, "MVMD_KERNEL_SHA256"),
-				Initrd: input(t, "MVMD_INITRD"),
-				Dirs:   dirs,
+				Initrd: input(t, "MVMD_INITRD"), InitrdSHA256: input(t, "MVMD_INITRD_SHA256"),
+				Dirs: dirs,
 			})
 			require.NoError(t, err)
 			return d

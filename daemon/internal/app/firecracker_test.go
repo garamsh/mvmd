@@ -31,12 +31,12 @@ func firecrackerConfig(t *testing.T) app.Config {
 	f := &app.FirecrackerConfig{}
 	f.Binary, f.BinarySHA256 = file("firecracker", "a binary")
 	f.Kernel, f.KernelSHA256 = file("vmlinux", "a kernel")
-	f.Initrd, _ = file("initrd.cpio", "an initrd")
+	f.Initrd, f.InitrdSHA256 = file("initrd.cpio", "an initrd")
 	cv := &app.ConversionConfig{
 		Converter: "converter-1", VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m",
 	}
 	cv.Kernel, cv.KernelSHA256 = file("converter-vmlinux", "a converter kernel")
-	cv.Initrd, _ = file("converter-initrd.cpio", "a converter initrd")
+	cv.Initrd, cv.InitrdSHA256 = file("converter-initrd.cpio", "a converter initrd")
 	mkfs, _ := file("mkfs.ext4", "#!/bin/sh\nexit 0\n")
 	require.NoError(t, os.Chmod(mkfs, 0o700))
 	cfg.Driver = app.DriverFirecracker
@@ -75,10 +75,13 @@ func TestFirecracker_TheDriverAndTheChannelReplaceTheMemoryOnes(t *testing.T) {
 }
 
 func TestFirecracker_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.T) {
-	for _, file := range []string{"binary", "kernel"} {
+	for _, file := range []string{"binary", "kernel", "initrd", "converter initrd"} {
 		t.Run(file, func(t *testing.T) {
 			cfg := firecrackerConfig(t)
-			path := map[string]string{"binary": cfg.Firecracker.Binary, "kernel": cfg.Firecracker.Kernel}[file]
+			path := map[string]string{
+				"binary": cfg.Firecracker.Binary, "kernel": cfg.Firecracker.Kernel,
+				"initrd": cfg.Firecracker.Initrd, "converter initrd": cfg.Conversion.Initrd,
+			}[file]
 			pinned, err := os.ReadFile(path)
 			require.NoError(t, err)
 
@@ -98,10 +101,10 @@ func TestFirecracker_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.
 
 const (
 	digest64    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	fcSection   = `,"firecracker":{"binary":"/opt/firecracker","binary_sha256":"` + digest64 + `","kernel":"/opt/vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/initrd.cpio"}`
+	fcSection   = `,"firecracker":{"binary":"/opt/firecracker","binary_sha256":"` + digest64 + `","kernel":"/opt/vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/initrd.cpio","initrd_sha256":"` + digest64 + `"}`
 	dkSection   = `,"disk":{"mkfs":"/sbin/mkfs.ext4"}`
 	fcSupervise = `,"supervision":{"binary":"/usr/libexec/mvmd-supervisor"}`
-	cvSection   = `,"conversion":{"kernel":"/opt/converter-vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/converter-initrd.cpio","converter":"converter-1","vcpus":2,"memory_bytes":536870912,"output_bytes":1073741824,"name_set_bytes":1048576,"limit":"10m"}`
+	cvSection   = `,"conversion":{"kernel":"/opt/converter-vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/converter-initrd.cpio","initrd_sha256":"` + digest64 + `","converter":"converter-1","vcpus":2,"memory_bytes":536870912,"output_bytes":1073741824,"name_set_bytes":1048576,"limit":"10m"}`
 )
 
 func firecrackerRaw(driver, section, supervision string) string {
@@ -116,10 +119,10 @@ func TestFirecracker_ConfigParses(t *testing.T) {
 	cfg, err := app.ParseConfig([]byte(firecrackerRaw("firecracker", fcSection+cvSection+dkSection, fcSupervise)))
 	require.NoError(t, err)
 	assert.Equal(t, &app.FirecrackerConfig{
-		Binary: "/opt/firecracker", BinarySHA256: digest64, Kernel: "/opt/vmlinux", KernelSHA256: digest64, Initrd: "/opt/initrd.cpio",
+		Binary: "/opt/firecracker", BinarySHA256: digest64, Kernel: "/opt/vmlinux", KernelSHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
 	}, cfg.Firecracker)
 	assert.Equal(t, &app.ConversionConfig{
-		Kernel: "/opt/converter-vmlinux", KernelSHA256: digest64, Initrd: "/opt/converter-initrd.cpio", Converter: "converter-1",
+		Kernel: "/opt/converter-vmlinux", KernelSHA256: digest64, Initrd: "/opt/converter-initrd.cpio", InitrdSHA256: digest64, Converter: "converter-1",
 		VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m",
 	}, cfg.Conversion)
 	assert.Equal(t, &app.DiskConfig{MKFS: "/sbin/mkfs.ext4"}, cfg.Disk)
@@ -165,6 +168,8 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 		{"a pull timeout above the maximum", pullTimeoutRaw("7h"), "pull_timeout"},
 		{"a relative converter kernel", conversion(`"/opt/converter-vmlinux"`, `"vmlinux"`), "conversion: firecracker kernel"},
 		{"a relative converter initrd", conversion(`"/opt/converter-initrd.cpio"`, `"initrd"`), "conversion: firecracker initrd"},
+		{"a converter initrd digest that is not hex", conversion(`"initrd_sha256":"`+digest64, `"initrd_sha256":"sha256:`+digest64), "conversion: firecracker initrd digest"},
+		{"no converter initrd digest", conversion(`"initrd_sha256":"`+digest64+`",`, ``), "conversion: firecracker initrd digest"},
 		{"a converter kernel digest that is not hex", conversion(digest64, "sha256:"+digest64), "conversion: firecracker kernel digest"},
 		{"no converter name", conversion(`"converter":"converter-1"`, `"converter":""`), "conversion.converter"},
 		{"no converter vCPUs", conversion(`"vcpus":2`, `"vcpus":0`), "conversion.vcpus"},
@@ -178,6 +183,8 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 		{"a relative binary", changed(`"/opt/firecracker"`, `"firecracker"`), "firecracker binary"},
 		{"a relative kernel", changed(`"/opt/vmlinux"`, `"vmlinux"`), "firecracker kernel"},
 		{"a relative initrd", changed(`"/opt/initrd.cpio"`, `"initrd.cpio"`), "firecracker initrd"},
+		{"an initrd digest that is not hex", changed(`"initrd_sha256":"`+digest64, `"initrd_sha256":"sha256:`+digest64), "firecracker initrd digest"},
+		{"no initrd digest", changed(`,"initrd_sha256":"`+digest64+`"`, ``), "firecracker initrd digest"},
 		{"a digest that is not hex", changed(digest64, "sha256:"+digest64), "digest"},
 		{"an option the section does not read", firecrackerRaw("firecracker", `,"firecracker":{"extra":1}`, fcSupervise), "unknown field"},
 	}

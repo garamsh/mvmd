@@ -125,6 +125,7 @@ test-firecracker: guest-initrd
 	tooling/firecracker/fetch.sh tooling/firecracker/target; \
 	set -a; . tooling/firecracker/target/inputs.env; set +a; \
 	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
+	export MVMD_INITRD_SHA256=$$(sha256sum $(CURDIR)/guest-agent/target/initrd.cpio | cut -d' ' -f1); \
 	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
 	if ! (cd daemon && go test -tags firecracker_real -count=1 -v -run '^TestReal_' ./internal/firecracker/) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
 	cat "$$log"; \
@@ -141,6 +142,7 @@ test-cloud-hypervisor: guest-initrd
 	tooling/cloud-hypervisor/fetch.sh tooling/cloud-hypervisor/target; \
 	set -a; . tooling/firecracker/target/inputs.env; . tooling/cloud-hypervisor/target/inputs.env; set +a; \
 	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
+	export MVMD_INITRD_SHA256=$$(sha256sum $(CURDIR)/guest-agent/target/initrd.cpio | cut -d' ' -f1); \
 	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
 	if ! (cd daemon && go test -tags cloud_hypervisor_real -count=1 -v -run '^TestReal_' ./internal/cloudhypervisor/) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
 	cat "$$log"; \
@@ -166,7 +168,9 @@ test-e2e: guest-initrd converter-initrd
 	tooling/firecracker/fetch.sh tooling/firecracker/target; \
 	set -a; . tooling/firecracker/target/inputs.env; set +a; \
 	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
+	export MVMD_INITRD_SHA256=$$(sha256sum $(CURDIR)/guest-agent/target/initrd.cpio | cut -d' ' -f1); \
 	export MVMD_E2E_CONVERTER_INITRD=$(CURDIR)/converter/target/initrd.cpio; \
+	export MVMD_E2E_CONVERTER_INITRD_SHA256=$$(sha256sum $(CURDIR)/converter/target/initrd.cpio | cut -d' ' -f1); \
 	export MVMD_E2E_MVMD=$(CURDIR)/e2e/target/mvmd; \
 	export MVMD_E2E_SUPERVISOR=$(CURDIR)/e2e/target/mvmd-supervisor; \
 	export FSCK_EROFS=$(CURDIR)/$(EROFS_UTILS)/fsck.erofs; \

@@ -140,7 +140,7 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 	conversions := conversionSupervision{sup: sup, clock: clock, limit: settings.Limit}
 	driver, err := firecracker.New(firecracker.Config{
 		Binary: f.Binary, BinarySHA256: f.BinarySHA256,
-		Kernel: cfg.Conversion.Kernel, KernelSHA256: cfg.Conversion.KernelSHA256, Initrd: cfg.Conversion.Initrd,
+		Kernel: cfg.Conversion.Kernel, KernelSHA256: cfg.Conversion.KernelSHA256, Initrd: cfg.Conversion.Initrd, InitrdSHA256: cfg.Conversion.InitrdSHA256,
 		Dirs: sup,
 	})
 	if err != nil {

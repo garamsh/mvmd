@@ -114,8 +114,8 @@ func newNode(t *testing.T) *node {
 	cfg := firecracker.Config{
 		Binary: write("firecracker", "a binary"), BinarySHA256: sum([]byte("a binary")),
 		Kernel: write("vmlinux", "a kernel"), KernelSHA256: sum([]byte("a kernel")),
-		Initrd: write("initrd.cpio", "an initrd"),
-		Dirs:   runDirs{run},
+		Initrd: write("initrd.cpio", "an initrd"), InitrdSHA256: sum([]byte("an initrd")),
+		Dirs: runDirs{run},
 	}
 	d, err := firecracker.New(cfg)
 	require.NoError(t, err)

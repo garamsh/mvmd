@@ -35,9 +35,11 @@ func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
 		{"a relative initrd path", func(c *firecracker.Config) { c.Initrd = "initrd" }, "absolute"},
 		{"a binary digest that is not hex", func(c *firecracker.Config) { c.BinarySHA256 = "sha256:abc" }, "digest"},
 		{"an upper-case kernel digest", func(c *firecracker.Config) { c.KernelSHA256 = strings.ToUpper(c.KernelSHA256) }, "digest"},
+		{"an initrd digest that is not hex", func(c *firecracker.Config) { c.InitrdSHA256 = "sha256:abc" }, "digest"},
 		{"no run directories", func(c *firecracker.Config) { c.Dirs = nil }, "run directories"},
 		{"a binary that is not the pinned one", func(c *firecracker.Config) { c.BinarySHA256 = strings.Repeat("0", 64) }, "binary"},
 		{"a kernel that is not the pinned one", func(c *firecracker.Config) { c.KernelSHA256 = strings.Repeat("0", 64) }, "kernel"},
+		{"an initrd that is not the pinned one", func(c *firecracker.Config) { c.InitrdSHA256 = strings.Repeat("0", 64) }, "initrd"},
 		{"a missing initrd", func(c *firecracker.Config) { c.Initrd = "/nonexistent/initrd" }, "initrd"},
 	}
 	for _, tt := range tests {
