@@ -38,7 +38,7 @@ jobs:
             for i in $(seq 1 "$N"); do
               if ! out=$("$RUNNER_TEMP/gc.test" -test.count=1 -test.run 'TestRealAgent_StatusesMapToThePortsErrors$/ExecOutputGone' 2>&1); then
                 f=$((f+1))
-                echo "$out" | grep -m1 -E "no longer held|Messages:|Error:" || true
+                echo "--- failure ---"; echo "$out" | tail -25
               fi
             done
             echo "$1: $f failures out of $N"
