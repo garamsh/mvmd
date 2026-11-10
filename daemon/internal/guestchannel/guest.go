@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +25,10 @@ import (
 	guestv1alpha1 "github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
+
+// apiVersion is the Guest Agent contract version this adapter speaks: the
+// version of the generated client it calls through.
+const apiVersion = "v1alpha1"
 
 // Connector opens a byte stream to a Machine's guest port. machine.Driver is
 // one: whatever the VMM needs before the first byte is the Driver's.
@@ -303,8 +308,9 @@ func (g *Guest) Health(ctx context.Context, id machine.MachineID) error {
 	})
 }
 
-// Boot implements machine.Guest. A boot step that failed is a
-// *machine.BootStepError.
+// Boot implements machine.Guest. It first reads the agent's Info and sends
+// nothing to an agent that does not serve apiVersion. A boot step that failed
+// is a *machine.BootStepError.
 func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.GuestBoot) error {
 	req := &guestv1alpha1.BootRequest{
 		ImageUuid:    boot.ImageUUID,
@@ -317,7 +323,15 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 		Network: networkConfig(boot.Network),
 	}
 	return g.run(ctx, id, opBoot, func(c guestv1alpha1.GuestServiceClient) error {
-		_, err := c.Boot(ctx, req, grpc.WaitForReady(true))
+		info, err := c.Info(ctx, &guestv1alpha1.InfoRequest{}, grpc.WaitForReady(true))
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(info.GetApiVersions(), apiVersion) {
+			return fmt.Errorf("the Guest Agent %q serves the API versions %q and not %q, the version this daemon speaks",
+				info.GetAgentVersion(), info.GetApiVersions(), apiVersion)
+		}
+		_, err = c.Boot(ctx, req, grpc.WaitForReady(true))
 		return err
 	})
 }
