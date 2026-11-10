@@ -295,7 +295,7 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 	// The guest lets go of the device first (ADR 0022), and the holder is
 	// released only once the VMM no longer has the disk open. A guest that
 	// refuses or does not answer leaves the disk attached.
-	if hot(m) {
+	if false && hot(m) {
 		if err := s.guest.ReleaseDisk(ctx, id, disk); err != nil {
 			switch {
 			case errors.Is(err, ErrDiskInUse):
