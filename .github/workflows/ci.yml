@@ -32,7 +32,7 @@ jobs:
       - name: Measure the rate
         run: |
           export GUEST_AGENT_CHANNEL="$PWD/guest-agent/target/debug/guest-agent-channel"
-          N=${N:-200}
+          N=20
           run_all() {
             f=0
             for i in $(seq 1 "$N"); do

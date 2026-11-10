@@ -332,7 +332,7 @@ fn check_held(state: &State, after: u64) -> Result<(), Error> {
     let earliest = state.record.earliest_offset;
     if after < earliest {
         return Err(Error::OutOfRange {
-            earliest_offset: earliest,
+            earliest_offset: earliest - 1,
         });
     }
     Ok(())
