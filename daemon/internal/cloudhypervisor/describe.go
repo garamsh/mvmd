@@ -81,7 +81,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
 		d.initrd(),
 	}
-	return d.process(spec, args(spec, runtime.GOARCH), boot), nil
+	return d.process(spec, args(spec, d.goarch), boot), nil
 }
 
 // initrd is the initrd file of a description, the same at boot and on restore.

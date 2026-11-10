@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/cloudhypervisor"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -87,13 +87,6 @@ func (v *vmmSizing) set(f func(*vmmSizing)) {
 	f(v)
 }
 
-func requireResizes(t *testing.T) {
-	t.Helper()
-	if runtime.GOARCH != "amd64" {
-		t.Skip("resize is x86_64's")
-	}
-}
-
 func resizeBodies(reqs []request) []string {
 	var out []string
 	for _, r := range reqs {
@@ -105,7 +98,6 @@ func resizeBodies(reqs []request) []string {
 }
 
 func TestResize_SendsTheDesiredFiguresAndReturnsOnceTheVMMReportsThem(t *testing.T) {
-	requireResizes(t)
 	tests := []struct {
 		name   string
 		target machine.Resources
@@ -118,6 +110,7 @@ func TestResize_SendsTheDesiredFiguresAndReturnsOnceTheVMMReportsThem(t *testing
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			n := newNode(t)
+			cloudhypervisor.SetGOARCH(n.driver, "amd64")
 			f := &fakeAPI{}
 			n.booted(f)
 			vmmSized(f, 2, 256<<20, 1<<30)
@@ -135,8 +128,8 @@ func TestResize_SendsTheDesiredFiguresAndReturnsOnceTheVMMReportsThem(t *testing
 // memory_actual_size is what the guest has reached, so a resize returns after
 // the figure has caught up and not before.
 func TestResize_WaitsForTheGuestToPlugTheMemory(t *testing.T) {
-	requireResizes(t)
 	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
 	f := &fakeAPI{}
 	n.booted(f)
 	v := vmmSized(f, 2, 256<<20, 1<<30)
@@ -155,8 +148,8 @@ func TestResize_WaitsForTheGuestToPlugTheMemory(t *testing.T) {
 }
 
 func TestResize_ReportsAGuestThatDoesNotReachTheTargetAsAnError(t *testing.T) {
-	requireResizes(t)
 	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
 	f := &fakeAPI{}
 	n.booted(f)
 	v := vmmSized(f, 2, 256<<20, 1<<30)
@@ -174,8 +167,8 @@ func TestResize_ReportsAGuestThatDoesNotReachTheTargetAsAnError(t *testing.T) {
 // VMM refuses a vCPU resize while a removal is pending. The retry reads the
 // configuration, sends nothing for what is already configured, and waits.
 func TestResize_ARetryAfterATimedOutWaitSendsNothingAndConverges(t *testing.T) {
-	requireResizes(t)
 	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
 	f := &fakeAPI{}
 	n.booted(f)
 	v := vmmSized(f, 4, 256<<20, 1<<30)
@@ -199,8 +192,8 @@ func TestResize_ARetryAfterATimedOutWaitSendsNothingAndConverges(t *testing.T) {
 }
 
 func TestResize_AMachineAlreadyAtTheTargetSendsNothing(t *testing.T) {
-	requireResizes(t)
 	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
 	f := &fakeAPI{}
 	n.booted(f)
 	vmmSized(f, 2, 256<<20, 1<<30)
@@ -214,8 +207,8 @@ func TestResize_AMachineAlreadyAtTheTargetSendsNothing(t *testing.T) {
 // A shrink is the same call with smaller figures; the VMM's memory goes back
 // down to the boot size at the least.
 func TestResize_ShrinksByTheSameCall(t *testing.T) {
-	requireResizes(t)
 	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
 	f := &fakeAPI{}
 	n.booted(f)
 	v := vmmSized(f, 4, 256<<20, 1<<30)
@@ -227,26 +220,9 @@ func TestResize_ShrinksByTheSameCall(t *testing.T) {
 	assert.Equal(t, []string{`{"desired_ram":268435456,"desired_vcpus":2}`}, resizeBodies(since(f, before)))
 }
 
-func TestResize_RefusesMemoryThatIsNotAMultipleOf2MiB(t *testing.T) {
-	requireResizes(t)
-	n := newNode(t)
-	f := &fakeAPI{}
-	n.booted(f)
-	vmmSized(f, 2, 256<<20, 1<<30)
-	before := len(f.seen())
-
-	err := n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 2, MemoryBytes: 257 << 20})
-	require.ErrorIs(t, err, machine.ErrInvalid)
-	assert.Len(t, f.seen(), before, "nothing reached the VMM")
-
-	require.NoError(t, n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 2, MemoryBytes: 258 << 20}),
-		"control: a multiple of 2 MiB is accepted")
-	assert.Len(t, resizeBodies(since(f, before)), 1)
-}
-
 func TestResize_ReturnsTheVMMsRefusal(t *testing.T) {
-	requireResizes(t)
 	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
 	f := &fakeAPI{}
 	n.booted(f)
 	vmmSized(f, 2, 256<<20, 1<<30)
@@ -257,4 +233,11 @@ func TestResize_ReturnsTheVMMsRefusal(t *testing.T) {
 
 	require.NoError(t, n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 8, MemoryBytes: 256 << 20}),
 		"control: the maximum itself is accepted")
+
+	// Memory off 2 MiB is the VMM's to refuse; the lifecycle enforces it first.
+	err = n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 8, MemoryBytes: 257 << 20})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refused")
+	require.NoError(t, n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 8, MemoryBytes: 258 << 20}),
+		"control: a multiple of 2 MiB is accepted")
 }

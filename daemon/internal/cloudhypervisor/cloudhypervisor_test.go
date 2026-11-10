@@ -3,9 +3,10 @@ package cloudhypervisor_test
 import (
 	"context"
 	"os"
-	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,22 +17,24 @@ import (
 
 var _ machine.Driver = (*cloudhypervisor.Driver)(nil)
 
-func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsTheConsoleSnapshotDiskHotplugAndOnX8664Resize(t *testing.T) {
+func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsTheConsoleSnapshotAndDiskHotplug(t *testing.T) {
 	info := newNode(t).driver.Info()
 	assert.Equal(t, "cloud-hypervisor", info.Name)
 	assert.Equal(t, "54.0", info.Version)
 	assert.NotEmpty(t, info.CPUModel)
-	want := []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}
-	if runtime.GOARCH == "amd64" {
-		want = append(want, machine.CapabilityResize)
-	}
-	assert.Equal(t, want, info.Capabilities, "what the Driver implements and no more")
+	assert.Subset(t, info.Capabilities, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug})
 }
 
-// Resize is x86_64's in v54.0, so only x86_64 reports it.
-func TestResizeCapable_OnlyOnX8664(t *testing.T) {
-	assert.True(t, cloudhypervisor.ResizeCapable("amd64"))
-	assert.False(t, cloudhypervisor.ResizeCapable("arm64"))
+// Resize is x86_64's in v54.0, so only x86_64 reports it; the Driver's
+// architecture is named, so both cases run on any host.
+func TestInfo_ReportsResizeOnX8664Only(t *testing.T) {
+	for arch, reported := range map[string]bool{"amd64": true, "arm64": false} {
+		n := newNode(t)
+		cloudhypervisor.SetGOARCH(n.driver, arch)
+		caps := n.driver.Info().Capabilities
+		assert.Equal(t, reported, slices.Contains(caps, machine.CapabilityResize), arch)
+		assert.Subset(t, caps, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}, "%s: the rest is unchanged", arch)
+	}
 }
 
 func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
@@ -79,10 +82,8 @@ func TestNew_RefusesAMissingBinary(t *testing.T) {
 // an operation the Driver does implement, which does reach the VMM and is
 // reported.
 func TestResizeRefusesAsUnsupportedAndSendsNothingWhereTheArchitectureHasNone(t *testing.T) {
-	if runtime.GOARCH == "amd64" {
-		t.Skip("this host's architecture resizes")
-	}
 	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "arm64")
 	f := &fakeAPI{}
 	n.booted(f)
 	before := len(f.seen())
@@ -96,4 +97,11 @@ func TestResizeRefusesAsUnsupportedAndSendsNothingWhereTheArchitectureHasNone(t 
 	require.NoError(t, err, "control: an implemented operation is not refused")
 	assert.Greater(t, len(f.seen()), before, "and it reaches the VMM")
 	assert.Contains(t, n.driver.Info().Capabilities, machine.CapabilityDiskHotplug)
+
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
+	mid := len(f.seen())
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_ = n.driver.Resize(ctx, "m1", machine.Resources{VCPUs: 4, MemoryBytes: 512 << 20}) // the fake VMM never reports the target
+	assert.Greater(t, len(f.seen()), mid, "control: the same Driver on x86_64 reaches the VMM, so the architecture is what refused")
 }

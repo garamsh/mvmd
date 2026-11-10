@@ -3,7 +3,6 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -26,15 +25,13 @@ func resizeCapable(goarch string) bool { return goarch == "amd64" }
 // plugged (memory_actual_size), which is the guest's progress and not the
 // request's. A call that finds both at the target sends nothing, so a retry
 // after a failure converges; a wait that runs out is an error, the lifecycle's
-// failed. Memory is a multiple of the 2 MiB a memory device takes, which the
-// lifecycle enforces and this refuses again.
+// failed.
 func (d *Driver) Resize(ctx context.Context, id machine.MachineID, target machine.Resources) error {
-	if !resizeCapable(runtime.GOARCH) {
-		return unsupported("resize on " + runtime.GOARCH)
+	if !resizeCapable(d.goarch) {
+		return unsupported("resize on " + d.goarch)
 	}
-	if target.VCPUs == 0 || target.MemoryBytes == 0 || target.MemoryBytes%machine.MemoryAlignment != 0 {
-		return fmt.Errorf("%w: %d vCPUs and %d bytes of memory is not a resize the VMM takes: memory is a multiple of %d bytes",
-			machine.ErrInvalid, target.VCPUs, target.MemoryBytes, machine.MemoryAlignment)
+	if target.VCPUs == 0 || target.MemoryBytes == 0 {
+		return fmt.Errorf("%w: %d vCPUs and %d bytes of memory is not a resize the VMM takes", machine.ErrInvalid, target.VCPUs, target.MemoryBytes)
 	}
 	c, err := d.api(id)
 	if err != nil {

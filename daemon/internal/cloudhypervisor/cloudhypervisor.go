@@ -68,6 +68,8 @@ func (c Config) Validate() error {
 type Driver struct {
 	cfg      Config
 	cpuModel string
+	// goarch is the architecture the VMM runs on; what a resize needs depends on it.
+	goarch string
 }
 
 // New returns the Driver. It refuses a binary, a kernel or an initrd whose digest is not
@@ -86,7 +88,7 @@ func New(cfg Config) (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Driver{cfg: cfg, cpuModel: model}, nil
+	return &Driver{cfg: cfg, cpuModel: model, goarch: runtime.GOARCH}, nil
 }
 
 // Info implements machine.Driver. The optional capabilities reported are the
@@ -94,7 +96,7 @@ func New(cfg Config) (*Driver, error) {
 // memory hot-plug are x86_64's, and elsewhere Resize refuses (unsupported).
 func (d *Driver) Info() machine.DriverInfo {
 	caps := []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}
-	if resizeCapable(runtime.GOARCH) {
+	if resizeCapable(d.goarch) {
 		caps = append(caps, machine.CapabilityResize)
 	}
 	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel, Capabilities: caps}
