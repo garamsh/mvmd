@@ -408,14 +408,16 @@ func newRaw(t *testing.T, name, cgroupParent string) *raw {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWPID}
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if _, err := os.Stat(sock); err == nil {
-			break
+	// The socket file exists from bind(), before listen(): a dial is accepted
+	// only after that, so the wait is a dial that succeeds.
+	require.Eventually(t, func() bool {
+		conn, err := net.Dial("unix", sock)
+		if err != nil {
+			return false
 		}
-		require.False(t, time.Now().After(deadline), "the supervisor did not listen")
-		time.Sleep(5 * time.Millisecond)
-	}
+		_ = conn.Close()
+		return true
+	}, 10*time.Second, 5*time.Millisecond, "the supervisor never accepted a connection")
 	conn, err := grpc.NewClient("unix:"+sock, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
