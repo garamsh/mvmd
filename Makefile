@@ -151,12 +151,15 @@ test-cloud-hypervisor: guest-initrd
 	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
 
 # test-e2e runs the end-to-end tests of e2e/: the built mvmd and mvmd-supervisor on the pinned
-# Firecracker and kernel, with the Guest Agent's and the converter's initrds, against a registry the
+# kernel and on the Driver E2E_DRIVER selects (firecracker, the default, or cloud-hypervisor) over
+# its pinned VMM binary, with the Guest Agent's and the converter's initrds, against a registry the
 # tests serve themselves. The tests pull images through the runtime API, read what the converter
 # microVM made, and check the pre-boot check of the cache. They run as root, and under passwordless
 # sudo when this user is not; they need read and write access to /dev/kvm and a Linux with
 # fs-verity on ext4 and loop mounts. Like test-firecracker, it is not part of ci and a missing
-# input fails the tests and never skips them.
+# input fails the tests and never skips them. E2E_DRIVER is the one selection input: the tests are
+# the same under both Drivers, and a name that is neither fails the run.
+E2E_DRIVER ?= firecracker
 .PHONY: converter-initrd test-e2e
 converter-initrd: erofs-utils
 	$(call initrd_twice,converter,"$$workspace/target/erofs-utils/mkfs.erofs")
@@ -165,8 +168,14 @@ test-e2e: guest-initrd converter-initrd
 	@set -e; \
 	mkdir -p e2e/target; \
 	(cd daemon && go build -o $(CURDIR)/e2e/target/mvmd ./cmd/mvmd && go build -o $(CURDIR)/e2e/target/mvmd-supervisor ./cmd/mvmd-supervisor); \
+	case "$(E2E_DRIVER)" in firecracker|cloud-hypervisor) ;; *) echo "$@: E2E_DRIVER is \"$(E2E_DRIVER)\", not firecracker or cloud-hypervisor" >&2; exit 1;; esac; \
 	tooling/firecracker/fetch.sh tooling/firecracker/target; \
 	set -a; . tooling/firecracker/target/inputs.env; set +a; \
+	if [ "$(E2E_DRIVER)" = cloud-hypervisor ]; then \
+		tooling/cloud-hypervisor/fetch.sh tooling/cloud-hypervisor/target; \
+		set -a; . tooling/cloud-hypervisor/target/inputs.env; set +a; \
+	fi; \
+	export MVMD_E2E_DRIVER=$(E2E_DRIVER); \
 	export MVMD_INITRD=$(CURDIR)/guest-agent/target/initrd.cpio; \
 	export MVMD_INITRD_SHA256=$$(sha256sum $(CURDIR)/guest-agent/target/initrd.cpio | cut -d' ' -f1); \
 	export MVMD_E2E_CONVERTER_INITRD=$(CURDIR)/converter/target/initrd.cpio; \
@@ -178,7 +187,7 @@ test-e2e: guest-initrd converter-initrd
 	if ! (cd e2e && go test -tags firecracker_real -count=1 -v -run '^TestE2E_' ./...) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
 	cat "$$log"; \
 	n=$$(grep -c '^--- PASS: TestE2E_' "$$log" || true); \
-	echo "$@: $$n test(s) passed, selected by -run '^TestE2E_' under the firecracker_real tag"; \
+	echo "$@: $$n test(s) passed under $(E2E_DRIVER), selected by -run '^TestE2E_' under the firecracker_real tag"; \
 	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
 
 build: rebuild-erofs-utils

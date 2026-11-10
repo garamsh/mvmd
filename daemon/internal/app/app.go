@@ -25,7 +25,6 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
-	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	imagememory "github.com/garamsh/mvmd/daemon/internal/image/memory"
@@ -47,7 +46,7 @@ func (wallClock) Now() time.Time { return time.Now() }
 // configuration selects the memory driver, so that what a Machine needs on the
 // node can be provided: images and disks. Supervisors is nil when the
 // configuration names real supervision, and Driver and Guest are nil when it
-// names the Firecracker Driver. Disks, Snapshots, Images, the Registry, the
+// names a real Driver. Disks, Snapshots, Images, the Registry, the
 // Converter, the Cache and the conversion Driver and Supervision are nil under
 // it too: they are the real adapters then. Images is what a Machine's start
 // locates an image in and Cache is where a pull publishes, so under the memory
@@ -150,13 +149,13 @@ func New(cfg Config) (*App, error) {
 		}
 		supervisors, sub.Supervisors = real, nil
 	}
-	// The Firecracker Driver replaces the in-memory Driver, and the Guest Agent
-	// channel adapter over it replaces the in-memory Guest. Its Machines'
+	// The selected real Driver replaces the in-memory Driver, and the Guest
+	// Agent channel adapter over it replaces the in-memory Guest. Its Machines'
 	// run directories are the supervisors' (driver.md).
 	var driver machine.Driver = sub.Driver
 	var guest machine.Guest = sub.Guest
-	if f := cfg.Firecracker; f != nil {
-		d, err := firecracker.New(f.toDriver(supervisors))
+	if f, ok := cfg.vmm(); ok {
+		d, err := f.driver(cfg.Driver, supervisors)
 		if err != nil {
 			_ = db.Close()
 			return nil, err
@@ -168,7 +167,7 @@ func New(cfg Config) (*App, error) {
 	// conversions of pulls draw from it, so they never share a user.
 	uids := machine.NewUIDs(cfg.VMMUIDRange.ToUIDRange())
 	// Images: the real Registry, converter channel and Image Store replace the
-	// substitutes under the Firecracker Driver, and the Image Store is what the
+	// substitutes under a real Driver, and the Image Store is what the
 	// lifecycle locates an image in.
 	var imgs images
 	var located machine.ImageStore = sub.Images
@@ -184,7 +183,7 @@ func New(cfg Config) (*App, error) {
 		imgs = memoryImages(sub, uids, pullTimeout)
 	}
 	// Disks and Snapshots: the real Disk and Snapshot Store replace the
-	// substitutes under the Firecracker Driver.
+	// substitutes under a real Driver.
 	var disks machine.Disk = sub.Disks
 	var snapshots machine.SnapshotStore = sub.Snapshots
 	if cfg.Disk != nil {

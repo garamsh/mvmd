@@ -68,7 +68,11 @@ func TestE2E_AMachineIsSnapshottedAndRestoredAsANewMachineOnTheRealStores(t *tes
 	require.NoError(t, err)
 	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_PAUSED, inspected.Machine.State, "a snapshot leaves the Machine in the state it was in")
 
-	restored, err := n.client.RestoreMachine(ctx, &v1alpha1.RestoreMachineRequest{MachineId: "copy", RequestId: "restore-copy", SnapshotId: "snap"})
+	// A restore that never returns fails the test, with the node's logs, well before the test
+	// binary's own timeout would kill it with none.
+	restoreCtx, cancelRestore := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancelRestore()
+	restored, err := n.client.RestoreMachine(restoreCtx, &v1alpha1.RestoreMachineRequest{MachineId: "copy", RequestId: "restore-copy", SnapshotId: "snap"})
 	require.NoError(t, err)
 	assert.Equal(t, v1alpha1.MachineState_MACHINE_STATE_RUNNING, restored.Machine.State)
 	assert.NotEqual(t, created.Machine.Addresses, restored.Machine.Addresses, "the restored Machine has an address of its own")
