@@ -165,6 +165,7 @@ const (
 	Capability_CAPABILITY_DISK_HOTPLUG  Capability = 2
 	Capability_CAPABILITY_CPU_RESIZE    Capability = 3
 	Capability_CAPABILITY_MEMORY_RESIZE Capability = 4
+	Capability_CAPABILITY_CONSOLE       Capability = 5
 )
 
 // Enum value maps for Capability.
@@ -175,6 +176,7 @@ var (
 		2: "CAPABILITY_DISK_HOTPLUG",
 		3: "CAPABILITY_CPU_RESIZE",
 		4: "CAPABILITY_MEMORY_RESIZE",
+		5: "CAPABILITY_CONSOLE",
 	}
 	Capability_value = map[string]int32{
 		"CAPABILITY_UNSPECIFIED":   0,
@@ -182,6 +184,7 @@ var (
 		"CAPABILITY_DISK_HOTPLUG":  2,
 		"CAPABILITY_CPU_RESIZE":    3,
 		"CAPABILITY_MEMORY_RESIZE": 4,
+		"CAPABILITY_CONSOLE":       5,
 	}
 )
 
@@ -4517,14 +4520,15 @@ const file_mvmd_runtime_v1alpha1_runtime_proto_rawDesc = "" +
 	"\x15MACHINE_STATE_RUNNING\x10\x02\x12\x18\n" +
 	"\x14MACHINE_STATE_PAUSED\x10\x03\x12\x19\n" +
 	"\x15MACHINE_STATE_STOPPED\x10\x04\x12\x19\n" +
-	"\x15MACHINE_STATE_FAULTED\x10\x05*\x97\x01\n" +
+	"\x15MACHINE_STATE_FAULTED\x10\x05*\xaf\x01\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13CAPABILITY_SNAPSHOT\x10\x01\x12\x1b\n" +
 	"\x17CAPABILITY_DISK_HOTPLUG\x10\x02\x12\x19\n" +
 	"\x15CAPABILITY_CPU_RESIZE\x10\x03\x12\x1c\n" +
-	"\x18CAPABILITY_MEMORY_RESIZE\x10\x04*\x82\x01\n" +
+	"\x18CAPABILITY_MEMORY_RESIZE\x10\x04\x12\x16\n" +
+	"\x12CAPABILITY_CONSOLE\x10\x05*\x82\x01\n" +
 	"\bProtocol\x12\x18\n" +
 	"\x14PROTOCOL_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fPROTOCOL_TCP\x10\x01\x12\x10\n" +

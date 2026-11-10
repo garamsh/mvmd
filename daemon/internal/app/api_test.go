@@ -60,7 +60,8 @@ func TestAPI_DrivesTheWholeLifecycle(t *testing.T) {
 	require.Len(t, info.GetDrivers(), 1)
 	assert.Equal(t, "memory", info.GetDrivers()[0].GetDriver().GetName())
 	assert.ElementsMatch(t, []v1alpha1.Capability{
-		v1alpha1.Capability_CAPABILITY_DISK_HOTPLUG, v1alpha1.Capability_CAPABILITY_CPU_RESIZE, v1alpha1.Capability_CAPABILITY_MEMORY_RESIZE,
+		v1alpha1.Capability_CAPABILITY_SNAPSHOT, v1alpha1.Capability_CAPABILITY_CONSOLE, v1alpha1.Capability_CAPABILITY_DISK_HOTPLUG,
+		v1alpha1.Capability_CAPABILITY_CPU_RESIZE, v1alpha1.Capability_CAPABILITY_MEMORY_RESIZE,
 	}, info.GetDrivers()[0].GetCapabilities())
 
 	// The deadline is not armed: a start is refused with its outcome.
