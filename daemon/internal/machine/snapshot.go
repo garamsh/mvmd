@@ -332,6 +332,34 @@ func (s *service) failRestore(ctx context.Context, id MachineID, asked Request, 
 	return failure
 }
 
+func (s *service) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
+	all, err := s.snapshots.List(ctx)
+	if err != nil {
+		return nil, fail(ErrFailed, "list the snapshots: %v", err)
+	}
+	return all, nil
+}
+
+func (s *service) DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error {
+	if snapshot == "" {
+		return fail(ErrInvalid, "the snapshot identifier is empty")
+	}
+	// A Snapshot call holds the lock exclusively and a restore holds it shared,
+	// so a delete that cannot take it now is beside a call using the snapshot.
+	// It is refused and not made to wait: the snapshot may be gone by then.
+	unlock, ok := s.tryLockSnapshotExclusive(snapshot)
+	if !ok {
+		return fail(ErrPreconditionFailed, "snapshot %q is in use by a snapshot or restore call", snapshot)
+	}
+	defer unlock()
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
+	if err := s.snapshots.Remove(ctx, snapshot); err != nil {
+		return fail(ErrFailed, "remove snapshot %q: %v", snapshot, err)
+	}
+	return nil
+}
+
 // compatible reports whether a snapshot made on c can be restored on a node
 // that is on. The kernel digest is recorded and not compared.
 func (c SnapshotCompat) compatible(on SnapshotCompat) bool {

@@ -47,6 +47,10 @@ service RuntimeService {
   // Images.
   rpc PullImage(PullImageRequest) returns (PullImageResponse);
 
+  // Snapshots.
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+
   // Fencing deadline.
   rpc RenewDeadline(RenewDeadlineRequest) returns (RenewDeadlineResponse);
   rpc InspectDeadline(InspectDeadlineRequest) returns (InspectDeadlineResponse);
@@ -537,6 +541,35 @@ message PullImageRequest {
 }
 
 message PullImageResponse {}
+
+// Snapshot is what the node holds of one snapshot, for a client to decide
+// whether to keep it.
+message Snapshot {
+  string id = 1;
+  // The Machine the snapshot was taken from, which may no longer exist.
+  string machine_id = 2;
+  // The digest of the image the snapshot's Machine runs, in the form
+  // ImageRef.digest has.
+  string image_digest = 3;
+  // The VMM that made it; a restore needs the same name, version and CPU model.
+  Driver driver = 4;
+  string cpu_model = 5;
+  // The size of the root disk the snapshot holds a copy of.
+  uint64 root_disk_bytes = 6;
+}
+
+message ListSnapshotsRequest {}
+
+message ListSnapshotsResponse {
+  // Ordered by id.
+  repeated Snapshot snapshots = 1;
+}
+
+message DeleteSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message DeleteSnapshotResponse {}
 
 enum DeadlinePhase {
   DEADLINE_PHASE_UNSPECIFIED = 0;

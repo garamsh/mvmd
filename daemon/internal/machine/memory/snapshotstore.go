@@ -3,13 +3,14 @@ package memory
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
 // SnapshotStore is an in-memory machine.SnapshotStore. Its steps are "put",
-// "get" and "remove". It holds the files by name only: nothing is copied.
+// "get", "list" and "remove". It holds the files by name only: nothing is copied.
 type SnapshotStore struct {
 	Failures
 
@@ -66,6 +67,21 @@ func (s *SnapshotStore) Get(_ context.Context, id machine.SnapshotID) (machine.S
 	}
 	h.files.State = slices.Clone(h.files.State)
 	return h.snapshot, h.files, nil
+}
+
+// List implements machine.SnapshotStore.
+func (s *SnapshotStore) List(_ context.Context) ([]machine.Snapshot, error) {
+	if err := s.Enter("list"); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]machine.Snapshot, 0, len(s.held))
+	for _, h := range s.held {
+		out = append(out, h.snapshot)
+	}
+	slices.SortFunc(out, func(a, b machine.Snapshot) int { return strings.Compare(string(a.ID), string(b.ID)) })
+	return out, nil
 }
 
 // Remove implements machine.SnapshotStore.
