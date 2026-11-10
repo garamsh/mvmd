@@ -46,6 +46,21 @@ func renew(t *testing.T, n *node, number uint64) *v1alpha2.DeadlineStatus {
 	return resp.GetStatus()
 }
 
+// The daemon serves one alpha version: a call naming the service of the
+// version before it, or of one that never existed, is refused as
+// unimplemented, which is how gRPC answers a service it does not serve.
+func TestAPI_ServesOnlyTheCurrentAlphaVersion(t *testing.T) {
+	ctx := context.Background()
+	n := start(t, testConfig(t))
+	for _, version := range []string{"v1alpha1", "v1alpha3"} {
+		err := n.conn.Invoke(ctx, "/mvmd.runtime."+version+".RuntimeService/GetRuntimeInfo",
+			&v1alpha2.GetRuntimeInfoRequest{}, &v1alpha2.GetRuntimeInfoResponse{})
+		assert.Equal(t, codes.Unimplemented, status.Code(err), version)
+	}
+	_, err := n.client.GetRuntimeInfo(ctx, &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err, "control: the current version answers")
+}
+
 // Every implemented RPC, driven through lib/runtimeapi's client over the
 // socket of the wired daemon.
 func TestAPI_DrivesTheWholeLifecycle(t *testing.T) {
