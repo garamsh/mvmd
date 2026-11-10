@@ -1,4 +1,4 @@
-//go:build firecracker_real
+//go:build e2e_real
 
 package e2e_test
 

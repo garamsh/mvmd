@@ -53,9 +53,9 @@ echo "$@: $$ws: --workspace selects $$m member(s) per cargo metadata --no-deps";
 if [ "$$m" -eq 0 ]; then echo "$@: $$ws: no members" >&2; exit 1; fi
 endef
 
-# The tests of test-firecracker, test-cloud-hypervisor and test-e2e are behind build tags, so vet reads them again with them.
+# The tests of test-firecracker, test-cloud-hypervisor and test-e2e are behind build tags (e2e_real for e2e/), so vet reads them again with them.
 lint:
-	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && go vet -tags firecracker_real,cloud_hypervisor_real ./... && \
+	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && go vet -tags firecracker_real,cloud_hypervisor_real,e2e_real ./... && \
 	  if [ -f buf.yaml ]; then \
 	    lib=$$($(TOOL_ENV) go list -m -f '{{.Version}}' google.golang.org/protobuf); \
 	    gen=$$($(TOOL_ENV) go list -modfile=$(PROTOGEN) -m -f '{{.Version}}' google.golang.org/protobuf); \
@@ -184,10 +184,10 @@ test-e2e: guest-initrd converter-initrd
 	export MVMD_E2E_SUPERVISOR=$(CURDIR)/e2e/target/mvmd-supervisor; \
 	export FSCK_EROFS=$(CURDIR)/$(EROFS_UTILS)/fsck.erofs; \
 	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
-	if ! (cd e2e && go test -tags firecracker_real -count=1 -v -run '^TestE2E_' ./...) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
+	if ! (cd e2e && go test -tags e2e_real -count=1 -v -run '^TestE2E_' ./...) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
 	cat "$$log"; \
 	n=$$(grep -c '^--- PASS: TestE2E_' "$$log" || true); \
-	echo "$@: $$n test(s) passed under $(E2E_DRIVER), selected by -run '^TestE2E_' under the firecracker_real tag"; \
+	echo "$@: $$n test(s) passed under $(E2E_DRIVER), selected by -run '^TestE2E_' under the e2e_real tag"; \
 	if [ "$$n" -eq 0 ]; then echo "$@: no test ran" >&2; exit 1; fi
 
 build: rebuild-erofs-utils
