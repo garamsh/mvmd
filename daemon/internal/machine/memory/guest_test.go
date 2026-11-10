@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
@@ -136,7 +137,7 @@ func TestSearchFiles_RefusesAPatternTheAgentRefuses(t *testing.T) {
 	for _, pattern := range []string{"[ab", "[c-a]", "a}", "{a", `a\`, `\{a,b}`} {
 		t.Run(pattern, func(t *testing.T) {
 			_, err := searchedFiles(t, []string{"/d/a"}, "/d/", pattern)
-			require.Error(t, err)
+			require.ErrorIs(t, err, machine.ErrPatternInvalid)
 			assert.Contains(t, err.Error(), pattern)
 		})
 	}

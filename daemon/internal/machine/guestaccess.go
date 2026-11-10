@@ -32,7 +32,7 @@ func guestFailure(err error, call string) *Error {
 	switch {
 	case errors.Is(err, ErrFileAbsent), errors.Is(err, ErrExecAbsent):
 		return fail(ErrNotFound, "%s: %v", call, err)
-	case errors.Is(err, ErrNotRegular), errors.Is(err, ErrNotDirectory), errors.Is(err, ErrSignalInvalid):
+	case errors.Is(err, ErrNotRegular), errors.Is(err, ErrNotDirectory), errors.Is(err, ErrSignalInvalid), errors.Is(err, ErrPatternInvalid):
 		return fail(ErrInvalid, "%s: %v", call, err)
 	case errors.Is(err, ErrPatchPrecondition), errors.Is(err, ErrExecNotRunning):
 		return fail(ErrPreconditionFailed, "%s: %v", call, err)

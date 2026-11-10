@@ -451,7 +451,7 @@ func (g *Guest) SearchFiles(_ context.Context, id machine.MachineID, path, patte
 	}
 	re, err := compileGlob(pattern)
 	if err != nil {
-		return fmt.Errorf("pattern %q: %w", pattern, err)
+		return fmt.Errorf("%w: pattern %q: %v", machine.ErrPatternInvalid, pattern, err)
 	}
 	dir := strings.TrimSuffix(path, "/") + "/"
 	g.mu.Lock()
