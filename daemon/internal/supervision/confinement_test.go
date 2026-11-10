@@ -603,27 +603,32 @@ func TestConfinement_TheConsoleSocketReachesTheVMMsStandardInputAndOutput(t *tes
 // bytes the same way and its VMM runs on.
 func TestConfinement_TheSupervisorEndsAVMMThatWritesItsMatchToTheEventPipe(t *testing.T) {
 	n := newNode(t)
-	start := func(id, text string) {
+	start := func(id, text string) string {
 		run := runDir(n.dir, id)
 		proc := describe(probeBin, "events", run, "7", text)
 		proc.EndOn = machine.PipeTrigger{FD: 7, Match: []byte(`"event": "rebooting"`)}
 		require.NoError(t, n.a.Start(ctx, machine.MachineID(id), proc, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour))))
-		require.Eventually(t, func() bool {
-			_, err := os.Stat(filepath.Join(run, "written"))
-			return err == nil
-		}, 10*time.Second, 10*time.Millisecond, "the probe wrote to the pipe")
+		return run
 	}
-	start("stays", `{"source": "vm", "event": "booted"}`)
+	stays := start("stays", `{"source": "vm", "event": "booted"}`)
+	// The match is the probe's second piece, so the supervisor may end this VMM
+	// before the probe marks that it wrote: the end is what is waited on below.
 	start("ends", `{"source": "vm", "event": "rebooting"}`)
 
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(filepath.Join(stays, "drained"))
+		return err == nil
+	}, 10*time.Second, 10*time.Millisecond, "the control's supervisor read the control's bytes from the pipe")
+
+	// The supervisor logs why before it kills the VMM.
+	endsLog := filepath.Join(n.dir, "ends", "supervisor.log")
+	require.Eventually(t, func() bool {
+		log, err := os.ReadFile(endsLog)
+		return err == nil && strings.Contains(string(log), "ending the VMM")
+	}, 10*time.Second, 10*time.Millisecond, "the supervisor records why")
 	require.Eventually(t, func() bool { return len(inCgroup("ends", "events")) == 0 },
 		10*time.Second, 10*time.Millisecond, "the VMM that wrote the match is ended")
-	log, err := os.ReadFile(filepath.Join(n.dir, "ends", "supervisor.log"))
-	require.NoError(t, err)
-	assert.Contains(t, string(log), "ending the VMM", "the supervisor records why")
 
-	// The control wrote its bytes before the other VMM was started, so its
-	// supervisor has had the read the other's has just acted on.
 	assert.Len(t, inCgroup("stays", "events"), 1, "control: a VMM that wrote other bytes to its pipe runs on")
 }
 
