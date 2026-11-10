@@ -2307,9 +2307,12 @@ func (*GetRuntimeInfoRequest) Descriptor() ([]byte, []int) {
 }
 
 type DriverInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Driver        *Driver                `protobuf:"bytes,1,opt,name=driver,proto3" json:"driver,omitempty"`
-	Capabilities  []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=mvmd.runtime.v1alpha2.Capability" json:"capabilities,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Driver       *Driver                `protobuf:"bytes,1,opt,name=driver,proto3" json:"driver,omitempty"`
+	Capabilities []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=mvmd.runtime.v1alpha2.Capability" json:"capabilities,omitempty"`
+	// The host CPU model the Driver runs guests on. A restore needs a snapshot
+	// whose cpu_model equals this value.
+	CpuModel      string `protobuf:"bytes,3,opt,name=cpu_model,json=cpuModel,proto3" json:"cpu_model,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2356,6 +2359,13 @@ func (x *DriverInfo) GetCapabilities() []Capability {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *DriverInfo) GetCpuModel() string {
+	if x != nil {
+		return x.CpuModel
+	}
+	return ""
 }
 
 type GetRuntimeInfoResponse struct {
@@ -5155,11 +5165,12 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x14SetResourcesResponse\x12>\n" +
 	"\tresources\x18\x01 \x01(\v2 .mvmd.runtime.v1alpha2.ResourcesR\tresources\x12K\n" +
 	"\x10resource_ceiling\x18\x02 \x01(\v2 .mvmd.runtime.v1alpha2.ResourcesR\x0fresourceCeiling\"\x17\n" +
-	"\x15GetRuntimeInfoRequest\"\x8a\x01\n" +
+	"\x15GetRuntimeInfoRequest\"\xa7\x01\n" +
 	"\n" +
 	"DriverInfo\x125\n" +
 	"\x06driver\x18\x01 \x01(\v2\x1d.mvmd.runtime.v1alpha2.DriverR\x06driver\x12E\n" +
-	"\fcapabilities\x18\x02 \x03(\x0e2!.mvmd.runtime.v1alpha2.CapabilityR\fcapabilities\"x\n" +
+	"\fcapabilities\x18\x02 \x03(\x0e2!.mvmd.runtime.v1alpha2.CapabilityR\fcapabilities\x12\x1b\n" +
+	"\tcpu_model\x18\x03 \x01(\tR\bcpuModel\"x\n" +
 	"\x16GetRuntimeInfoResponse\x12!\n" +
 	"\fapi_versions\x18\x01 \x03(\tR\vapiVersions\x12;\n" +
 	"\adrivers\x18\x02 \x03(\v2!.mvmd.runtime.v1alpha2.DriverInfoR\adrivers\"6\n" +

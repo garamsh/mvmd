@@ -311,6 +311,9 @@ message GetRuntimeInfoRequest {}
 message DriverInfo {
   Driver driver = 1;
   repeated Capability capabilities = 2;
+  // The host CPU model the Driver runs guests on. A restore needs a snapshot
+  // whose cpu_model equals this value.
+  string cpu_model = 3;
 }
 
 message GetRuntimeInfoResponse {

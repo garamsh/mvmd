@@ -74,6 +74,7 @@ func TestAPI_DrivesTheWholeLifecycle(t *testing.T) {
 	assert.Equal(t, []string{"mvmd.runtime.v1alpha2"}, info.GetApiVersions())
 	require.Len(t, info.GetDrivers(), 1)
 	assert.Equal(t, "memory", info.GetDrivers()[0].GetDriver().GetName())
+	assert.Equal(t, "memory-cpu", info.GetDrivers()[0].GetCpuModel())
 	assert.ElementsMatch(t, []v1alpha2.Capability{
 		v1alpha2.Capability_CAPABILITY_SNAPSHOT, v1alpha2.Capability_CAPABILITY_CONSOLE, v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG,
 		v1alpha2.Capability_CAPABILITY_CPU_RESIZE, v1alpha2.Capability_CAPABILITY_MEMORY_RESIZE,
