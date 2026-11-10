@@ -389,6 +389,9 @@ func (g *Guest) ListFiles(_ context.Context, id machine.MachineID, path string) 
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if _, isFile := g.files[id][path]; isFile {
+		return nil, machine.ErrNotDirectory
+	}
 	dir := strings.TrimSuffix(path, "/") + "/"
 	dirs := make(map[string]bool)
 	var out []machine.FileEntry

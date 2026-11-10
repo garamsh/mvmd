@@ -516,6 +516,8 @@ func TestListFiles(t *testing.T) {
 	requireKind(t, err, machine.ErrInvalid)
 	_, err = e.svc.ListFiles(ctx, "m", "/missing")
 	requireKind(t, err, machine.ErrNotFound)
+	_, err = e.svc.ListFiles(ctx, "m", "/var/a.log")
+	requireKind(t, err, machine.ErrInvalid) // a file is not a directory: the caller's error
 	e.guest.FailAt("list-files", errors.New("boom"))
 	_, err = e.svc.ListFiles(ctx, "m", "/var")
 	requireKind(t, err, machine.ErrFailed)
@@ -546,6 +548,29 @@ func TestSignalExec_Needs(t *testing.T) {
 	e.inState(t, "other", machine.StateRunning)
 	requireKind(t, e.svc.SignalExec(ctx, "other", "x", 15), machine.ErrNotFound)
 	assert.Equal(t, 1, e.guest.Calls("signal"), "an exec of another Machine is not signalled")
+}
+
+// Row "Signal": the entrypoint takes a signal though mvmd holds no record of it.
+func TestSignalExec_TheEntrypointIsSignalledWithoutARecord(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	_, err := e.guest.Exec(ctx, "m", "entrypoint", echo)
+	require.NoError(t, err)
+
+	require.NoError(t, e.svc.SignalExec(ctx, "m", "entrypoint", 1))
+	assert.Equal(t, []int32{1}, e.guest.Signals("entrypoint"))
+	requireKind(t, e.svc.SignalExec(ctx, "m", "entrypoint", 0), machine.ErrInvalid)
+
+	// Controls: another identifier the daemon holds no record of is still not
+	// found, and the entrypoint needs a Running Machine.
+	_, err = e.guest.Exec(ctx, "m", "unrecorded", echo)
+	require.NoError(t, err)
+	requireKind(t, e.svc.SignalExec(ctx, "m", "unrecorded", 1), machine.ErrNotFound)
+	assert.Empty(t, e.guest.Signals("unrecorded"))
+	refusedUnlessRunning(t, func(e *env) error {
+		return e.svc.SignalExec(ctx, "m", "entrypoint", 1)
+	})
 }
 
 // Row "Signal", columns On success, Repeat and After failure.

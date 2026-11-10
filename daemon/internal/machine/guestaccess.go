@@ -32,7 +32,7 @@ func guestFailure(err error, call string) *Error {
 	switch {
 	case errors.Is(err, ErrFileAbsent), errors.Is(err, ErrExecAbsent):
 		return fail(ErrNotFound, "%s: %v", call, err)
-	case errors.Is(err, ErrNotRegular), errors.Is(err, ErrSignalInvalid):
+	case errors.Is(err, ErrNotRegular), errors.Is(err, ErrNotDirectory), errors.Is(err, ErrSignalInvalid):
 		return fail(ErrInvalid, "%s: %v", call, err)
 	case errors.Is(err, ErrPatchPrecondition), errors.Is(err, ErrExecNotRunning):
 		return fail(ErrPreconditionFailed, "%s: %v", call, err)
@@ -256,6 +256,14 @@ func (s *service) SignalExec(ctx context.Context, id MachineID, exec ExecID, sig
 	}
 	if err := s.requireRunning(id, "signal exec"); err != nil {
 		return err
+	}
+	if exec == entrypointExec {
+		// The guest holds the entrypoint in its exec table and signals it as any
+		// command (guest.md); mvmd keeps no record of it.
+		if err := s.guest.Signal(ctx, id, exec, signal); err != nil {
+			return guestFailure(err, "signal exec")
+		}
+		return nil
 	}
 	s.execMu.Lock()
 	entry, ok := s.execs[exec]

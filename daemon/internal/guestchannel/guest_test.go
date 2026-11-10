@@ -699,7 +699,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 			return err
 		},
 	}
-	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown, machine.ErrExecNotRunning, machine.ErrSignalInvalid}
+	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown, machine.ErrExecNotRunning, machine.ErrSignalInvalid, machine.ErrNotDirectory}
 	tests := []struct {
 		name   string
 		call   string
@@ -718,7 +718,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		{name: "a signal the kernel refused", call: "Signal", answer: st(codes.Internal, "signal exec x: EPERM")},
 		{name: "the same code on an exec is not a signal number", call: "Exec", answer: st(codes.InvalidArgument, "invalid request: x")},
 		{name: "a path that names nothing, listed", call: "ListFiles", answer: st(codes.NotFound, "not found: /"), want: machine.ErrFileAbsent},
-		{name: "a file where a directory is needed, listed", call: "ListFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY})},
+		{name: "a file where a directory is needed, listed", call: "ListFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY}), want: machine.ErrNotDirectory},
 		{name: "a path that names nothing, read", call: "ReadFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
 		{name: "a path that names nothing, patched", call: "PatchFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
 		{name: "a path that names nothing, searched", call: "SearchFiles", answer: st(codes.NotFound, "not found: /"), want: machine.ErrFileAbsent},
@@ -727,7 +727,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		// detail naming another kind of file is not a file that is not regular.
 		{name: "a file that is not a regular file, read", call: "ReadFile", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_FILE}), want: machine.ErrNotRegular},
 		{name: "a file that is not a regular file, written", call: "WriteFile", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_FILE}), want: machine.ErrNotRegular},
-		{name: "a file where a directory is needed", call: "SearchFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY})},
+		{name: "a file where a directory is needed", call: "SearchFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY}), want: machine.ErrNotDirectory},
 		{name: "the same code with no detail", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: /f is not a regular file")},
 		{name: "invalid input is not a missing file", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: path f is not absolute")},
 		// Patch: a precondition with no detail is the digests' by its code and

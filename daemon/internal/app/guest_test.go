@@ -144,6 +144,8 @@ func TestGuestAPI_Files(t *testing.T) {
 	}, listed.GetEntries(), "a directory and a file with its size, none of what is below the directory")
 	_, err = c.ListFiles(ctx, &v1alpha1.ListFilesRequest{MachineId: "m", Path: "/missing"})
 	requireKind(t, err, notFound)
+	_, err = c.ListFiles(ctx, &v1alpha1.ListFilesRequest{MachineId: "m", Path: "/etc/motd"})
+	requireKind(t, err, rejected)
 
 	t.Run("a Machine that is not Running refuses them", func(t *testing.T) {
 		_, err := c.StopMachine(ctx, &v1alpha1.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(0)})

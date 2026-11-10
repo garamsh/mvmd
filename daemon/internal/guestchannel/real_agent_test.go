@@ -341,8 +341,10 @@ func TestRealAgent_ListFiles(t *testing.T) {
 	_, err = g.ListFiles(ctx, "m", filepath.Join(dir, "absent"))
 	require.ErrorIs(t, err, machine.ErrFileAbsent)
 	_, err = g.ListFiles(ctx, "m", filepath.Join(dir, "f.txt"))
-	require.Error(t, err, "a file is not a directory")
+	require.ErrorIs(t, err, machine.ErrNotDirectory, "a file is not a directory")
 	assert.NotErrorIs(t, err, machine.ErrFileAbsent)
+	_, err = g.ListFiles(ctx, "m", dir)
+	require.NoError(t, err, "control: a directory lists")
 }
 
 func TestRealAgent_Signal(t *testing.T) {

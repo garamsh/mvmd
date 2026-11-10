@@ -195,6 +195,9 @@ func mapError(op operation, err error) error {
 			if d.GetExpected() == guestv1alpha1.EntryKind_ENTRY_KIND_FILE {
 				return fmt.Errorf("%w: %s", machine.ErrNotRegular, d.GetPath())
 			}
+			if d.GetExpected() == guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY {
+				return fmt.Errorf("%w: %s", machine.ErrNotDirectory, d.GetPath())
+			}
 			return fmt.Errorf("guest agent: %s is not a %s: %s", d.GetPath(), d.GetExpected(), msg)
 		case *guestv1alpha1.DiskInUse:
 			return fmt.Errorf("%w: %s", machine.ErrDiskInUse, d.GetDiskId())

@@ -123,6 +123,9 @@ var (
 	// ErrSignalInvalid is a signal the guest does not take: a number that is
 	// not a signal.
 	ErrSignalInvalid = errors.New("not a signal number")
+	// ErrNotDirectory is a path that resolves to something that is not a
+	// directory, where one is listed.
+	ErrNotDirectory = errors.New("not a directory")
 	// ErrFileAbsent is a path that names nothing.
 	ErrFileAbsent = errors.New("no such file")
 	// ErrNotRegular is a path that resolves to something that is not a regular
