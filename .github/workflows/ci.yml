@@ -149,12 +149,12 @@ jobs:
       - name: Boot the pinned Cloud Hypervisor on the pinned kernel
         run: make test-cloud-hypervisor
 
-  # The end-to-end tests run the built mvmd on real Firecracker: they pull images from a registry
+  # The end-to-end tests run the built mvmd on each real Driver in turn: they pull images from a registry
   # they serve through the converter microVM, check what it made, and check the cache's pre-boot
   # check. They need KVM, and loop mounts and fs-verity on ext4, which the runner image has. The job
   # fails, and does not skip, when /dev/kvm cannot be used or an input is missing.
   e2e:
-    timeout-minutes: 45
+    timeout-minutes: 90
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,14 +186,17 @@ jobs:
         with:
           path: converter/target/erofs-utils-build/dl
           key: build-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.erofs-pins.outputs.key }}
-      # The downloads of fetch.sh, as in the firecracker job.
-      - name: Name the pinned Firecracker downloads
+      # The downloads of both fetch.sh scripts, as in the cloud-hypervisor job: the e2e tests run
+      # under each Driver in turn.
+      - name: Name the pinned downloads
         id: pins
-        run: echo "key=$(grep -E '^[A-Za-z0-9_]+=[0-9a-f]{64}$' tooling/firecracker/fetch.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: echo "key=$(cat tooling/firecracker/fetch.sh tooling/cloud-hypervisor/fetch.sh | grep -E '^[A-Za-z0-9_]+=[0-9a-f]{64}$' | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: tooling/firecracker/target/dl
-          key: firecracker-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
+          path: |
+            tooling/firecracker/target/dl
+            tooling/cloud-hypervisor/target/dl
+          key: e2e-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
       - name: Make /dev/kvm usable
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -201,5 +204,10 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
           test -r /dev/kvm -a -w /dev/kvm
-      - name: Pull images through the converter microVM and check the cache
-        run: make test-e2e
+      - name: Pull images through the converter microVM and check the cache, on Firecracker
+        run: make test-e2e E2E_DRIVER=firecracker
+      # The same tests, on the Cloud Hypervisor Driver. It runs even when the Firecracker run
+      # failed, so that one run shows both verdicts.
+      - name: Pull images through the converter microVM and check the cache, on Cloud Hypervisor
+        if: ${{ !cancelled() }}
+        run: make test-e2e E2E_DRIVER=cloud-hypervisor

@@ -27,7 +27,7 @@ import (
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
 )
 
-// node is a running mvmd, the built binary, with the Firecracker Driver over the pinned inputs,
+// node is a running mvmd, the built binary, with the selected Driver over the pinned inputs,
 // a state directory on an ext4 with fs-verity, and the fixture registry it trusts.
 type node struct {
 	t        *testing.T
@@ -57,7 +57,7 @@ func startNode(t *testing.T) *node {
 	stage := func(env string, mode os.FileMode) string {
 		return copyFile(t, os.Getenv(env), filepath.Join(inputs, filepath.Base(os.Getenv(env))), mode)
 	}
-	firecracker := stage(envFirecracker, 0o755)
+	binary := stage(driver.binaryEnv, 0o755)
 	kernel := stage(envKernel, 0o644)
 	supervisor := stage(envSupervisor, 0o755)
 	guestInitrd := copyFile(t, os.Getenv(envGuestInitrd), filepath.Join(inputs, "guest-initrd.cpio"), 0o644)
@@ -74,10 +74,10 @@ func startNode(t *testing.T) *node {
 	config := map[string]any{
 		"socket":    map[string]any{"path": socket, "mode": "0600"},
 		"state_dir": n.stateDir,
-		"driver":    "firecracker",
+		"driver":    driver.driver,
 		"disk":      map[string]any{"mkfs": mkfsExt4()},
-		"firecracker": map[string]any{
-			"binary": firecracker, "binary_sha256": os.Getenv(envFirecrackerSHA),
+		driver.section: map[string]any{
+			"binary": binary, "binary_sha256": os.Getenv(driver.binarySHAEnv),
 			"kernel": kernel, "kernel_sha256": os.Getenv(envKernelSHA),
 			"initrd": guestInitrd, "initrd_sha256": os.Getenv(envGuestInitrdSHA),
 		},
