@@ -6,7 +6,7 @@
 //	probe report <dir> <try>...   write <dir>/report.json, then run on
 //	probe check <dir> <try>...    write <dir>/report.json and exit
 //	probe pids <dir> <n>          start up to n processes, write <dir>/pids.json, run on
-//	probe events <dir> <fd> <text>  write text to descriptor fd in two pieces, write <dir>/written, run on
+//	probe events <dir> <fd> <text>  write text to descriptor fd in two pieces, write <dir>/drained once the pipe is empty, run on
 //
 // A try is one of: open:PATH, opendir:PATH, openw:PATH (open for writing, never
 // creating), write:PATH, sha256:PATH (the SHA-256 in hex of what PATH holds),
@@ -66,7 +66,8 @@ func main() {
 func sleep() { time.Sleep(24 * time.Hour) }
 
 // events writes text to the descriptor in two pieces with a pause between, and
-// then marks in dir that it has written.
+// then marks in dir that the pipe holds no unread byte, which only a read of it
+// brings about.
 func events(dir, fd, text string) {
 	n, _ := strconv.Atoi(fd)
 	f := os.NewFile(uintptr(n), "events")
@@ -74,7 +75,14 @@ func events(dir, fd, text string) {
 	_, _ = f.WriteString(text[:half])
 	time.Sleep(100 * time.Millisecond)
 	_, _ = f.WriteString(text[half:])
-	_ = os.WriteFile(filepath.Join(dir, "written"), nil, 0o600)
+	for {
+		unread, err := unix.IoctlGetInt(n, unix.FIONREAD)
+		if err == nil && unread == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "drained"), nil, 0o600)
 }
 
 // vmm writes its pid, starts a child that daemonizes and exits, and runs on.

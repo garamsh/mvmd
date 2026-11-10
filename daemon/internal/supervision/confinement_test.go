@@ -616,9 +616,9 @@ func TestConfinement_TheSupervisorEndsAVMMThatWritesItsMatchToTheEventPipe(t *te
 	start("ends", `{"source": "vm", "event": "rebooting"}`)
 
 	require.Eventually(t, func() bool {
-		_, err := os.Stat(filepath.Join(stays, "written"))
+		_, err := os.Stat(filepath.Join(stays, "drained"))
 		return err == nil
-	}, 10*time.Second, 10*time.Millisecond, "the control wrote its bytes to the pipe")
+	}, 10*time.Second, 10*time.Millisecond, "the control's supervisor read the control's bytes from the pipe")
 
 	// The supervisor logs why before it kills the VMM.
 	endsLog := filepath.Join(n.dir, "ends", "supervisor.log")
