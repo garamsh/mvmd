@@ -348,15 +348,28 @@ func TestRealAgent_StatusesMapToThePortsErrors(t *testing.T) {
 		// 20 MB is more than the 16 MiB the agent keeps of a command's output.
 		_, err := g.Exec(ctx, "m", "big", machine.ExecSpec{Command: []string{"/usr/bin/head", "-c", "20000000", "/dev/zero"}})
 		require.NoError(t, err)
+		// The window the agent holds moves while the command writes, so wait
+		// until the exec is reported exited: a read that follows to the end
+		// succeeds only then, and each refusal moves it to the earliest held.
 		var gone *machine.OutputGoneError
+		var rec machine.ExecRecord
+		from := uint64(0)
 		require.Eventually(t, func() bool {
-			_, _, err = readOutput(g, "big", 0)
-			return errors.As(err, &gone)
-		}, 30*time.Second, 50*time.Millisecond, "a read from the start was never refused; last error: %v", err)
+			_, rec, err = readOutput(g, "big", from)
+			if errors.As(err, &gone) {
+				from = gone.Earliest
+				return false
+			}
+			return err == nil && rec.Status == machine.ExecExited
+		}, 30*time.Second, 10*time.Millisecond, "the exec was never reported exited; last error: %v", err)
+
+		_, _, err = readOutput(g, "big", 0)
+		require.ErrorAs(t, err, &gone, "a read from the start was not refused")
 		assert.Positive(t, gone.Earliest)
 
 		// Control: a read from the earliest offset held succeeds, to the end.
-		chunks, rec, err := readOutput(g, "big", gone.Earliest)
+		var chunks []machine.OutputChunk
+		chunks, rec, err = readOutput(g, "big", gone.Earliest)
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecExited, rec.Status)
 		require.NotEmpty(t, chunks)
