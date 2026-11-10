@@ -40,8 +40,8 @@ service RuntimeService {
   rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
   rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
   rpc PatchFile(PatchFileRequest) returns (PatchFileResponse);
-  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
-  rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
+  rpc ListFiles(ListFilesRequest) returns (stream ListFilesResponse);
+  rpc SearchFiles(SearchFilesRequest) returns (stream SearchFilesResponse);
   rpc Console(stream ConsoleRequest) returns (stream ConsoleResponse);
 
   // Images.
@@ -512,17 +512,25 @@ message FileEntry {
   uint64 size = 3;
 }
 
-// ListFilesResponse is the entries of the directory, sorted by path.
+// ListFilesResponse is a run of the directory's entries. The entries of all
+// the messages of the stream, in order, are sorted by path.
 message ListFilesResponse {
   repeated FileEntry entries = 1;
 }
 
 message SearchFilesRequest {
   string machine_id = 1;
+  // An absolute directory path; the search covers its tree.
   string path = 2;
+  // A glob matched against an entry's path relative to the directory. "*" and
+  // "?" do not cross "/", "**" does, and "{a,b}" and "[ab]" are supported; the
+  // syntax is the Guest Agent's, the globset crate's glob with "/" a literal
+  // separator (https://docs.rs/globset/0.4.21/globset/#syntax).
   string pattern = 3;
 }
 
+// SearchFilesResponse is a run of the paths that match. The paths of all the
+// messages of the stream, in order, are sorted.
 message SearchFilesResponse {
   repeated string matches = 1;
 }

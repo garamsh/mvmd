@@ -323,30 +323,28 @@ func (s *service) PatchFile(ctx context.Context, id MachineID, path, baseDigest,
 	return nil
 }
 
-func (s *service) ListFiles(ctx context.Context, id MachineID, path string) ([]FileEntry, error) {
+func (s *service) ListFiles(ctx context.Context, id MachineID, path string, send func(entries []FileEntry) error) error {
 	if path == "" {
-		return nil, fail(ErrInvalid, "the path is empty")
+		return fail(ErrInvalid, "the path is empty")
 	}
 	if err := s.requireRunning(id, "list files"); err != nil {
-		return nil, err
+		return err
 	}
-	entries, err := s.guest.ListFiles(ctx, id, path)
-	if err != nil {
-		return nil, guestFailure(err, "list files")
+	if err := s.guest.ListFiles(ctx, id, path, send); err != nil {
+		return guestFailure(err, "list files")
 	}
-	return entries, nil
+	return nil
 }
 
-func (s *service) SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error) {
+func (s *service) SearchFiles(ctx context.Context, id MachineID, path, pattern string, send func(paths []string) error) error {
 	if path == "" {
-		return nil, fail(ErrInvalid, "the path is empty")
+		return fail(ErrInvalid, "the path is empty")
 	}
 	if err := s.requireRunning(id, "search files"); err != nil {
-		return nil, err
+		return err
 	}
-	matches, err := s.guest.SearchFiles(ctx, id, path, pattern)
-	if err != nil {
-		return nil, guestFailure(err, "search files")
+	if err := s.guest.SearchFiles(ctx, id, path, pattern, send); err != nil {
+		return guestFailure(err, "search files")
 	}
-	return matches, nil
+	return nil
 }

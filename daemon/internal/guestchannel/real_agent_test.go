@@ -307,7 +307,11 @@ func TestRealAgent_FileCalls(t *testing.T) {
 
 	// Search finds files by pattern, relative to the directory.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "g.log"), nil, 0o600))
-	found, err := g.SearchFiles(ctx, "m", dir, "*.log")
+	var found []string
+	err = g.SearchFiles(ctx, "m", dir, "*.log", func(run []string) error {
+		found = append(found, run...)
+		return nil
+	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{filepath.Join(dir, "g.log")}, found)
 }
@@ -321,7 +325,15 @@ func TestRealAgent_ListFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "deep"), nil, 0o600))
 	require.NoError(t, os.Symlink("f.txt", filepath.Join(dir, "link")))
 
-	got, err := g.ListFiles(ctx, "m", dir)
+	list := func(path string) ([]machine.FileEntry, error) {
+		var got []machine.FileEntry
+		err := g.ListFiles(ctx, "m", path, func(run []machine.FileEntry) error {
+			got = append(got, run...)
+			return nil
+		})
+		return got, err
+	}
+	got, err := list(dir)
 	require.NoError(t, err)
 	kinds := map[string]machine.EntryKind{}
 	for _, e := range got {
@@ -338,12 +350,12 @@ func TestRealAgent_ListFiles(t *testing.T) {
 		}
 	}
 
-	_, err = g.ListFiles(ctx, "m", filepath.Join(dir, "absent"))
+	_, err = list(filepath.Join(dir, "absent"))
 	require.ErrorIs(t, err, machine.ErrFileAbsent)
-	_, err = g.ListFiles(ctx, "m", filepath.Join(dir, "f.txt"))
+	_, err = list(filepath.Join(dir, "f.txt"))
 	require.ErrorIs(t, err, machine.ErrNotDirectory, "a file is not a directory")
 	assert.NotErrorIs(t, err, machine.ErrFileAbsent)
-	_, err = g.ListFiles(ctx, "m", dir)
+	_, err = list(dir)
 	require.NoError(t, err, "control: a directory lists")
 }
 

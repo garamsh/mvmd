@@ -2,7 +2,9 @@ package app_test
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,6 +28,71 @@ func running(t *testing.T) *node {
 	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
 	return n
+}
+
+// listAll reads a ListFiles stream to its end.
+func listAll(ctx context.Context, c v1alpha2.RuntimeServiceClient, req *v1alpha2.ListFilesRequest) ([]*v1alpha2.FileEntry, error) {
+	stream, err := c.ListFiles(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	var got []*v1alpha2.FileEntry
+	for {
+		m, err := stream.Recv()
+		if err == io.EOF {
+			return got, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		got = append(got, m.GetEntries()...)
+	}
+}
+
+// searchAll reads a SearchFiles stream to its end.
+func searchAll(ctx context.Context, c v1alpha2.RuntimeServiceClient, req *v1alpha2.SearchFilesRequest) ([]string, error) {
+	stream, err := c.SearchFiles(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	var got []string
+	for {
+		m, err := stream.Recv()
+		if err == io.EOF {
+			return got, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		got = append(got, m.GetMatches()...)
+	}
+}
+
+// A listing and a search larger than the 4 MiB a client takes in one message
+// arrive whole, in order, because they are streamed: as one message the listing
+// is refused by the client, which no setting of the daemon lifts.
+func TestGuestAPI_AListingLargerThanAMessageStreams(t *testing.T) {
+	ctx := context.Background()
+	n := running(t)
+	const files = 30000 // at about 220 bytes an entry, over 6 MiB
+	var want []string
+	for i := range files {
+		p := fmt.Sprintf("/big/%s%05d", strings.Repeat("n", 200), i)
+		n.app.Substitutes.Guest.PutFile("m", p, "")
+		want = append(want, p)
+	}
+
+	listed, err := listAll(ctx, n.client, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/big"})
+	require.NoError(t, err)
+	var paths []string
+	for _, e := range listed {
+		paths = append(paths, e.GetPath())
+	}
+	assert.Equal(t, want, paths, "every entry, sorted by path")
+
+	found, err := searchAll(ctx, n.client, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/big/", Pattern: "n"})
+	require.NoError(t, err)
+	assert.Equal(t, want, found, "every match, sorted by path")
 }
 
 func execRequest() *v1alpha2.ExecRequest {
@@ -131,28 +198,28 @@ func TestGuestAPI_Files(t *testing.T) {
 		BaseDigest: "sha256:0", ExpectedDigest: "sha256:1", Patch: []byte("x")})
 	requireKind(t, err, precondition)
 
-	found, err := c.SearchFiles(ctx, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/etc/", Pattern: "mot"})
+	found, err := searchAll(ctx, c, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/etc/", Pattern: "mot"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"/etc/motd"}, found.GetMatches())
+	assert.Equal(t, []string{"/etc/motd"}, found)
 
 	g.PutFile("m", "/etc/conf.d/net", "")
-	listed, err := c.ListFiles(ctx, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/etc"})
+	listed, err := listAll(ctx, c, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/etc"})
 	require.NoError(t, err)
 	assert.Equal(t, []*v1alpha2.FileEntry{
 		{Path: "/etc/conf.d", Kind: v1alpha2.EntryKind_ENTRY_KIND_DIRECTORY},
 		{Path: "/etc/motd", Kind: v1alpha2.EntryKind_ENTRY_KIND_FILE, Size: uint64(len("patched"))},
-	}, listed.GetEntries(), "a directory and a file with its size, none of what is below the directory")
-	_, err = c.ListFiles(ctx, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/missing"})
+	}, listed, "a directory and a file with its size, none of what is below the directory")
+	_, err = listAll(ctx, c, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/missing"})
 	requireKind(t, err, notFound)
-	_, err = c.ListFiles(ctx, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/etc/motd"})
+	_, err = listAll(ctx, c, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/etc/motd"})
 	requireKind(t, err, rejected)
 
 	t.Run("a Machine that is not Running refuses them", func(t *testing.T) {
 		_, err := c.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "m", GracePeriod: durationpb.New(0)})
 		require.NoError(t, err)
-		_, err = c.SearchFiles(ctx, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/", Pattern: "x"})
+		_, err = searchAll(ctx, c, &v1alpha2.SearchFilesRequest{MachineId: "m", Path: "/", Pattern: "x"})
 		requireKind(t, err, precondition)
-		_, err = c.ListFiles(ctx, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/"})
+		_, err = listAll(ctx, c, &v1alpha2.ListFilesRequest{MachineId: "m", Path: "/"})
 		requireKind(t, err, precondition)
 		_, err = c.Exec(ctx, execRequest())
 		requireKind(t, err, precondition)

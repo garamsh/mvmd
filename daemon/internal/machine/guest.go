@@ -219,10 +219,14 @@ type Guest interface {
 	// file at the expected digest as it is. Any other digest is
 	// ErrPatchPrecondition.
 	PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) (PatchOutcome, error)
-	// ListFiles returns the entries of the directory, sorted by path.
-	ListFiles(ctx context.Context, id MachineID, path string) ([]FileEntry, error)
-	// SearchFiles returns the paths under path that match the pattern.
-	SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error)
+	// ListFiles sends the entries of the directory in runs, one run to a
+	// message of the guest's, sorted by path across the runs. send is not
+	// called with an empty run.
+	ListFiles(ctx context.Context, id MachineID, path string, send func(entries []FileEntry) error) error
+	// SearchFiles sends the paths under path that match the pattern, in runs
+	// sorted across the runs, as ListFiles does. The pattern is a glob
+	// (runtime-api.md §Guest access).
+	SearchFiles(ctx context.Context, id MachineID, path, pattern string, send func(paths []string) error) error
 	// Terminate asks the agent to apply its Termination rule (guest.md): send
 	// SIGTERM to the entrypoint, or end the Machine when none runs. It returns
 	// when the agent has taken the request, not when the Machine has ended, and

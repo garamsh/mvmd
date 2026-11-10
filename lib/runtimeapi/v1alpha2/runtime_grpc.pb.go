@@ -88,8 +88,8 @@ type RuntimeServiceClient interface {
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadFileResponse], error)
 	WriteFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteFileRequest, WriteFileResponse], error)
 	PatchFile(ctx context.Context, in *PatchFileRequest, opts ...grpc.CallOption) (*PatchFileResponse, error)
-	ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error)
-	SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (*SearchFilesResponse, error)
+	ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListFilesResponse], error)
+	SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SearchFilesResponse], error)
 	Console(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsoleRequest, ConsoleResponse], error)
 	// Images.
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (*PullImageResponse, error)
@@ -351,29 +351,47 @@ func (c *runtimeServiceClient) PatchFile(ctx context.Context, in *PatchFileReque
 	return out, nil
 }
 
-func (c *runtimeServiceClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error) {
+func (c *runtimeServiceClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListFilesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListFilesResponse)
-	err := c.cc.Invoke(ctx, RuntimeService_ListFiles_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[4], RuntimeService_ListFiles_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[ListFilesRequest, ListFilesResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
 
-func (c *runtimeServiceClient) SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (*SearchFilesResponse, error) {
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_ListFilesClient = grpc.ServerStreamingClient[ListFilesResponse]
+
+func (c *runtimeServiceClient) SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SearchFilesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SearchFilesResponse)
-	err := c.cc.Invoke(ctx, RuntimeService_SearchFiles_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[5], RuntimeService_SearchFiles_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[SearchFilesRequest, SearchFilesResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_SearchFilesClient = grpc.ServerStreamingClient[SearchFilesResponse]
 
 func (c *runtimeServiceClient) Console(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsoleRequest, ConsoleResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[4], RuntimeService_Console_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[6], RuntimeService_Console_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -487,8 +505,8 @@ type RuntimeServiceServer interface {
 	ReadFile(*ReadFileRequest, grpc.ServerStreamingServer[ReadFileResponse]) error
 	WriteFile(grpc.ClientStreamingServer[WriteFileRequest, WriteFileResponse]) error
 	PatchFile(context.Context, *PatchFileRequest) (*PatchFileResponse, error)
-	ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error)
-	SearchFiles(context.Context, *SearchFilesRequest) (*SearchFilesResponse, error)
+	ListFiles(*ListFilesRequest, grpc.ServerStreamingServer[ListFilesResponse]) error
+	SearchFiles(*SearchFilesRequest, grpc.ServerStreamingServer[SearchFilesResponse]) error
 	Console(grpc.BidiStreamingServer[ConsoleRequest, ConsoleResponse]) error
 	// Images.
 	PullImage(context.Context, *PullImageRequest) (*PullImageResponse, error)
@@ -573,11 +591,11 @@ func (UnimplementedRuntimeServiceServer) WriteFile(grpc.ClientStreamingServer[Wr
 func (UnimplementedRuntimeServiceServer) PatchFile(context.Context, *PatchFileRequest) (*PatchFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PatchFile not implemented")
 }
-func (UnimplementedRuntimeServiceServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListFiles not implemented")
+func (UnimplementedRuntimeServiceServer) ListFiles(*ListFilesRequest, grpc.ServerStreamingServer[ListFilesResponse]) error {
+	return status.Error(codes.Unimplemented, "method ListFiles not implemented")
 }
-func (UnimplementedRuntimeServiceServer) SearchFiles(context.Context, *SearchFilesRequest) (*SearchFilesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method SearchFiles not implemented")
+func (UnimplementedRuntimeServiceServer) SearchFiles(*SearchFilesRequest, grpc.ServerStreamingServer[SearchFilesResponse]) error {
+	return status.Error(codes.Unimplemented, "method SearchFiles not implemented")
 }
 func (UnimplementedRuntimeServiceServer) Console(grpc.BidiStreamingServer[ConsoleRequest, ConsoleResponse]) error {
 	return status.Error(codes.Unimplemented, "method Console not implemented")
@@ -970,41 +988,27 @@ func _RuntimeService_PatchFile_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RuntimeService_ListFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListFilesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+func _RuntimeService_ListFiles_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ListFilesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(RuntimeServiceServer).ListFiles(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuntimeService_ListFiles_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServiceServer).ListFiles(ctx, req.(*ListFilesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(RuntimeServiceServer).ListFiles(m, &grpc.GenericServerStream[ListFilesRequest, ListFilesResponse]{ServerStream: stream})
 }
 
-func _RuntimeService_SearchFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SearchFilesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_ListFilesServer = grpc.ServerStreamingServer[ListFilesResponse]
+
+func _RuntimeService_SearchFiles_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SearchFilesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(RuntimeServiceServer).SearchFiles(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuntimeService_SearchFiles_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuntimeServiceServer).SearchFiles(ctx, req.(*SearchFilesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(RuntimeServiceServer).SearchFiles(m, &grpc.GenericServerStream[SearchFilesRequest, SearchFilesResponse]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_SearchFilesServer = grpc.ServerStreamingServer[SearchFilesResponse]
 
 func _RuntimeService_Console_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(RuntimeServiceServer).Console(&grpc.GenericServerStream[ConsoleRequest, ConsoleResponse]{ServerStream: stream})
@@ -1215,14 +1219,6 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RuntimeService_PatchFile_Handler,
 		},
 		{
-			MethodName: "ListFiles",
-			Handler:    _RuntimeService_ListFiles_Handler,
-		},
-		{
-			MethodName: "SearchFiles",
-			Handler:    _RuntimeService_SearchFiles_Handler,
-		},
-		{
 			MethodName: "PullImage",
 			Handler:    _RuntimeService_PullImage_Handler,
 		},
@@ -1271,6 +1267,16 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "WriteFile",
 			Handler:       _RuntimeService_WriteFile_Handler,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "ListFiles",
+			Handler:       _RuntimeService_ListFiles_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SearchFiles",
+			Handler:       _RuntimeService_SearchFiles_Handler,
+			ServerStreams: true,
 		},
 		{
 			StreamName:    "Console",

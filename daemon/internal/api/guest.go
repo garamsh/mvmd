@@ -222,30 +222,26 @@ var entryKinds = map[machine.EntryKind]v1alpha2.EntryKind{
 	machine.EntryOther:     v1alpha2.EntryKind_ENTRY_KIND_OTHER,
 }
 
-func (s *Server) ListFiles(ctx context.Context, req *v1alpha2.ListFilesRequest) (*v1alpha2.ListFilesResponse, error) {
+func (s *Server) ListFiles(req *v1alpha2.ListFilesRequest, stream grpc.ServerStreamingServer[v1alpha2.ListFilesResponse]) error {
 	id, err := target(req.GetMachineId())
 	if err != nil {
-		return nil, err
+		return err
 	}
-	entries, err := s.machines.ListFiles(ctx, id, req.GetPath())
-	if err != nil {
-		return nil, status(err)
+	send := func(entries []machine.FileEntry) error {
+		wire := make([]*v1alpha2.FileEntry, 0, len(entries))
+		for _, e := range entries {
+			wire = append(wire, &v1alpha2.FileEntry{Path: e.Path, Kind: entryKinds[e.Kind], Size: e.Size})
+		}
+		return stream.Send(&v1alpha2.ListFilesResponse{Entries: wire})
 	}
-	wire := make([]*v1alpha2.FileEntry, 0, len(entries))
-	for _, e := range entries {
-		wire = append(wire, &v1alpha2.FileEntry{Path: e.Path, Kind: entryKinds[e.Kind], Size: e.Size})
-	}
-	return &v1alpha2.ListFilesResponse{Entries: wire}, nil
+	return status(s.machines.ListFiles(stream.Context(), id, req.GetPath(), send))
 }
 
-func (s *Server) SearchFiles(ctx context.Context, req *v1alpha2.SearchFilesRequest) (*v1alpha2.SearchFilesResponse, error) {
+func (s *Server) SearchFiles(req *v1alpha2.SearchFilesRequest, stream grpc.ServerStreamingServer[v1alpha2.SearchFilesResponse]) error {
 	id, err := target(req.GetMachineId())
 	if err != nil {
-		return nil, err
+		return err
 	}
-	matches, err := s.machines.SearchFiles(ctx, id, req.GetPath(), req.GetPattern())
-	if err != nil {
-		return nil, status(err)
-	}
-	return &v1alpha2.SearchFilesResponse{Matches: matches}, nil
+	send := func(paths []string) error { return stream.Send(&v1alpha2.SearchFilesResponse{Matches: paths}) }
+	return status(s.machines.SearchFiles(stream.Context(), id, req.GetPath(), req.GetPattern(), send))
 }

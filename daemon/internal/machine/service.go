@@ -64,8 +64,10 @@ type Service interface {
 	// WriteFile commits the whole content or leaves the old.
 	WriteFile(ctx context.Context, id MachineID, path string, content io.Reader) error
 	PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) error
-	ListFiles(ctx context.Context, id MachineID, path string) ([]FileEntry, error)
-	SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error)
+	// ListFiles and SearchFiles send their result in runs as the guest sends
+	// them and hold none of it, so no result is bounded by a message.
+	ListFiles(ctx context.Context, id MachineID, path string, send func(entries []FileEntry) error) error
+	SearchFiles(ctx context.Context, id MachineID, path, pattern string, send func(paths []string) error) error
 
 	// Console opens a session to the console of a Running or Paused Machine,
 	// otherwise ErrPreconditionFailed. What the guest writes to its console is

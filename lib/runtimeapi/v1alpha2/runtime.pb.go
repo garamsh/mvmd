@@ -3990,7 +3990,8 @@ func (x *FileEntry) GetSize() uint64 {
 	return 0
 }
 
-// ListFilesResponse is the entries of the directory, sorted by path.
+// ListFilesResponse is a run of the directory's entries. The entries of all
+// the messages of the stream, in order, are sorted by path.
 type ListFilesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Entries       []*FileEntry           `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
@@ -4036,10 +4037,15 @@ func (x *ListFilesResponse) GetEntries() []*FileEntry {
 }
 
 type SearchFilesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MachineId     string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
-	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	Pattern       string                 `protobuf:"bytes,3,opt,name=pattern,proto3" json:"pattern,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	MachineId string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	// An absolute directory path; the search covers its tree.
+	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// A glob matched against an entry's path relative to the directory. "*" and
+	// "?" do not cross "/", "**" does, and "{a,b}" and "[ab]" are supported; the
+	// syntax is the Guest Agent's, the globset crate's glob with "/" a literal
+	// separator (https://docs.rs/globset/0.4.21/globset/#syntax).
+	Pattern       string `protobuf:"bytes,3,opt,name=pattern,proto3" json:"pattern,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4095,6 +4101,8 @@ func (x *SearchFilesRequest) GetPattern() string {
 	return ""
 }
 
+// SearchFilesResponse is a run of the paths that match. The paths of all the
+// messages of the stream, in order, are sorted.
 type SearchFilesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Matches       []string               `protobuf:"bytes,1,rep,name=matches,proto3" json:"matches,omitempty"`
@@ -5370,7 +5378,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x18DEADLINE_PHASE_NOT_ARMED\x10\x01\x12\x18\n" +
 	"\x14DEADLINE_PHASE_ARMED\x10\x02\x12\x1a\n" +
 	"\x16DEADLINE_PHASE_EXPIRED\x10\x03\x12%\n" +
-	"!DEADLINE_PHASE_STOPPED_EVERYTHING\x10\x042\x97\x19\n" +
+	"!DEADLINE_PHASE_STOPPED_EVERYTHING\x10\x042\x9b\x19\n" +
 	"\x0eRuntimeService\x12j\n" +
 	"\rCreateMachine\x12+.mvmd.runtime.v1alpha2.CreateMachineRequest\x1a,.mvmd.runtime.v1alpha2.CreateMachineResponse\x12g\n" +
 	"\fStartMachine\x12*.mvmd.runtime.v1alpha2.StartMachineRequest\x1a+.mvmd.runtime.v1alpha2.StartMachineResponse\x12d\n" +
@@ -5395,9 +5403,9 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"SignalExec\x12(.mvmd.runtime.v1alpha2.SignalExecRequest\x1a).mvmd.runtime.v1alpha2.SignalExecResponse\x12]\n" +
 	"\bReadFile\x12&.mvmd.runtime.v1alpha2.ReadFileRequest\x1a'.mvmd.runtime.v1alpha2.ReadFileResponse0\x01\x12`\n" +
 	"\tWriteFile\x12'.mvmd.runtime.v1alpha2.WriteFileRequest\x1a(.mvmd.runtime.v1alpha2.WriteFileResponse(\x01\x12^\n" +
-	"\tPatchFile\x12'.mvmd.runtime.v1alpha2.PatchFileRequest\x1a(.mvmd.runtime.v1alpha2.PatchFileResponse\x12^\n" +
-	"\tListFiles\x12'.mvmd.runtime.v1alpha2.ListFilesRequest\x1a(.mvmd.runtime.v1alpha2.ListFilesResponse\x12d\n" +
-	"\vSearchFiles\x12).mvmd.runtime.v1alpha2.SearchFilesRequest\x1a*.mvmd.runtime.v1alpha2.SearchFilesResponse\x12\\\n" +
+	"\tPatchFile\x12'.mvmd.runtime.v1alpha2.PatchFileRequest\x1a(.mvmd.runtime.v1alpha2.PatchFileResponse\x12`\n" +
+	"\tListFiles\x12'.mvmd.runtime.v1alpha2.ListFilesRequest\x1a(.mvmd.runtime.v1alpha2.ListFilesResponse0\x01\x12f\n" +
+	"\vSearchFiles\x12).mvmd.runtime.v1alpha2.SearchFilesRequest\x1a*.mvmd.runtime.v1alpha2.SearchFilesResponse0\x01\x12\\\n" +
 	"\aConsole\x12%.mvmd.runtime.v1alpha2.ConsoleRequest\x1a&.mvmd.runtime.v1alpha2.ConsoleResponse(\x010\x01\x12^\n" +
 	"\tPullImage\x12'.mvmd.runtime.v1alpha2.PullImageRequest\x1a(.mvmd.runtime.v1alpha2.PullImageResponse\x12a\n" +
 	"\n" +
