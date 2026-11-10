@@ -18,8 +18,11 @@ const (
 	envSupervisor      = "MVMD_E2E_SUPERVISOR"
 	envConverterInitrd = "MVMD_E2E_CONVERTER_INITRD"
 	envConverterSHA    = "MVMD_E2E_CONVERTER_INITRD_SHA256"
+	envDriver          = "MVMD_E2E_DRIVER"
 	envFirecracker     = "MVMD_FIRECRACKER"
 	envFirecrackerSHA  = "MVMD_FIRECRACKER_SHA256"
+	envCloudHypervisor = "MVMD_CLOUD_HYPERVISOR"
+	envCloudHypSHA     = "MVMD_CLOUD_HYPERVISOR_SHA256"
 	envKernel          = "MVMD_KERNEL"
 	envKernelSHA       = "MVMD_KERNEL_SHA256"
 	envGuestInitrd     = "MVMD_INITRD"
@@ -27,8 +30,22 @@ const (
 	envFsckErofs       = "FSCK_EROFS"
 )
 
+// vmm is what differs between the Drivers the tests run under: the name the node's configuration
+// selects and keys the Driver's section by, and the inputs naming its binary and that binary's
+// digest. The kernel and the initrds are the same for both.
+type vmm struct{ driver, section, binaryEnv, binarySHAEnv string }
+
+var vmms = map[string]vmm{
+	"firecracker":      {"firecracker", "firecracker", envFirecracker, envFirecrackerSHA},
+	"cloud-hypervisor": {"cloud-hypervisor", "cloud_hypervisor", envCloudHypervisor, envCloudHypSHA},
+}
+
+// driver is the Driver the tests run under, chosen by MVMD_E2E_DRIVER; it is the one input that
+// selects it. A name that is not one of the two is refused in TestMain, never defaulted.
+var driver vmm
+
 var requiredInputs = []string{
-	envMvmd, envSupervisor, envConverterInitrd, envFirecracker, envFirecrackerSHA,
+	envMvmd, envSupervisor, envConverterInitrd, envDriver,
 	envKernel, envKernelSHA, envGuestInitrd, envGuestInitrdSHA, envConverterSHA, envFsckErofs,
 }
 
@@ -37,7 +54,15 @@ var requiredInputs = []string{
 // passwordless sudo, as the other real tests of the repository do.
 func TestMain(m *testing.M) {
 	var missing []string
-	for _, name := range requiredInputs {
+	inputs := requiredInputs
+	if v, ok := vmms[os.Getenv(envDriver)]; ok {
+		driver = v
+		inputs = append(inputs[:len(inputs):len(inputs)], v.binaryEnv, v.binarySHAEnv)
+	} else if os.Getenv(envDriver) != "" {
+		fmt.Fprintf(os.Stderr, "%s is %q, not firecracker or cloud-hypervisor\n", envDriver, os.Getenv(envDriver))
+		os.Exit(1)
+	}
+	for _, name := range inputs {
 		if os.Getenv(name) == "" {
 			missing = append(missing, name)
 		}
