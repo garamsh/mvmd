@@ -36,6 +36,13 @@ type node struct {
 	registry *registry
 	client   v1alpha2.RuntimeServiceClient
 	cgroups  []string
+
+	socket     string
+	configFile string
+	logFile    *os.File
+	// cmd is the daemon process now running or last run, and exited carries its end.
+	cmd    *exec.Cmd
+	exited chan error
 }
 
 // startNode brings a node up and returns it once its runtime API answers. The test's cleanup
@@ -70,9 +77,9 @@ func startNode(t *testing.T) *node {
 	require.NoError(t, os.Mkdir(supervisors, 0o755))
 	n.cgroups = []string{supervisors, base, base + "-conversion"}
 
-	socket := filepath.Join(work, "mvmd.sock")
+	n.socket = filepath.Join(work, "mvmd.sock")
 	config := map[string]any{
-		"socket":    map[string]any{"path": socket, "mode": "0600"},
+		"socket":    map[string]any{"path": n.socket, "mode": "0600"},
 		"state_dir": n.stateDir,
 		"driver":    driver.driver,
 		"disk":      map[string]any{"mkfs": mkfsExt4()},
@@ -102,24 +109,14 @@ func startNode(t *testing.T) *node {
 	}
 	raw, err := json.Marshal(config)
 	require.NoError(t, err)
-	configFile := filepath.Join(work, "mvmd.json")
-	require.NoError(t, os.WriteFile(configFile, raw, 0o600))
+	n.configFile = filepath.Join(work, "mvmd.json")
+	require.NoError(t, os.WriteFile(n.configFile, raw, 0o600))
 
-	logFile, err := os.Create(filepath.Join(work, "mvmd.log"))
+	n.logFile, err = os.Create(filepath.Join(work, "mvmd.log"))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = logFile.Close() })
-	cmd := exec.Command(os.Getenv(envMvmd), "-config", configFile)
-	// The daemon trusts the fixture registry's authority and no other.
-	cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+n.registry.caFile)
-	cmd.Stdout, cmd.Stderr = logFile, logFile
-	require.NoError(t, cmd.Start())
-	exited := make(chan error, 1)
-	// Closed after the one error it carries, so a receiver that comes after dial took the error
-	// (stop) returns at once instead of waiting for a second one.
-	go func() { exited <- cmd.Wait(); close(exited) }()
-	t.Cleanup(func() { n.stop(cmd, exited) })
-
-	n.client = n.dial(socket, exited)
+	t.Cleanup(func() { _ = n.logFile.Close() })
+	t.Cleanup(n.stop)
+	n.startDaemon()
 
 	// The tests ran on the Driver they were told to: a node that served another would pass them
 	// without having exercised the one under test.
@@ -128,6 +125,31 @@ func startNode(t *testing.T) *node {
 	require.Len(t, info.GetDrivers(), 1)
 	require.Equal(t, driver.driver, info.GetDrivers()[0].GetDriver().GetName(), "the Driver the node runs")
 	return n
+}
+
+// startDaemon starts the daemon on the node's configuration and returns once its runtime API
+// answers, which it does after the daemon has reattached to the Machines that are running.
+func (n *node) startDaemon() {
+	n.t.Helper()
+	cmd := exec.Command(os.Getenv(envMvmd), "-config", n.configFile)
+	// The daemon trusts the fixture registry's authority and no other.
+	cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+n.registry.caFile)
+	cmd.Stdout, cmd.Stderr = n.logFile, n.logFile
+	require.NoError(n.t, cmd.Start())
+	exited := make(chan error, 1)
+	// Closed after the one error it carries, so a receiver that comes after dial took the error
+	// (stopDaemon) returns at once instead of waiting for a second one.
+	go func() { exited <- cmd.Wait(); close(exited) }()
+	n.cmd, n.exited = cmd, exited
+	n.client = n.dial(n.socket, exited)
+}
+
+// restartDaemon ends the daemon the way a service manager does and starts it again. The
+// supervisors and the VMMs under them are not the daemon's to end, and run meanwhile.
+func (n *node) restartDaemon() {
+	n.t.Helper()
+	n.stopDaemon()
+	n.startDaemon()
 }
 
 // dial connects to the runtime API once the daemon serves it, and fails if the daemon exits first.
@@ -164,20 +186,25 @@ func (n *node) log() string {
 	return "mvmd log:\n" + string(b)
 }
 
+// stopDaemon ends the daemon with SIGTERM, and with a kill if it has not ended in 30 seconds.
+func (n *node) stopDaemon() {
+	_ = n.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-n.exited:
+	case <-time.After(30 * time.Second):
+		_ = n.cmd.Process.Kill()
+		<-n.exited
+	}
+}
+
 // stop ends the daemon, then every process left in the cgroups it used, and prints the daemon's
 // log when the test failed.
-func (n *node) stop(cmd *exec.Cmd, exited <-chan error) {
+func (n *node) stop() {
 	if n.t.Failed() {
 		n.t.Log(n.log())
 		n.t.Log(n.conversionLogs())
 	}
-	_ = cmd.Process.Signal(syscall.SIGTERM)
-	select {
-	case <-exited:
-	case <-time.After(30 * time.Second):
-		_ = cmd.Process.Kill()
-		<-exited
-	}
+	n.stopDaemon()
 	for _, cgroup := range n.cgroups {
 		killCgroup(cgroup)
 	}
@@ -338,10 +365,17 @@ func (n *node) pullEntry(t *testing.T, name string, args []string, layers ...[]b
 // arm arms the node's fencing deadline, which Start refuses to go without.
 func (n *node) arm(t *testing.T) {
 	t.Helper()
+	n.renew(t, time.Hour, 1)
+}
+
+// renew renews the node's fencing deadline and returns the status the call answers.
+func (n *node) renew(t *testing.T, length time.Duration, number uint64) *v1alpha2.DeadlineStatus {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	_, err := n.client.RenewDeadline(ctx, &v1alpha2.RenewDeadlineRequest{Length: durationpb.New(time.Hour), RenewalNumber: 1})
+	renewed, err := n.client.RenewDeadline(ctx, &v1alpha2.RenewDeadlineRequest{Length: durationpb.New(length), RenewalNumber: number})
 	require.NoError(t, err)
+	return renewed.Status
 }
 
 // entrypointOutput reads what the Machine's entrypoint has written so far, from the start of its
