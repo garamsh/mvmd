@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/garamsh/mvmd/lib/runtimeapi v0.0.0
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	google.golang.org/protobuf v1.36.12
 )
 
