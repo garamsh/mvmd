@@ -5,10 +5,10 @@
 package cloudhypervisor
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"runtime"
 
 	"github.com/garamsh/mvmd/daemon/internal/hostcpu"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -90,11 +90,14 @@ func New(cfg Config) (*Driver, error) {
 }
 
 // Info implements machine.Driver. The optional capabilities reported are the
-// console, snapshot and disk hot-plug. Resize is in v54.0 but not yet in this
-// Driver, and it refuses (unsupported).
+// console, snapshot and disk hot-plug, and on x86_64 resize: v54.0's vCPU and
+// memory hot-plug are x86_64's, and elsewhere Resize refuses (unsupported).
 func (d *Driver) Info() machine.DriverInfo {
-	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel,
-		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}}
+	caps := []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}
+	if resizeCapable(runtime.GOARCH) {
+		caps = append(caps, machine.CapabilityResize)
+	}
+	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel, Capabilities: caps}
 }
 
 // Observe implements machine.Driver. The Driver raises no event of its own:
@@ -126,9 +129,4 @@ func (d *Driver) api(id machine.MachineID) (*client, error) {
 // the capability it needs is not reported.
 func unsupported(what string) error {
 	return fmt.Errorf("%w: the Cloud Hypervisor Driver does not implement %s", machine.ErrUnsupported, what)
-}
-
-// Resize implements machine.Driver and always refuses.
-func (d *Driver) Resize(context.Context, machine.MachineID, machine.Resources) error {
-	return unsupported("resize")
 }

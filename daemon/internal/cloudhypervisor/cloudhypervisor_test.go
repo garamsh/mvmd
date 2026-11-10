@@ -3,6 +3,7 @@ package cloudhypervisor_test
 import (
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,12 +16,22 @@ import (
 
 var _ machine.Driver = (*cloudhypervisor.Driver)(nil)
 
-func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsTheConsoleSnapshotAndDiskHotplug(t *testing.T) {
+func TestInfo_NamesCloudHypervisorAtItsVersionAndReportsTheConsoleSnapshotDiskHotplugAndOnX8664Resize(t *testing.T) {
 	info := newNode(t).driver.Info()
 	assert.Equal(t, "cloud-hypervisor", info.Name)
 	assert.Equal(t, "54.0", info.Version)
 	assert.NotEmpty(t, info.CPUModel)
-	assert.Equal(t, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}, info.Capabilities, "what the Driver implements and no more")
+	want := []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}
+	if runtime.GOARCH == "amd64" {
+		want = append(want, machine.CapabilityResize)
+	}
+	assert.Equal(t, want, info.Capabilities, "what the Driver implements and no more")
+}
+
+// Resize is x86_64's in v54.0, so only x86_64 reports it.
+func TestResizeCapable_OnlyOnX8664(t *testing.T) {
+	assert.True(t, cloudhypervisor.ResizeCapable("amd64"))
+	assert.False(t, cloudhypervisor.ResizeCapable("arm64"))
 }
 
 func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
@@ -63,10 +74,14 @@ func TestNew_RefusesAMissingBinary(t *testing.T) {
 	require.Error(t, err)
 }
 
-// Resize is refused with ErrUnsupported (machine.Driver), sends the VMM
-// nothing, and is not reported. The control is an operation the Driver does
-// implement, which does reach the VMM and is reported.
-func TestResizeRefusesAsUnsupportedAndSendsNothing(t *testing.T) {
+// Where the architecture has no resize, Resize is refused with ErrUnsupported
+// (machine.Driver), sends the VMM nothing, and is not reported. The control is
+// an operation the Driver does implement, which does reach the VMM and is
+// reported.
+func TestResizeRefusesAsUnsupportedAndSendsNothingWhereTheArchitectureHasNone(t *testing.T) {
+	if runtime.GOARCH == "amd64" {
+		t.Skip("this host's architecture resizes")
+	}
 	n := newNode(t)
 	f := &fakeAPI{}
 	n.booted(f)

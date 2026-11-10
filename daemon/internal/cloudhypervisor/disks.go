@@ -145,17 +145,32 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 	return machine.DriveAbsent, nil
 }
 
-// vmInfo is the part of GET /vm.info the disk calls read: the disks the VMM's
-// configuration holds, and its device tree, which keeps a removed device's
-// identifier until the guest has ejected it.
+// vmInfo is the part of GET /vm.info the disk and resize calls read: the disks
+// the VMM's configuration holds, its device tree, which keeps a removed
+// device's identifier until the guest has ejected it, and the vCPUs and memory
+// it is configured with and the memory the guest has plugged.
 type vmInfo struct {
 	Config struct {
+		CPUs struct {
+			BootVCPUs uint32 `json:"boot_vcpus"`
+		} `json:"cpus"`
+		Memory struct {
+			Size           uint64 `json:"size"`
+			HotpluggedSize uint64 `json:"hotplugged_size"`
+		} `json:"memory"`
 		Disks []struct {
 			ID   string `json:"id"`
 			Path string `json:"path"`
 		} `json:"disks"`
 	} `json:"config"`
-	Tree map[string]json.RawMessage `json:"device_tree"`
+	Tree             map[string]json.RawMessage `json:"device_tree"`
+	MemoryActualSize uint64                     `json:"memory_actual_size"`
+}
+
+// configuredMemory is the memory the VMM is configured to give the guest: what
+// it booted with and what a resize has since asked to be plugged.
+func (i vmInfo) configuredMemory() uint64 {
+	return i.Config.Memory.Size + i.Config.Memory.HotpluggedSize
 }
 
 func (c *client) info(ctx context.Context) (vmInfo, error) {
