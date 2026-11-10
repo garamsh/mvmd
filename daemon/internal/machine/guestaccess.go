@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 )
 
 // entrypointExec is the exec identifier the Guest Agent keeps for the
@@ -23,6 +24,18 @@ func (s *service) requireRunning(id MachineID, call string) error {
 	s.mu.Unlock()
 	if state != StateRunning {
 		return fail(ErrPreconditionFailed, "Machine %q is %s; %s needs Running", id, state, call)
+	}
+	return nil
+}
+
+// requireGuestPath refuses a guest file path that is empty or not absolute, as
+// the Guest Agent does, before the Guest is called.
+func requireGuestPath(path string) error {
+	switch {
+	case path == "":
+		return fail(ErrInvalid, "the path is empty")
+	case !strings.HasPrefix(path, "/"):
+		return fail(ErrInvalid, "the path %q is not absolute", path)
 	}
 	return nil
 }
@@ -285,8 +298,8 @@ func (s *service) SignalExec(ctx context.Context, id MachineID, exec ExecID, sig
 }
 
 func (s *service) ReadFile(ctx context.Context, id MachineID, path string, send func(chunk []byte) error) error {
-	if path == "" {
-		return fail(ErrInvalid, "the path is empty")
+	if err := requireGuestPath(path); err != nil {
+		return err
 	}
 	if err := s.requireRunning(id, "read file"); err != nil {
 		return err
@@ -298,8 +311,8 @@ func (s *service) ReadFile(ctx context.Context, id MachineID, path string, send 
 }
 
 func (s *service) WriteFile(ctx context.Context, id MachineID, path string, content io.Reader) error {
-	if path == "" {
-		return fail(ErrInvalid, "the path is empty")
+	if err := requireGuestPath(path); err != nil {
+		return err
 	}
 	if err := s.requireRunning(id, "write file"); err != nil {
 		return err
@@ -311,8 +324,8 @@ func (s *service) WriteFile(ctx context.Context, id MachineID, path string, cont
 }
 
 func (s *service) PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) error {
-	if path == "" {
-		return fail(ErrInvalid, "the path is empty")
+	if err := requireGuestPath(path); err != nil {
+		return err
 	}
 	if err := s.requireRunning(id, "patch file"); err != nil {
 		return err
@@ -324,8 +337,8 @@ func (s *service) PatchFile(ctx context.Context, id MachineID, path, baseDigest,
 }
 
 func (s *service) ListFiles(ctx context.Context, id MachineID, path string, send func(entries []FileEntry) error) error {
-	if path == "" {
-		return fail(ErrInvalid, "the path is empty")
+	if err := requireGuestPath(path); err != nil {
+		return err
 	}
 	if err := s.requireRunning(id, "list files"); err != nil {
 		return err
@@ -337,8 +350,8 @@ func (s *service) ListFiles(ctx context.Context, id MachineID, path string, send
 }
 
 func (s *service) SearchFiles(ctx context.Context, id MachineID, path, pattern string, send func(paths []string) error) error {
-	if path == "" {
-		return fail(ErrInvalid, "the path is empty")
+	if err := requireGuestPath(path); err != nil {
+		return err
 	}
 	if err := s.requireRunning(id, "search files"); err != nil {
 		return err
