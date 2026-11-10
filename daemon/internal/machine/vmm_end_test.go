@@ -72,11 +72,13 @@ func TestVMMEnd_ReasonNamesTheCause(t *testing.T) {
 	}
 }
 
-func TestVMMEnd_ALiveSupervisorLeavesTheMachine(t *testing.T) {
+func TestVMMEnd_OnlyTheMachineWhoseSupervisorIsGoneIsStopped(t *testing.T) {
 	e := newEnv()
-	e.inState(t, "m", machine.StateRunning)
-	machine.ObserveEnds(context.Background(), e.svc)
-	e.requireState(t, "m", machine.StateRunning)
+	e.inState(t, "ended", machine.StateRunning)
+	e.inState(t, "alive", machine.StateRunning)
+	e.observed(t, "ended")
+	e.requireState(t, "ended", machine.StateStopped)
+	e.requireState(t, "alive", machine.StateRunning)
 }
 
 func TestVMMEnd_ANetworkThatCannotBeWithdrawnFaultsTheMachine(t *testing.T) {
@@ -129,18 +131,35 @@ func TestVMMEnd_DoesNotRaceAStopTheVMMsEndOvertakes(t *testing.T) {
 	assert.Len(t, e.events.States("m"), before+1, "one transition, not two")
 }
 
-// A Machine stopped and started again between a listing and the look is not
-// found ended: the end is established again once the Machine is held.
-func TestVMMEnd_ALookIsNotFooledByARestartedMachine(t *testing.T) {
+// The listing that names a Machine is older than the lock: a Machine whose
+// supervisor exists when it is held is not found ended.
+func TestVMMEnd_ALookIsNotFooledByAStaleListing(t *testing.T) {
 	e := newEnv()
 	ctx := context.Background()
 	e.inState(t, "m", machine.StateRunning)
-	require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
-	require.NoError(t, e.svc.Start(ctx, "m"))
 	before := len(e.events.States("m"))
-	machine.ObserveEnds(ctx, e.svc)
+	machine.SettleEnd(ctx, e.svc, "m")
 	e.requireState(t, "m", machine.StateRunning)
 	assert.Len(t, e.events.States("m"), before)
+}
+
+// The expiry kills the supervisors, releases its ordering and only then
+// force-stops the Machines; a look in that gap leaves the Machine to the
+// ForceStop, which is not reported as the VMM's own end.
+func TestVMMEnd_ALookBetweenTheExpiryKillingAndItsForceStopLeavesTheMachine(t *testing.T) {
+	e := newEnv()
+	ctx := context.Background()
+	e.inState(t, "m", machine.StateRunning)
+	before := len(e.events.States("m"))
+	e.permit.FailAt("permit", errBoom) // the deadline has expired
+	e.observed(t, "m")                 // the supervisor is gone
+	e.requireState(t, "m", machine.StateRunning)
+	assert.Len(t, e.events.States("m"), before)
+
+	require.NoError(t, e.svc.ForceStop(ctx, "m"))
+	m := e.requireState(t, "m", machine.StateStopped)
+	assert.Empty(t, m.FailureReason, "the expiry's stop is not the VMM's own end")
+	assert.Len(t, e.events.States("m"), before+1)
 }
 
 func TestVMMEnd_WatchObservesWhileItRuns(t *testing.T) {
@@ -151,6 +170,10 @@ func TestVMMEnd_WatchObservesWhileItRuns(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { svc.Watch(ctx); close(done) }()
+	time.Sleep(100 * time.Millisecond) // many looks find the Machine alive
+	m, err := svc.Inspect(ctx, "m")
+	require.NoError(t, err)
+	require.Equal(t, machine.StateRunning, m.State)
 	require.NoError(t, e.sup.Terminate(ctx, "m"))
 	require.Eventually(t, func() bool {
 		m, err := svc.Inspect(ctx, "m")

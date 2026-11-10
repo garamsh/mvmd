@@ -54,7 +54,8 @@ func (s *service) observeEnds(ctx context.Context) {
 // settleEnd moves the Machine to Stopped when its VMM has ended and no call
 // holds it. A call in progress owns the Machine: whatever the VMM's end does to
 // that call is the call's outcome, so a Machine a call holds is left, and
-// found again by a later look. The listing that named the Machine is older than
+// found again by a later look. A Machine the fencing deadline no longer
+// permits to start is left to the expiry's ForceStop. The listing that named the Machine is older than
 // the lock, so the end is established again once the Machine is held.
 func (s *service) settleEnd(ctx context.Context, id MachineID) {
 	unlock, ok := s.tryLock(id)
@@ -71,6 +72,13 @@ func (s *service) settleEnd(ctx context.Context, id MachineID) {
 		return
 	}
 	if live, err := s.supervisor.Live(ctx); err != nil || slices.Contains(live, id) {
+		return
+	}
+	// A Machine whose start the fencing deadline refuses is not one the VMM
+	// ended: the expiry kills the supervisors, releases its ordering and only
+	// then force-stops the Machines, so the end in that gap is the expiry's,
+	// and its ForceStop settles the Machine (ADR 0033).
+	if err := s.permitter.PermitStart(ctx, id); err != nil {
 		return
 	}
 	ctx, cancel := s.accepted(ctx, 0)
