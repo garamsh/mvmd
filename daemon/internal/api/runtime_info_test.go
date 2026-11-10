@@ -5,7 +5,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,33 +19,42 @@ import (
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha1"
 )
 
-// driverCapabilities returns every constant of type machine.Capability that
-// driver.go declares, read from the source so that a capability added there
-// is covered without this test naming it.
+// driverCapabilities returns every constant of type machine.Capability that a
+// non-test file of the machine package declares, read from the source so that
+// a capability added there, in any file, is covered without this test naming it.
 func driverCapabilities(t *testing.T) []machine.Capability {
 	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), "../machine/driver.go", nil, 0)
+	const dir = "../machine"
+	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	var caps []machine.Capability
-	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.CONST {
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		for _, spec := range gen.Specs {
-			vs := spec.(*ast.ValueSpec)
-			if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "Capability" {
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
+		require.NoError(t, err)
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
 				continue
 			}
-			require.Len(t, vs.Values, 1)
-			lit, ok := vs.Values[0].(*ast.BasicLit)
-			require.True(t, ok, "%s is a string literal", vs.Names[0].Name)
-			value, err := strconv.Unquote(lit.Value)
-			require.NoError(t, err)
-			caps = append(caps, machine.Capability(value))
+			for _, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "Capability" {
+					continue
+				}
+				require.Len(t, vs.Values, 1)
+				lit, ok := vs.Values[0].(*ast.BasicLit)
+				require.True(t, ok, "%s is a string literal", vs.Names[0].Name)
+				value, err := strconv.Unquote(lit.Value)
+				require.NoError(t, err)
+				caps = append(caps, machine.Capability(value))
+			}
 		}
 	}
-	require.NotEmpty(t, caps, "the capabilities were read back from driver.go")
+	require.NotEmpty(t, caps, "the capabilities were read back from the machine package")
 	return caps
 }
 
