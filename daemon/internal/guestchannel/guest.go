@@ -57,6 +57,7 @@ const (
 	opOther operation = iota
 	opBoot
 	opExec
+	opSignal
 	opFile
 	opPatch
 	opDisk
@@ -194,6 +195,9 @@ func mapError(op operation, err error) error {
 			if d.GetExpected() == guestv1alpha1.EntryKind_ENTRY_KIND_FILE {
 				return fmt.Errorf("%w: %s", machine.ErrNotRegular, d.GetPath())
 			}
+			if d.GetExpected() == guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY {
+				return fmt.Errorf("%w: %s", machine.ErrNotDirectory, d.GetPath())
+			}
 			return fmt.Errorf("guest agent: %s is not a %s: %s", d.GetPath(), d.GetExpected(), msg)
 		case *guestv1alpha1.DiskInUse:
 			return fmt.Errorf("%w: %s", machine.ErrDiskInUse, d.GetDiskId())
@@ -210,7 +214,7 @@ func mapError(op operation, err error) error {
 		return fmt.Errorf("%w: %s", context.DeadlineExceeded, msg)
 	case codes.NotFound:
 		switch op {
-		case opExec:
+		case opExec, opSignal:
 			return fmt.Errorf("%w: %s", machine.ErrExecAbsent, msg)
 		case opFile, opPatch:
 			return fmt.Errorf("%w: %s", machine.ErrFileAbsent, msg)
@@ -218,8 +222,17 @@ func mapError(op operation, err error) error {
 			return fmt.Errorf("%w: %s", machine.ErrDiskUnknown, msg)
 		}
 	case codes.FailedPrecondition:
-		if op == opPatch && !notBooted {
-			return fmt.Errorf("%w: %s", machine.ErrPatchPrecondition, msg)
+		if !notBooted {
+			switch op {
+			case opPatch:
+				return fmt.Errorf("%w: %s", machine.ErrPatchPrecondition, msg)
+			case opSignal:
+				return fmt.Errorf("%w: %s", machine.ErrExecNotRunning, msg)
+			}
+		}
+	case codes.InvalidArgument:
+		if op == opSignal {
+			return fmt.Errorf("%w: %s", machine.ErrSignalInvalid, msg)
 		}
 	}
 	return fmt.Errorf("guest agent answered %s: %s", st.Code(), msg)
@@ -545,6 +558,51 @@ func (g *Guest) ReleaseDisk(ctx context.Context, id machine.MachineID, disk mach
 		_, err := c.ReleaseDisk(ctx, &guestv1alpha1.ReleaseDiskRequest{DiskId: string(disk)})
 		return err
 	})
+}
+
+// Signal implements machine.Guest.
+func (g *Guest) Signal(ctx context.Context, id machine.MachineID, exec machine.ExecID, signal int32) error {
+	return g.run(ctx, id, opSignal, func(c guestv1alpha1.GuestServiceClient) error {
+		_, err := c.Signal(ctx, &guestv1alpha1.SignalRequest{ExecId: string(exec), Signal: signal})
+		return err
+	})
+}
+
+var entryKinds = map[guestv1alpha1.EntryKind]machine.EntryKind{
+	guestv1alpha1.EntryKind_ENTRY_KIND_FILE:      machine.EntryFile,
+	guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY: machine.EntryDirectory,
+	guestv1alpha1.EntryKind_ENTRY_KIND_SYMLINK:   machine.EntrySymlink,
+	guestv1alpha1.EntryKind_ENTRY_KIND_OTHER:     machine.EntryOther,
+}
+
+// ListFiles implements machine.Guest. An entry of a kind this daemon does not
+// know is EntryOther.
+func (g *Guest) ListFiles(ctx context.Context, id machine.MachineID, path string) ([]machine.FileEntry, error) {
+	var entries []machine.FileEntry
+	err := g.run(ctx, id, opFile, func(c guestv1alpha1.GuestServiceClient) error {
+		entries = nil // a repeat lists again from the start
+		stream, err := c.ListFiles(ctx, &guestv1alpha1.ListFilesRequest{Path: path})
+		if err != nil {
+			return err
+		}
+		for {
+			msg, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			for _, e := range msg.GetEntries() {
+				kind, known := entryKinds[e.GetKind()]
+				if !known {
+					kind = machine.EntryOther
+				}
+				entries = append(entries, machine.FileEntry{Path: e.GetPath(), Kind: kind, Size: e.GetSize()})
+			}
+		}
+	})
+	return entries, err
 }
 
 // SearchFiles implements machine.Guest.

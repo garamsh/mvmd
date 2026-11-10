@@ -52,6 +52,8 @@ type state struct {
 	patchOut   guestv1alpha1.PatchOutcome
 	patch      *guestv1alpha1.PatchFileRequest
 	paths      []string
+	entries    []*guestv1alpha1.FileEntry
+	signals    []*guestv1alpha1.SignalRequest
 
 	// output is the exec's bytes, sent in chunks of 100 bytes, and the
 	// connection numbered 1 stops after holdAfter chunks until it is closed.
@@ -329,6 +331,35 @@ func (a *agent) SearchFiles(_ *guestv1alpha1.SearchFilesRequest, srv grpc.Server
 		}
 	}
 	return nil
+}
+
+// ListFiles sends the entries two to a message, so a listing that stopped at
+// the first message would lose some.
+func (a *agent) ListFiles(_ *guestv1alpha1.ListFilesRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ListFilesResponse]) error {
+	a.mu.Lock()
+	entries := a.entries
+	a.mu.Unlock()
+	if err := a.failure("ListFiles"); err != nil {
+		return err
+	}
+	for len(entries) > 0 {
+		n := min(2, len(entries))
+		if err := srv.Send(&guestv1alpha1.ListFilesResponse{Entries: entries[:n]}); err != nil {
+			return err
+		}
+		entries = entries[n:]
+	}
+	return nil
+}
+
+func (a *agent) Signal(_ context.Context, r *guestv1alpha1.SignalRequest) (*guestv1alpha1.SignalResponse, error) {
+	a.mu.Lock()
+	a.signals = append(a.signals, r)
+	a.mu.Unlock()
+	if err := a.failure("Signal"); err != nil {
+		return nil, err
+	}
+	return &guestv1alpha1.SignalResponse{}, nil
 }
 
 // harness is a Driver whose Machines have a fake Guest Agent each, and the
@@ -658,12 +689,17 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 			_, err := h.guest.PatchFile(ctx, "m", "/f", "b", "e", nil)
 			return err
 		},
+		"Signal": func(h *harness) error { return h.guest.Signal(ctx, "m", "x", 15) },
+		"ListFiles": func(h *harness) error {
+			_, err := h.guest.ListFiles(ctx, "m", "/")
+			return err
+		},
 		"SearchFiles": func(h *harness) error {
 			_, err := h.guest.SearchFiles(ctx, "m", "/", "*")
 			return err
 		},
 	}
-	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown}
+	sentinels := []error{machine.ErrExecAbsent, machine.ErrFileAbsent, machine.ErrNotRegular, machine.ErrPatchPrecondition, machine.ErrGuestUnreachable, machine.ErrDiskInUse, machine.ErrDiskUnknown, machine.ErrExecNotRunning, machine.ErrSignalInvalid, machine.ErrNotDirectory}
 	tests := []struct {
 		name   string
 		call   string
@@ -673,6 +709,16 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 	}{
 		{name: "an exec that is not held", call: "Exec", answer: st(codes.NotFound, "not found: exec x"), want: machine.ErrExecAbsent},
 		{name: "output of an exec that is not held", call: "ReadExecOutput", answer: st(codes.NotFound, "not found: exec x"), want: machine.ErrExecAbsent},
+		// Signal: the code and the call decide, as for a patch; a guest that has
+		// not booted is the one precondition that is not a command that ended.
+		{name: "a signal to an exec that is not held", call: "Signal", answer: st(codes.NotFound, "not found: exec x"), want: machine.ErrExecAbsent},
+		{name: "a signal to a command that has ended", call: "Signal", answer: st(codes.FailedPrecondition, "exec x is not running"), want: machine.ErrExecNotRunning},
+		{name: "a signal to a guest that has not booted", call: "Signal", answer: detailed(codes.FailedPrecondition, "x", &guestv1alpha1.NotBooted{State: guestv1alpha1.BootState_BOOT_STATE_PENDING})},
+		{name: "a number that is not a signal", call: "Signal", answer: st(codes.InvalidArgument, "invalid request: 99 is not a signal number"), want: machine.ErrSignalInvalid},
+		{name: "a signal the kernel refused", call: "Signal", answer: st(codes.Internal, "signal exec x: EPERM")},
+		{name: "the same code on an exec is not a signal number", call: "Exec", answer: st(codes.InvalidArgument, "invalid request: x")},
+		{name: "a path that names nothing, listed", call: "ListFiles", answer: st(codes.NotFound, "not found: /"), want: machine.ErrFileAbsent},
+		{name: "a file where a directory is needed, listed", call: "ListFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY}), want: machine.ErrNotDirectory},
 		{name: "a path that names nothing, read", call: "ReadFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
 		{name: "a path that names nothing, patched", call: "PatchFile", answer: st(codes.NotFound, "not found: /f"), want: machine.ErrFileAbsent},
 		{name: "a path that names nothing, searched", call: "SearchFiles", answer: st(codes.NotFound, "not found: /"), want: machine.ErrFileAbsent},
@@ -681,7 +727,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		// detail naming another kind of file is not a file that is not regular.
 		{name: "a file that is not a regular file, read", call: "ReadFile", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_FILE}), want: machine.ErrNotRegular},
 		{name: "a file that is not a regular file, written", call: "WriteFile", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_FILE}), want: machine.ErrNotRegular},
-		{name: "a file where a directory is needed", call: "SearchFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY})},
+		{name: "a file where a directory is needed", call: "SearchFiles", answer: detailed(codes.InvalidArgument, "x", &guestv1alpha1.WrongFileKind{Path: "/f", Expected: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY}), want: machine.ErrNotDirectory},
 		{name: "the same code with no detail", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: /f is not a regular file")},
 		{name: "invalid input is not a missing file", call: "ReadFile", answer: st(codes.InvalidArgument, "invalid request: path f is not absolute")},
 		// Patch: a precondition with no detail is the digests' by its code and
@@ -982,6 +1028,36 @@ func TestSearchFiles_ReturnsThePaths(t *testing.T) {
 	got, err := h.guest.SearchFiles(context.Background(), "m", "/", "**/x")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/a/x", "/b/x"}, got)
+}
+
+func TestListFiles_ReturnsTheEntriesWithKindAndSize(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	a.entries = []*guestv1alpha1.FileEntry{
+		{Path: "/a", Kind: guestv1alpha1.EntryKind_ENTRY_KIND_FILE, Size: 3},
+		{Path: "/b", Kind: guestv1alpha1.EntryKind_ENTRY_KIND_DIRECTORY},
+		{Path: "/c", Kind: guestv1alpha1.EntryKind_ENTRY_KIND_SYMLINK, Size: 1},
+		{Path: "/d", Kind: guestv1alpha1.EntryKind_ENTRY_KIND_OTHER},
+		{Path: "/e", Kind: guestv1alpha1.EntryKind_ENTRY_KIND_UNSPECIFIED},
+	}
+	got, err := h.guest.ListFiles(context.Background(), "m", "/")
+	require.NoError(t, err)
+	assert.Equal(t, []machine.FileEntry{
+		{Path: "/a", Kind: machine.EntryFile, Size: 3},
+		{Path: "/b", Kind: machine.EntryDirectory},
+		{Path: "/c", Kind: machine.EntrySymlink, Size: 1},
+		{Path: "/d", Kind: machine.EntryOther},
+		{Path: "/e", Kind: machine.EntryOther},
+	}, got, "every message's entries, in order, and a kind not known is other")
+}
+
+func TestSignal_SendsTheExecAndTheNumber(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	require.NoError(t, h.guest.Signal(context.Background(), "m", "x", 15))
+	require.Len(t, a.signals, 1)
+	assert.Equal(t, "x", a.signals[0].GetExecId())
+	assert.Equal(t, int32(15), a.signals[0].GetSignal())
 }
 
 // The adapter's own time limit would cut a Boot the lifecycle bounds, so the

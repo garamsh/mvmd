@@ -39,9 +39,11 @@ const (
 	RuntimeService_WatchEvents_FullMethodName     = "/mvmd.runtime.v1alpha1.RuntimeService/WatchEvents"
 	RuntimeService_Exec_FullMethodName            = "/mvmd.runtime.v1alpha1.RuntimeService/Exec"
 	RuntimeService_ReadExecOutput_FullMethodName  = "/mvmd.runtime.v1alpha1.RuntimeService/ReadExecOutput"
+	RuntimeService_SignalExec_FullMethodName      = "/mvmd.runtime.v1alpha1.RuntimeService/SignalExec"
 	RuntimeService_ReadFile_FullMethodName        = "/mvmd.runtime.v1alpha1.RuntimeService/ReadFile"
 	RuntimeService_WriteFile_FullMethodName       = "/mvmd.runtime.v1alpha1.RuntimeService/WriteFile"
 	RuntimeService_PatchFile_FullMethodName       = "/mvmd.runtime.v1alpha1.RuntimeService/PatchFile"
+	RuntimeService_ListFiles_FullMethodName       = "/mvmd.runtime.v1alpha1.RuntimeService/ListFiles"
 	RuntimeService_SearchFiles_FullMethodName     = "/mvmd.runtime.v1alpha1.RuntimeService/SearchFiles"
 	RuntimeService_Console_FullMethodName         = "/mvmd.runtime.v1alpha1.RuntimeService/Console"
 	RuntimeService_PullImage_FullMethodName       = "/mvmd.runtime.v1alpha1.RuntimeService/PullImage"
@@ -78,9 +80,11 @@ type RuntimeServiceClient interface {
 	// Guest access.
 	Exec(ctx context.Context, in *ExecRequest, opts ...grpc.CallOption) (*ExecResponse, error)
 	ReadExecOutput(ctx context.Context, in *ReadExecOutputRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadExecOutputResponse], error)
+	SignalExec(ctx context.Context, in *SignalExecRequest, opts ...grpc.CallOption) (*SignalExecResponse, error)
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadFileResponse], error)
 	WriteFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteFileRequest, WriteFileResponse], error)
 	PatchFile(ctx context.Context, in *PatchFileRequest, opts ...grpc.CallOption) (*PatchFileResponse, error)
+	ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error)
 	SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (*SearchFilesResponse, error)
 	Console(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsoleRequest, ConsoleResponse], error)
 	// Images.
@@ -286,6 +290,16 @@ func (c *runtimeServiceClient) ReadExecOutput(ctx context.Context, in *ReadExecO
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RuntimeService_ReadExecOutputClient = grpc.ServerStreamingClient[ReadExecOutputResponse]
 
+func (c *runtimeServiceClient) SignalExec(ctx context.Context, in *SignalExecRequest, opts ...grpc.CallOption) (*SignalExecResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SignalExecResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_SignalExec_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runtimeServiceClient) ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadFileResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[2], RuntimeService_ReadFile_FullMethodName, cOpts...)
@@ -322,6 +336,16 @@ func (c *runtimeServiceClient) PatchFile(ctx context.Context, in *PatchFileReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PatchFileResponse)
 	err := c.cc.Invoke(ctx, RuntimeService_PatchFile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeServiceClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFilesResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_ListFiles_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -410,9 +434,11 @@ type RuntimeServiceServer interface {
 	// Guest access.
 	Exec(context.Context, *ExecRequest) (*ExecResponse, error)
 	ReadExecOutput(*ReadExecOutputRequest, grpc.ServerStreamingServer[ReadExecOutputResponse]) error
+	SignalExec(context.Context, *SignalExecRequest) (*SignalExecResponse, error)
 	ReadFile(*ReadFileRequest, grpc.ServerStreamingServer[ReadFileResponse]) error
 	WriteFile(grpc.ClientStreamingServer[WriteFileRequest, WriteFileResponse]) error
 	PatchFile(context.Context, *PatchFileRequest) (*PatchFileResponse, error)
+	ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error)
 	SearchFiles(context.Context, *SearchFilesRequest) (*SearchFilesResponse, error)
 	Console(grpc.BidiStreamingServer[ConsoleRequest, ConsoleResponse]) error
 	// Images.
@@ -481,6 +507,9 @@ func (UnimplementedRuntimeServiceServer) Exec(context.Context, *ExecRequest) (*E
 func (UnimplementedRuntimeServiceServer) ReadExecOutput(*ReadExecOutputRequest, grpc.ServerStreamingServer[ReadExecOutputResponse]) error {
 	return status.Error(codes.Unimplemented, "method ReadExecOutput not implemented")
 }
+func (UnimplementedRuntimeServiceServer) SignalExec(context.Context, *SignalExecRequest) (*SignalExecResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SignalExec not implemented")
+}
 func (UnimplementedRuntimeServiceServer) ReadFile(*ReadFileRequest, grpc.ServerStreamingServer[ReadFileResponse]) error {
 	return status.Error(codes.Unimplemented, "method ReadFile not implemented")
 }
@@ -489,6 +518,9 @@ func (UnimplementedRuntimeServiceServer) WriteFile(grpc.ClientStreamingServer[Wr
 }
 func (UnimplementedRuntimeServiceServer) PatchFile(context.Context, *PatchFileRequest) (*PatchFileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PatchFile not implemented")
+}
+func (UnimplementedRuntimeServiceServer) ListFiles(context.Context, *ListFilesRequest) (*ListFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFiles not implemented")
 }
 func (UnimplementedRuntimeServiceServer) SearchFiles(context.Context, *SearchFilesRequest) (*SearchFilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SearchFiles not implemented")
@@ -818,6 +850,24 @@ func _RuntimeService_ReadExecOutput_Handler(srv interface{}, stream grpc.ServerS
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RuntimeService_ReadExecOutputServer = grpc.ServerStreamingServer[ReadExecOutputResponse]
 
+func _RuntimeService_SignalExec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignalExecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).SignalExec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_SignalExec_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).SignalExec(ctx, req.(*SignalExecRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RuntimeService_ReadFile_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(ReadFileRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -850,6 +900,24 @@ func _RuntimeService_PatchFile_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RuntimeServiceServer).PatchFile(ctx, req.(*PatchFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RuntimeService_ListFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).ListFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_ListFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).ListFiles(ctx, req.(*ListFilesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1001,8 +1069,16 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RuntimeService_Exec_Handler,
 		},
 		{
+			MethodName: "SignalExec",
+			Handler:    _RuntimeService_SignalExec_Handler,
+		},
+		{
 			MethodName: "PatchFile",
 			Handler:    _RuntimeService_PatchFile_Handler,
+		},
+		{
+			MethodName: "ListFiles",
+			Handler:    _RuntimeService_ListFiles_Handler,
 		},
 		{
 			MethodName: "SearchFiles",

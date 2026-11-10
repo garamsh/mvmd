@@ -36,9 +36,11 @@ service RuntimeService {
   // Guest access.
   rpc Exec(ExecRequest) returns (ExecResponse);
   rpc ReadExecOutput(ReadExecOutputRequest) returns (stream ReadExecOutputResponse);
+  rpc SignalExec(SignalExecRequest) returns (SignalExecResponse);
   rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
   rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
   rpc PatchFile(PatchFileRequest) returns (PatchFileResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
   rpc SearchFiles(SearchFilesRequest) returns (SearchFilesResponse);
   rpc Console(stream ConsoleRequest) returns (stream ConsoleResponse);
 
@@ -435,6 +437,16 @@ message ReadExecOutputResponse {
   }
 }
 
+// SignalExecRequest delivers a signal to a command that runs. signal is a
+// signal number, as on Linux.
+message SignalExecRequest {
+  string machine_id = 1;
+  string exec_id = 2;
+  int32 signal = 3;
+}
+
+message SignalExecResponse {}
+
 message ReadFileRequest {
   string machine_id = 1;
   string path = 2;
@@ -472,6 +484,32 @@ message PatchFileRequest {
 }
 
 message PatchFileResponse {}
+
+message ListFilesRequest {
+  string machine_id = 1;
+  // An absolute directory path.
+  string path = 2;
+}
+
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  ENTRY_KIND_FILE = 1;
+  ENTRY_KIND_DIRECTORY = 2;
+  ENTRY_KIND_SYMLINK = 3;
+  ENTRY_KIND_OTHER = 4;
+}
+
+// FileEntry is one entry of a directory. size is in bytes.
+message FileEntry {
+  string path = 1;
+  EntryKind kind = 2;
+  uint64 size = 3;
+}
+
+// ListFilesResponse is the entries of the directory, sorted by path.
+message ListFilesResponse {
+  repeated FileEntry entries = 1;
+}
 
 message SearchFilesRequest {
   string machine_id = 1;

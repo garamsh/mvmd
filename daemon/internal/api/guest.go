@@ -63,6 +63,17 @@ func (s *Server) ReadExecOutput(req *v1alpha1.ReadExecOutputRequest, stream grpc
 	return stream.Send(&v1alpha1.ReadExecOutputResponse{Part: &v1alpha1.ReadExecOutputResponse_Record{Record: execRecordToWire(record)}})
 }
 
+func (s *Server) SignalExec(ctx context.Context, req *v1alpha1.SignalExecRequest) (*v1alpha1.SignalExecResponse, error) {
+	id, err := target(req.GetMachineId())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.machines.SignalExec(ctx, id, machine.ExecID(req.GetExecId()), req.GetSignal()); err != nil {
+		return nil, status(err)
+	}
+	return &v1alpha1.SignalExecResponse{}, nil
+}
+
 func (s *Server) ReadFile(req *v1alpha1.ReadFileRequest, stream grpc.ServerStreamingServer[v1alpha1.ReadFileResponse]) error {
 	id, err := target(req.GetMachineId())
 	if err != nil {
@@ -202,6 +213,29 @@ func (s *Server) PatchFile(ctx context.Context, req *v1alpha1.PatchFileRequest) 
 		return nil, status(err)
 	}
 	return &v1alpha1.PatchFileResponse{}, nil
+}
+
+var entryKinds = map[machine.EntryKind]v1alpha1.EntryKind{
+	machine.EntryFile:      v1alpha1.EntryKind_ENTRY_KIND_FILE,
+	machine.EntryDirectory: v1alpha1.EntryKind_ENTRY_KIND_DIRECTORY,
+	machine.EntrySymlink:   v1alpha1.EntryKind_ENTRY_KIND_SYMLINK,
+	machine.EntryOther:     v1alpha1.EntryKind_ENTRY_KIND_OTHER,
+}
+
+func (s *Server) ListFiles(ctx context.Context, req *v1alpha1.ListFilesRequest) (*v1alpha1.ListFilesResponse, error) {
+	id, err := target(req.GetMachineId())
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.machines.ListFiles(ctx, id, req.GetPath())
+	if err != nil {
+		return nil, status(err)
+	}
+	wire := make([]*v1alpha1.FileEntry, 0, len(entries))
+	for _, e := range entries {
+		wire = append(wire, &v1alpha1.FileEntry{Path: e.Path, Kind: entryKinds[e.Kind], Size: e.Size})
+	}
+	return &v1alpha1.ListFilesResponse{Entries: wire}, nil
 }
 
 func (s *Server) SearchFiles(ctx context.Context, req *v1alpha1.SearchFilesRequest) (*v1alpha1.SearchFilesResponse, error) {

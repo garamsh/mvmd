@@ -84,6 +84,23 @@ func (e *BootStepError) Error() string {
 	return fmt.Sprintf("guest boot step %q failed: %s", e.Step, e.Detail)
 }
 
+// EntryKind is what a directory entry is.
+type EntryKind int
+
+const (
+	EntryFile EntryKind = iota + 1
+	EntryDirectory
+	EntrySymlink
+	EntryOther
+)
+
+// FileEntry is one entry of a guest directory. Size is in bytes.
+type FileEntry struct {
+	Path string
+	Kind EntryKind
+	Size uint64
+}
+
 // PatchOutcome is what a patch did.
 type PatchOutcome int
 
@@ -101,6 +118,14 @@ var (
 	ErrGuestUnreachable = errors.New("the Guest Agent is not reachable")
 	// ErrExecAbsent is an exec the guest holds no record of.
 	ErrExecAbsent = errors.New("the guest has no such exec")
+	// ErrExecNotRunning is a signal to a command that has ended.
+	ErrExecNotRunning = errors.New("the exec is not running")
+	// ErrSignalInvalid is a signal the guest does not take: a number that is
+	// not a signal.
+	ErrSignalInvalid = errors.New("not a signal number")
+	// ErrNotDirectory is a path that resolves to something that is not a
+	// directory, where one is listed.
+	ErrNotDirectory = errors.New("not a directory")
 	// ErrFileAbsent is a path that names nothing.
 	ErrFileAbsent = errors.New("no such file")
 	// ErrNotRegular is a path that resolves to something that is not a regular
@@ -180,6 +205,11 @@ type Guest interface {
 	// runs. An offset before the guest's earliest held is an *OutputGoneError.
 	// It returns ErrExecAbsent for an exec the guest does not hold.
 	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error)
+	// Signal delivers the signal, a number as on Linux, to the exec's command.
+	// It returns ErrExecAbsent for an exec the guest does not hold,
+	// ErrExecNotRunning for a command that has ended and ErrSignalInvalid for a
+	// number that is not a signal.
+	Signal(ctx context.Context, id MachineID, exec ExecID, signal int32) error
 	// ReadFile sends the file's content in chunks.
 	ReadFile(ctx context.Context, id MachineID, path string, send func(chunk []byte) error) error
 	// WriteFile replaces the file with what content yields until io.EOF. Any
@@ -189,6 +219,8 @@ type Guest interface {
 	// file at the expected digest as it is. Any other digest is
 	// ErrPatchPrecondition.
 	PatchFile(ctx context.Context, id MachineID, path, baseDigest, expectedDigest string, patch []byte) (PatchOutcome, error)
+	// ListFiles returns the entries of the directory, sorted by path.
+	ListFiles(ctx context.Context, id MachineID, path string) ([]FileEntry, error)
 	// SearchFiles returns the paths under path that match the pattern.
 	SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error)
 	// Terminate asks the agent to apply its Termination rule (guest.md): send

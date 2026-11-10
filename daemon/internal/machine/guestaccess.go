@@ -32,9 +32,9 @@ func guestFailure(err error, call string) *Error {
 	switch {
 	case errors.Is(err, ErrFileAbsent), errors.Is(err, ErrExecAbsent):
 		return fail(ErrNotFound, "%s: %v", call, err)
-	case errors.Is(err, ErrNotRegular):
+	case errors.Is(err, ErrNotRegular), errors.Is(err, ErrNotDirectory), errors.Is(err, ErrSignalInvalid):
 		return fail(ErrInvalid, "%s: %v", call, err)
-	case errors.Is(err, ErrPatchPrecondition):
+	case errors.Is(err, ErrPatchPrecondition), errors.Is(err, ErrExecNotRunning):
 		return fail(ErrPreconditionFailed, "%s: %v", call, err)
 	default:
 		return fail(ErrFailed, "%s: %v", call, err)
@@ -247,6 +247,43 @@ func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID,
 	return record, nil
 }
 
+func (s *service) SignalExec(ctx context.Context, id MachineID, exec ExecID, signal int32) error {
+	switch {
+	case exec == "":
+		return fail(ErrInvalid, "the exec identifier is empty")
+	case signal < 1:
+		return fail(ErrInvalid, "%d is not a signal number", signal)
+	}
+	if err := s.requireRunning(id, "signal exec"); err != nil {
+		return err
+	}
+	if exec == entrypointExec {
+		// The guest holds the entrypoint in its exec table and signals it as any
+		// command (guest.md); mvmd keeps no record of it.
+		if err := s.guest.Signal(ctx, id, exec, signal); err != nil {
+			return guestFailure(err, "signal exec")
+		}
+		return nil
+	}
+	s.execMu.Lock()
+	entry, ok := s.execs[exec]
+	var held ExecEntry
+	if ok {
+		held = *entry
+	}
+	s.execMu.Unlock()
+	if !ok || held.Machine != id {
+		return fail(ErrNotFound, "no exec %q on Machine %q", exec, id)
+	}
+	if held.Unreadable != "" {
+		return unreadableExec(held)
+	}
+	if err := s.guest.Signal(ctx, id, exec, signal); err != nil {
+		return guestFailure(err, "signal exec")
+	}
+	return nil
+}
+
 func (s *service) ReadFile(ctx context.Context, id MachineID, path string, send func(chunk []byte) error) error {
 	if path == "" {
 		return fail(ErrInvalid, "the path is empty")
@@ -284,6 +321,20 @@ func (s *service) PatchFile(ctx context.Context, id MachineID, path, baseDigest,
 		return guestFailure(err, "patch file")
 	}
 	return nil
+}
+
+func (s *service) ListFiles(ctx context.Context, id MachineID, path string) ([]FileEntry, error) {
+	if path == "" {
+		return nil, fail(ErrInvalid, "the path is empty")
+	}
+	if err := s.requireRunning(id, "list files"); err != nil {
+		return nil, err
+	}
+	entries, err := s.guest.ListFiles(ctx, id, path)
+	if err != nil {
+		return nil, guestFailure(err, "list files")
+	}
+	return entries, nil
 }
 
 func (s *service) SearchFiles(ctx context.Context, id MachineID, path, pattern string) ([]string, error) {
