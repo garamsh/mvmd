@@ -124,7 +124,7 @@ func (c Config) pullTimeout() (time.Duration, error) {
 
 // ConversionConfig is what the node says about a conversion (image.md
 // §Conversion): the converter's kernel and initrd, by absolute path, the
-// kernel also by SHA-256 in hex, which the Driver checks at start; the
+// kernel and initrd also by SHA-256 in hex, which the Driver checks at start; the
 // converter's name, which every image records; and its size and time limit.
 // Nothing here has a default: a converter too small for an image fails the
 // pull, and the right size depends on the images the node pulls.
@@ -132,6 +132,7 @@ type ConversionConfig struct {
 	Kernel       string `json:"kernel"`
 	KernelSHA256 string `json:"kernel_sha256"`
 	Initrd       string `json:"initrd"`
+	InitrdSHA256 string `json:"initrd_sha256"`
 	// Converter names the converter; an image records the name it was
 	// converted by.
 	Converter string `json:"converter"`
@@ -166,7 +167,7 @@ func (c ConversionConfig) limit() (time.Duration, error) {
 // The converter VM boots with the Firecracker binary of the firecracker
 // section, which supplies the binary and its digest.
 func (c ConversionConfig) check(f FirecrackerConfig) error {
-	if err := (firecracker.Config{Binary: f.Binary, BinarySHA256: f.BinarySHA256, Kernel: c.Kernel, KernelSHA256: c.KernelSHA256, Initrd: c.Initrd}).Validate(); err != nil {
+	if err := (firecracker.Config{Binary: f.Binary, BinarySHA256: f.BinarySHA256, Kernel: c.Kernel, KernelSHA256: c.KernelSHA256, Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256}).Validate(); err != nil {
 		return fmt.Errorf("conversion: %w", err)
 	}
 	switch {
@@ -258,14 +259,15 @@ type DiskConfig struct {
 }
 
 // FirecrackerConfig is what the node says about Firecracker and the guest it
-// boots (ADR 0010): each file by absolute path, the binary and the kernel also
-// by SHA-256 in hex, which the Driver checks before every boot.
+// boots (ADR 0010, ADR 0030): each file by absolute path, each also by SHA-256
+// in hex, which the Driver checks at start and the supervisor before every boot.
 type FirecrackerConfig struct {
 	Binary       string `json:"binary"`
 	BinarySHA256 string `json:"binary_sha256"`
 	Kernel       string `json:"kernel"`
 	KernelSHA256 string `json:"kernel_sha256"`
 	Initrd       string `json:"initrd"`
+	InitrdSHA256 string `json:"initrd_sha256"`
 }
 
 // toDriver names the Driver's files; it adds the run directories.
@@ -273,7 +275,7 @@ func (c FirecrackerConfig) toDriver(dirs firecracker.RunDirs) firecracker.Config
 	return firecracker.Config{
 		Binary: c.Binary, BinarySHA256: c.BinarySHA256,
 		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
-		Initrd: c.Initrd, Dirs: dirs,
+		Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256, Dirs: dirs,
 	}
 }
 

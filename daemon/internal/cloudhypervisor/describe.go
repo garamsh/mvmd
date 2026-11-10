@@ -3,7 +3,6 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -55,20 +54,18 @@ func cmdline(goarch string) string {
 	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 }
 
-// verify refuses a binary or a kernel that is not the one the node pinned. It
+// verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It
 // is how a node fails at its start and not at its first boot; the check of
 // record is the supervisor's, on the file it presents to the VMM (ADR 0019).
 func verify(cfg Config) error {
 	for _, f := range []struct{ name, path, want string }{
 		{"binary", cfg.Binary, cfg.BinarySHA256},
 		{"kernel", cfg.Kernel, cfg.KernelSHA256},
+		{"initrd", cfg.Initrd, cfg.InitrdSHA256},
 	} {
 		if err := pinnedfile.Check("the cloud-hypervisor "+f.name, f.path, f.want); err != nil {
 			return err
 		}
-	}
-	if _, err := os.Stat(filepath.Clean(cfg.Initrd)); err != nil {
-		return fmt.Errorf("check the cloud-hypervisor initrd: %w", err)
 	}
 	return nil
 }
@@ -90,7 +87,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 
 // initrd is the initrd file of a description, the same at boot and on restore.
 func (d *Driver) initrd() machine.File {
-	return machine.File{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true}
+	return machine.File{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true, SHA256: d.cfg.InitrdSHA256}
 }
 
 // process is the description of the VMM process with the arguments and the boot

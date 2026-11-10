@@ -120,8 +120,8 @@ func newNode(t *testing.T) *node {
 	cfg := cloudhypervisor.Config{
 		Binary: write("cloud-hypervisor", "a binary"), BinarySHA256: sum([]byte("a binary")),
 		Kernel: write("vmlinux", "a kernel"), KernelSHA256: sum([]byte("a kernel")),
-		Initrd: write("initrd.cpio", "an initrd"),
-		Dirs:   runDirs{run},
+		Initrd: write("initrd.cpio", "an initrd"), InitrdSHA256: sum([]byte("an initrd")),
+		Dirs: runDirs{run},
 	}
 	d, err := cloudhypervisor.New(cfg)
 	require.NoError(t, err)

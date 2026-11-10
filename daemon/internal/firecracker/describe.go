@@ -3,7 +3,6 @@ package firecracker
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 
@@ -40,32 +39,30 @@ func bootArgs(goarch string) string {
 	return args
 }
 
-// verify refuses a binary or a kernel that is not the one the node pinned. It
+// verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It
 // is how a node fails at its start and not at its first boot; the check of
 // record is the supervisor's, on the file it presents to the VMM (ADR 0019).
 func verify(cfg Config) error {
 	for _, f := range []struct{ name, path, want string }{
 		{"binary", cfg.Binary, cfg.BinarySHA256},
 		{"kernel", cfg.Kernel, cfg.KernelSHA256},
+		{"initrd", cfg.Initrd, cfg.InitrdSHA256},
 	} {
 		if err := pinnedfile.Check("the firecracker "+f.name, f.path, f.want); err != nil {
 			return err
 		}
 	}
-	if _, err := os.Stat(filepath.Clean(cfg.Initrd)); err != nil {
-		return fmt.Errorf("check the firecracker initrd: %w", err)
-	}
 	return nil
 }
 
 // Describe implements machine.Driver. It states the process and what it needs
-// open, with the digests of the pinned binary and kernel for the supervisor to
+// open, with the digests of the pinned binary, kernel and initrd for the supervisor to
 // check; it reads neither file. It keeps nothing: Boot is given the boot
 // description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
 	boot := []machine.File{
 		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
-		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true},
+		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true, SHA256: d.cfg.InitrdSHA256},
 	}
 	return d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
 }

@@ -182,7 +182,7 @@ func TestDescribeRestore_MountsTheSnapshotTheInitrdAndTheMachinesOwnFilesAtFixed
 	require.NoError(t, err)
 
 	assert.Equal(t, []machine.File{
-		{Host: n.cfg.Initrd, In: "/boot/initrd", ReadOnly: true},
+		{Host: n.cfg.Initrd, In: "/boot/initrd", ReadOnly: true, SHA256: n.cfg.InitrdSHA256},
 		{Host: "/store/s1/state/config.json", In: "/snapshot/config.json", ReadOnly: true},
 		{Host: "/store/s1/state/state.json", In: "/snapshot/state.json", ReadOnly: true},
 		{Host: "/store/s1/state/memory-ranges", In: "/snapshot/memory-ranges", ReadOnly: true},

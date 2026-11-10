@@ -45,10 +45,10 @@ func TestDescribe_StatesTheProcessAndWhatItNeedsOpen(t *testing.T) {
 	assert.True(t, p.TapByDescriptor, "the tap is the VMM's descriptor 3")
 	assert.Equal(t, []string{"/dev/kvm", "/dev/urandom"}, p.DeviceNodes, "kvm and the rng source; the tap is a descriptor, so no /dev/net/tun")
 	// The kernel and the initrd are read-only, then the Machine's devices as
-	// given, each at its fixed path. The kernel carries its pin.
+	// given, each at its fixed path. The kernel and the initrd carry their pins.
 	assert.Equal(t, []machine.File{
 		{Host: n.cfg.Kernel, In: "/boot/kernel", ReadOnly: true, SHA256: n.cfg.KernelSHA256},
-		{Host: n.cfg.Initrd, In: "/boot/initrd", ReadOnly: true},
+		{Host: n.cfg.Initrd, In: "/boot/initrd", ReadOnly: true, SHA256: n.cfg.InitrdSHA256},
 		{Host: "/images/erofs", In: "/disk/0", ReadOnly: true},
 		{Host: "/disks/root.img", In: "/disk/1"},
 	}, p.BootFiles)
@@ -111,8 +111,8 @@ func TestDescribe_RefusesWhatTheVMMWould(t *testing.T) {
 // the pins and Describe reads neither file.
 func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T) {
 	n := newNode(t)
-	pinnedKernel, pinnedBinary := n.cfg.KernelSHA256, n.cfg.BinarySHA256
-	for _, path := range []string{n.cfg.Kernel, n.cfg.Binary} {
+	pinnedKernel, pinnedInitrd, pinnedBinary := n.cfg.KernelSHA256, n.cfg.InitrdSHA256, n.cfg.BinarySHA256
+	for _, path := range []string{n.cfg.Kernel, n.cfg.Initrd, n.cfg.Binary} {
 		require.NoError(t, os.WriteFile(path, []byte("another file"), 0o644))
 	}
 
@@ -121,7 +121,10 @@ func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T)
 
 	assert.Equal(t, pinnedBinary, p.ExecutableSHA256, "the pin, not the digest of what the file holds now")
 	assert.Equal(t, pinnedKernel, p.BootFiles[0].SHA256)
-	assert.NotEqual(t, sum([]byte("another file")), p.BootFiles[0].SHA256)
+	assert.Equal(t, pinnedInitrd, p.BootFiles[1].SHA256, "the initrd is the guest's init, pinned as the kernel is")
+	for _, f := range p.BootFiles[:2] {
+		assert.NotEqual(t, sum([]byte("another file")), f.SHA256)
+	}
 }
 
 func TestArgs_DifferOnAarch64ByTheSerialPortOnly(t *testing.T) {

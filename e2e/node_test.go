@@ -79,11 +79,11 @@ func startNode(t *testing.T) *node {
 		"firecracker": map[string]any{
 			"binary": firecracker, "binary_sha256": os.Getenv(envFirecrackerSHA),
 			"kernel": kernel, "kernel_sha256": os.Getenv(envKernelSHA),
-			"initrd": guestInitrd,
+			"initrd": guestInitrd, "initrd_sha256": os.Getenv(envGuestInitrdSHA),
 		},
 		"conversion": map[string]any{
 			"kernel": kernel, "kernel_sha256": os.Getenv(envKernelSHA),
-			"initrd":    converterInitrd,
+			"initrd": converterInitrd, "initrd_sha256": os.Getenv(envConverterSHA),
 			"converter": "e2e-converter",
 			"vcpus":     2, "memory_bytes": 512 << 20,
 			"output_bytes": 256 << 20, "name_set_bytes": 1 << 20,

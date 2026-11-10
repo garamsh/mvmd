@@ -17,17 +17,19 @@ const (
 	envMvmd            = "MVMD_E2E_MVMD"
 	envSupervisor      = "MVMD_E2E_SUPERVISOR"
 	envConverterInitrd = "MVMD_E2E_CONVERTER_INITRD"
+	envConverterSHA    = "MVMD_E2E_CONVERTER_INITRD_SHA256"
 	envFirecracker     = "MVMD_FIRECRACKER"
 	envFirecrackerSHA  = "MVMD_FIRECRACKER_SHA256"
 	envKernel          = "MVMD_KERNEL"
 	envKernelSHA       = "MVMD_KERNEL_SHA256"
 	envGuestInitrd     = "MVMD_INITRD"
+	envGuestInitrdSHA  = "MVMD_INITRD_SHA256"
 	envFsckErofs       = "FSCK_EROFS"
 )
 
 var requiredInputs = []string{
 	envMvmd, envSupervisor, envConverterInitrd, envFirecracker, envFirecrackerSHA,
-	envKernel, envKernelSHA, envGuestInitrd, envFsckErofs,
+	envKernel, envKernelSHA, envGuestInitrd, envGuestInitrdSHA, envConverterSHA, envFsckErofs,
 }
 
 // TestMain checks the inputs, then runs the tests as root. The daemon starts supervisors, makes

@@ -55,7 +55,7 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 // returned, wherever the Snapshot Store holds them now, and are told apart by
 // name. The VMM sees them read-only in machine.InSnapshotDir, and the Machine's
 // own devices at their fixed paths as at boot. It is given no kernel, which a
-// restored guest has already loaded, but it is given the initrd: Cloud
+// restored guest has already loaded, but it is given the initrd, with its digest: Cloud
 // Hypervisor opens the initramfs its snapshot's configuration names before it
 // restores (ADR 0027), and never loads it. The restore is the process's own
 // command line, so Restore only waits for it.
