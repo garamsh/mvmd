@@ -235,7 +235,7 @@ func (a *App) Serve(ctx context.Context) error {
 	if err := a.images.service.Sweep(ctx); err != nil {
 		return fmt.Errorf("sweep the Image Store: %w", err)
 	}
-	if err := error(nil); err != nil {
+	if err := a.machines.Restore(ctx); err != nil {
 		return fmt.Errorf("restore the Machines: %w", err)
 	}
 	if err := a.deadline.Reconcile(ctx, a.machines); err != nil {

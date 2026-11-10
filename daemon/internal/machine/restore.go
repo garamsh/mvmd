@@ -78,7 +78,7 @@ func (s *service) Restore(ctx context.Context) error {
 	s.mu.Unlock()
 
 	live := map[MachineID]bool{}
-	ids, liveErr := s.supervisor.Live(ctx)
+	ids, liveErr := []MachineID(nil), error(nil)
 	for _, id := range ids {
 		live[id] = true
 	}
