@@ -35,6 +35,13 @@ func LockCount(s Service) int {
 	return len(svc.locks)
 }
 
+// KeyedLockCount returns how many snapshot locks and how many image locks the
+// service holds.
+func KeyedLockCount(s Service) (snapshots, images int) {
+	svc := s.(*service)
+	return svc.snapLocks.held(), svc.imageLocks.held()
+}
+
 // ObserveEnds runs one look for the VMMs that have ended, as Watch does on each
 // tick.
 func ObserveEnds(ctx context.Context, s Service) {

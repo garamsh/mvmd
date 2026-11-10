@@ -14,7 +14,7 @@ import (
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
-// Store is an in-memory image.Store. Its steps are "locate", "stage", "lend",
+// Store is an in-memory image.Store. Its steps are "locate", "list", "remove", "stage", "lend",
 // "reclaim", "put-layer", "seal", "record", "publish", "publish-sync",
 // "discard" and "sweep"; "publish-sync" fails after the index was replaced, as
 // the final sync of the adapter can. It holds the protocol of ADR 0007: a call
@@ -71,6 +71,39 @@ func (s *Store) Locate(_ context.Context, digest machine.ImageDigest) (machine.L
 	run.Command = slices.Clone(run.Command)
 	run.Env = maps.Clone(run.Env)
 	return machine.LocatedImage{Path: "/images/" + string(digest) + ".erofs", UUID: rec.UUID, Run: run}, nil
+}
+
+// List implements machine.ImageStore. Its step is "list".
+func (s *Store) List(context.Context) ([]machine.ImageDigest, error) {
+	if err := s.Enter("list"); err != nil {
+		return nil, err
+	}
+	return s.Listed(), nil
+}
+
+// Remove implements machine.ImageStore. Its step is "remove". It unlists the
+// image and deletes the blobs no remaining listed image reaches.
+func (s *Store) Remove(_ context.Context, digest machine.ImageDigest) error {
+	if err := s.Enter("remove"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	gone := s.reached[digest]
+	delete(s.listed, digest)
+	delete(s.reached, digest)
+	kept := make(map[string]bool)
+	for _, names := range s.reached {
+		for _, n := range names {
+			kept[n] = true
+		}
+	}
+	for _, n := range gone {
+		if !kept[n] {
+			delete(s.blobs, n)
+		}
+	}
+	return nil
 }
 
 // Stage implements image.Store.

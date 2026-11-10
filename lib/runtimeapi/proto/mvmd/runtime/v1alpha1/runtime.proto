@@ -46,6 +46,8 @@ service RuntimeService {
 
   // Images.
   rpc PullImage(PullImageRequest) returns (PullImageResponse);
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+  rpc RemoveImage(RemoveImageRequest) returns (RemoveImageResponse);
 
   // Snapshots.
   rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
@@ -541,6 +543,27 @@ message PullImageRequest {
 }
 
 message PullImageResponse {}
+
+// Image is what the node holds of one image, for a client to decide whether to
+// keep it.
+message Image {
+  // The digest the image was pulled by, in the form ImageRef.digest has.
+  string digest = 1;
+}
+
+message ListImagesRequest {}
+
+message ListImagesResponse {
+  // Ordered by digest.
+  repeated Image images = 1;
+}
+
+message RemoveImageRequest {
+  // The digest the image was pulled by, as ListImages reports it.
+  string digest = 1;
+}
+
+message RemoveImageResponse {}
 
 // Snapshot is what the node holds of one snapshot, for a client to decide
 // whether to keep it.

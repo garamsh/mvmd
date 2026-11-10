@@ -9,7 +9,8 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// ImageStore is an in-memory machine.ImageStore. Its step is "locate".
+// ImageStore is an in-memory machine.ImageStore. Its steps are "locate",
+// "list" and "remove".
 type ImageStore struct {
 	Failures
 
@@ -59,4 +60,25 @@ func (s *ImageStore) Locate(_ context.Context, image machine.ImageDigest) (machi
 	located.Run.Command = slices.Clone(located.Run.Command)
 	located.Run.Env = maps.Clone(located.Run.Env)
 	return located, nil
+}
+
+// List implements machine.ImageStore.
+func (s *ImageStore) List(context.Context) ([]machine.ImageDigest, error) {
+	if err := s.Enter("list"); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Sorted(maps.Keys(s.images)), nil
+}
+
+// Remove implements machine.ImageStore.
+func (s *ImageStore) Remove(_ context.Context, image machine.ImageDigest) error {
+	if err := s.Enter("remove"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.images, image)
+	return nil
 }

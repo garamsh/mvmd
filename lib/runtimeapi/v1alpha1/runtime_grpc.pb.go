@@ -47,6 +47,8 @@ const (
 	RuntimeService_SearchFiles_FullMethodName     = "/mvmd.runtime.v1alpha1.RuntimeService/SearchFiles"
 	RuntimeService_Console_FullMethodName         = "/mvmd.runtime.v1alpha1.RuntimeService/Console"
 	RuntimeService_PullImage_FullMethodName       = "/mvmd.runtime.v1alpha1.RuntimeService/PullImage"
+	RuntimeService_ListImages_FullMethodName      = "/mvmd.runtime.v1alpha1.RuntimeService/ListImages"
+	RuntimeService_RemoveImage_FullMethodName     = "/mvmd.runtime.v1alpha1.RuntimeService/RemoveImage"
 	RuntimeService_ListSnapshots_FullMethodName   = "/mvmd.runtime.v1alpha1.RuntimeService/ListSnapshots"
 	RuntimeService_DeleteSnapshot_FullMethodName  = "/mvmd.runtime.v1alpha1.RuntimeService/DeleteSnapshot"
 	RuntimeService_RenewDeadline_FullMethodName   = "/mvmd.runtime.v1alpha1.RuntimeService/RenewDeadline"
@@ -91,6 +93,8 @@ type RuntimeServiceClient interface {
 	Console(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsoleRequest, ConsoleResponse], error)
 	// Images.
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (*PullImageResponse, error)
+	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
+	RemoveImage(ctx context.Context, in *RemoveImageRequest, opts ...grpc.CallOption) (*RemoveImageResponse, error)
 	// Snapshots.
 	ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error)
 	DeleteSnapshot(ctx context.Context, in *DeleteSnapshotRequest, opts ...grpc.CallOption) (*DeleteSnapshotResponse, error)
@@ -390,6 +394,26 @@ func (c *runtimeServiceClient) PullImage(ctx context.Context, in *PullImageReque
 	return out, nil
 }
 
+func (c *runtimeServiceClient) ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListImagesResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_ListImages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeServiceClient) RemoveImage(ctx context.Context, in *RemoveImageRequest, opts ...grpc.CallOption) (*RemoveImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveImageResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_RemoveImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runtimeServiceClient) ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListSnapshotsResponse)
@@ -468,6 +492,8 @@ type RuntimeServiceServer interface {
 	Console(grpc.BidiStreamingServer[ConsoleRequest, ConsoleResponse]) error
 	// Images.
 	PullImage(context.Context, *PullImageRequest) (*PullImageResponse, error)
+	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
+	RemoveImage(context.Context, *RemoveImageRequest) (*RemoveImageResponse, error)
 	// Snapshots.
 	ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error)
 	DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*DeleteSnapshotResponse, error)
@@ -558,6 +584,12 @@ func (UnimplementedRuntimeServiceServer) Console(grpc.BidiStreamingServer[Consol
 }
 func (UnimplementedRuntimeServiceServer) PullImage(context.Context, *PullImageRequest) (*PullImageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PullImage not implemented")
+}
+func (UnimplementedRuntimeServiceServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListImages not implemented")
+}
+func (UnimplementedRuntimeServiceServer) RemoveImage(context.Context, *RemoveImageRequest) (*RemoveImageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveImage not implemented")
 }
 func (UnimplementedRuntimeServiceServer) ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSnapshots not implemented")
@@ -999,6 +1031,42 @@ func _RuntimeService_PullImage_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RuntimeService_ListImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListImagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).ListImages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_ListImages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).ListImages(ctx, req.(*ListImagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RuntimeService_RemoveImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).RemoveImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_RemoveImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).RemoveImage(ctx, req.(*RemoveImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RuntimeService_ListSnapshots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListSnapshotsRequest)
 	if err := dec(in); err != nil {
@@ -1157,6 +1225,14 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PullImage",
 			Handler:    _RuntimeService_PullImage_Handler,
+		},
+		{
+			MethodName: "ListImages",
+			Handler:    _RuntimeService_ListImages_Handler,
+		},
+		{
+			MethodName: "RemoveImage",
+			Handler:    _RuntimeService_RemoveImage_Handler,
 		},
 		{
 			MethodName: "ListSnapshots",
