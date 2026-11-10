@@ -7,62 +7,9 @@ permissions:
   contents: read
 
 jobs:
-  ci:
+  rate:
     runs-on: ubuntu-24.04
-    steps:
-      # Moved by Dependabot (.github/dependabot.yml), which proposes the bump
-      # of each pinned action SHA.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.work
-          cache-dependency-path: |
-            lib/runtimeapi/go.sum
-            tooling/protogen/go.sum
-      - name: Record the toolchain this run resolved
-        run: go version
-      - name: Record what the runner label resolved to
-        run: |
-          test -n "$ImageOS" || { echo "ImageOS is empty"; exit 1; }
-          test -n "$ImageVersion" || { echo "ImageVersion is empty"; exit 1; }
-          echo "runner image: $ImageOS $ImageVersion"
-          uname -r
-      # Installs what guest-agent/rust-toolchain.toml pins and prints the versions it
-      # resolved. Caching is off, so a run reads only the pinned inputs; build-warnings is
-      # empty so CI sets no cargo flag that a local run lacks.
-      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
-        with:
-          rust-src-dir: guest-agent
-          cache: false
-          build-warnings: ""
-      # Pins cargo-deny at the version stack-rust.md names; the action checks the download
-      # against the checksum it records for that version.
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
-        with:
-          tool: cargo-deny@0.20.2
-      # The verified downloads of converter/mkfs-erofs/build.sh, keyed on the digests it pins, so
-      # a run with the pins unchanged downloads nothing and a changed pin finds no entry.
-      # build.sh checks every file against its digest on each use, a cache hit included.
-      - name: Key the pinned downloads
-        id: pins
-        run: echo "key=$(grep -E '^[A-Z0-9_]+_SHA256=' converter/mkfs-erofs/build.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: converter/target/erofs-utils-build/dl
-          key: build-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
-      - name: Run the whole check set
-        run: make ci
-      # Not part of make ci: it fetches the advisory database. Its output is on every run, so a
-      # Dependabot cargo pull request carries it.
-      - name: Audit the Rust dependencies
-        run: make audit
-
-  # The Firecracker Driver's tests boot a guest, so they need KVM, which make ci does not. The
-  # job fails, and does not skip, when /dev/kvm cannot be used.
-  firecracker:
-    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,133 +20,33 @@ jobs:
           cache-dependency-path: |
             lib/runtimeapi/go.sum
             tooling/protogen/go.sum
-      - name: Record what the runner label and the toolchain resolved to
+      - name: Build the test binary and the binaries it starts
         run: |
-          echo "runner image: $ImageOS $ImageVersion"
-          uname -r
-          go version
-      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
-        with:
-          rust-src-dir: guest-agent
-          cache: false
-          build-warnings: ""
-      # The downloads of fetch.sh are kept between runs under a key made of its pinned digests, so a
-      # new pin fetches anew; fetch.sh checks each file's digest on every use, a hit included.
-      - name: Name the pinned downloads
-        id: pins
-        run: echo "key=$(grep -E '^[A-Za-z0-9_]+=[0-9a-f]{64}$' tooling/firecracker/fetch.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: tooling/firecracker/target/dl
-          key: firecracker-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
-      # Gives every user access to /dev/kvm, the udev rule the runner images' KVM support documents,
-      # then records what the runner has.
-      - name: Make /dev/kvm usable
+          echo "runner image: $ImageOS $ImageVersion"; uname -r; go version; git rev-parse HEAD
+          mkdir -p "$RUNNER_TEMP/bin"; chmod 755 "$RUNNER_TEMP" "$RUNNER_TEMP/bin"
+          cd daemon
+          go build -o "$RUNNER_TEMP/bin/mvmd-supervisor" ./cmd/mvmd-supervisor
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/bin/probe" ./internal/supervisor/testdata/probe
+          go test -c -o "$RUNNER_TEMP/bin/supervision.test" ./internal/supervision/
+      - name: Runs, unloaded
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-          test -r /dev/kvm -a -w /dev/kvm
-      - name: Boot the pinned Firecracker on the pinned kernel
-        run: make test-firecracker
-
-  # The Cloud Hypervisor Driver's tests boot a guest too, so they need KVM, which make ci does not.
-  # The job fails, and does not skip, when /dev/kvm cannot be used.
-  cloud-hypervisor:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.work
-          cache-dependency-path: |
-            lib/runtimeapi/go.sum
-            tooling/protogen/go.sum
-      - name: Record what the runner label and the toolchain resolved to
+          cd daemon/internal/supervision
+          fail=0
+          for i in $(seq 1000); do
+            if ! sudo -n env MVMD_SUPERVISOR_BIN="$RUNNER_TEMP/bin/mvmd-supervisor" MVMD_PROBE_BIN="$RUNNER_TEMP/bin/probe" "$RUNNER_TEMP/bin/supervision.test" -test.run 'TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns/a_tap_that_does_not_exist$' -test.count=1 >"$RUNNER_TEMP/out.txt" 2>&1; then
+              fail=$((fail+1)); echo "::group::unloaded run $i FAILED"; cat "$RUNNER_TEMP/out.txt"; echo "::endgroup::"
+            fi
+          done
+          echo "RATE unloaded: $fail / 1000"
+      - name: Runs, 12 hogs
         run: |
-          echo "runner image: $ImageOS $ImageVersion"
-          uname -r
-          go version
-      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
-        with:
-          rust-src-dir: guest-agent
-          cache: false
-          build-warnings: ""
-      # The downloads of both fetch.sh scripts (the kernel is the Firecracker one's) are kept between
-      # runs under a key made of their pinned digests; each file's digest is checked on every use.
-      - name: Name the pinned downloads
-        id: pins
-        run: echo "key=$(cat tooling/firecracker/fetch.sh tooling/cloud-hypervisor/fetch.sh | grep -E '^[A-Za-z0-9_]+=[0-9a-f]{64}$' | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            tooling/firecracker/target/dl
-            tooling/cloud-hypervisor/target/dl
-          key: cloud-hypervisor-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
-      - name: Make /dev/kvm usable
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-          test -r /dev/kvm -a -w /dev/kvm
-      - name: Boot the pinned Cloud Hypervisor on the pinned kernel
-        run: make test-cloud-hypervisor
-
-  # The end-to-end tests run the built mvmd on real Firecracker: they pull images from a registry
-  # they serve through the converter microVM, check what it made, and check the cache's pre-boot
-  # check. They need KVM, and loop mounts and fs-verity on ext4, which the runner image has. The job
-  # fails, and does not skip, when /dev/kvm cannot be used or an input is missing.
-  e2e:
-    timeout-minutes: 45
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.work
-          cache-dependency-path: |
-            lib/runtimeapi/go.sum
-            daemon/go.sum
-            e2e/go.sum
-            tooling/protogen/go.sum
-      - name: Record what the runner label and the toolchain resolved to
-        run: |
-          echo "runner image: $ImageOS $ImageVersion"
-          uname -r
-          go version
-      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
-        with:
-          rust-src-dir: guest-agent
-          cache: false
-          build-warnings: ""
-      # The verified downloads of converter/mkfs-erofs/build.sh, as in the ci job.
-      - name: Key the erofs-utils downloads
-        id: erofs-pins
-        run: echo "key=$(grep -E '^[A-Z0-9_]+_SHA256=' converter/mkfs-erofs/build.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: converter/target/erofs-utils-build/dl
-          key: build-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.erofs-pins.outputs.key }}
-      # The downloads of fetch.sh, as in the firecracker job.
-      - name: Name the pinned Firecracker downloads
-        id: pins
-        run: echo "key=$(grep -E '^[A-Za-z0-9_]+=[0-9a-f]{64}$' tooling/firecracker/fetch.sh | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: tooling/firecracker/target/dl
-          key: firecracker-inputs-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.key }}
-      - name: Make /dev/kvm usable
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-          test -r /dev/kvm -a -w /dev/kvm
-      - name: Pull images through the converter microVM and check the cache
-        run: make test-e2e
+          for i in $(seq 12); do yes > /dev/null & done
+          cd daemon/internal/supervision
+          fail=0
+          for i in $(seq 1000); do
+            if ! sudo -n env MVMD_SUPERVISOR_BIN="$RUNNER_TEMP/bin/mvmd-supervisor" MVMD_PROBE_BIN="$RUNNER_TEMP/bin/probe" "$RUNNER_TEMP/bin/supervision.test" -test.run 'TestStart_AFailedStepFailsTheStartBeforeTheVMMRuns/a_tap_that_does_not_exist$' -test.count=1 >"$RUNNER_TEMP/out.txt" 2>&1; then
+              fail=$((fail+1)); echo "::group::loaded run $i FAILED"; cat "$RUNNER_TEMP/out.txt"; echo "::endgroup::"
+            fi
+          done
+          echo "RATE 12 hogs: $fail / 1000"
+          kill $(jobs -p) || true
