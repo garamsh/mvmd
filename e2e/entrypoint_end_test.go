@@ -49,14 +49,8 @@ func TestE2E_AnEntrypointThatEndsStopsTheMachineWithItsExitCode(t *testing.T) {
 	// code comes from the agent's line in the log of the VMM that has ended.
 	readCtx, cancelRead := context.WithTimeout(ctx, time.Minute)
 	defer cancelRead()
-	stream, err := n.client.ReadExecOutput(readCtx, &v1alpha2.ReadExecOutputRequest{MachineId: "ends", ExecId: "entrypoint"})
-	require.NoError(t, err)
-	var record *v1alpha2.ExecRecord
-	for record == nil {
-		part, err := stream.Recv()
-		require.NoError(t, err, "the entrypoint's record of an ended Machine")
-		record = part.GetRecord()
-	}
+	record, err := v1alpha2.ReadExecOutput(readCtx, n.client, "ends", "entrypoint", 0, func(*v1alpha2.OutputChunk) error { return nil })
+	require.NoError(t, err, "the entrypoint's record of an ended Machine")
 	assert.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
 	assert.Equal(t, int32(7), record.ExitCode)
 }
