@@ -85,8 +85,13 @@ func startNode(t *testing.T) *node {
 		"disk":      map[string]any{"mkfs": mkfsExt4()},
 		driver.section: map[string]any{
 			"binary": binary, "binary_sha256": os.Getenv(driver.binarySHAEnv),
-			"kernel": kernel, "kernel_sha256": os.Getenv(envKernelSHA),
-			"initrd": guestInitrd, "initrd_sha256": os.Getenv(envGuestInitrdSHA),
+			// Two names for the one CI kernel file: the tests tell the default from the other.
+			"kernels": map[string]any{
+				"default":   map[string]any{"path": kernel, "sha256": os.Getenv(envKernelSHA)},
+				"alternate": map[string]any{"path": kernel, "sha256": os.Getenv(envKernelSHA)},
+			},
+			"default_kernel": "default",
+			"initrd":         guestInitrd, "initrd_sha256": os.Getenv(envGuestInitrdSHA),
 		},
 		"conversion": map[string]any{
 			"kernel": kernel, "kernel_sha256": os.Getenv(envKernelSHA),
