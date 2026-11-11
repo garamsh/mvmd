@@ -40,6 +40,7 @@ func TestE2E_SignalExecEndsTheCommandItNamesAndNoOther(t *testing.T) {
 	// A command that was not ended never ends its output, so the read is bounded.
 	out, record := n.execEnd(t, ctx, "signalled", "victim")
 	assert.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
+	assert.Equal(t, int32(sigkill), record.TermSignal, "the record names the signal that ended the command")
 	assert.Equal(t, "hello from the entrypoint\n", out, "the command ran before the signal ended it")
 
 	// The signal succeeds only for a command that runs, so the bystander ran until now.

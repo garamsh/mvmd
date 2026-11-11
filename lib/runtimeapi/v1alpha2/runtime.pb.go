@@ -3335,7 +3335,10 @@ type ExecRecord struct {
 	// Why the command did not start or was cut short.
 	Reason string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
 	// The command's exit code; meaningful only when status is EXITED.
-	ExitCode      int32 `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	ExitCode int32 `protobuf:"varint,4,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	// The signal number that ended the command, as on Linux; set only when
+	// status is EXITED and a signal ended the command, zero otherwise.
+	TermSignal    int32 `protobuf:"varint,5,opt,name=term_signal,json=termSignal,proto3" json:"term_signal,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3394,6 +3397,13 @@ func (x *ExecRecord) GetReason() string {
 func (x *ExecRecord) GetExitCode() int32 {
 	if x != nil {
 		return x.ExitCode
+	}
+	return 0
+}
+
+func (x *ExecRecord) GetTermSignal() int32 {
+	if x != nil {
+		return x.TermSignal
 	}
 	return 0
 }
@@ -5556,13 +5566,15 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x06driver\x18\x05 \x01(\v2\".mvmd.runtime.v1alpha2.DriverEventH\x00R\x06driver\x12P\n" +
 	"\x0fresync_required\x18\x06 \x01(\v2%.mvmd.runtime.v1alpha2.ResyncRequiredH\x00R\x0eresyncRequired\x12P\n" +
 	"\x0fmachine_deleted\x18\a \x01(\v2%.mvmd.runtime.v1alpha2.MachineDeletedH\x00R\x0emachineDeletedB\a\n" +
-	"\x05event\"\x95\x01\n" +
+	"\x05event\"\xb6\x01\n" +
 	"\n" +
 	"ExecRecord\x12\x17\n" +
 	"\aexec_id\x18\x01 \x01(\tR\x06execId\x129\n" +
 	"\x06status\x18\x02 \x01(\x0e2!.mvmd.runtime.v1alpha2.ExecStatusR\x06status\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x1b\n" +
-	"\texit_code\x18\x04 \x01(\x05R\bexitCode\"\x96\x02\n" +
+	"\texit_code\x18\x04 \x01(\x05R\bexitCode\x12\x1f\n" +
+	"\vterm_signal\x18\x05 \x01(\x05R\n" +
+	"termSignal\"\x96\x02\n" +
 	"\vExecRequest\x12\x17\n" +
 	"\aexec_id\x18\x01 \x01(\tR\x06execId\x12\x1d\n" +
 	"\n" +
