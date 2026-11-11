@@ -11,7 +11,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-var allCaps = []machine.Capability{machine.CapabilitySnapshot, machine.CapabilityDiskHotplug, machine.CapabilityResize}
+var allCaps = []machine.Capability{machine.CapabilitySnapshot, machine.CapabilityDiskHotplug, machine.CapabilityCPUResize, machine.CapabilityMemoryResize}
 
 // acceptedCall is one state-changing call, with the state it starts from, the
 // step of a substitute it is held at, and what it must reach.

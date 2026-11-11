@@ -140,10 +140,11 @@ func status(err error) error {
 // it. A capability with no entry would be dropped from the runtime info, so a
 // test fails for one.
 var wireCapabilities = map[machine.Capability][]v1alpha2.Capability{
-	machine.CapabilitySnapshot:    {v1alpha2.Capability_CAPABILITY_SNAPSHOT},
-	machine.CapabilityConsole:     {v1alpha2.Capability_CAPABILITY_CONSOLE},
-	machine.CapabilityDiskHotplug: {v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG},
-	machine.CapabilityResize:      {v1alpha2.Capability_CAPABILITY_CPU_RESIZE, v1alpha2.Capability_CAPABILITY_MEMORY_RESIZE},
+	machine.CapabilitySnapshot:     {v1alpha2.Capability_CAPABILITY_SNAPSHOT},
+	machine.CapabilityConsole:      {v1alpha2.Capability_CAPABILITY_CONSOLE},
+	machine.CapabilityDiskHotplug:  {v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG},
+	machine.CapabilityCPUResize:    {v1alpha2.Capability_CAPABILITY_CPU_RESIZE},
+	machine.CapabilityMemoryResize: {v1alpha2.Capability_CAPABILITY_MEMORY_RESIZE},
 }
 
 func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest) (*v1alpha2.GetRuntimeInfoResponse, error) {

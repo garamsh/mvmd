@@ -503,7 +503,7 @@ func TestSetResources_Needs(t *testing.T) {
 			assert.Equal(t, baseSpec().Resources, e.requireState(t, "m", state).Resources)
 			assert.Zero(t, e.driver.Calls("resize"))
 
-			with := newEnv(machine.CapabilityResize)
+			with := newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 			with.inState(t, "m", state)
 			if state == machine.StateRunning {
 				require.NoError(t, with.svc.SetResources(ctx, "m", smaller, machine.Resources{}))
@@ -524,7 +524,7 @@ func TestSetResources_Needs(t *testing.T) {
 	})
 
 	t.Run("an absolute target with CPU and memory", func(t *testing.T) {
-		e := newEnv(machine.CapabilityResize)
+		e := newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 		e.created(t, "m")
 		requireKind(t, e.svc.SetResources(ctx, "m", machine.Resources{MemoryBytes: 1}, machine.Resources{}), machine.ErrInvalid)
 		requireKind(t, e.svc.SetResources(ctx, "m", machine.Resources{VCPUs: 1}, machine.Resources{}), machine.ErrInvalid)
@@ -539,7 +539,7 @@ func TestSetResources_OnSuccess(t *testing.T) {
 	target := machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}
 
 	t.Run("a Running Machine is resized by the Driver", func(t *testing.T) {
-		e := newEnv(machine.CapabilityResize)
+		e := newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 		e.ceiling = target
 		e.inState(t, "m", machine.StateRunning)
 		require.NoError(t, e.svc.SetResources(ctx, "m", target, machine.Resources{}))
@@ -563,7 +563,7 @@ func TestSetResources_OnSuccess(t *testing.T) {
 func TestSetResources_Repeat(t *testing.T) {
 	ctx := context.Background()
 	target := machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}
-	e := newEnv(machine.CapabilityResize)
+	e := newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 	e.ceiling = target
 	e.inState(t, "m", machine.StateRunning)
 	require.NoError(t, e.svc.SetResources(ctx, "m", target, machine.Resources{}))
@@ -584,7 +584,7 @@ func TestSetResources_StateAfterFailure(t *testing.T) {
 	target := machine.Resources{VCPUs: 4, MemoryBytes: 1 << 30}
 
 	t.Run("the Driver fails and inspect shows the prior value", func(t *testing.T) {
-		e := newEnv(machine.CapabilityResize)
+		e := newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 		e.ceiling = target
 		e.inState(t, "m", machine.StateRunning)
 		e.driver.FailAt("resize", errBoom)

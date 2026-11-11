@@ -117,7 +117,7 @@ func New(cfg Config) (*App, error) {
 	sub := &Substitutes{
 		Driver: machinememory.NewDriver(machine.DriverInfo{
 			Name: "memory", Version: "1", CPUModel: "memory-cpu",
-			Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize, machine.CapabilitySnapshot},
+			Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityCPUResize, machine.CapabilityMemoryResize, machine.CapabilitySnapshot},
 		}),
 		Network:     machinememory.NewNetwork(),
 		Disks:       machinememory.NewDisk(),

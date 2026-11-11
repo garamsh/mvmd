@@ -63,7 +63,7 @@ func newEnv(caps ...machine.Capability) *env {
 	return e
 }
 
-var hotplugAndResize = []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityResize}
+var hotplugAndResize = []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityCPUResize, machine.CapabilityMemoryResize}
 
 func baseSpec() machine.Spec {
 	return machine.Spec{

@@ -262,5 +262,6 @@ func TestResize_RefusesAndNamesWhyV1170CannotAndSendsNothing(t *testing.T) {
 		assert.Contains(t, err.Error(), reason)
 	}
 	assert.Empty(t, since(f, before), "the VMM was asked nothing")
-	assert.NotContains(t, n.driver.Info().Capabilities, machine.CapabilityResize, "Info does not report what is refused")
+	assert.NotContains(t, n.driver.Info().Capabilities, machine.CapabilityCPUResize, "Info does not report what is refused")
+	assert.NotContains(t, n.driver.Info().Capabilities, machine.CapabilityMemoryResize, "Info does not report what is refused")
 }
