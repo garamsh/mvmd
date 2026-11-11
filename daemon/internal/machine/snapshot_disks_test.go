@@ -148,7 +148,7 @@ func TestRestoreSnapshot_TakesTheRecordedDisks(t *testing.T) {
 			require.NoError(t, e.svc.AttachDisk(ctx, "other", rw("d2")))
 		}, "held"},
 		{"changed in its modification time", func(e *env) { e.disks.Write("d2", 8192) }, "changed"},
-		{"changed in its size", func(e *env) { e.disks.Write("d2", 8193) }, "changed"},
+		{"changed in its size", func(e *env) { e.disks.Resize("d2", 8193) }, "changed"},
 	} {
 		t.Run("a disk that is "+tt.name+" refuses the restore and creates nothing", func(t *testing.T) {
 			e := snapshottedWithDisks(t)

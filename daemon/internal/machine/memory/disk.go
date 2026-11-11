@@ -46,6 +46,14 @@ func (d *Disk) Write(disk machine.DiskID, size uint64) {
 	d.written[disk] = d.written[disk].Add(time.Second)
 }
 
+// Resize changes the size of the disk's file and leaves its modification time,
+// as a file whose clock a writer set back would.
+func (d *Disk) Resize(disk machine.DiskID, size uint64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.disks[disk] = size
+}
+
 // Stat implements machine.Disk.
 func (d *Disk) Stat(_ context.Context, disk machine.DiskID) (machine.DiskFile, error) {
 	if err := d.Enter("stat"); err != nil {
