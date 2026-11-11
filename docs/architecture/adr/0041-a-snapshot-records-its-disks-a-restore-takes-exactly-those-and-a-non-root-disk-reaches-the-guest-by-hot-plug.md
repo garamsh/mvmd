@@ -1,6 +1,6 @@
 # ADR 0041: A snapshot records its disks, a restore takes exactly those, and a non-root disk reaches the guest by hot-plug
 
-> Status: accepted
+> Status: accepted; decision 3 superseded by [ADR 0042](./0042-the-supervisor-links-the-files-a-process-description-lists-into-the-run-directory-before-the-vmm-starts.md)
 > Date: 2026-11-11
 
 Append-only: once merged, the body below is not rewritten. A fact later found wrong is corrected in an appended note, not edited out; a revised decision is a new ADR that supersedes this one.
