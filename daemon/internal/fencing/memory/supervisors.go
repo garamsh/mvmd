@@ -11,7 +11,7 @@ import (
 )
 
 // Supervisors is an in-memory fencing.Supervisors. Its steps are "start",
-// "set-expiry", "terminate" and "live"; "set-expiry:<id>" and "terminate:<id>"
+// "set-expiry", "terminate", "live", "remove-state" and "list-state"; "set-expiry:<id>" and "terminate:<id>"
 // name one Machine's supervisor.
 type Supervisors struct {
 	machinememory.Failures
@@ -19,6 +19,7 @@ type Supervisors struct {
 	mu    sync.Mutex
 	store *DeadlineStore
 	live  map[machine.MachineID]held
+	state map[machine.MachineID]bool
 }
 
 type held struct {
@@ -31,7 +32,7 @@ type held struct {
 // store: any expiry a supervisor takes that is later than the recorded one is
 // a violation of the store. With a nil store nothing is checked.
 func NewSupervisors(store *DeadlineStore) *Supervisors {
-	s := &Supervisors{store: store, live: make(map[machine.MachineID]held)}
+	s := &Supervisors{store: store, live: make(map[machine.MachineID]held), state: make(map[machine.MachineID]bool)}
 	if store != nil {
 		store.mu.Lock()
 		store.supervisor = s
@@ -53,6 +54,7 @@ func (s *Supervisors) Start(_ context.Context, id machine.MachineID, process mac
 	s.check("start of "+string(id), expiry)
 	s.mu.Lock()
 	s.live[id] = held{expiry: expiry, process: process, user: user}
+	s.state[id] = true
 	s.mu.Unlock()
 	return nil
 }
@@ -103,6 +105,35 @@ func (s *Supervisors) Live(context.Context) ([]fencing.Supervisor, error) {
 	var out []fencing.Supervisor
 	for id, h := range s.live {
 		out = append(out, fencing.Supervisor{Machine: id, Expiry: h.expiry})
+	}
+	return out, nil
+}
+
+// RemoveState implements fencing.Supervisors. It refuses a Machine whose
+// supervisor is live, as the real adapter does.
+func (s *Supervisors) RemoveState(_ context.Context, id machine.MachineID) error {
+	if err := s.Enter("remove-state"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.live[id]; ok {
+		return fmt.Errorf("the supervisor of %q is running", id)
+	}
+	delete(s.state, id)
+	return nil
+}
+
+// ListState implements fencing.Supervisors.
+func (s *Supervisors) ListState(context.Context) ([]machine.MachineID, error) {
+	if err := s.Enter("list-state"); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []machine.MachineID
+	for id := range s.state {
+		out = append(out, id)
 	}
 	return out, nil
 }

@@ -143,6 +143,17 @@ func (s *service) Live(ctx context.Context) ([]machine.MachineID, error) {
 	return ids, nil
 }
 
+// RemoveState removes the Machine's state directory. Like Terminate it holds
+// no expiry, so it is not ordered against renewals.
+func (s *service) RemoveState(ctx context.Context, id machine.MachineID) error {
+	return s.sup.RemoveState(ctx, id)
+}
+
+// ListState lists the Machines that have a state directory.
+func (s *service) ListState(ctx context.Context) ([]machine.MachineID, error) {
+	return s.sup.ListState(ctx)
+}
+
 // Terminate forces the Machine's supervisor and VMM down. It is not ordered
 // against renewals: a supervisor that is gone holds no expiry.
 func (s *service) Terminate(ctx context.Context, id machine.MachineID) error {

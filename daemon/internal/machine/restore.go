@@ -114,7 +114,27 @@ func (s *service) Restore(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	return errors.Join(append(errs, s.reconcileDisks(ctx), s.reconcileOwners(ctx), s.reconcileNetwork(ctx))...)
+	return errors.Join(append(errs, s.sweepState(ctx), s.reconcileDisks(ctx), s.reconcileOwners(ctx), s.reconcileNetwork(ctx))...)
+}
+
+// sweepState removes the state kept for each Machine the State Store does not
+// hold, so that no state outlives the Machine it belonged to. A supervisor
+// that still lives was ended above; one that cannot be ended is reported.
+func (s *service) sweepState(ctx context.Context) error {
+	ids, err := s.supervisor.ListState(ctx)
+	if err != nil {
+		return fmt.Errorf("list the state kept on the host: %w", err)
+	}
+	var errs []error
+	for _, id := range ids {
+		if _, recorded := s.lookup(id); recorded {
+			continue
+		}
+		if err := s.supervisor.RemoveState(ctx, id); err != nil {
+			errs = append(errs, fmt.Errorf("remove the state of unrecorded Machine %q: %w", id, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // reconcileDisks brings each Running Machine's record of its disks into
