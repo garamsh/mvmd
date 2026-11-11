@@ -175,7 +175,7 @@ func (n *node) startListening(t *testing.T, ctx context.Context, machine string,
 		command = append(command, fmt.Sprint(port))
 		want = append(want, fmt.Sprintf("listening %d\n", port))
 	}
-	const id = "listener"
+	id := "listener-" + machine
 	started, err := n.client.Exec(ctx, &v1alpha2.ExecRequest{ExecId: id, RequestId: "exec-" + id, MachineId: machine, Command: command})
 	require.NoError(t, err)
 	require.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_STARTED, started.Record.Status, started.Record.Reason)
