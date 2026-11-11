@@ -2,8 +2,13 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 )
+
+// ErrNoFreeAddress is what Network.Allocate returns, wrapped, when a prefix the
+// node serves has no address left. It holds nothing.
+var ErrNoFreeAddress = errors.New("the prefix has no free address")
 
 // NetworkIdentity is what mvmd assigns a Machine for its life: its guest MAC
 // and one address per family the node serves.
@@ -25,7 +30,8 @@ func (n NetworkIdentity) guestNetwork() GuestNetwork {
 type Network interface {
 	// Allocate assigns the Machine's addresses and its MAC. A non-empty mac is
 	// the one to assign, which a Machine restored from a snapshot keeps because
-	// its guest does; empty means choose one.
+	// its guest does; empty means choose one. A prefix with no free address is
+	// ErrNoFreeAddress, and nothing is assigned.
 	Allocate(ctx context.Context, id MachineID, mac string) (NetworkIdentity, error)
 	// Apply creates the Machine's tap if absent, owned by the Machine's VMM
 	// user so that the VMM attaches without privilege (ADR 0011), and commits

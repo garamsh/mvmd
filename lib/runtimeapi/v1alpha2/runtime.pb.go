@@ -2804,7 +2804,8 @@ func (x *DriverLimits) GetMaxVcpus() uint32 {
 
 // NodeCapacity is what the node has, as totals it measures. It is not what is
 // left after the Machines' share: a client derives that from List, which
-// reports each Machine's resources. mvmd admits no call by these figures.
+// reports each Machine's resources. mvmd admits no call by the measured
+// figures; machine_limit is a configured count, which a call finds spent.
 type NodeCapacity struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The logical CPUs the node's processes may run on, as the kernel's
@@ -2819,8 +2820,15 @@ type NodeCapacity struct {
 	// The bytes of that filesystem available to an unprivileged process: statfs
 	// f_bavail times f_frsize, read at each call.
 	StateAvailableBytes uint64 `protobuf:"varint,4,opt,name=state_available_bytes,json=stateAvailableBytes,proto3" json:"state_available_bytes,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The most Machines the node can hold: the smaller of the node's VMM user
+	// range and, for each IP family the node serves, the addresses its prefix has
+	// to assign. It is the node's configuration, not a measurement. A Create
+	// machine or Restore that would pass it is PRECONDITION_FAILED.
+	MachineLimit uint32 `protobuf:"varint,5,opt,name=machine_limit,json=machineLimit,proto3" json:"machine_limit,omitempty"`
+	// The Machines the node holds: the ones List machines returns.
+	Machines      uint32 `protobuf:"varint,6,opt,name=machines,proto3" json:"machines,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeCapacity) Reset() {
@@ -2877,6 +2885,20 @@ func (x *NodeCapacity) GetStateTotalBytes() uint64 {
 func (x *NodeCapacity) GetStateAvailableBytes() uint64 {
 	if x != nil {
 		return x.StateAvailableBytes
+	}
+	return 0
+}
+
+func (x *NodeCapacity) GetMachineLimit() uint32 {
+	if x != nil {
+		return x.MachineLimit
+	}
+	return 0
+}
+
+func (x *NodeCapacity) GetMachines() uint32 {
+	if x != nil {
+		return x.Machines
 	}
 	return 0
 }
@@ -5946,12 +5968,14 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\tcpu_model\x18\x03 \x01(\tR\bcpuModel\x12;\n" +
 	"\x06limits\x18\x04 \x01(\v2#.mvmd.runtime.v1alpha2.DriverLimitsR\x06limits\"+\n" +
 	"\fDriverLimits\x12\x1b\n" +
-	"\tmax_vcpus\x18\x01 \x01(\rR\bmaxVcpus\"\xa5\x01\n" +
+	"\tmax_vcpus\x18\x01 \x01(\rR\bmaxVcpus\"\xe6\x01\n" +
 	"\fNodeCapacity\x12\x12\n" +
 	"\x04cpus\x18\x01 \x01(\rR\x04cpus\x12!\n" +
 	"\fmemory_bytes\x18\x02 \x01(\x04R\vmemoryBytes\x12*\n" +
 	"\x11state_total_bytes\x18\x03 \x01(\x04R\x0fstateTotalBytes\x122\n" +
-	"\x15state_available_bytes\x18\x04 \x01(\x04R\x13stateAvailableBytes\"W\n" +
+	"\x15state_available_bytes\x18\x04 \x01(\x04R\x13stateAvailableBytes\x12#\n" +
+	"\rmachine_limit\x18\x05 \x01(\rR\fmachineLimit\x12\x1a\n" +
+	"\bmachines\x18\x06 \x01(\rR\bmachines\"W\n" +
 	"\n" +
 	"NodeKernel\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +

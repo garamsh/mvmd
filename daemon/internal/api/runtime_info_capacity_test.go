@@ -15,9 +15,10 @@ import (
 )
 
 func TestGetRuntimeInfo_ReportsEachFigureOfTheNodesCapacity(t *testing.T) {
-	// Four different values, so a figure read into the wrong field fails.
+	// Six different values, so a figure read into the wrong field fails.
 	reader := capacitymemory.NewReader(nodecapacity.Capacity{
 		CPUs: 6, MemoryBytes: 17 << 30, StateTotalBytes: 500 << 30, StateAvailableBytes: 123 << 30,
+		MachineLimit: 250, Machines: 7,
 	})
 	srv := api.New(nil, nil, nil, nil, reader, nil)
 	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
@@ -28,6 +29,8 @@ func TestGetRuntimeInfo_ReportsEachFigureOfTheNodesCapacity(t *testing.T) {
 	assert.EqualValues(t, 17<<30, c.GetMemoryBytes())
 	assert.EqualValues(t, 500<<30, c.GetStateTotalBytes())
 	assert.EqualValues(t, 123<<30, c.GetStateAvailableBytes())
+	assert.EqualValues(t, 250, c.GetMachineLimit())
+	assert.EqualValues(t, 7, c.GetMachines())
 }
 
 func TestGetRuntimeInfo_ReadsTheCapacityAtEachCall(t *testing.T) {

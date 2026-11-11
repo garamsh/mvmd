@@ -82,6 +82,11 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	}
 
 	identity, err := s.network.Allocate(ctx, id, "")
+	if errors.Is(err, ErrNoFreeAddress) {
+		s.release(disks...)
+		s.uids.ReleaseMachine(id)
+		return fail(ErrPreconditionFailed, "allocate network: %v", err)
+	}
 	if err != nil {
 		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))

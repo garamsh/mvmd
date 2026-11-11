@@ -32,6 +32,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 	"github.com/garamsh/mvmd/daemon/internal/nodecapacity"
+	"github.com/garamsh/mvmd/daemon/internal/nodecapacity/held"
 	capacitymemory "github.com/garamsh/mvmd/daemon/internal/nodecapacity/memory"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
 )
@@ -128,6 +129,7 @@ func New(cfg Config) (*App, error) {
 		Capacity:    capacitymemory.NewReader(nodecapacity.Capacity{CPUs: 4, MemoryBytes: 8<<30 + 1, StateTotalBytes: 100<<30 + 1, StateAvailableBytes: 60<<30 + 1}),
 	}
 	var network machine.Network = sub.Network
+	machineLimit := cfg.VMMUIDRange.Count
 	if n := cfg.Network; n != nil {
 		hc, err := n.toHostnet(cfg.VMMUIDRange)
 		if err == nil {
@@ -135,6 +137,7 @@ func New(cfg Config) (*App, error) {
 		}
 		if err == nil {
 			network, err = hostnet.New(hc)
+			machineLimit = min(machineLimit, hc.MachineAddresses())
 		}
 		if err != nil {
 			_ = db.Close()
@@ -210,13 +213,17 @@ func New(cfg Config) (*App, error) {
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
 	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels))
 
+	machinesHeld := func() (uint32, error) {
+		all, err := machines.List(context.Background())
+		return uint32(len(all)), err
+	}
 	return &App{
 		cfg:         cfg,
 		db:          db,
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, capacity, log, api.WithKernels(kernels)),
+		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels)),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil

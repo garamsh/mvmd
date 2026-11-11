@@ -157,6 +157,7 @@ func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest
 		Capacity: &v1alpha2.NodeCapacity{
 			Cpus: have.CPUs, MemoryBytes: have.MemoryBytes,
 			StateTotalBytes: have.StateTotalBytes, StateAvailableBytes: have.StateAvailableBytes,
+			MachineLimit: have.MachineLimit, Machines: have.Machines,
 		},
 	}
 	for _, name := range s.kernels.Names() {

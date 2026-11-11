@@ -3,8 +3,10 @@ package hostnet
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"slices"
@@ -102,7 +104,51 @@ func (n *Network) freeAddress(p netip.Prefix) (netip.Addr, error) {
 		}
 		return a, nil
 	}
-	return netip.Addr{}, fmt.Errorf("the prefix %s has no free address", p)
+	return netip.Addr{}, fmt.Errorf("%w: %s", machine.ErrNoFreeAddress, p)
+}
+
+// MachineAddresses is how many Machines the prefixes can address: the fewest
+// assignable addresses of a family the node serves, which is every address of
+// the prefix but the network and, for IPv4, the broadcast address, the gateway
+// and the resolvers. It stops at the largest uint32.
+func (c Config) MachineAddresses() uint32 {
+	var most uint32 = math.MaxUint32
+	for _, p := range []netip.Prefix{c.IPv4Prefix, c.IPv6Prefix} {
+		if p.IsValid() {
+			most = min(most, c.assignable(p.Masked()))
+		}
+	}
+	return most
+}
+
+// assignable counts the addresses freeAddress can hand out from the masked
+// prefix.
+func (c Config) assignable(p netip.Prefix) uint32 {
+	host := p.Addr().BitLen() - p.Bits()
+	if host >= 32 {
+		return math.MaxUint32
+	}
+	size := uint64(1) << host
+	reserved := map[netip.Addr]bool{c.IPv4Gateway: true, linkLocalGateway: true}
+	for _, r := range c.Resolvers {
+		reserved[r] = true
+	}
+	first, last := p.Addr().Next(), p.Addr()
+	if p.Addr().Is4() {
+		v := p.Addr().As4()
+		end := binary.BigEndian.Uint32(v[:]) + uint32(size-1)
+		binary.BigEndian.PutUint32(v[:], end)
+		last = netip.AddrFrom4(v)
+		size -= min(size, 2)
+	} else {
+		size -= min(size, 1)
+	}
+	for a := range reserved {
+		if size > 0 && p.Contains(a) && a.Compare(first) >= 0 && (!p.Addr().Is4() || a.Compare(last) < 0) {
+			size--
+		}
+	}
+	return uint32(size)
 }
 
 // machineNet is what the rules and the tap of one Machine are made from.

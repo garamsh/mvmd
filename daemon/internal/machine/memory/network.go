@@ -20,6 +20,8 @@ type Network struct {
 	applied    map[machine.MachineID]machine.NetworkPolicy
 	lose       map[machine.MachineID]bool
 	reconciled []machine.MachineID
+	// limit is how many Machines may hold addresses; zero is no limit.
+	limit int
 }
 
 // NewNetwork returns a Network that has assigned nothing.
@@ -40,6 +42,9 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string) 
 	defer n.mu.Unlock()
 	if have, ok := n.allocated[id]; ok {
 		return have, nil
+	}
+	if n.limit > 0 && len(n.allocated) >= n.limit {
+		return machine.NetworkIdentity{}, fmt.Errorf("%w: all %d of the Network's addresses are held", machine.ErrNoFreeAddress, n.limit)
 	}
 	n.next++
 	if mac == "" {
@@ -133,6 +138,14 @@ func (n *Network) Reconciled() []machine.MachineID {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return append([]machine.MachineID(nil), n.reconciled...)
+}
+
+// LimitAddresses makes Allocate refuse with machine.ErrNoFreeAddress once
+// limit Machines hold addresses; zero removes the limit.
+func (n *Network) LimitAddresses(limit int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.limit = limit
 }
 
 // Allocated reports whether the Machine holds addresses.
