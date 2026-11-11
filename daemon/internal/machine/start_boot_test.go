@@ -98,12 +98,31 @@ func TestStart_SendsTheGuestItsBootDescription(t *testing.T) {
 		m := e.requireState(t, id, machine.StateRunning)
 		require.NotEmpty(t, m.RootDiskUUID, "the setup: the root disk has a UUID")
 		want.RootDiskUUID = m.RootDiskUUID
+		want.Clock = e.clock
 		want.Network = machine.GuestNetwork{Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers}
 		require.NotEmpty(t, want.Network.Gateways, "the setup: the Machine has a gateway to be told")
 		assert.Equal(t, []machine.GuestBoot{want}, e.guest.Boots(id), "its own image's UUID and run configuration, its own root disk and network, sent once")
 	}
 	a, b := e.requireState(t, "a", machine.StateRunning), e.requireState(t, "b", machine.StateRunning)
 	assert.NotEqual(t, a.RootDiskUUID, b.RootDiskUUID, "control: each Machine has a root disk of its own")
+}
+
+// The boot description carries the lifecycle's wall clock, so the guest's clock
+// is set to the host's (ADR 0044), and a restart reads it again.
+func TestStart_TheBootCallCarriesTheLifecyclesClockReading(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	first := time.Unix(1_700_000_000, 5)
+	e.clock.Set(first)
+	e.inState(t, "m", machine.StateStopped)
+	require.NoError(t, e.svc.Start(ctx, "m"))
+	e.clock.Set(first.Add(time.Hour))
+	require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+	require.NoError(t, e.svc.Start(ctx, "m"))
+
+	times := e.guest.BootTimes("m")
+	require.Len(t, times, 3, "the setup: the Machine booted to be stopped, then twice more")
+	assert.Equal(t, []int64{first.UnixNano(), first.Add(time.Hour).UnixNano()}, times[1:], "each Boot call carries the reading of the clock when it is made")
 }
 
 // A restart boots the guest again, as a new VMM holds a new guest.

@@ -46,7 +46,7 @@ Decisions:
 - [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md) — a network policy is an allow-list of address, protocol and port rules
 - [ADR 0014](./adr/0014-the-guest-agent-serves-a-grpc-contract-it-owns-over-vsock.md) — the Guest Agent serves a gRPC contract it owns over vsock
 - [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) — the supervisor confines every VMM process the same way (the names of the files in the VMM's mount namespace are amended by ADR 0019)
-- [ADR 0016](./adr/0016-a-restored-guest-reseeds-from-host-entropy-and-takes-its-time-from-the-host.md) — a restored guest reseeds from host entropy and takes its time from the host
+- [ADR 0016](./adr/0016-a-restored-guest-reseeds-from-host-entropy-and-takes-its-time-from-the-host.md) — a restored guest reseeds from host entropy and takes its time from the host (the clock is also set at a boot, by ADR 0044)
 - [ADR 0017](./adr/0017-the-converter-serves-a-grpc-contract-it-owns-and-carries-mkfs-erofs-in-its-initrd.md) — the converter serves a gRPC contract it owns and carries mkfs.erofs in its initrd
 - [ADR 0018](./adr/0018-a-graceful-stop-goes-through-the-guest-agent-and-the-vmm-request-is-the-fallback.md) — a graceful stop goes through the Guest Agent, and the VMM request is the fallback
 - [ADR 0019](./adr/0019-a-vmm-sees-its-machines-files-at-fixed-paths-in-its-root.md) — a VMM sees its Machine's files at fixed paths in its root, and the supervisor presents the file it checked
@@ -74,5 +74,6 @@ Decisions:
 - [ADR 0041](./adr/0041-a-snapshot-records-its-disks-a-restore-takes-exactly-those-and-a-non-root-disk-reaches-the-guest-by-hot-plug.md) — a snapshot records its disks, a restore takes exactly those, and a non-root disk reaches the guest by hot-plug (decision 3 superseded by ADR 0042)
 - [ADR 0042](./adr/0042-the-supervisor-links-the-files-a-process-description-lists-into-the-run-directory-before-the-vmm-starts.md) — the supervisor links the files a process description lists into the run directory before the VMM starts
 - [ADR 0043](./adr/0043-an-exited-command-carries-the-time-the-guest-agent-reaped-it-by-the-guests-clock.md) — an exited command carries the time the Guest Agent reaped it, by the guest's clock
+- [ADR 0044](./adr/0044-boot-sets-the-guests-wall-clock-to-the-hosts-as-catchup-does.md) — Boot sets the guest's wall clock to the host's, as CatchUp does (it amends the scope of ADR 0016's clock from a restore to a boot and a restore)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

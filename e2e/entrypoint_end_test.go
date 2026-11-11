@@ -56,8 +56,8 @@ func TestE2E_AnEntrypointThatEndsStopsTheMachineWithItsExitCode(t *testing.T) {
 	assert.Equal(t, int32(7), record.ExitCode)
 
 	// The time is the guest's clock. It lies between the host's readings taken before the Start
-	// and after this read because the guest's boot clock follows the host's; a time outside the
-	// window means it does not.
+	// and after this read because Boot sets the guest's clock from the host's before any boot step
+	// (ADR 0044); a time outside the window means it did not.
 	afterRead := time.Now()
 	require.NotNil(t, record.EndedAt, "the entrypoint's record names when it ended")
 	assert.True(t, record.EndedAt.IsValid())

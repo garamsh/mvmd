@@ -489,6 +489,7 @@ impl Agent {
                 working_dir: self.dir.path().display().to_string(),
             }),
             network: Some(network_config("10.1.2.3/32", "fd00::2/128")),
+            host_unix_nanos: 0,
         }
     }
 
@@ -1109,6 +1110,81 @@ async fn a_repeated_boot_succeeds_without_running_the_steps_again() -> Result {
 
     assert_eq!(agent.log.entries(), steps);
     assert_eq!(different.code(), Code::FailedPrecondition);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_boot_with_a_time_sets_the_clock_once_before_the_first_boot_step() -> Result {
+    let mut agent = Agent::start().await?;
+    let mut request = agent.boot_request("sleep 30");
+    request.host_unix_nanos = 1_700_000_000_123_456_789;
+
+    agent.client.boot(request).await?;
+
+    assert_eq!(
+        *agent.clock.set.lock().unwrap(),
+        [1_700_000_000_123_456_789]
+    );
+    let entries = agent.log.entries();
+    let clock = entries
+        .iter()
+        .position(|e| e == "clock")
+        .ok_or("no clock entry")?;
+    let first_step = entries
+        .iter()
+        .position(|e| e.starts_with("find "))
+        .ok_or("no boot step")?;
+    assert!(clock < first_step, "{entries:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_boot_with_no_time_leaves_the_clock_alone() -> Result {
+    let mut agent = Agent::start().await?;
+    // The control: the same request with a time sets it, so the log can show a set.
+    let mut timed = agent.boot_request("sleep 30");
+    timed.host_unix_nanos = 5;
+    let mut other = Agent::start().await?;
+
+    agent.boot("sleep 30").await?;
+    other.client.boot(timed).await?;
+
+    assert!(agent.clock.set.lock().unwrap().is_empty());
+    assert_eq!(*other.clock.set.lock().unwrap(), [5]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_negative_time_is_refused_and_nothing_is_set() -> Result {
+    let mut agent = Agent::start().await?;
+    let mut request = agent.boot_request("sleep 30");
+    request.host_unix_nanos = -1;
+
+    let refused = agent.client.boot(request).await.unwrap_err();
+
+    assert_eq!(refused.code(), Code::InvalidArgument);
+    assert!(agent.clock.set.lock().unwrap().is_empty());
+    assert_eq!(agent.log.count("find"), 0);
+    // The control: the agent still waits, and the same description with a time boots it.
+    let mut valid = agent.boot_request("sleep 30");
+    valid.host_unix_nanos = 1;
+    agent.client.boot(valid).await?;
+    assert_eq!(*agent.clock.set.lock().unwrap(), [1]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_repeated_boot_with_another_time_succeeds_and_does_not_set_the_clock_again() -> Result {
+    let mut agent = Agent::start().await?;
+    let mut first = agent.boot_request("sleep 30");
+    first.host_unix_nanos = 100;
+    let mut repeat = first.clone();
+    repeat.host_unix_nanos = 50;
+
+    agent.client.boot(first).await?;
+    agent.client.boot(repeat).await?;
+
+    assert_eq!(*agent.clock.set.lock().unwrap(), [100]);
     Ok(())
 }
 

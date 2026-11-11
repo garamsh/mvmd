@@ -11,7 +11,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::boot::Boot;
-use crate::description::{BootDescription, CatchUp, NetworkConfig};
+use crate::description::{BootDescription, CatchUp, NetworkConfig, boot_time};
 use crate::error::{BootStep, Error, Expected, Unbooted};
 use crate::exec::Execs;
 use crate::files::{self, Locks, Reader, Upload};
@@ -159,6 +159,7 @@ impl From<Error> for Status {
                 Status::internal(message),
                 &BootFailed {
                     step: match step {
+                        BootStep::Clock => ProtoStep::Clock,
                         BootStep::Check => ProtoStep::Check,
                         BootStep::MountImage => ProtoStep::MountImage,
                         BootStep::MountRootDisk => ProtoStep::MountRootDisk,
@@ -178,8 +179,10 @@ impl From<Error> for Status {
 #[tonic::async_trait]
 impl GuestService for Guest {
     async fn boot(&self, request: Request<BootRequest>) -> Result<Response<BootResponse>, Status> {
-        let description = BootDescription::try_from(request.into_inner())?;
-        self.boot.boot(description).await?;
+        let request = request.into_inner();
+        let time = boot_time(&request)?;
+        let description = BootDescription::try_from(request)?;
+        self.boot.boot(description, time).await?;
         Ok(Response::new(BootResponse {}))
     }
 

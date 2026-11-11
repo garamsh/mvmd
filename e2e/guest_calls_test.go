@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -299,4 +300,25 @@ func (n *node) searchFiles(ctx context.Context, machine, path, pattern string) (
 		}
 		matches = append(matches, part.Matches...)
 	}
+}
+
+// Boot sets the guest's wall clock to the host's (ADR 0044), so a Machine's clock, read by an exec
+// right after Start, lies between the host's readings taken before and after that exec. A guest
+// that kept the clock the kernel set at boot lags the host by hundreds of milliseconds.
+func TestE2E_AGuestsClockIsTheHostsRightAfterStart(t *testing.T) {
+	n := startNode(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	n.startRunning(t, ctx, "clocked")
+
+	before := time.Now()
+	out, code := n.exec(t, ctx, "clocked", "now-1", "/bin/entry", "now")
+	after := time.Now()
+	require.Equal(t, int32(0), code)
+
+	nanos, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	require.NoError(t, err, "the guest printed %q", out)
+	guest := time.Unix(0, nanos)
+	assert.False(t, guest.Before(before), "the guest's clock %s is %s behind the host's reading before the exec", guest, before.Sub(guest))
+	assert.False(t, guest.After(after), "the guest's clock %s is %s ahead of the host's reading after the exec", guest, guest.Sub(after))
 }

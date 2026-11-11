@@ -1334,6 +1334,22 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		assert.Equal(t, 4, conn.Dials())
 	})
 
+	t.Run("the time Boot carries is read after the agent answers, and none leaves the clock alone", func(t *testing.T) {
+		h := newHarness(t)
+		a := h.agentOf(t, "m")
+		conn := notListeningThenDriver(h.driver, 3)
+		clock := &dialCountingClock{conn: conn, at: time.Unix(1_700_000_000, 7)}
+
+		require.NoError(t, guestchannel.NewGuest(conn).Boot(context.Background(), "m", machine.GuestBoot{Clock: clock}))
+		require.NotNil(t, a.boot)
+		assert.Equal(t, clock.at.UnixNano(), a.boot.GetHostUnixNanos())
+		assert.Equal(t, 4, clock.dialsWhenRead, "the agent had been reached when the clock was read")
+
+		// The control: a description with no clock carries 0.
+		require.NoError(t, guestchannel.NewGuest(h.driver).Boot(context.Background(), "m", machine.GuestBoot{}))
+		assert.Zero(t, a.boot.GetHostUnixNanos())
+	})
+
 	t.Run("a VMM that has ended fails Boot at once, where not listening is waited for", func(t *testing.T) {
 		ended := &connectorFunc{fn: func(int) (net.Conn, error) {
 			return nil, errors.Join(machine.ErrGuestUnreachable, machine.ErrVMMEnded)
@@ -1394,4 +1410,17 @@ func TestBoot_WaitsForTheAgent(t *testing.T) {
 		assert.NoError(t, ctx.Err(), "the call ended before its context did")
 		assert.Equal(t, 2, never.Dials())
 	})
+}
+
+// dialCountingClock tells the time it was given and notes how many dials the
+// connector had made when it was read.
+type dialCountingClock struct {
+	conn          *connectorFunc
+	at            time.Time
+	dialsWhenRead int
+}
+
+func (c *dialCountingClock) Now() time.Time {
+	c.dialsWhenRead = c.conn.Dials()
+	return c.at
 }

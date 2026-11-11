@@ -49,12 +49,15 @@ const (
 // GuestService is the guest channel. The Guest Agent serves it over vsock.
 type GuestServiceClient interface {
 	// Describe the Machine to the agent, which runs as the guest's init and
-	// waits for this call before it touches a disk. The call returns once the
+	// waits for this call before it touches a disk. Before any boot step the
+	// agent sets the wall clock to host_unix_nanos when that is positive, and
+	// leaves it as the kernel set it when it is 0. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
 	// call except Terminate, Health, Info, FindDisk, ReleaseDisk and
 	// OnlineVcpus is refused until it has succeeded. A repeat with the same
-	// description succeeds and changes nothing; a repeat after a failure fails
-	// the same way.
+	// description succeeds and changes nothing, whatever time it carries, and
+	// does not set the clock again; a repeat after a failure fails the same
+	// way.
 	Boot(ctx context.Context, in *BootRequest, opts ...grpc.CallOption) (*BootResponse, error)
 	// Replace the network configuration of a running Machine. The agent
 	// applies it whole: what it applied before is removed. After a restore the
@@ -355,12 +358,15 @@ func (c *guestServiceClient) Info(ctx context.Context, in *InfoRequest, opts ...
 // GuestService is the guest channel. The Guest Agent serves it over vsock.
 type GuestServiceServer interface {
 	// Describe the Machine to the agent, which runs as the guest's init and
-	// waits for this call before it touches a disk. The call returns once the
+	// waits for this call before it touches a disk. Before any boot step the
+	// agent sets the wall clock to host_unix_nanos when that is positive, and
+	// leaves it as the kernel set it when it is 0. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
 	// call except Terminate, Health, Info, FindDisk, ReleaseDisk and
 	// OnlineVcpus is refused until it has succeeded. A repeat with the same
-	// description succeeds and changes nothing; a repeat after a failure fails
-	// the same way.
+	// description succeeds and changes nothing, whatever time it carries, and
+	// does not set the clock again; a repeat after a failure fails the same
+	// way.
 	Boot(context.Context, *BootRequest) (*BootResponse, error)
 	// Replace the network configuration of a running Machine. The agent
 	// applies it whole: what it applied before is removed. After a restore the

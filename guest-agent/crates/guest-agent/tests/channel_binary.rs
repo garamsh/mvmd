@@ -138,6 +138,7 @@ async fn the_handshake_is_answered_and_health_and_exec_are_served_on_the_host() 
             ..RunConfig::default()
         }),
         network: Some(NetworkConfig::default()),
+        host_unix_nanos: 0,
     };
     let boot = client.boot(valid).await.unwrap_err();
     assert_eq!(boot.code(), Code::FailedPrecondition);

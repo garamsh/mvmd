@@ -254,6 +254,9 @@ const (
 	BootStep_BOOT_STEP_SWITCH_ROOT     BootStep = 5
 	BootStep_BOOT_STEP_NETWORK         BootStep = 6
 	BootStep_BOOT_STEP_ENTRYPOINT      BootStep = 7
+	// Setting the wall clock from the Boot request's host_unix_nanos. It is the
+	// first step the agent takes, though its number is the last assigned.
+	BootStep_BOOT_STEP_CLOCK BootStep = 8
 )
 
 // Enum value maps for BootStep.
@@ -267,6 +270,7 @@ var (
 		5: "BOOT_STEP_SWITCH_ROOT",
 		6: "BOOT_STEP_NETWORK",
 		7: "BOOT_STEP_ENTRYPOINT",
+		8: "BOOT_STEP_CLOCK",
 	}
 	BootStep_value = map[string]int32{
 		"BOOT_STEP_UNSPECIFIED":     0,
@@ -277,6 +281,7 @@ var (
 		"BOOT_STEP_SWITCH_ROOT":     5,
 		"BOOT_STEP_NETWORK":         6,
 		"BOOT_STEP_ENTRYPOINT":      7,
+		"BOOT_STEP_CLOCK":           8,
 	}
 )
 
@@ -367,8 +372,13 @@ type BootRequest struct {
 	RootDiskUuid string `protobuf:"bytes,2,opt,name=root_disk_uuid,json=rootDiskUuid,proto3" json:"root_disk_uuid,omitempty"`
 	// The entrypoint. It runs as the exec record with the ID "entrypoint",
 	// so its output, its signals and its end are read through the exec calls.
-	Run           *RunConfig     `protobuf:"bytes,3,opt,name=run,proto3" json:"run,omitempty"`
-	Network       *NetworkConfig `protobuf:"bytes,4,opt,name=network,proto3" json:"network,omitempty"`
+	Run     *RunConfig     `protobuf:"bytes,3,opt,name=run,proto3" json:"run,omitempty"`
+	Network *NetworkConfig `protobuf:"bytes,4,opt,name=network,proto3" json:"network,omitempty"`
+	// The host's wall clock when the request was made, in nanoseconds since the
+	// Unix epoch. The agent sets the clock to it before the first boot step. 0
+	// leaves the clock alone; a negative value is refused as invalid. It is not
+	// part of the description a repeat is compared by.
+	HostUnixNanos int64 `protobuf:"varint,5,opt,name=host_unix_nanos,json=hostUnixNanos,proto3" json:"host_unix_nanos,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -429,6 +439,13 @@ func (x *BootRequest) GetNetwork() *NetworkConfig {
 		return x.Network
 	}
 	return nil
+}
+
+func (x *BootRequest) GetHostUnixNanos() int64 {
+	if x != nil {
+		return x.HostUnixNanos
+	}
+	return 0
 }
 
 type BootResponse struct {
@@ -2858,13 +2875,14 @@ var File_guest_v1alpha1_guest_proto protoreflect.FileDescriptor
 
 const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\n" +
-	"\x1aguest/v1alpha1/guest.proto\x12\x13mvmd.guest.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc2\x01\n" +
+	"\x1aguest/v1alpha1/guest.proto\x12\x13mvmd.guest.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x01\n" +
 	"\vBootRequest\x12\x1d\n" +
 	"\n" +
 	"image_uuid\x18\x01 \x01(\tR\timageUuid\x12$\n" +
 	"\x0eroot_disk_uuid\x18\x02 \x01(\tR\frootDiskUuid\x120\n" +
 	"\x03run\x18\x03 \x01(\v2\x1e.mvmd.guest.v1alpha1.RunConfigR\x03run\x12<\n" +
-	"\anetwork\x18\x04 \x01(\v2\".mvmd.guest.v1alpha1.NetworkConfigR\anetwork\"\x0e\n" +
+	"\anetwork\x18\x04 \x01(\v2\".mvmd.guest.v1alpha1.NetworkConfigR\anetwork\x12&\n" +
+	"\x0fhost_unix_nanos\x18\x05 \x01(\x03R\rhostUnixNanos\"\x0e\n" +
 	"\fBootResponse\"\xb3\x01\n" +
 	"\tRunConfig\x12\x12\n" +
 	"\x04argv\x18\x01 \x03(\tR\x04argv\x129\n" +
@@ -3023,7 +3041,7 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\x0fENTRY_KIND_FILE\x10\x01\x12\x18\n" +
 	"\x14ENTRY_KIND_DIRECTORY\x10\x02\x12\x16\n" +
 	"\x12ENTRY_KIND_SYMLINK\x10\x03\x12\x14\n" +
-	"\x10ENTRY_KIND_OTHER\x10\x04*\xd7\x01\n" +
+	"\x10ENTRY_KIND_OTHER\x10\x04*\xec\x01\n" +
 	"\bBootStep\x12\x19\n" +
 	"\x15BOOT_STEP_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fBOOT_STEP_CHECK\x10\x01\x12\x19\n" +
@@ -3032,7 +3050,8 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\x11BOOT_STEP_OVERLAY\x10\x04\x12\x19\n" +
 	"\x15BOOT_STEP_SWITCH_ROOT\x10\x05\x12\x15\n" +
 	"\x11BOOT_STEP_NETWORK\x10\x06\x12\x18\n" +
-	"\x14BOOT_STEP_ENTRYPOINT\x10\a*V\n" +
+	"\x14BOOT_STEP_ENTRYPOINT\x10\a\x12\x13\n" +
+	"\x0fBOOT_STEP_CLOCK\x10\b*V\n" +
 	"\tBootState\x12\x1a\n" +
 	"\x16BOOT_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12BOOT_STATE_PENDING\x10\x01\x12\x15\n" +

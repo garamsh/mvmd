@@ -159,12 +159,17 @@ impl Boot {
     }
 
     /// Start the boot for `description`, or find what an earlier call to it came to, and wait
-    /// for it to settle.
+    /// for it to settle. A boot that starts sets the clock to `host_unix_nanos` first; a repeat
+    /// carries a time that is ignored.
     ///
     /// The steps run in a task of their own, which settles the phase whatever becomes of this
     /// call: a client that gives up, or a connection that resets, leaves the boot running and a
     /// repeat finds its outcome.
-    pub(crate) async fn boot(self: &Arc<Self>, description: BootDescription) -> Result<(), Error> {
+    pub(crate) async fn boot(
+        self: &Arc<Self>,
+        description: BootDescription,
+        host_unix_nanos: Option<i64>,
+    ) -> Result<(), Error> {
         let Some(system) = self.system.clone() else {
             return Err(Error::PreconditionFailed(
                 "this agent does not boot the guest".into(),
@@ -181,7 +186,7 @@ impl Boot {
             let boot = self.clone();
             let description = description.clone();
             tokio::spawn(async move {
-                let settled = match boot.steps(&system, &description).await {
+                let settled = match boot.steps(&system, &description, host_unix_nanos).await {
                     Ok(()) => Phase::Booted(Arc::new(description)),
                     Err(failure) => {
                         system.console.line(&failure.console_line());
@@ -261,7 +266,16 @@ impl Boot {
     }
 
     /// The steps of the boot, each reported by its own name when it fails.
-    async fn steps(&self, system: &System, description: &BootDescription) -> Result<(), Failure> {
+    async fn steps(
+        &self,
+        system: &System,
+        description: &BootDescription,
+        host_unix_nanos: Option<i64>,
+    ) -> Result<(), Failure> {
+        if let Some(nanos) = host_unix_nanos {
+            let clock = system.clock.clone();
+            blocking(BootStep::Clock, move || clock.set_realtime(nanos)).await?;
+        }
         let mounts = system.mounts.clone();
         let (image, root_disk) = (description.image, description.root_disk);
         let (image_device, root_device) = blocking(BootStep::Check, move || {
