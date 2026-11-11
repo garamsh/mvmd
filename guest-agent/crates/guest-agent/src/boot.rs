@@ -258,9 +258,6 @@ impl Boot {
         let clock = system.clock.clone();
         let nanos = request.host_unix_nanos;
         io_step("set the wall clock", move || clock.set_realtime(nanos)).await?;
-        let network = system.network.clone();
-        let config = request.network;
-        io_step("configure the network", move || network.apply(&config)).await?;
         *last = Some(request.restore_id);
         Ok(())
     }
