@@ -92,6 +92,7 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(root2, raw, 0o600))
 	spec2 := machine.BootSpec{
+		Kernel:    s.Kernel,
 		Devices:   []machine.BlockDevice{devices[0], {Disk: "root2", Path: root2}},
 		Resources: spec.Resources, RunDir: runs["m2"],
 	}
