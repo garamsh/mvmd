@@ -81,6 +81,11 @@ func TestE2E_AMachineWithADiskIsHibernatedAndWokenWithTheDiskAndItsData(t *testi
 	assert.Equal(t, map[string]string{"extra": "woken", "woken-root": "woken"}, n.holders(t, ctx), "the restored Machine holds the disk")
 
 	assert.Equal(t, device, n.deviceOfSize(t, ctx, "woken", "woken", diskBytes), "the guest lists the disk as the origin's did")
+	hf, err := os.OpenFile(disk, os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = hf.WriteAt([]byte("HOST OVERWROTE THE MARKER OF THE DISK"), 0)
+	require.NoError(t, err)
+	require.NoError(t, hf.Close())
 	// The guest's cache of the disk is dropped, so the read below is of what the disk holds.
 	n.put(t, ctx, "woken", "drop-caches", "/proc/sys/vm/drop_caches", "3")
 	out, code := n.exec(t, ctx, "woken", "read-marker", "/bin/entry", "head", "/dev/"+device, strconv.Itoa(len(marker)))
