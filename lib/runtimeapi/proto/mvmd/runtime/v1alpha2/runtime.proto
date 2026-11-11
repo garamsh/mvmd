@@ -355,6 +355,17 @@ message DriverInfo {
   // The host CPU model the Driver runs guests on. A restore needs a snapshot
   // whose cpu_model equals this value.
   string cpu_model = 3;
+  // The most of a Machine the Driver accepts. A Create machine or Set resources
+  // beyond them is REJECTED; a Restore of a snapshot beyond them is
+  // PRECONDITION_FAILED. Absent when the Driver reports none.
+  DriverLimits limits = 4;
+}
+
+// DriverLimits are the upper bounds the Driver in service enforces on a
+// Machine's resources and resource ceiling.
+message DriverLimits {
+  // The most vCPUs a Machine has. Zero states no bound.
+  uint32 max_vcpus = 1;
 }
 
 // NodeCapacity is what the node has, as totals it measures. It is not what is

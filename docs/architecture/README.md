@@ -70,5 +70,6 @@ Decisions:
 - [ADR 0037](./adr/0037-a-restores-guest-catch-up-is-bounded-by-the-boot-timeout-as-a-starts-boot-is.md) — a restore's guest catch-up is bounded by the boot timeout, as a start's guest boot is
 - [ADR 0038](./adr/0038-a-disk-file-belongs-to-the-machine-that-holds-it.md) — a disk file belongs to the Machine that holds it (completes what ADR 0036 left open about a VMM opening a Create disk disk)
 - [ADR 0039](./adr/0039-runtime-info-reports-the-nodes-capacity-and-mvmd-admits-no-call-by-it.md) — runtime info reports the node's capacity, and mvmd admits no call by it
+- [ADR 0040](./adr/0040-a-driver-states-the-most-of-a-machine-it-accepts-and-the-inside-refuses-a-request-above-it.md) — a Driver states the most of a Machine it accepts, and the inside refuses a request above it
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

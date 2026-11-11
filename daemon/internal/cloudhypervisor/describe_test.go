@@ -217,3 +217,31 @@ func TestCPUReadFiles_AreNamedOnAarch64Only(t *testing.T) {
 	assert.Empty(t, cloudhypervisor.CPUReadFiles("amd64"))
 	assert.Equal(t, []string{"/sys/devices/system/cpu/cpu0/cache"}, cloudhypervisor.CPUReadFiles("arm64"))
 }
+
+// Info reports the limit Describe enforces, for the resources and for the
+// ceiling: the figure itself is accepted and the next one is refused.
+func TestInfo_ReportsTheMostVCPUsDescribeAccepts(t *testing.T) {
+	n := newNode(t)
+	most := n.driver.Info().Limits.MaxVCPUs
+	require.NotZero(t, most)
+
+	spec := n.spec()
+	spec.Resources.VCPUs = most
+	_, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err, "control: the reported limit is accepted as resources")
+	spec = n.spec()
+	spec.Ceiling = machine.Resources{VCPUs: most}
+	_, err = n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err, "control: the reported limit is accepted as ceiling")
+
+	spec = n.spec()
+	spec.Resources.VCPUs = most + 1
+	_, err = n.driver.Describe(context.Background(), "m1", spec)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "vCPUs")
+	spec = n.spec()
+	spec.Ceiling = machine.Resources{VCPUs: most + 1}
+	_, err = n.driver.Describe(context.Background(), "m1", spec)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ceiling")
+}

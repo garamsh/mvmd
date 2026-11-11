@@ -123,3 +123,21 @@ func TestCPUReadFiles_AreNamedOnAarch64Only(t *testing.T) {
 		"/sys/devices/system/cpu/cpu0/regs/identification/midr_el1",
 	}, firecracker.CPUReadFiles("arm64"))
 }
+
+// Info reports the limit Describe enforces: the figure itself is accepted and
+// the next one is refused.
+func TestInfo_ReportsTheMostVCPUsDescribeAccepts(t *testing.T) {
+	n := newNode(t)
+	most := n.driver.Info().Limits.MaxVCPUs
+	require.NotZero(t, most)
+
+	spec := n.spec()
+	spec.Resources.VCPUs = most
+	_, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err, "control: the reported limit is accepted")
+
+	spec.Resources.VCPUs = most + 1
+	_, err = n.driver.Describe(context.Background(), "m1", spec)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "vCPUs")
+}
