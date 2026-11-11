@@ -2,6 +2,8 @@ package hostnet
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"testing"
@@ -121,7 +123,8 @@ func TestAllocate_RunsOutOfAddressesAndSaysSo(t *testing.T) {
 		require.NoError(t, err, id)
 	}
 	_, err = n.Allocate(context.Background(), "e", "")
-	assert.ErrorContains(t, err, "no free address")
+	assert.ErrorIs(t, err, machine.ErrNoFreeAddress)
+	assert.ErrorContains(t, err, "10.77.0.0/29")
 	_, held := n.held["e"]
 	assert.False(t, held, "a refused Machine holds nothing")
 }
@@ -143,4 +146,63 @@ func TestTapName_IsStableDistinctAndFitsADevice(t *testing.T) {
 func TestLinkLocalOf_IsTheEUI64AddressOfTheMAC(t *testing.T) {
 	hw, _ := net.ParseMAC("52:54:00:12:34:56")
 	assert.Equal(t, netip.MustParseAddr("fe80::5054:ff:fe12:3456"), linkLocalOf(hw))
+}
+
+// TestConfig_MachineAddressesIsHowManyMachinesAllocateServes counts what
+// Allocate serves before it refuses and compares it with the figure the
+// configuration reports. The figure is the least over the families served.
+func TestConfig_MachineAddressesIsHowManyMachinesAllocateServes(t *testing.T) {
+	v4 := func(c *Config, prefix, gateway string, resolvers ...string) {
+		c.IPv4Prefix, c.IPv4Gateway = netip.MustParsePrefix(prefix), netip.MustParseAddr(gateway)
+		c.Resolvers = nil
+		for _, r := range resolvers {
+			c.Resolvers = append(c.Resolvers, netip.MustParseAddr(r))
+		}
+	}
+	tests := []struct {
+		name   string
+		change func(*Config)
+		want   uint32
+	}{
+		{"a /29 with a gateway and a resolver inside it", func(c *Config) { v4(c, "10.77.0.0/29", "10.77.0.1", "10.77.0.2"); c.IPv6Prefix = netip.Prefix{} }, 4},
+		{"a /29 whose resolver is outside it", func(c *Config) { v4(c, "10.77.0.0/29", "10.77.0.1", "9.9.9.9"); c.IPv6Prefix = netip.Prefix{} }, 5},
+		{"a /29 with the same address as gateway and resolver", func(c *Config) { v4(c, "10.77.0.0/29", "10.77.0.1", "10.77.0.1"); c.IPv6Prefix = netip.Prefix{} }, 5},
+		{"an IPv6 prefix alone", func(c *Config) {
+			*c = Config{IPv6Prefix: netip.MustParsePrefix("fd77::/120"), VMMUIDRange: c.VMMUIDRange}
+		}, 255},
+		{"both families, the IPv4 one smaller", func(c *Config) { v4(c, "10.77.0.0/29", "10.77.0.1"); c.IPv6Prefix = netip.MustParsePrefix("fd77::/64") }, 5},
+		{"both families, the IPv6 one smaller", func(c *Config) {
+			v4(c, "10.77.0.0/16", "10.77.0.1")
+			c.IPv6Prefix = netip.MustParsePrefix("fd77::/120")
+		}, 255},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := nodeConfig()
+			tc.change(&c)
+			n, err := New(c)
+			require.NoError(t, err)
+			served := uint32(0)
+			for {
+				_, err := n.Allocate(context.Background(), machine.MachineID(fmt.Sprintf("m%d", served)), "")
+				if err != nil {
+					require.ErrorIs(t, err, machine.ErrNoFreeAddress)
+					break
+				}
+				served++
+			}
+			assert.Equal(t, tc.want, served, "the setup: Allocate serves this many")
+			assert.Equal(t, served, c.MachineAddresses())
+		})
+	}
+
+	t.Run("a prefix too large to count stops at the largest uint32", func(t *testing.T) {
+		c := Config{IPv6Prefix: netip.MustParsePrefix("fd77::/64")}
+		assert.Equal(t, uint32(math.MaxUint32), c.MachineAddresses())
+	})
+
+	t.Run("an IPv4 /8 is counted without allocating it", func(t *testing.T) {
+		c := Config{IPv4Prefix: netip.MustParsePrefix("10.0.0.0/8"), IPv4Gateway: netip.MustParseAddr("10.0.0.1")}
+		assert.Equal(t, uint32(1<<24-3), c.MachineAddresses(), "2^24 addresses less the network, the broadcast and the gateway")
+	})
 }
