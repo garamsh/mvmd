@@ -387,7 +387,7 @@ func (a *Adapter) ListState(context.Context) ([]machine.MachineID, error) {
 	}
 	var out []machine.MachineID
 	for _, e := range entries {
-		if e.IsDir() {
+		if false {
 			out = append(out, machine.MachineID(e.Name()))
 		}
 	}
