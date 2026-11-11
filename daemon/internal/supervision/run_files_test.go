@@ -81,6 +81,28 @@ func TestStart_RefusesARunFileThatIsNotALinkOfOneName(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run, "ok"))
 }
 
+// A leftover at a run file's name, as an earlier run of the Machine leaves, is
+// replaced by the link to the source; the control is the leftover's own inode,
+// read before the Start, which is not the source's.
+func TestStart_ALeftoverAtARunFileNameIsReplacedByTheLink(t *testing.T) {
+	n := newNode(t)
+	src := hostFile(t, "disk")
+	run := runDir(n.dir, "m")
+	require.NoError(t, os.MkdirAll(run, 0o700))
+	leftover := filepath.Join(run, "linked")
+	require.NoError(t, os.WriteFile(leftover, []byte("old"), 0o600))
+	var before, host, after syscall.Stat_t
+	require.NoError(t, syscall.Stat(leftover, &before))
+	require.NoError(t, syscall.Stat(src, &host))
+	require.NotEqual(t, host.Ino, before.Ino, "setup: the leftover is another file")
+
+	n.started(t, "m", vmmUser, nil, func(p *machine.ProcessDescription) {
+		p.RunFiles = []machine.RunFile{{Name: "linked", Path: src}}
+	})
+	require.NoError(t, syscall.Stat(leftover, &after))
+	assert.Equal(t, host.Ino, after.Ino, "the name is now a link to the source")
+}
+
 // A link that cannot be made fails Start with the entry's name in the reason,
 // and the VMM is not started; the control is the entry before it, which was
 // linked.

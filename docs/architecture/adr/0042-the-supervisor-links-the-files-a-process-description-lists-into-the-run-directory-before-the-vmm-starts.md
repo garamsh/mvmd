@@ -28,7 +28,7 @@ Firecracker loads over its API after the process is up, and could link first, bu
 - One mechanism puts a disk where a restored VMM's saved state names it, so neither Driver reads the snapshot for a path or keeps a record of one.
 - A file the supervisor links is a host file named by a Driver, so `Start` checks the name and the path as the boundary it is, and a Driver cannot name a link outside the run directory.
 - The disk's file and the run directory must be on one file system, as for an attach. A link across file systems fails `Start`, and the reason names the file.
-- A name already present in the run directory makes the link fail and so `Start`. A restored Machine's run directory is new, so none stands there.
+- The run directory outlives the VMM, so a name may already hold a leftover, such as the link of an attach a Stop left. `Start` removes what stands at the name without following it and then links, as an attach does, and a removal that fails fails `Start` with the file's name in the reason.
 - A hard link has the file's owner and mode, so the VMM's user reads and writes a disk through its link as [ADR 0038](./0038-a-disk-file-belongs-to-the-machine-that-holds-it.md) lets it the file.
 
 Candidates weighed:
