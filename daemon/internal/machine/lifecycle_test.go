@@ -149,7 +149,7 @@ func TestStart_Needs(t *testing.T) {
 
 // Row "Start", column On success.
 func TestStart_OnSuccess(t *testing.T) {
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	ctx := context.Background()
 	e.disks.Provide("data")
 	spec := baseSpec()
@@ -162,12 +162,12 @@ func TestStart_OnSuccess(t *testing.T) {
 	e.requireStored(t, "m", machine.StateRunning)
 	assert.Equal(t, 1, e.permit.Calls("permit"))
 
-	// The Driver was given the devices in boot order and the Machine's tap.
+	// The Driver was given the image and the root disk in boot order and the
+	// Machine's tap; the named disk is not among them (ADR 0041).
 	boot := e.driver.BootSpec("m")
 	assert.Equal(t, []machine.BlockDevice{
 		{Path: "/images/sha256:image.erofs", ReadOnly: true},
 		{Disk: m.RootDisk, Path: "/disks/m-root"},
-		{Disk: "data", Path: "/disks/data", ReadOnly: true},
 	}, boot.Devices)
 	assert.Equal(t, machine.NetworkDevice{Tap: "tap-m", MAC: m.Network.MAC}, boot.Network)
 	assert.Equal(t, spec.Resources, boot.Resources)
@@ -179,9 +179,12 @@ func TestStart_OnSuccess(t *testing.T) {
 		{Host: "/memory/kernel", In: machine.InKernel, ReadOnly: true, SHA256: memory.KernelDigest},
 		{Host: "/images/sha256:image.erofs", In: "/disk/0", ReadOnly: true},
 		{Host: "/disks/m-root", In: "/disk/1"},
-		{Host: "/disks/data", In: "/disk/2", ReadOnly: true},
 	}, process.BootFiles, "the Driver names each device at its fixed path")
 	assert.Equal(t, 1, e.driver.Calls("boot"))
+
+	// The disk reached the VMM by hot-plug and the guest found it.
+	assert.Equal(t, []machine.DiskID{"data"}, e.driver.HotDisks("m"))
+	assert.True(t, e.guest.DiskFound("m", "data"))
 }
 
 // Row "Start", column Effects: the supervisor starts the VMM as the Machine's

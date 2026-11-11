@@ -36,6 +36,10 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return err
 	}
 
+	if len(spec.Disks) > 0 && !s.driver.Info().has(CapabilityDiskHotplug) {
+		return fail(ErrUnsupported, "the Driver cannot hot-plug, so it cannot start a Machine with a disk")
+	}
+
 	// Shared from Locate until the record is set, so RemoveImage cannot pass
 	// between the two.
 	defer s.imageLocks.lock(spec.Image, false)()
@@ -195,6 +199,11 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		// The Machine's lock is held meanwhile, so a repeated Start waits for the
 		// outcome of this one.
 		guest: func(ctx context.Context, image LocatedImage) error {
+			for _, a := range m.Disks {
+				if err := s.plugAtStart(ctx, id, a); err != nil {
+					return err
+				}
+			}
 			description := GuestBoot{ImageUUID: image.UUID, RootDiskUUID: m.RootDiskUUID, Run: image.Run, Network: m.Network.guestNetwork()}
 			if err := s.guest.Boot(ctx, id, description); err != nil {
 				return fmt.Errorf("send the boot description to the guest: %w", err)
@@ -224,23 +233,49 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 }
 
 // bootDevices lists a Machine's block devices in boot order: its image
-// read-only, its root disk, then its attached disks. It returns the image as
-// the node holds it, whose UUID and run configuration the guest is told.
+// read-only, then its root disk. It returns the image as the node holds it,
+// whose UUID and run configuration the guest is told. Every other disk reaches
+// a started VMM by hot-plug (ADR 0041).
 func (s *service) bootDevices(ctx context.Context, m Machine) ([]BlockDevice, LocatedImage, error) {
 	located, err := s.images.Locate(ctx, m.Image)
 	if err != nil {
 		return nil, LocatedImage{}, locateFailure(err, ErrImageAbsent, "image %s", m.Image)
 	}
-	devices := []BlockDevice{{Path: located.Path, ReadOnly: true}}
-	attached := append([]DiskAttachment{{Disk: m.RootDisk}}, m.Disks...)
+	root, err := s.diskDevices(ctx, DiskAttachment{Disk: m.RootDisk})
+	if err != nil {
+		return nil, LocatedImage{}, err
+	}
+	return append([]BlockDevice{{Path: located.Path, ReadOnly: true}}, root...), located, nil
+}
+
+// diskDevices locates the files of disks as the block devices a VMM is given.
+func (s *service) diskDevices(ctx context.Context, attached ...DiskAttachment) ([]BlockDevice, error) {
+	var devices []BlockDevice
 	for _, a := range attached {
 		path, err := s.disks.Locate(ctx, a.Disk)
 		if err != nil {
-			return nil, LocatedImage{}, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
+			return nil, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
 		}
 		devices = append(devices, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly})
 	}
-	return devices, located, nil
+	return devices, nil
+}
+
+// plugAtStart puts a disk the Machine names on the VMM Start has booted and has
+// the guest find it, so the guest records it under its ID (ADR 0041). A failure
+// names the disk; the caller ends the VMM.
+func (s *service) plugAtStart(ctx context.Context, id MachineID, a DiskAttachment) error {
+	devices, err := s.diskDevices(ctx, a)
+	if err != nil {
+		return err
+	}
+	if err := s.driver.AttachDisk(ctx, id, devices[0]); err != nil {
+		return fmt.Errorf("attach disk %q: %w", a.Disk, err)
+	}
+	if err := s.guest.FindDisk(ctx, id, a.Disk); err != nil {
+		return fmt.Errorf("the guest could not find disk %q: %w", a.Disk, err)
+	}
+	return nil
 }
 
 func locateFailure(err, absent error, what string, args ...any) error {

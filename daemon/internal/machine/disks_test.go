@@ -16,6 +16,11 @@ func ro(disk machine.DiskID) machine.DiskAttachment {
 	return machine.DiskAttachment{Disk: disk, ReadOnly: true}
 }
 
+// blindGuest answers a find of a disk and records nothing of it.
+type blindGuest struct{ machine.Guest }
+
+func (blindGuest) FindDisk(context.Context, machine.MachineID, machine.DiskID) error { return nil }
+
 func attached(t *testing.T, e *env, id machine.MachineID) []machine.DiskAttachment {
 	t.Helper()
 	m, err := e.svc.Inspect(context.Background(), id)
@@ -406,19 +411,24 @@ func TestDetachDisk_TheGuestReleasesTheDiskFirst(t *testing.T) {
 	})
 
 	t.Run("a disk the guest never found is refused, and a Stopped Machine detaches it", func(t *testing.T) {
-		// A disk given at Create is on the VMM from boot; the guest recorded no
-		// ID for it.
+		// A disk on a VMM started before ADR 0041 was never found by its guest,
+		// as a guest that records nothing of a find shows. Control: a disk named
+		// at Create and started now is detached from a Running Machine
+		// (TestDetachDisk_ADiskNamedAtCreateIsDetachedFromARunningMachine).
 		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
-		e.created(t, "m")
-		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
-		require.NoError(t, e.svc.Start(ctx, "m"))
+		svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, blindGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events)
+		spec := baseSpec()
+		spec.Disks = []machine.DiskAttachment{rw("d")}
+		require.NoError(t, svc.Create(ctx, "m", request("m"), spec))
+		require.NoError(t, svc.Start(ctx, "m"))
+		require.False(t, e.guest.DiskFound("m", "d"), "setup: the guest has no record of the disk")
 
-		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrPreconditionFailed)
+		requireKind(t, svc.DetachDisk(ctx, "m", "d"), machine.ErrPreconditionFailed)
 		assert.Zero(t, e.driver.Calls("detach"))
 
-		require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
-		require.NoError(t, e.svc.DetachDisk(ctx, "m", "d"))
+		require.NoError(t, svc.Stop(ctx, "m", time.Second))
+		require.NoError(t, svc.DetachDisk(ctx, "m", "d"))
 	})
 
 	t.Run("a Driver that cannot detach it after the release has the guest find it again", func(t *testing.T) {

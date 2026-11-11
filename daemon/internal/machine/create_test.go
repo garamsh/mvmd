@@ -59,7 +59,7 @@ func TestCreate_Needs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newEnv()
+			e := newEnv(machine.CapabilityDiskHotplug)
 			spec := baseSpec()
 			tt.setup(t, e, &spec)
 			roots := e.disks.Calls("create-root")
@@ -75,7 +75,7 @@ func TestCreate_Needs(t *testing.T) {
 	}
 
 	t.Run("an empty policy is valid and closed", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		spec := baseSpec()
 		spec.Policy = machine.NetworkPolicy{}
 		require.NoError(t, e.svc.Create(context.Background(), "m", "r", spec))
@@ -84,7 +84,7 @@ func TestCreate_Needs(t *testing.T) {
 
 // Row "Create Machine", column On success.
 func TestCreate_OnSuccess(t *testing.T) {
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.disks.Provide("data")
 	spec := baseSpec()
 	spec.Disks = []machine.DiskAttachment{{Disk: "data", ReadOnly: true}}
@@ -94,7 +94,7 @@ func TestCreate_OnSuccess(t *testing.T) {
 	want := spec
 	want.Ceiling = spec.Resources // none was asked for: the ceiling is the resources
 	assert.Equal(t, want, m.Spec)
-	assert.Equal(t, machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: []machine.Capability{machine.CapabilityConsole}}, m.Driver)
+	assert.Equal(t, machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityConsole}}, m.Driver)
 	assert.NotEmpty(t, m.Network.MAC)
 	assert.NotEmpty(t, m.Network.Addresses)
 	size, held := e.disks.Holds(m.RootDisk)

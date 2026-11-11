@@ -152,7 +152,7 @@ func TestDiskFileOwner(t *testing.T) {
 	})
 
 	t.Run("Create gives the disks it names to the Machine", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("a")
 		e.disks.Provide("b")
 		spec := baseSpec()
@@ -174,7 +174,7 @@ func TestDiskFileOwner(t *testing.T) {
 		}
 		for _, tt := range failures {
 			t.Run(tt.name, func(t *testing.T) {
-				e := newEnv()
+				e := newEnv(machine.CapabilityDiskHotplug)
 				e.disks.Provide("a")
 				e.disks.Provide("b")
 				spec := baseSpec()

@@ -139,7 +139,7 @@ func TestRestoreSnapshot_TakesTheRecordedDisks(t *testing.T) {
 		for _, dev := range e.driver.RestoredWith("new").Devices {
 			devices = append(devices, dev.Disk)
 		}
-		assert.Equal(t, []machine.DiskID{"", "new-root", "d1", "d2"}, devices, "the Driver is given the disks as Boot is")
+		assert.Equal(t, []machine.DiskID{"", "new-root", "d1", "d2"}, devices, "the Driver is given the recorded disks, which its saved state holds (ADR 0041)")
 	})
 
 	for _, tt := range []struct {

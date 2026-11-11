@@ -12,6 +12,10 @@ import (
 // pipeline's. Start and RestoreSnapshot each fill one in.
 type bootPlan struct {
 	machine Machine
+	// restoredDisks are the disks the VMM is given at boot after the image and
+	// the root disk: a restore's recorded disks, which its saved state already
+	// holds (ADR 0041). Start gives none; it hot-plugs its disks.
+	restoredDisks []DiskAttachment
 	// describe is the Driver's description of the VMM process.
 	describe func(ctx context.Context, boot BootSpec) (ProcessDescription, error)
 	// vmm is the Driver step that returns once the started VMM's VM runs.
@@ -71,13 +75,13 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	}
 	devices, image, err := s.bootDevices(ctx, m)
 	if err != nil {
-		var e *Error
-		if !errors.As(err, &e) {
-			e = fail(ErrFailed, "%v", err)
-		}
-		return stopped(e)
+		return stopped(asFailure(err))
 	}
-	boot.Devices = devices
+	restored, err := s.diskDevices(ctx, p.restoredDisks...)
+	if err != nil {
+		return stopped(asFailure(err))
+	}
+	boot.Devices = append(devices, restored...)
 	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
 	if err != nil {
 		return stopped(fail(ErrPreconditionFailed, "the network policy was not applied: %v", err))
@@ -99,6 +103,15 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 		return stopped(fail(ErrFailed, "%v", err))
 	}
 	return bootResult{begun: up, kernelDigest: kernelDigest(process)}
+}
+
+// asFailure is err as the failure a bring-up reports.
+func asFailure(err error) *Error {
+	var e *Error
+	if !errors.As(err, &e) {
+		e = fail(ErrFailed, "%v", err)
+	}
+	return e
 }
 
 // kernelDigest is the digest of the kernel file a description names, empty
