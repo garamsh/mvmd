@@ -504,6 +504,58 @@ mod tests {
     }
 
     #[test]
+    fn disks_found_one_after_another_each_get_a_record_and_each_is_released_by_its_id()
+    -> io::Result<()> {
+        let tree = Tree::new()?;
+        let disks = tree.disks();
+        let wanted = [
+            ("one", "vdb", "0000:00:05.0"),
+            ("two", "vdc", "0000:00:06.0"),
+            ("three", "vdd", "0000:00:07.0"),
+        ];
+        let mut names = Vec::new();
+        for (id, name, address) in wanted {
+            appear_later(tree.sys(), vec![(name, address)]);
+            names.push(ok(disks.find(id))?.name);
+        }
+        let expected: Vec<_> = wanted
+            .iter()
+            .map(|(_, name, _)| (*name).to_owned())
+            .collect();
+        assert_eq!(names, expected, "each ID took its own device");
+        let remove = |address: &str| {
+            tree.sys()
+                .join("bus/pci/devices")
+                .join(address)
+                .join("remove")
+        };
+        for (_, _, address) in wanted {
+            assert_eq!(
+                fs::read_to_string(remove(address))?,
+                "",
+                "nothing removed yet"
+            );
+        }
+
+        // Released out of order: each release removes its own device and no other.
+        for (index, (id, name, address)) in
+            [wanted[1], wanted[0], wanted[2]].into_iter().enumerate()
+        {
+            let watcher = unplug_on_remove(&tree, address, name);
+            ok(disks.release(id))?;
+            let claimed = watcher.join().map_err(|_| io::Error::other("watcher"))?;
+            assert!(claimed, "{id}: the claim was held when the removal began");
+            let removed = wanted
+                .iter()
+                .filter(|(_, _, a)| fs::read_to_string(remove(a)).is_ok_and(|text| text == "1"))
+                .count();
+            assert_eq!(removed, index + 1, "{id}: one more device removed");
+            assert_eq!(fs::read_to_string(remove(address))?, "1", "{id}");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn release_removes_the_device_from_the_bus_while_holding_it() -> io::Result<()> {
         let tree = Tree::new()?;
         let disks = found(&tree)?;

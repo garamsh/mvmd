@@ -349,6 +349,8 @@ struct Setup {
     overlay_takes: Duration,
     listener_ends: bool,
     config: guest_agent::Config,
+    /// Disks in place of the test ones.
+    disks: Option<Arc<dyn Disks>>,
 }
 
 struct Agent {
@@ -426,7 +428,7 @@ impl Agent {
             console: Arc::new(TestConsole(log.clone())),
             entropy: entropy.clone(),
             clock: clock.clone(),
-            disks: disks.clone(),
+            disks: setup.disks.unwrap_or_else(|| disks.clone()),
             resources: resources.clone(),
             command_line: Arc::new(TestCommandLine(
                 (!setup.unreadable_command_line)
@@ -1466,6 +1468,138 @@ async fn a_disk_the_agent_has_no_record_of_is_not_found_and_a_failed_find_is_not
     assert_eq!(failed.code(), Code::Internal);
     // Only the call that named a disk reached the disks.
     assert_eq!(agent.log.count("disk find "), 1);
+    Ok(())
+}
+
+/// A fake `/sys` and `/dev` with the root disk `vda` on the bus, for the agent's own `LinuxDisks`.
+struct FakeBus {
+    dir: TempDir,
+}
+
+impl FakeBus {
+    fn new() -> Result<Self> {
+        let bus = Self {
+            dir: tempfile::tempdir()?,
+        };
+        fs::create_dir_all(bus.sys().join("class/block"))?;
+        fs::create_dir_all(bus.sys().join("bus/pci/devices"))?;
+        fs::write(bus.sys().join("bus/pci/rescan"), "")?;
+        fs::create_dir_all(bus.dir.path().join("dev"))?;
+        bus.plug("vda", "0000:00:04.0")?;
+        Ok(bus)
+    }
+
+    fn sys(&self) -> PathBuf {
+        self.dir.path().join("sys")
+    }
+
+    fn remove_file(&self, address: &str) -> PathBuf {
+        self.sys()
+            .join("bus/pci/devices")
+            .join(address)
+            .join("remove")
+    }
+
+    /// A virtio block device at a PCI address, as the kernel lays it out.
+    fn plug(&self, name: &str, address: &str) -> Result {
+        let real = self
+            .sys()
+            .join("devices/pci0000:00")
+            .join(address)
+            .join("virtio1/block")
+            .join(name);
+        fs::create_dir_all(&real)?;
+        fs::write(real.join("size"), "2048\n")?;
+        fs::write(real.join("ro"), "0\n")?;
+        fs::create_dir_all(self.sys().join("bus/pci/devices").join(address))?;
+        fs::write(self.remove_file(address), "")?;
+        fs::write(self.dir.path().join("dev").join(name), "")?;
+        std::os::unix::fs::symlink(&real, self.sys().join("class/block").join(name))?;
+        Ok(())
+    }
+
+    /// The kernel drops the block device `name` once the PCI device at `address` is removed.
+    fn unplug_on_remove(
+        &self,
+        address: &'static str,
+        name: &'static str,
+    ) -> std::thread::JoinHandle<()> {
+        let (remove, device) = (
+            self.remove_file(address),
+            self.sys().join("class/block").join(name),
+        );
+        std::thread::spawn(move || {
+            while fs::read_to_string(&remove).unwrap_or_default() != "1" {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let _ = fs::remove_file(device);
+        })
+    }
+}
+
+#[tokio::test]
+async fn disks_found_before_boot_stay_recorded_through_it_and_each_is_released_by_its_id() -> Result
+{
+    let bus = FakeBus::new()?;
+    let disks = guest_agent::LinuxDisks::at(
+        bus.sys(),
+        bus.dir.path().join("dev"),
+        Duration::from_secs(2),
+    );
+    let mut agent = Agent::start_with(Setup {
+        disks: Some(Arc::new(disks)),
+        ..Setup::default()
+    })
+    .await?;
+    let wanted = [
+        ("one", "vdb", "0000:00:05.0"),
+        ("two", "vdc", "0000:00:06.0"),
+    ];
+    // The agent lists the boot's devices before it listens, so no device is plugged before this.
+    agent.client.health(HealthRequest {}).await?;
+
+    for (id, name, address) in wanted {
+        bus.plug(name, address)?;
+        let found = agent
+            .client
+            .find_disk(FindDiskRequest { disk_id: id.into() })
+            .await?
+            .into_inner();
+        assert_eq!(found.device, name, "{id}");
+    }
+
+    // The entrypoint runs until told to end, so the agent serves while the records are read back.
+    let flag = agent.dir.path().join("release-done");
+    agent
+        .boot(&format!(
+            "while [ ! -e {} ]; do sleep 0.05; done",
+            flag.display()
+        ))
+        .await?;
+    fs::write(bus.sys().join("bus/pci/rescan"), "untouched")?;
+    for (id, name, _) in wanted {
+        let again = agent
+            .client
+            .find_disk(FindDiskRequest { disk_id: id.into() })
+            .await?
+            .into_inner();
+        assert_eq!(again.device, name, "{id} after Boot");
+    }
+    // A record answers without a rescan, so these answers came from the records.
+    assert_eq!(
+        fs::read_to_string(bus.sys().join("bus/pci/rescan"))?,
+        "untouched"
+    );
+    for (id, name, address) in wanted {
+        let watcher = bus.unplug_on_remove(address, name);
+        agent
+            .client
+            .release_disk(ReleaseDiskRequest { disk_id: id.into() })
+            .await?;
+        watcher.join().map_err(|_| "watcher")?;
+        assert_eq!(fs::read_to_string(bus.remove_file(address))?, "1", "{id}");
+    }
+    fs::write(&flag, "")?;
     Ok(())
 }
 
