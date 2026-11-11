@@ -54,7 +54,7 @@ func TestSetResources_RefusesAboveTheDriversLimitAsInvalid(t *testing.T) {
 	}
 }
 
-func TestRestoreSnapshot_RefusesASnapshotAboveTheDriversLimitAsInvalid(t *testing.T) {
+func TestRestoreSnapshot_RefusesASnapshotAboveTheDriversLimitAsAFailedPrecondition(t *testing.T) {
 	ctx := context.Background()
 	caps := append(snapshotCaps, machine.CapabilityResize)
 	e := newEnv(caps...)
@@ -66,7 +66,7 @@ func TestRestoreSnapshot_RefusesASnapshotAboveTheDriversLimitAsInvalid(t *testin
 
 	o := e.elsewhere(info(4))
 	o.images.Provide(image)
-	requireKind(t, o.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy), machine.ErrInvalid)
+	requireKind(t, o.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy), machine.ErrPreconditionFailed)
 	o.requireNoMachine(t, "new")
 	assert.Zero(t, o.driver.Calls("describe-restore"), "nothing was begun")
 

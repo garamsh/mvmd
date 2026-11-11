@@ -25,9 +25,9 @@ Candidates weighed:
 
 1. **`DriverInfo` carries `Limits`, the most of a Machine the Driver accepts.** It holds the most vCPUs, the only upper bound either Driver checks. A zero figure states no bound, and a Driver that states none reports none.
 2. **A Driver defines each limit once and uses it for both `Info` and `Describe`.** `Describe` keeps refusing a description above it.
-3. **The inside checks the limits before anything is made.** Create Machine (the resources and the ceiling), Restore (the snapshot's resources and ceiling) and Set resources (the target and the ceiling, in any state) refuse a figure above a limit as invalid, which the runtime API reports as REJECTED. No record, disk, address or process exists after the refusal, and it is not remembered under the request ID.
+3. **The inside checks the limits before anything is made.** Create Machine (the resources and the ceiling) and Set resources (the target and the ceiling, in any state) refuse a figure above a limit as invalid, which the runtime API reports as REJECTED. Restore (the snapshot's resources and ceiling) refuses it as a failed precondition, which the runtime API reports as PRECONDITION_FAILED. No record, disk, address or process exists after the refusal, and it is not remembered under the request ID.
 4. **Runtime info reports them.** `DriverInfo` gains the optional `limits`, a `DriverLimits` message with `max_vcpus`, absent when the Driver states none. The version stays `v1alpha2` ([runtime-api.md](../runtime-api.md) §Scope and version).
-5. **A Restore above a limit is refused though the request is well formed**, since the snapshot's figures, not the request's, exceed it. A snapshot made by a Driver of the same name, version and CPU model can still hold figures above the limit the Driver states now.
+5. **A Restore above a limit is a failed precondition, not an invalid request.** The request, a snapshot id and a policy, is well formed; the snapshot's figures, not the request's, exceed the limit, as a snapshot made by another Driver does not fit this node's, which Restore already refuses as a failed precondition. Create Machine and Set resources carry the figures in the request, so there they are invalid. A snapshot made by a Driver of the same name, version and CPU model can still hold figures above the limit the Driver states now.
 
 ## Consequences
 

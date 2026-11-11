@@ -2654,8 +2654,9 @@ type DriverInfo struct {
 	// The host CPU model the Driver runs guests on. A restore needs a snapshot
 	// whose cpu_model equals this value.
 	CpuModel string `protobuf:"bytes,3,opt,name=cpu_model,json=cpuModel,proto3" json:"cpu_model,omitempty"`
-	// The most of a Machine the Driver accepts. A Create machine, Restore or
-	// Set resources beyond them is REJECTED. Absent when the Driver reports none.
+	// The most of a Machine the Driver accepts. A Create machine or Set resources
+	// beyond them is REJECTED; a Restore of a snapshot beyond them is
+	// PRECONDITION_FAILED. Absent when the Driver reports none.
 	Limits        *DriverLimits `protobuf:"bytes,4,opt,name=limits,proto3" json:"limits,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

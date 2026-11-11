@@ -93,7 +93,7 @@ func TestSetResources_RefusesAboveTheReportedLimitAsRejectedAndChangesNothing(t 
 	require.NoError(t, err, "control: the reported limit is accepted")
 }
 
-func TestRestoreMachine_RefusesASnapshotAboveTheReportedLimitAsRejectedAndRestoresNothing(t *testing.T) {
+func TestRestoreMachine_RefusesASnapshotAboveTheReportedLimitAsPreconditionFailedAndRestoresNothing(t *testing.T) {
 	ctx := context.Background()
 	snaps := memory.NewSnapshotStore()
 	big, bigSvc := limitedServer(snaps, 8)
@@ -104,7 +104,7 @@ func TestRestoreMachine_RefusesASnapshotAboveTheReportedLimitAsRejectedAndRestor
 
 	small, smallSvc := limitedServer(snaps, 4)
 	_, err = small.RestoreMachine(ctx, &v1alpha2.RestoreMachineRequest{MachineId: "copy", RequestId: "r-copy", SnapshotId: "snap"})
-	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED, v1alpha2.KindOf(err))
 	all, err := smallSvc.List(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, all, "no Machine was restored")

@@ -164,7 +164,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		return fail(ErrPreconditionFailed, "snapshot %q was made by %s %s on %q; this node has %s %s on %q",
 			snapshot, held.Compat.Driver, held.Compat.Version, held.Compat.CPUModel, want.Driver, want.Version, want.CPUModel)
 	}
-	if err := s.overLimits(held.Spec.Resources, held.Spec.Ceiling); err != nil {
+	if err := s.overLimits(held.Spec.Resources, held.Spec.Ceiling, ErrPreconditionFailed); err != nil {
 		return err
 	}
 	// Shared until the record is set, as Create holds it.
