@@ -32,30 +32,26 @@ const maxNameBytes = 255
 const TempDiskPrefix = "tmp-"
 
 // ValidDiskID reports whether id can name a disk file of the node: it is not
-// empty, ".", ".." or a name starting with "tmp-", and has no "/".
+// empty, ".", ".." or a name starting with "tmp-", has no "/" or NUL, and is at
+// most 255 bytes.
 func ValidDiskID(id DiskID) bool {
 	s := string(id)
-	if s == "" || s == "." || s == ".." || strings.HasPrefix(s, TempDiskPrefix) {
+	if s == "" || s == "." || s == ".." || strings.HasPrefix(s, TempDiskPrefix) || len(s) > maxNameBytes {
 		return false
 	}
-	return !strings.Contains(s, "/")
+	return !strings.ContainsAny(s, "/\x00")
 }
 
 // CheckMachineID returns nil when id can name what the node derives from a
 // Machine identifier: a directory entry, and the root disk "<id>-root" as a
-// disk identifier that fits one path component. Otherwise it returns the
-// reason.
+// disk identifier. Otherwise it returns the reason.
 func CheckMachineID(id MachineID) error {
 	s := string(id)
 	switch {
 	case s == "" || s == "." || s == "..":
 		return fmt.Errorf("%q cannot name a directory entry", s)
-	case strings.ContainsAny(s, "/\x00"):
-		return fmt.Errorf("%q contains a / or a NUL", s)
 	case !ValidDiskID(RootDiskID(id)):
 		return fmt.Errorf("%q makes the root disk name %q, which is not a disk identifier", s, RootDiskID(id))
-	case len(RootDiskID(id)) > maxNameBytes:
-		return fmt.Errorf("the identifier is %d bytes and its root disk name would exceed %d", len(s), maxNameBytes)
 	}
 	return nil
 }

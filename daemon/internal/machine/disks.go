@@ -16,10 +16,16 @@ func hot(m Machine) bool {
 // attach or create holds a file on its way out.
 const deleting MachineID = ""
 
+// invalidDisk is the outcome of a call that names an identifier no disk file
+// has, refused before the call takes a lock or reaches a port.
+func invalidDisk(disk DiskID) error {
+	return fail(ErrInvalid, "%q is not a disk identifier: it must not be empty, ., .., start with %s, contain / or a NUL, or exceed %d bytes", disk, TempDiskPrefix, maxNameBytes)
+}
+
 func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64) error {
 	switch {
-	case disk == "":
-		return fail(ErrInvalid, "the disk identifier is empty")
+	case !ValidDiskID(disk):
+		return invalidDisk(disk)
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
 	case sizeBytes == 0:
@@ -107,8 +113,8 @@ func (s *service) ListDisks(ctx context.Context) ([]DiskInfo, error) {
 }
 
 func (s *service) DeleteDisk(ctx context.Context, disk DiskID) error {
-	if disk == "" {
-		return fail(ErrInvalid, "the disk identifier is empty")
+	if !ValidDiskID(disk) {
+		return invalidDisk(disk)
 	}
 	// Taking the holder slot refuses a disk with a holder and keeps an attach
 	// from holding the file while it is removed.
@@ -128,6 +134,9 @@ func (s *service) DeleteDisk(ctx context.Context, disk DiskID) error {
 }
 
 func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment) error {
+	if !ValidDiskID(a.Disk) {
+		return invalidDisk(a.Disk)
+	}
 	defer s.lock(id)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
@@ -271,6 +280,9 @@ func (s *service) diverged(rec *Record, format string, args ...any) error {
 }
 
 func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) error {
+	if !ValidDiskID(disk) {
+		return invalidDisk(disk)
+	}
 	defer s.lock(id)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
