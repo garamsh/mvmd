@@ -139,7 +139,7 @@ func TestE2E_AnEgressRuleAllowsItsAddressAndPortAndAnEmptyPolicyReachesNothing(t
 	pulled := n.pullBootable(t, "egress")
 
 	allowed, other := listenOnHost(t), listenOnHost(t)
-	closed := n.policyMachine(t, ctx, "closed", pulled.Digest, &v1alpha2.NetworkPolicy{})
+	closed := n.policyMachine(t, ctx, "closed", pulled.Digest, &v1alpha2.NetworkPolicy{Egress: []*v1alpha2.NetworkRule{&v1alpha2.NetworkRule{Prefix: "0.0.0.0/0", Protocol: v1alpha2.Protocol_PROTOCOL_ANY}}})
 	open := n.policyMachine(t, ctx, "open", pulled.Digest, &v1alpha2.NetworkPolicy{
 		Egress: []*v1alpha2.NetworkRule{tcpAllow(gateway, allowed.port)},
 	})
