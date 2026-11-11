@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/app"
+	"github.com/garamsh/mvmd/daemon/internal/nstest"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
@@ -29,84 +30,90 @@ func cloudHypervisorConfig(t *testing.T) app.Config {
 }
 
 func TestCloudHypervisor_TheDriverAndTheChannelReplaceTheMemoryOnes(t *testing.T) {
-	memory, err := app.New(testConfig(t))
-	require.NoError(t, err)
-	assert.NotNil(t, memory.Substitutes.Driver, "control: the memory config wires the memory Driver")
-	assert.NotNil(t, memory.Substitutes.Registry, "control: and the memory Registry")
-	assert.NotNil(t, memory.Substitutes.ConversionDriver, "control: and the memory conversion Driver")
+	nstest.Run(t, func(t *testing.T) {
+		memory, err := app.New(testConfig(t))
+		require.NoError(t, err)
+		assert.NotNil(t, memory.Substitutes.Driver, "control: the memory config wires the memory Driver")
+		assert.NotNil(t, memory.Substitutes.Registry, "control: and the memory Registry")
+		assert.NotNil(t, memory.Substitutes.ConversionDriver, "control: and the memory conversion Driver")
 
-	a, err := app.New(cloudHypervisorConfig(t))
-	require.NoError(t, err)
-	assert.Nil(t, a.Substitutes.Driver, "the memory Driver is not in the graph")
-	assert.Nil(t, a.Substitutes.Guest, "the memory Guest is not in the graph")
-	assert.Nil(t, a.Substitutes.Supervisors, "the Driver's run directories are the real supervisors'")
-	assert.Nil(t, a.Substitutes.Registry, "the memory Registry is not in the graph")
-	assert.Nil(t, a.Substitutes.Converter, "the memory Converter is not in the graph")
-	assert.Nil(t, a.Substitutes.Disks, "the memory Disk is not in the graph")
-	assert.Nil(t, a.Substitutes.Snapshots, "the memory Snapshot Store is not in the graph")
-	assert.Nil(t, a.Substitutes.Cache, "the memory Image Store is not in the graph")
-	assert.Nil(t, a.Substitutes.ConversionDriver, "the memory conversion Driver is not in the graph")
-	assert.Nil(t, a.Substitutes.ConversionSupervision, "the memory conversion Supervision is not in the graph")
+		a, err := app.New(cloudHypervisorConfig(t))
+		require.NoError(t, err)
+		assert.Nil(t, a.Substitutes.Driver, "the memory Driver is not in the graph")
+		assert.Nil(t, a.Substitutes.Guest, "the memory Guest is not in the graph")
+		assert.Nil(t, a.Substitutes.Supervisors, "the Driver's run directories are the real supervisors'")
+		assert.Nil(t, a.Substitutes.Registry, "the memory Registry is not in the graph")
+		assert.Nil(t, a.Substitutes.Converter, "the memory Converter is not in the graph")
+		assert.Nil(t, a.Substitutes.Disks, "the memory Disk is not in the graph")
+		assert.Nil(t, a.Substitutes.Snapshots, "the memory Snapshot Store is not in the graph")
+		assert.Nil(t, a.Substitutes.Cache, "the memory Image Store is not in the graph")
+		assert.Nil(t, a.Substitutes.ConversionDriver, "the memory conversion Driver is not in the graph")
+		assert.Nil(t, a.Substitutes.ConversionSupervision, "the memory conversion Supervision is not in the graph")
+	})
 }
 
 // The selected Driver serves the node's Machines and boots its converter VMs:
 // a cloud-hypervisor node has no Firecracker in its graph.
 func TestDriverSelection_BothTheMachinesAndTheConvertersRunOnTheSelectedDriver(t *testing.T) {
-	tests := []struct {
-		driver string
-		config func(*testing.T) app.Config
-	}{
-		{app.DriverFirecracker, firecrackerConfig},
-		{app.DriverCloudHypervisor, cloudHypervisorConfig},
-	}
-	for _, tt := range tests {
-		t.Run(tt.driver, func(t *testing.T) {
-			cfg := tt.config(t)
-			n := start(t, cfg)
+	nstest.Run(t, func(t *testing.T) {
+		tests := []struct {
+			driver string
+			config func(*testing.T) app.Config
+		}{
+			{app.DriverFirecracker, firecrackerConfig},
+			{app.DriverCloudHypervisor, cloudHypervisorConfig},
+		}
+		for _, tt := range tests {
+			t.Run(tt.driver, func(t *testing.T) {
+				cfg := tt.config(t)
+				n := start(t, cfg)
 
-			info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
-			require.NoError(t, err)
-			require.Len(t, info.GetDrivers(), 1)
-			assert.Equal(t, tt.driver, info.GetDrivers()[0].GetDriver().GetName(), "the Machines' Driver")
-			assert.Equal(t, tt.driver, app.ConversionDriver(n.app).Info().Name, "the converters' Driver")
+				info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+				require.NoError(t, err)
+				require.Len(t, info.GetDrivers(), 1)
+				assert.Equal(t, tt.driver, info.GetDrivers()[0].GetDriver().GetName(), "the Machines' Driver")
+				assert.Equal(t, tt.driver, app.ConversionDriver(n.app).Info().Name, "the converters' Driver")
 
-			// The memory substitute's figures end in 1, which no host's memory
-			// (a multiple of 1024) or filesystem (a multiple of its block
-			// size) does, so a node still wired to it fails here.
-			c := info.GetCapacity()
-			require.NotNil(t, c)
-			assert.EqualValues(t, runtime.NumCPU(), c.GetCpus())
-			assert.Zero(t, c.GetMemoryBytes()%1024, "the host's memory, not the substitute's")
-			assert.NotZero(t, c.GetMemoryBytes())
-			assert.Zero(t, c.GetStateTotalBytes()%512, "the state directory's filesystem, not the substitute's")
-			assert.NotZero(t, c.GetStateTotalBytes())
-		})
-	}
+				// The memory substitute's figures end in 1, which no host's memory
+				// (a multiple of 1024) or filesystem (a multiple of its block
+				// size) does, so a node still wired to it fails here.
+				c := info.GetCapacity()
+				require.NotNil(t, c)
+				assert.EqualValues(t, runtime.NumCPU(), c.GetCpus())
+				assert.Zero(t, c.GetMemoryBytes()%1024, "the host's memory, not the substitute's")
+				assert.NotZero(t, c.GetMemoryBytes())
+				assert.Zero(t, c.GetStateTotalBytes()%512, "the state directory's filesystem, not the substitute's")
+				assert.NotZero(t, c.GetStateTotalBytes())
+			})
+		}
+	})
 }
 
 func TestCloudHypervisor_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.T) {
-	for _, file := range []string{"binary", "kernel", "another kernel", "initrd", "converter initrd"} {
-		t.Run(file, func(t *testing.T) {
-			cfg := cloudHypervisorConfig(t)
-			path := map[string]string{
-				"binary": cfg.CloudHypervisor.Binary, "kernel": cfg.CloudHypervisor.Kernels["stable"].Path, "another kernel": cfg.CloudHypervisor.Kernels["next"].Path,
-				"initrd": cfg.CloudHypervisor.Initrd, "converter initrd": cfg.Conversion.Initrd,
-			}[file]
-			pinned, err := os.ReadFile(path)
-			require.NoError(t, err)
+	nstest.Run(t, func(t *testing.T) {
+		for _, file := range []string{"binary", "kernel", "another kernel", "initrd", "converter initrd"} {
+			t.Run(file, func(t *testing.T) {
+				cfg := cloudHypervisorConfig(t)
+				path := map[string]string{
+					"binary": cfg.CloudHypervisor.Binary, "kernel": cfg.CloudHypervisor.Kernels["stable"].Path, "another kernel": cfg.CloudHypervisor.Kernels["next"].Path,
+					"initrd": cfg.CloudHypervisor.Initrd, "converter initrd": cfg.Conversion.Initrd,
+				}[file]
+				pinned, err := os.ReadFile(path)
+				require.NoError(t, err)
 
-			require.NoError(t, os.WriteFile(path, []byte("another file"), 0o600))
-			_, err = app.New(cfg)
-			require.Error(t, err)
-			assert.ErrorContains(t, err, "digest")
+				require.NoError(t, os.WriteFile(path, []byte("another file"), 0o600))
+				_, err = app.New(cfg)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "digest")
 
-			// The control: the pinned file is accepted, and the refusal above
-			// closed the database it had opened.
-			require.NoError(t, os.WriteFile(path, pinned, 0o600))
-			_, err = app.New(cfg)
-			require.NoError(t, err)
-		})
-	}
+				// The control: the pinned file is accepted, and the refusal above
+				// closed the database it had opened.
+				require.NoError(t, os.WriteFile(path, pinned, 0o600))
+				_, err = app.New(cfg)
+				require.NoError(t, err)
+			})
+		}
+	})
 }
 
 func TestCloudHypervisor_ConfigParses(t *testing.T) {

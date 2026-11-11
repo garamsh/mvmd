@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/app"
+	"github.com/garamsh/mvmd/daemon/internal/nstest"
 )
 
 // firecrackerConfig is a config for the Firecracker Driver over files that
@@ -47,59 +48,65 @@ func firecrackerConfig(t *testing.T) app.Config {
 	cfg.Firecracker = f
 	cfg.Conversion = cv
 	cfg.Supervision = &app.SupervisionConfig{Binary: "/usr/libexec/mvmd-supervisor"}
+	cfg.Network = &app.NetworkConfig{IPv4Prefix: "10.78.0.0/24", IPv4Gateway: "10.78.0.1"}
+	forwarding(t, "1") // the node reads the host's forwarding at start, so a test of this config runs in nstest.Run
 	return cfg
 }
 
 func TestFirecracker_TheDriverAndTheChannelReplaceTheMemoryOnes(t *testing.T) {
-	memory, err := app.New(testConfig(t))
-	require.NoError(t, err)
-	assert.NotNil(t, memory.Substitutes.Driver, "control: the memory config wires the memory Driver")
-	assert.NotNil(t, memory.Substitutes.Guest, "control: and the memory Guest")
-	assert.NotNil(t, memory.Substitutes.Registry, "control: and the memory Registry")
-	assert.NotNil(t, memory.Substitutes.Converter, "control: and the memory Converter")
-	assert.NotNil(t, memory.Substitutes.Disks, "control: and the memory Disk")
-	assert.NotNil(t, memory.Substitutes.Snapshots, "control: and the memory Snapshot Store")
-	assert.NotNil(t, memory.Substitutes.Cache, "control: and the memory Image Store")
-	assert.NotNil(t, memory.Substitutes.ConversionDriver, "control: and the memory conversion Driver")
-	assert.NotNil(t, memory.Substitutes.ConversionSupervision, "control: and the memory conversion Supervision")
+	nstest.Run(t, func(t *testing.T) {
+		memory, err := app.New(testConfig(t))
+		require.NoError(t, err)
+		assert.NotNil(t, memory.Substitutes.Driver, "control: the memory config wires the memory Driver")
+		assert.NotNil(t, memory.Substitutes.Guest, "control: and the memory Guest")
+		assert.NotNil(t, memory.Substitutes.Registry, "control: and the memory Registry")
+		assert.NotNil(t, memory.Substitutes.Converter, "control: and the memory Converter")
+		assert.NotNil(t, memory.Substitutes.Disks, "control: and the memory Disk")
+		assert.NotNil(t, memory.Substitutes.Snapshots, "control: and the memory Snapshot Store")
+		assert.NotNil(t, memory.Substitutes.Cache, "control: and the memory Image Store")
+		assert.NotNil(t, memory.Substitutes.ConversionDriver, "control: and the memory conversion Driver")
+		assert.NotNil(t, memory.Substitutes.ConversionSupervision, "control: and the memory conversion Supervision")
 
-	a, err := app.New(firecrackerConfig(t))
-	require.NoError(t, err)
-	assert.Nil(t, a.Substitutes.Driver, "the memory Driver is not in the graph")
-	assert.Nil(t, a.Substitutes.Guest, "the memory Guest is not in the graph")
-	assert.Nil(t, a.Substitutes.Supervisors, "the Driver's run directories are the real supervisors'")
-	assert.Nil(t, a.Substitutes.Registry, "the memory Registry is not in the graph")
-	assert.Nil(t, a.Substitutes.Converter, "the memory Converter is not in the graph")
-	assert.Nil(t, a.Substitutes.Disks, "the memory Disk is not in the graph")
-	assert.Nil(t, a.Substitutes.Snapshots, "the memory Snapshot Store is not in the graph")
-	assert.Nil(t, a.Substitutes.Cache, "the memory Image Store is not in the graph")
-	assert.Nil(t, a.Substitutes.ConversionDriver, "the memory conversion Driver is not in the graph")
-	assert.Nil(t, a.Substitutes.ConversionSupervision, "the memory conversion Supervision is not in the graph")
+		a, err := app.New(firecrackerConfig(t))
+		require.NoError(t, err)
+		assert.Nil(t, a.Substitutes.Driver, "the memory Driver is not in the graph")
+		assert.Nil(t, a.Substitutes.Guest, "the memory Guest is not in the graph")
+		assert.Nil(t, a.Substitutes.Supervisors, "the Driver's run directories are the real supervisors'")
+		assert.Nil(t, a.Substitutes.Registry, "the memory Registry is not in the graph")
+		assert.Nil(t, a.Substitutes.Converter, "the memory Converter is not in the graph")
+		assert.Nil(t, a.Substitutes.Disks, "the memory Disk is not in the graph")
+		assert.Nil(t, a.Substitutes.Snapshots, "the memory Snapshot Store is not in the graph")
+		assert.Nil(t, a.Substitutes.Cache, "the memory Image Store is not in the graph")
+		assert.Nil(t, a.Substitutes.ConversionDriver, "the memory conversion Driver is not in the graph")
+		assert.Nil(t, a.Substitutes.ConversionSupervision, "the memory conversion Supervision is not in the graph")
+	})
 }
 
 func TestFirecracker_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.T) {
-	for _, file := range []string{"binary", "kernel", "another kernel", "initrd", "converter initrd"} {
-		t.Run(file, func(t *testing.T) {
-			cfg := firecrackerConfig(t)
-			path := map[string]string{
-				"binary": cfg.Firecracker.Binary, "kernel": cfg.Firecracker.Kernels["stable"].Path, "another kernel": cfg.Firecracker.Kernels["next"].Path,
-				"initrd": cfg.Firecracker.Initrd, "converter initrd": cfg.Conversion.Initrd,
-			}[file]
-			pinned, err := os.ReadFile(path)
-			require.NoError(t, err)
+	nstest.Run(t, func(t *testing.T) {
+		for _, file := range []string{"binary", "kernel", "another kernel", "initrd", "converter initrd"} {
+			t.Run(file, func(t *testing.T) {
+				cfg := firecrackerConfig(t)
+				path := map[string]string{
+					"binary": cfg.Firecracker.Binary, "kernel": cfg.Firecracker.Kernels["stable"].Path, "another kernel": cfg.Firecracker.Kernels["next"].Path,
+					"initrd": cfg.Firecracker.Initrd, "converter initrd": cfg.Conversion.Initrd,
+				}[file]
+				pinned, err := os.ReadFile(path)
+				require.NoError(t, err)
 
-			require.NoError(t, os.WriteFile(path, []byte("another file"), 0o600))
-			_, err = app.New(cfg)
-			require.Error(t, err)
-			assert.ErrorContains(t, err, "digest")
+				require.NoError(t, os.WriteFile(path, []byte("another file"), 0o600))
+				_, err = app.New(cfg)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "digest")
 
-			// The control: the pinned file is accepted, and the refusal above
-			// closed the database it had opened.
-			require.NoError(t, os.WriteFile(path, pinned, 0o600))
-			_, err = app.New(cfg)
-			require.NoError(t, err)
-		})
-	}
+				// The control: the pinned file is accepted, and the refusal above
+				// closed the database it had opened.
+				require.NoError(t, os.WriteFile(path, pinned, 0o600))
+				_, err = app.New(cfg)
+				require.NoError(t, err)
+			})
+		}
+	})
 }
 
 const (
