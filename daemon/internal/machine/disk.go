@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrDiskAbsent is what Disk.Locate, Give and Reclaim return for a disk the node does not hold.
@@ -37,6 +38,14 @@ type DiskInfo struct {
 	Holder    MachineID
 }
 
+// DiskFile is what a disk's file shows of it: its size and the time it was
+// last written. A write through a guest changes the latter, and a give or a take
+// does not.
+type DiskFile struct {
+	SizeBytes uint64
+	ModTime   time.Time
+}
+
 // Disk is the conversation with the node's disk files. Which Machine holds a
 // disk is the inside's rule and not this port's.
 type Disk interface {
@@ -59,6 +68,9 @@ type Disk interface {
 	// List returns every disk the node holds, root disks included, ordered by
 	// identifier.
 	List(ctx context.Context) ([]DiskEntry, error)
+	// Stat returns the size and modification time of the disk's file, or
+	// ErrDiskAbsent.
+	Stat(ctx context.Context, disk DiskID) (DiskFile, error)
 	// Give makes the disk file owned by the owner's user, so the VMM of the
 	// Machine that holds the disk can open it, or returns ErrDiskAbsent.
 	Give(ctx context.Context, disk DiskID, owner DiskOwner) error

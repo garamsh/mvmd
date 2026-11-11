@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,6 +87,10 @@ func snapshot(id string) machine.Snapshot {
 		RootDiskUUID: "uuid-of-" + id,
 		MAC:          "02:00:00:00:00:01",
 		Compat:       machine.SnapshotCompat{Driver: "firecracker", Version: "1.17.0", CPUModel: "model-x", KernelDigest: "sha256:kernel"},
+		Disks: []machine.SnapshotDisk{
+			{Disk: "data", SizeBytes: 1 << 20, ModTime: time.Unix(1700000000, 123456789)},
+			{Disk: "tools", ReadOnly: true, SizeBytes: 2 << 20, ModTime: time.Unix(1700000100, 5)},
+		},
 	}
 }
 
@@ -482,4 +487,24 @@ func TestGet_ARecordWithoutACeilingReadsItAsTheResources(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, kept.Spec.Ceiling, got.Spec.Ceiling, "control: one that holds a ceiling keeps it")
 	assert.Equal(t, kept.Spec.BootMemoryBytes, got.Spec.BootMemoryBytes)
+}
+
+// A record written before disks were recorded holds none; it reads back with
+// none, and one that holds disks keeps each with its flag, size and time.
+func TestGet_ARecordWithoutDisksReadsAsNone(t *testing.T) {
+	f := newFixture(t)
+	s := f.open(t)
+	old := snapshot("old")
+	old.Disks = nil
+	require.NoError(t, s.Put(ctx, old, f.files(t, "old")))
+	kept := snapshot("kept")
+	require.NoError(t, s.Put(ctx, kept, f.files(t, "kept")))
+
+	got, _, err := s.Get(ctx, "old")
+	require.NoError(t, err)
+	assert.Empty(t, got.Disks)
+
+	got, _, err = s.Get(ctx, "kept")
+	require.NoError(t, err)
+	assert.Equal(t, kept.Disks, got.Disks, "control: one that holds disks keeps them")
 }

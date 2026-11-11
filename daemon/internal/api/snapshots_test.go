@@ -106,3 +106,23 @@ func TestListSnapshots_ReportsTheKernelDigest(t *testing.T) {
 	require.Len(t, resp.Snapshots, 1)
 	assert.Equal(t, "abc123", resp.Snapshots[0].KernelDigest)
 }
+
+func TestListSnapshots_ReportsTheDisksOfEverySnapshot(t *testing.T) {
+	m := &snapshotter{listed: []machine.Snapshot{
+		{ID: "with", Disks: []machine.SnapshotDisk{{Disk: "d1", SizeBytes: 4096}, {Disk: "d2", ReadOnly: true, SizeBytes: 8192}}},
+		{ID: "without"},
+	}}
+
+	resp, err := api.New(m, nil, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Snapshots, 2)
+	require.Len(t, resp.Snapshots[0].Disks, 2)
+	assert.Equal(t, "d1", resp.Snapshots[0].Disks[0].DiskId)
+	assert.False(t, resp.Snapshots[0].Disks[0].ReadOnly)
+	assert.Equal(t, uint64(4096), resp.Snapshots[0].Disks[0].SizeBytes)
+	assert.Equal(t, "d2", resp.Snapshots[0].Disks[1].DiskId)
+	assert.True(t, resp.Snapshots[0].Disks[1].ReadOnly)
+	assert.Equal(t, uint64(8192), resp.Snapshots[0].Disks[1].SizeBytes)
+	assert.Empty(t, resp.Snapshots[1].Disks, "control: a snapshot with none lists none")
+}

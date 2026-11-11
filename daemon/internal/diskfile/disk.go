@@ -248,6 +248,23 @@ func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, e
 	return machine.DiskEntry{ID: disk, Request: request, SizeBytes: uint64(info.Size())}, nil
 }
 
+// Stat returns the size and modification time of the disk's file.
+func (d *Disk) Stat(_ context.Context, disk machine.DiskID) (machine.DiskFile, error) {
+	if !validDiskID(disk) {
+		return machine.DiskFile{}, fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+	}
+	info, err := os.Lstat(filepath.Join(d.dir, string(disk)))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return machine.DiskFile{}, machine.ErrDiskAbsent
+	case err != nil:
+		return machine.DiskFile{}, err
+	case !info.Mode().IsRegular():
+		return machine.DiskFile{}, machine.ErrDiskAbsent
+	}
+	return machine.DiskFile{SizeBytes: uint64(info.Size()), ModTime: info.ModTime()}, nil
+}
+
 // readRequest returns the request ID recorded on the disk file, empty for a
 // disk that has none, as a root disk.
 func readRequest(path string) (machine.RequestID, error) {

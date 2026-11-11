@@ -90,22 +90,6 @@ func TestSnapshot_Needs(t *testing.T) {
 		assert.Empty(t, e.snaps.Held())
 		e.requireState(t, "m", machine.StateRunning)
 	})
-	t.Run("no disk attached but the root", func(t *testing.T) {
-		e := newEnv(machine.CapabilitySnapshot, machine.CapabilityDiskHotplug)
-		e.disks.Provide("data")
-		e.inState(t, "m", machine.StateRunning)
-		require.NoError(t, e.svc.AttachDisk(ctx, "m", machine.DiskAttachment{Disk: "data"}))
-
-		requireKind(t, e.svc.Snapshot(ctx, "m", "snap", "r"), machine.ErrPreconditionFailed)
-		assert.Empty(t, e.snaps.Held())
-		assert.Zero(t, e.driver.Calls("snapshot"), "the guest was not paused for it")
-		e.requireState(t, "m", machine.StateRunning)
-
-		// Control: the same Machine, once the disk is detached.
-		require.NoError(t, e.svc.DetachDisk(ctx, "m", "data"))
-		require.NoError(t, e.svc.Snapshot(ctx, "m", "snap", "r"))
-		assert.Equal(t, []machine.SnapshotID{"snap"}, e.snaps.Held())
-	})
 	t.Run("an identifier or request ID that is empty", func(t *testing.T) {
 		e := newEnv(snapshotCaps...)
 		e.inState(t, "m", machine.StateRunning)

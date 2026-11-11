@@ -30,6 +30,10 @@ func (s *Server) DeleteSnapshot(ctx context.Context, req *v1alpha2.DeleteSnapsho
 }
 
 func snapshotToWire(snapshot machine.Snapshot) *v1alpha2.Snapshot {
+	var disks []*v1alpha2.SnapshotDisk
+	for _, d := range snapshot.Disks {
+		disks = append(disks, &v1alpha2.SnapshotDisk{DiskId: string(d.Disk), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes})
+	}
 	return &v1alpha2.Snapshot{
 		Id:            string(snapshot.ID),
 		MachineId:     string(snapshot.Machine),
@@ -38,5 +42,6 @@ func snapshotToWire(snapshot machine.Snapshot) *v1alpha2.Snapshot {
 		CpuModel:      snapshot.Compat.CPUModel,
 		RootDiskBytes: snapshot.Spec.RootDiskBytes,
 		KernelDigest:  snapshot.Compat.KernelDigest,
+		Disks:         disks,
 	}
 }
