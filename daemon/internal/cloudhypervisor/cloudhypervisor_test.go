@@ -32,7 +32,8 @@ func TestInfo_ReportsResizeOnX8664Only(t *testing.T) {
 		n := newNode(t)
 		cloudhypervisor.SetGOARCH(n.driver, arch)
 		caps := n.driver.Info().Capabilities
-		assert.Equal(t, reported, slices.Contains(caps, machine.CapabilityResize), arch)
+		assert.Equal(t, reported, slices.Contains(caps, machine.CapabilityCPUResize), arch)
+		assert.Equal(t, reported, slices.Contains(caps, machine.CapabilityMemoryResize), arch)
 		assert.Subset(t, caps, []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}, "%s: the rest is unchanged", arch)
 	}
 }
@@ -104,7 +105,8 @@ func TestResizeRefusesAsUnsupportedAndSendsNothingWhereTheArchitectureHasNone(t 
 	err := n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 4, MemoryBytes: 512 << 20})
 	require.ErrorIs(t, err, machine.ErrUnsupported)
 	assert.Len(t, f.seen(), before, "no request reached the VMM")
-	assert.NotContains(t, n.driver.Info().Capabilities, machine.CapabilityResize, "the Driver does not report what it refuses")
+	assert.NotContains(t, n.driver.Info().Capabilities, machine.CapabilityCPUResize, "the Driver does not report what it refuses")
+	assert.NotContains(t, n.driver.Info().Capabilities, machine.CapabilityMemoryResize, "the Driver does not report what it refuses")
 
 	_, err = n.driver.Drive(context.Background(), "m1", "root")
 	require.NoError(t, err, "control: an implemented operation is not refused")

@@ -28,9 +28,11 @@ const (
 	// CapabilityDiskHotplug attaches and detaches disks of a Running or
 	// Paused Machine.
 	CapabilityDiskHotplug Capability = "disk-hotplug"
-	// CapabilityResize changes the CPU and memory of a Running or Paused
+	// CapabilityCPUResize changes the vCPUs of a Running or Paused Machine.
+	CapabilityCPUResize Capability = "cpu-resize"
+	// CapabilityMemoryResize changes the memory of a Running or Paused
 	// Machine.
-	CapabilityResize Capability = "resize"
+	CapabilityMemoryResize Capability = "memory-resize"
 	// CapabilityConsole opens sessions to the console of a Running or Paused
 	// Machine. The console log is not part of it.
 	CapabilityConsole Capability = "console"
@@ -253,7 +255,8 @@ type ProcessOverhead struct {
 // An operation that needs a Capability the Driver does not report returns an
 // error wrapping ErrUnsupported. The operations are Console (CapabilityConsole),
 // AttachDisk, DetachDisk and Drive (CapabilityDiskHotplug), Resize
-// (CapabilityResize), and Snapshot, DescribeRestore and Restore
+// (CapabilityCPUResize for the vCPUs, CapabilityMemoryResize for the memory),
+// and Snapshot, DescribeRestore and Restore
 // (CapabilitySnapshot).
 type Driver interface {
 	// Info names the Driver and the optional operations it supports.
@@ -299,7 +302,7 @@ type Driver interface {
 	// disk and how it came by it (ADR 0023). It reads the VMM and changes
 	// nothing.
 	Drive(ctx context.Context, id MachineID, disk DiskID) (DriveState, error)
-	// Resize needs CapabilityResize.
+	// Resize needs the capability of each resource the target changes.
 	Resize(ctx context.Context, id MachineID, target Resources) error
 	// Snapshot, DescribeRestore and Restore need CapabilitySnapshot.
 	//

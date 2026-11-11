@@ -18,7 +18,7 @@ import (
 
 const limitImage machine.ImageDigest = "sha256:limit"
 
-var limitCaps = []machine.Capability{machine.CapabilitySnapshot, machine.CapabilityResize}
+var limitCaps = []machine.Capability{machine.CapabilitySnapshot, machine.CapabilityCPUResize, machine.CapabilityMemoryResize}
 
 // limitedServer is a runtime API server over the real Machine use case and the
 // in-memory adapters, whose Driver accepts most vCPUs. Servers made over one

@@ -21,8 +21,8 @@ var ceiling = machine.Resources{VCPUs: 4, MemoryBytes: 512 << 20}
 // ceiling above its resources, resizes it to the ceiling, and has the Guest
 // Agent bring the new vCPUs online (ADR 0029): the guest then sees the new vCPU
 // count and more memory than it booted with. A resize repeated converges, and a shrink back to the resources returns the guest to its boot figures. A
-// Driver that reports no resize capability is held to refusing the resize
-// instead.
+// Driver that lacks either resize capability is held to refusing the resize,
+// which changes both resources, instead.
 func AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize(t *testing.T, s Subject) {
 	dir := tempDir(t, "dtresize")
 	run := statedir.Run(dir)
@@ -55,7 +55,7 @@ func AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize(t *testing.T, s Subj
 	require.NoError(t, err)
 	require.Equal(t, resources.VCPUs, before.VCPUs, "the guest booted with %d vCPUs", resources.VCPUs)
 
-	if !has(d, machine.CapabilityResize) {
+	if !has(d, machine.CapabilityCPUResize) || !has(d, machine.CapabilityMemoryResize) {
 		assert.ErrorIs(t, d.Resize(ctx, "m1", ceiling), machine.ErrUnsupported, "Resize")
 		after, err := online(ceiling.VCPUs)
 		require.NoError(t, err)

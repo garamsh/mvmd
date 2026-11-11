@@ -348,12 +348,20 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 	if target.VCPUs == 0 || target.MemoryBytes == 0 {
 		return fail(ErrInvalid, "the target needs at least one vCPU and some memory")
 	}
-	// A Driver that cannot resize holds a ceiling equal to the resources, so a
-	// figure left unset follows the target of a Machine that is not hot (a hot
-	// one is refused below); a Driver that can resize keeps the held figure.
+	// A resource the Driver cannot resize holds a ceiling figure equal to the
+	// resources', so a figure left unset follows the target of a Machine that
+	// is not hot (a hot one is refused below); a resource it can resize keeps
+	// the held figure.
+	info := s.driver.Info()
 	held := ceiling.OrElse(m.Ceiling)
-	if !hot(m) && !s.driver.Info().has(CapabilityResize) {
-		held = ceiling.OrElse(target)
+	if !hot(m) {
+		follow := ceiling.OrElse(target)
+		if !info.has(CapabilityCPUResize) {
+			held.VCPUs = follow.VCPUs
+		}
+		if !info.has(CapabilityMemoryResize) {
+			held.MemoryBytes = follow.MemoryBytes
+		}
 	}
 	if err := s.checkCeiling(target, held, ceiling != Resources{}); err != nil {
 		return err
@@ -364,8 +372,11 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 	if m.Resources == target && held == m.Ceiling {
 		return nil
 	}
-	if hot(m) && !s.driver.Info().has(CapabilityResize) {
-		return fail(ErrUnsupported, "the Driver cannot resize a %s Machine", m.State)
+	if hot(m) && target.VCPUs != m.Resources.VCPUs && !info.has(CapabilityCPUResize) {
+		return fail(ErrUnsupported, "the Driver cannot resize the vCPUs of a %s Machine", m.State)
+	}
+	if hot(m) && target.MemoryBytes != m.Resources.MemoryBytes && !info.has(CapabilityMemoryResize) {
+		return fail(ErrUnsupported, "the Driver cannot resize the memory of a %s Machine", m.State)
 	}
 	if hot(m) && target.MemoryBytes < m.BootMemoryBytes {
 		return fail(ErrPreconditionFailed, "a running VMM reaches no less memory than it booted with, %d bytes; stop the Machine to apply %d", m.BootMemoryBytes, target.MemoryBytes)
@@ -444,8 +455,8 @@ func (s *service) overLimits(resources, ceiling Resources, kind error) error {
 // checkCeiling refuses resources and a ceiling that break ADR 0029's rules:
 // a memory figure off the alignment, resources above the ceiling, or a figure
 // above the Driver's limits, is ErrInvalid; a ceiling asked for above the
-// resources on a Driver that cannot resize is ErrUnsupported, as it could
-// never be used.
+// resources, in a resource the Driver cannot resize, is ErrUnsupported, as it
+// could never be used.
 func (s *service) checkCeiling(resources, ceiling Resources, asked bool) error {
 	if err := s.overLimits(resources, ceiling, ErrInvalid); err != nil {
 		return err
@@ -457,8 +468,10 @@ func (s *service) checkCeiling(resources, ceiling Resources, asked bool) error {
 		return fail(ErrInvalid, "the memory ceiling %d is not a multiple of %d bytes", ceiling.MemoryBytes, MemoryAlignment)
 	case !resources.within(ceiling):
 		return fail(ErrInvalid, "the resources %+v are above the ceiling %+v", resources, ceiling)
-	case asked && ceiling != resources && !s.driver.Info().has(CapabilityResize):
-		return fail(ErrUnsupported, "the Driver cannot resize, so a ceiling above the resources could never be used")
+	case asked && ceiling.VCPUs != resources.VCPUs && !s.driver.Info().has(CapabilityCPUResize):
+		return fail(ErrUnsupported, "the Driver cannot resize the vCPUs, so a ceiling above them could never be used")
+	case asked && ceiling.MemoryBytes != resources.MemoryBytes && !s.driver.Info().has(CapabilityMemoryResize):
+		return fail(ErrUnsupported, "the Driver cannot resize the memory, so a ceiling above it could never be used")
 	}
 	return nil
 }

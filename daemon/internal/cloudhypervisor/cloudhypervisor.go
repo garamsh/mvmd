@@ -103,7 +103,7 @@ func New(cfg Config) (*Driver, error) {
 func (d *Driver) Info() machine.DriverInfo {
 	caps := []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}
 	if resizeCapable(d.goarch) {
-		caps = append(caps, machine.CapabilityResize)
+		caps = append(caps, machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 	}
 	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel, Capabilities: caps,
 		Limits: machine.DriverLimits{MaxVCPUs: maxVCPUs}}

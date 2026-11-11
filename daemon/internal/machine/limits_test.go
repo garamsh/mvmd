@@ -56,7 +56,7 @@ func TestSetResources_RefusesAboveTheDriversLimitAsInvalid(t *testing.T) {
 
 func TestRestoreSnapshot_RefusesASnapshotAboveTheDriversLimitAsAFailedPrecondition(t *testing.T) {
 	ctx := context.Background()
-	caps := append(snapshotCaps, machine.CapabilityResize)
+	caps := append(snapshotCaps, machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 	e := newEnv(caps...)
 	e.ceiling = machine.Resources{VCPUs: 8, MemoryBytes: 512 << 20}
 	e.snapshotted(t, "src", machine.StateRunning)

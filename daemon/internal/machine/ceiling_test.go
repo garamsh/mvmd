@@ -74,7 +74,7 @@ func TestCreate_RefusesACeilingAboveTheResourcesWithoutResizeAsUnsupported(t *te
 
 	require.NoError(t, createWithCeiling(e, "same", small, small), "control: a ceiling that is the resources")
 	require.NoError(t, createWithCeiling(e, "none", small, machine.Resources{}), "control: no ceiling")
-	require.NoError(t, createWithCeiling(newEnv(machine.CapabilityResize), "m", small, large), "control: the Driver can resize")
+	require.NoError(t, createWithCeiling(newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize), "m", small, large), "control: the Driver can resize")
 }
 
 func TestSetResources_RefusesAboveTheCeilingAsInvalid(t *testing.T) {
@@ -134,7 +134,7 @@ func TestSetResources_ACeilingAboveTheResourcesNeedsResize(t *testing.T) {
 	requireKind(t, e.svc.SetResources(ctx, "m", small, large), machine.ErrUnsupported)
 	require.NoError(t, e.svc.SetResources(ctx, "m", small, small), "control: a ceiling that is the resources")
 
-	with := newEnv(machine.CapabilityResize)
+	with := newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 	with.created(t, "m")
 	require.NoError(t, with.svc.SetResources(ctx, "m", small, large), "control: the Driver can resize")
 }
@@ -190,7 +190,7 @@ func TestStart_RecordsTheMemoryTheVMMBootedWith(t *testing.T) {
 
 func TestSnapshot_CarriesTheCeilingAndTheBootMemoryAndARestoreUsesThem(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv(append(snapshotCaps, machine.CapabilityResize)...)
+	e := newEnv(append(snapshotCaps, machine.CapabilityCPUResize, machine.CapabilityMemoryResize)...)
 	e.ceiling = large
 	e.snapshotted(t, "m", machine.StateRunning)
 
@@ -227,7 +227,7 @@ func TestSetResources_WithoutResizeTheCeilingFollowsTheTarget(t *testing.T) {
 
 	requireKind(t, e.svc.SetResources(ctx, "m", less, large), machine.ErrUnsupported)
 
-	with := newEnv(machine.CapabilityResize)
+	with := newEnv(machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 	with.ceiling = large
 	with.created(t, "m")
 	require.NoError(t, with.svc.SetResources(ctx, "m", less, machine.Resources{}))
