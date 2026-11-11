@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,6 +205,33 @@ func vmmHolds(f *fakeAPI, ids ...string) *vmmHolding {
 	return v
 }
 
+// cancelDuringAPoll makes the VMM, once it has been asked to remove a device,
+// hold every GET /vm.info it is sent unanswered and end the caller's context as
+// the first arrives, so the context ends while a poll is in flight and never
+// between two. It returns the switch that stops the holding.
+func cancelDuringAPoll(t *testing.T, f *fakeAPI, cancel context.CancelFunc) *atomic.Bool {
+	t.Helper()
+	inner := f.answer
+	var removed atomic.Bool
+	hold := &atomic.Bool{}
+	hold.Store(true)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	f.answer = func(r request) (int, string) {
+		if r.Method == "GET" && r.Path == "/vm.info" && removed.Load() && hold.Load() {
+			cancel()
+			<-release
+			return http.StatusInternalServerError, ""
+		}
+		status, out := inner(r)
+		if r.Method == "PUT" && r.Path == "/vm.remove-device" {
+			removed.Store(true)
+		}
+		return status, out
+	}
+	return hold
+}
+
 func (v *vmmHolding) answer(r request) (int, string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -299,15 +326,45 @@ func TestDetachDisk_ReportsAGuestThatDoesNotEjectAndStillReleasesTheLink(t *test
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
 	v := vmmHolds(f, dataDrive)
 	v.eject = func(int) bool { return false }
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	cancelDuringAPoll(t, f, cancel)
 
 	err := n.driver.DetachDisk(ctx, "m1", "data")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not eject")
+	assert.ErrorIs(t, err, context.Canceled)
 	_, statErr := os.Lstat(filepath.Join(n.run, dataDrive))
 	assert.ErrorIs(t, statErr, os.ErrNotExist, "the VMM no longer holds the file, so the link goes")
+}
+
+// A poll the VMM answers with a refusal is not a guest that did not eject, and
+// keeps its own error; the same poll cut short by the context is the other.
+func TestDetachDisk_APollTheVMMRefusesIsNotReportedAsAGuestThatDidNotEject(t *testing.T) {
+	n := newNode(t)
+	f := &fakeAPI{}
+	n.booted(f)
+	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
+	v := vmmHolds(f, dataDrive)
+	v.eject = func(int) bool { return false }
+	inner := f.answer
+	f.answer = func(r request) (int, string) {
+		v.mu.Lock()
+		removed := v.removed
+		v.mu.Unlock()
+		if r.Method == "GET" && r.Path == "/vm.info" && removed {
+			return http.StatusInternalServerError, "the VMM is unwell"
+		}
+		return inner(r)
+	}
+
+	err := n.driver.DetachDisk(context.Background(), "m1", "data")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "wait for the guest to eject")
+	assert.Contains(t, err.Error(), "the VMM is unwell")
+	assert.NotContains(t, err.Error(), "did not eject")
 }
 
 // ADR 0022: a Detach called again converges. After a timed-out eject the VMM's
@@ -320,13 +377,15 @@ func TestDetachDisk_ARetryAfterATimedOutEjectSendsNoRemoveAndConverges(t *testin
 	require.NoError(t, n.driver.AttachDisk(context.Background(), "m1", n.disk("data", false)))
 	v := vmmHolds(f, dataDrive)
 	v.eject = func(int) bool { return false }
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	hold := cancelDuringAPoll(t, f, cancel)
 	before := len(f.seen())
 
 	require.ErrorContains(t, n.driver.DetachDisk(ctx, "m1", "data"), "did not eject")
 	assert.Equal(t, 1, countOf(since(f, before), "PUT", "/vm.remove-device"), "control: the first call sent the request")
 
+	hold.Store(false)
 	v.mu.Lock()
 	v.eject = func(int) bool { return true }
 	v.mu.Unlock()

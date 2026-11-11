@@ -97,12 +97,18 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 }
 
 // awaitEjected polls the VMM's device tree until it has no device of the name.
+// A wait whose context ends reports that the guest did not eject, whether the
+// end fell between two polls or cut one short; any other failure of a poll is
+// reported as itself.
 func awaitEjected(ctx context.Context, c *client, name string) error {
 	ctx, cancel := context.WithTimeout(ctx, ejectWait)
 	defer cancel()
 	for {
 		info, err := c.info(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("the guest did not eject %s: %w", name, ctx.Err())
+			}
 			return fmt.Errorf("wait for the guest to eject %s: %w", name, err)
 		}
 		if _, held := info.Tree[name]; !held {
