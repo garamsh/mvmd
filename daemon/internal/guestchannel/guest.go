@@ -156,6 +156,7 @@ func reset(err error) bool {
 // bootStepNames are the names a boot step goes by in guest.md and on the
 // console, by the contract's enum.
 var bootStepNames = map[guestv1alpha1.BootStep]string{
+	guestv1alpha1.BootStep_BOOT_STEP_CLOCK:           "set the wall clock",
 	guestv1alpha1.BootStep_BOOT_STEP_CHECK:           "check the devices",
 	guestv1alpha1.BootStep_BOOT_STEP_MOUNT_IMAGE:     "mount the image",
 	guestv1alpha1.BootStep_BOOT_STEP_MOUNT_ROOT_DISK: "mount the root disk",
@@ -335,9 +336,21 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 			return fmt.Errorf("the Guest Agent %q serves the API versions %q and not %q, the version this daemon speaks",
 				info.GetAgentVersion(), info.GetApiVersions(), apiVersion)
 		}
+		// The time is read here, after the agent has answered: the agent
+		// listens some time after the VMM starts.
+		req.HostUnixNanos = hostUnixNanos(boot.Clock)
 		_, err = c.Boot(ctx, req, grpc.WaitForReady(true))
 		return err
 	})
+}
+
+// hostUnixNanos is the clock's reading in nanoseconds since the Unix epoch, or
+// 0, which leaves the guest's clock alone, when there is no clock.
+func hostUnixNanos(clock machine.WallClock) int64 {
+	if clock == nil {
+		return 0
+	}
+	return clock.Now().UnixNano()
 }
 
 // CatchUp implements machine.Guest.

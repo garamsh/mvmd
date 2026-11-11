@@ -83,6 +83,16 @@ impl TryFrom<v1alpha1::BootRequest> for BootDescription {
     }
 }
 
+/// The host's wall clock a `Boot` request carries, when it asks for the clock to be set: `None`
+/// for 0, which leaves the clock as the kernel set it.
+pub fn boot_time(request: &v1alpha1::BootRequest) -> Result<Option<i64>, Error> {
+    match request.host_unix_nanos {
+        0 => Ok(None),
+        nanos if nanos > 0 => Ok(Some(nanos)),
+        _ => Err(Error::Invalid("host_unix_nanos is negative".into())),
+    }
+}
+
 /// What mvmd sends to catch a restored guest up.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CatchUp {

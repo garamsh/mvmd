@@ -117,6 +117,8 @@ pub enum Unbooted {
 /// A step of the boot, in the order the agent takes them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootStep {
+    /// Setting the wall clock from the host's time, before any other step.
+    Clock,
     /// Finding the image and the root disk by filesystem UUID.
     Check,
     /// Mounting the image read-only.
@@ -136,6 +138,7 @@ pub enum BootStep {
 impl fmt::Display for BootStep {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::Clock => "set the wall clock",
             Self::Check => "check the devices",
             Self::MountImage => "mount the image",
             Self::MountRootDisk => "mount the root disk",

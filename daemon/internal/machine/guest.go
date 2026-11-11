@@ -178,6 +178,12 @@ type GuestBoot struct {
 	RootDiskUUID string
 	Run          ExecSpec
 	Network      GuestNetwork
+	// Clock is the host's wall clock. The Guest reads it as it sends the
+	// request, after the agent answers and not before, because the agent
+	// listens some time after the VMM starts, and the guest sets its clock to
+	// the reading (ADR 0044). A nil Clock sends no time and leaves the guest's
+	// clock as its kernel set it.
+	Clock WallClock
 }
 
 // GuestSize is what a guest reports of its size: the vCPUs online and the
@@ -195,7 +201,8 @@ type Guest interface {
 	// Health returns nil when the agent answers.
 	Health(ctx context.Context, id MachineID) error
 	// Boot sends the boot description and returns when the entrypoint runs.
-	// Repeating it is safe.
+	// Repeating it is safe, and a repeat does not move the guest's clock
+	// again.
 	Boot(ctx context.Context, id MachineID, boot GuestBoot) error
 	// CatchUp brings a restored guest up to date and returns when it has caught
 	// up. Repeating it with the same restore ID is safe (ADR 0016).

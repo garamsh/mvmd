@@ -33,6 +33,7 @@ type Guest struct {
 	signals   map[machine.ExecID][]int32
 	catchUps  map[machine.MachineID][]machine.CatchUp
 	boots     map[machine.MachineID][]machine.GuestBoot
+	bootTimes map[machine.MachineID][]int64
 	refused   map[machine.ExecID]string
 	loseExec  bool
 	retention int
@@ -63,6 +64,7 @@ func NewGuest(retention int) *Guest {
 		signals:   make(map[machine.ExecID][]int32),
 		catchUps:  make(map[machine.MachineID][]machine.CatchUp),
 		boots:     make(map[machine.MachineID][]machine.GuestBoot),
+		bootTimes: make(map[machine.MachineID][]int64),
 		refused:   make(map[machine.ExecID]string),
 		terms:     make(map[machine.MachineID]int),
 		found:     make(map[machine.MachineID]map[machine.DiskID]bool),
@@ -118,8 +120,23 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 	}
 	g.mu.Lock()
 	g.boots[id] = append(g.boots[id], boot)
+	var sent int64
+	if boot.Clock != nil {
+		sent = boot.Clock.Now().UnixNano()
+	}
+	g.bootTimes[id] = append(g.bootTimes[id], sent)
 	g.mu.Unlock()
 	return nil
+}
+
+// BootTimes returns the host time, in nanoseconds since the Unix epoch, that
+// each boot description sent to the guest of the Machine carried, in order: the
+// reading of its Clock when the call was made, or 0 for a description with no
+// Clock.
+func (g *Guest) BootTimes(id machine.MachineID) []int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.bootTimes[id])
 }
 
 // Boots returns the boot descriptions the guest of the Machine was sent, in
