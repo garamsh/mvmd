@@ -95,8 +95,9 @@ type Config struct {
 	// Supervision, when set, starts a real mvmd-supervisor per Machine in place
 	// of the in-memory substitute.
 	Supervision *SupervisionConfig `json:"supervision,omitempty"`
-	// Network, when set, makes a real tap per Machine and one nftables table
-	// in place of the in-memory substitute. mvmd then needs CAP_NET_ADMIN.
+	// Network makes a real tap per Machine and one nftables table in place of
+	// the in-memory substitute, and mvmd then needs CAP_NET_ADMIN. A real
+	// Driver requires it; the memory Driver may leave it out.
 	Network *NetworkConfig `json:"network,omitempty"`
 	// BootTimeout is how long Start waits for a guest to finish booting, as a
 	// Go duration such as "90s". When it passes the VMM is ended and the
@@ -549,6 +550,8 @@ func (c Config) check() error {
 		return fmt.Errorf("driver %q needs the conversion section: PullImage converts in a converter VM", c.Driver)
 	case c.Driver != DriverMemory && c.Disk == nil:
 		return fmt.Errorf("driver %q needs the disk section: a Machine's root disk is formatted by mkfs.ext4", c.Driver)
+	case c.Driver != DriverMemory && c.Network == nil:
+		return fmt.Errorf("driver %q needs the network section: a Machine starts only once its network policy is applied, and without one its VMM is refused a tap that was never made", c.Driver)
 	case c.Driver == DriverMemory && c.Disk != nil:
 		return fmt.Errorf("the disk section is for a real driver, not %q", c.Driver)
 	case c.Driver == DriverMemory && c.Conversion != nil:
