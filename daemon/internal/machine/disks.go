@@ -25,6 +25,7 @@ func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID
 	case sizeBytes == 0:
 		return fail(ErrInvalid, "the disk size is zero")
 	}
+	defer s.diskLocks.lock(disk, true)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 	asked := DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes}

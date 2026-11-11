@@ -2,7 +2,9 @@ package machine_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -256,4 +258,94 @@ func TestDeleteDisk_RefusesARootDiskWhileRestoreIsPublishingIt(t *testing.T) {
 	require.NoError(t, <-restored)
 	_, held := e.disks.Holds("new-root")
 	assert.True(t, held, "the Machine was restored with its root disk present")
+}
+
+// guard is how long a concurrency test waits for a step that must happen
+// before it fails instead of hanging.
+const guard = 10 * time.Second
+
+// createDiskInBackground starts a Create disk call and returns its outcome.
+func createDiskInBackground(e *env, disk machine.DiskID, request machine.RequestID) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- e.svc.CreateDisk(context.Background(), disk, request, 1<<20) }()
+	return done
+}
+
+func awaitOutcome(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(guard):
+		require.FailNow(t, "the call did not end")
+		return nil
+	}
+}
+
+// heldCreate starts a Create disk call and returns once it is making the disk,
+// with the release that lets it finish.
+func heldCreate(t *testing.T, e *env, disk machine.DiskID, request machine.RequestID) (done <-chan error, release func()) {
+	t.Helper()
+	entered, release := e.disks.Hold("create")
+	done = createDiskInBackground(e, disk, request)
+	select {
+	case <-entered:
+	case <-time.After(guard):
+		require.FailNow(t, "the first call did not reach the create")
+	}
+	return done, release
+}
+
+// awaitWaiting returns once n calls hold or wait for the disk's lock.
+func awaitWaiting(t *testing.T, e *env, disk machine.DiskID, n int) {
+	t.Helper()
+	deadline := time.Now().Add(guard)
+	for machine.DiskLockUsers(e.svc, disk) < n {
+		require.True(t, time.Now().Before(deadline), "the second call never waited for the disk")
+		runtime.Gosched()
+	}
+}
+
+// Runtime API §Calling rules, "A repeat while the first call runs waits".
+func TestCreateDisk_ARepeatWhileTheFirstCallRunsWaitsAndMakesNothing(t *testing.T) {
+	e := newEnv()
+	first, release := heldCreate(t, e, "data", "req-1")
+	second := createDiskInBackground(e, "data", "req-1")
+	awaitWaiting(t, e, "data", 2)
+	release()
+
+	require.NoError(t, awaitOutcome(t, first))
+	require.NoError(t, awaitOutcome(t, second))
+	assert.Equal(t, 1, e.disks.Calls("create"), "one call made the disk file")
+	size, held := e.disks.Holds("data")
+	assert.True(t, held)
+	assert.Equal(t, uint64(1<<20), size)
+}
+
+func TestCreateDisk_ACallUnderAnotherRequestIDWhileTheFirstRunsIsAConflict(t *testing.T) {
+	e := newEnv()
+	first, release := heldCreate(t, e, "data", "req-1")
+	second := createDiskInBackground(e, "data", "req-2")
+	awaitWaiting(t, e, "data", 2)
+	release()
+
+	require.NoError(t, awaitOutcome(t, first))
+	requireKind(t, awaitOutcome(t, second), machine.ErrConflict)
+	assert.Equal(t, 1, e.disks.Calls("create"), "one call made the disk file")
+	assert.Equal(t, 0, machine.DiskLockUsers(e.svc, "data"), "the lock entry is gone once the calls end")
+}
+
+func TestCreateDisk_CallsForOtherDisksDoNotWaitForTheOneThatRuns(t *testing.T) {
+	e := newEnv()
+	first, release := heldCreate(t, e, "data", "req-1")
+
+	// The first disk's call is still held while the other disk's call ends.
+	require.NoError(t, awaitOutcome(t, createDiskInBackground(e, "other", "req-2")))
+	_, held := e.disks.Holds("other")
+	assert.True(t, held)
+	_, held = e.disks.Holds("data")
+	assert.False(t, held, "the first call has not finished")
+
+	release()
+	require.NoError(t, awaitOutcome(t, first))
 }
