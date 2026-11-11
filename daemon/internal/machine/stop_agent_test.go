@@ -150,7 +150,7 @@ func TestStop_NeverOutlastsItsGrace(t *testing.T) {
 
 	t.Run("an agent that hangs is cut off at the grace", func(t *testing.T) {
 		e := newEnv()
-		e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, hangingGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events)
+		e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, hangingGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()))
 		e.inState(t, "m", machine.StateRunning)
 
 		took := e.stopTime(t, "m", 100*time.Millisecond)

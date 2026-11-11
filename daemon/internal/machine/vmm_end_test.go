@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 const endedOnItsOwn = "the VMM ended with no call asking it to: "
@@ -165,7 +166,7 @@ func TestVMMEnd_ALookBetweenTheExpiryKillingAndItsForceStopLeavesTheMachine(t *t
 func TestVMMEnd_WatchObservesWhileItRuns(t *testing.T) {
 	e := newEnv()
 	e.inState(t, "m", machine.StateRunning)
-	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithVMMEndPoll(5*time.Millisecond))
+	svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()), machine.WithVMMEndPoll(5*time.Millisecond))
 	require.NoError(t, svc.Restore(context.Background()))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

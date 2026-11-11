@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 // startingInBackground runs Start on its own goroutine.
@@ -181,7 +182,7 @@ func TestStart_IsRunningOnlyOnceTheEntrypointRuns(t *testing.T) {
 // boundedEnv is an env whose lifecycle waits at most d for a guest's boot.
 func boundedEnv(d time.Duration) *env {
 	e := newEnv()
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithBootTimeout(d))
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()), machine.WithBootTimeout(d))
 	return e
 }
 

@@ -25,6 +25,9 @@ type SnapshotCompat struct {
 	Version      string
 	CPUModel     string
 	KernelDigest string
+	// KernelName is the name the Machine recorded for its kernel; empty for a
+	// Machine that recorded none (ADR 0045).
+	KernelName string
 }
 
 // SnapshotSpec is what a snapshot keeps of a Machine's Spec: the image, the

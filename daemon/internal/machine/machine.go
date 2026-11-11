@@ -140,7 +140,12 @@ type Spec struct {
 	// the guest can have (ADR 0029). A figure Create is given as zero is the
 	// Machine's resources; a Machine holds every figure set, and none below
 	// its resources.
-	Ceiling       Resources
+	Ceiling Resources
+	// Kernel is the name of the node's guest kernel the Machine boots (ADR
+	// 0045). Create is given a name or none, and records the name it resolved;
+	// a record written before names existed holds none, which Start reads as the
+	// node's default.
+	Kernel        string
 	RootDiskBytes uint64
 	Disks         []DiskAttachment
 	Policy        NetworkPolicy

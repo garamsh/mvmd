@@ -104,7 +104,7 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	spec := SnapshotSpec{Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
-		Compat: SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: taken.KernelDigest},
+		Compat: SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: m.KernelDigest, KernelName: m.Kernel},
 		Disks:  disks,
 	}
 	switch err := s.snapshots.Put(ctx, record, SnapshotFiles{State: taken.Files, RootDisk: disk}); {
@@ -180,6 +180,10 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	if err := s.overLimits(held.Spec.Resources, held.Spec.Ceiling, ErrPreconditionFailed); err != nil {
 		return err
 	}
+	kernel, ok := s.kernels.matching(held.Compat.KernelDigest, held.Compat.KernelName)
+	if !ok {
+		return fail(ErrPreconditionFailed, "snapshot %q was made with a kernel of digest %q, which the node does not offer", snapshot, held.Compat.KernelDigest)
+	}
 	// Shared until the record is set, as Create holds it.
 	defer s.imageLocks.lock(held.Spec.Image, false)()
 	if _, err := s.images.Locate(ctx, held.Spec.Image); err != nil {
@@ -206,7 +210,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("allocate network: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
-	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Policy: policy.clone()}
+	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Kernel: kernel, Policy: policy.clone()}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.
 	if taken, holder, ok := s.claim(id, RootDiskID(id)); !ok {

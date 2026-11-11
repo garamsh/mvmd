@@ -343,7 +343,7 @@ func TestReadExecOutput_AnOffsetNoLongerHeld(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv()
 	e.guest = memory.NewGuest(8) // keeps the newest 8 bytes
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()))
 	e.inState(t, "m", machine.StateRunning)
 	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
 	require.NoError(t, err)

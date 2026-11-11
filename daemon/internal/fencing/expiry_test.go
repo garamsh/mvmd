@@ -13,6 +13,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 func spec() machine.Spec {
@@ -64,7 +65,7 @@ func (e *env) holdSnapshot(t *testing.T) {
 		ID: "snap", Machine: "gone", Request: "r",
 		Spec:         machine.SnapshotSpec{Image: image, Resources: machine.Resources{VCPUs: 1, MemoryBytes: 2 << 20}, RootDiskBytes: 1 << 20},
 		RootDiskUUID: "uuid",
-		Compat:       machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a"},
+		Compat:       machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a", KernelDigest: machinememory.KernelDigest},
 	}, machine.SnapshotFiles{State: []string{"/snap/mem"}, RootDisk: "/snap/root"}))
 }
 
