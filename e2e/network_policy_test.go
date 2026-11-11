@@ -141,7 +141,7 @@ func TestE2E_AnEgressRuleAllowsItsAddressAndPortAndAnEmptyPolicyReachesNothing(t
 	allowed, other := listenOnHost(t), listenOnHost(t)
 	closed := n.policyMachine(t, ctx, "closed", pulled.Digest, &v1alpha2.NetworkPolicy{})
 	open := n.policyMachine(t, ctx, "open", pulled.Digest, &v1alpha2.NetworkPolicy{
-		Egress: []*v1alpha2.NetworkRule{tcpAllow(gateway, allowed.port)},
+		Egress: []*v1alpha2.NetworkRule{tcpAllow(gateway, allowed.port), tcpAllow(gateway, other.port)},
 	})
 
 	// The listeners are there: the host connects to each of them.
