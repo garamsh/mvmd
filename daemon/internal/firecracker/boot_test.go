@@ -331,6 +331,24 @@ func TestShutdown_SendsCtrlAltDelAndReturnsOnceTheVMMHasEnded(t *testing.T) {
 	assert.JSONEq(t, `{"action_type":"SendCtrlAltDel"}`, last.Body)
 }
 
+// Firecracker v1.17.0 sends Ctrl-Alt-Del on x86_64 only, so a Shutdown on
+// another architecture is refused and reaches no VMM.
+func TestShutdown_IsRefusedOffX86_64AndSendsNothing(t *testing.T) {
+	n := newNode(t)
+	f := &fakeAPI{}
+	n.booted(f)
+	before := len(f.seen())
+
+	firecracker.SetGOARCH(n.driver, "arm64")
+	err := n.driver.Shutdown(context.Background(), "m1", 0)
+	require.ErrorIs(t, err, machine.ErrUnsupported)
+	assert.Empty(t, f.seen()[before:], "no request reached the API socket")
+
+	firecracker.SetGOARCH(n.driver, "amd64")
+	require.NoError(t, n.driver.Shutdown(context.Background(), "m1", 0), "control: the same call on x86_64 is sent")
+	assert.Len(t, f.seen()[before:], 1)
+}
+
 func TestShutdown_ReportsAGuestThatDidNotStopWithinTheGrace(t *testing.T) {
 	onX86(t)
 	n := newNode(t)

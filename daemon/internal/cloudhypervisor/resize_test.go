@@ -220,6 +220,41 @@ func TestResize_ShrinksByTheSameCall(t *testing.T) {
 	assert.Equal(t, []string{`{"desired_ram":268435456,"desired_vcpus":2}`}, resizeBodies(since(f, before)))
 }
 
+func TestResize_RefusesAZeroTargetAndSendsNothing(t *testing.T) {
+	tests := []struct {
+		name   string
+		target machine.Resources
+	}{
+		{"zero vCPUs", machine.Resources{VCPUs: 0, MemoryBytes: 256 << 20}},
+		{"zero memory", machine.Resources{VCPUs: 2, MemoryBytes: 0}},
+		{"both zero", machine.Resources{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := newNode(t)
+			cloudhypervisor.SetGOARCH(n.driver, "amd64")
+			f := &fakeAPI{}
+			n.booted(f)
+			vmmSized(f, 2, 256<<20, 1<<30)
+			before := len(f.seen())
+
+			err := n.driver.Resize(context.Background(), "m1", tt.target)
+
+			require.ErrorIs(t, err, machine.ErrInvalid)
+			assert.Empty(t, since(f, before), "no request reached the API socket")
+		})
+	}
+
+	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
+	f := &fakeAPI{}
+	n.booted(f)
+	vmmSized(f, 2, 256<<20, 1<<30)
+	before := len(f.seen())
+	require.NoError(t, n.driver.Resize(context.Background(), "m1", machine.Resources{VCPUs: 2, MemoryBytes: 256 << 20}), "control: a non-zero target is taken")
+	assert.NotEmpty(t, since(f, before), "control: and the VMM was asked")
+}
+
 func TestResize_ReturnsTheVMMsRefusal(t *testing.T) {
 	n := newNode(t)
 	cloudhypervisor.SetGOARCH(n.driver, "amd64")
