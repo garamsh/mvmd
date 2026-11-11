@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskfile"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/daemon/internal/machine/diskfile"
 )
 
 // TestLocateAndRemove_RejectInvalidID verifies that Locate and Remove

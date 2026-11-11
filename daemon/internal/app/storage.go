@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskfile"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/daemon/internal/machine/diskfile"
 	"github.com/garamsh/mvmd/daemon/internal/snapshotstore"
 )
 
