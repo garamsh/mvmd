@@ -126,6 +126,7 @@ func runScenarios(t *testing.T, fault func(*stub)) {
 	}
 	t.Run("booted", each(drivertest.ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect))
 	t.Run("snapshot", each(drivertest.ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn))
+	t.Run("restored disks", each(drivertest.ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive))
 	t.Run("disks", each(drivertest.ADiskIsAttachedToARunningMachineAndDetachedAgain))
 	t.Run("guest disks", each(drivertest.AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug))
 	t.Run("resize", each(drivertest.AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize))
