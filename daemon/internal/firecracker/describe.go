@@ -67,7 +67,7 @@ func verify(cfg Config) error {
 // description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
 	boot := []machine.File{
-		{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256},
+		{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: ""},
 		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true, SHA256: d.cfg.InitrdSHA256},
 	}
 	return d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
