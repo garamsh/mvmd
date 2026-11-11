@@ -22,7 +22,7 @@ func TestListMachines_ReportsTheImageOfAMachineInAnyState(t *testing.T) {
 		{ID: "noimage"},
 	}}
 
-	resp, err := api.New(m, nil, nil, nil, nil, nil).ListMachines(context.Background(), &v1alpha2.ListMachinesRequest{})
+	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListMachines(context.Background(), &v1alpha2.ListMachinesRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Machines, 4)
@@ -39,7 +39,7 @@ func TestListImages_ReportsTheSizeAndTheTimeItWasStored(t *testing.T) {
 		{Digest: "sha256:earlier", SizeBytes: 4096},
 	}}
 
-	resp, err := api.New(m, nil, nil, nil, nil, nil).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
+	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Images, 2)
@@ -57,7 +57,7 @@ func TestListSnapshots_ReportsTheSizeAndTheTimeItWasTaken(t *testing.T) {
 		sizes:  map[machine.SnapshotID]uint64{"known": 1 << 30, "earlier": 512},
 	}
 
-	resp, err := api.New(m, nil, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
+	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Snapshots, 2)

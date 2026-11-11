@@ -30,7 +30,7 @@ func limitedServer(snaps *memory.SnapshotStore, most uint32) (*api.Server, machi
 	svc := machine.NewService(memory.NewDriver(info), memory.NewSupervision(), memory.NewNetwork(), memory.NewDisk(), images, snaps,
 		memory.NewGuest(0), memory.NewWallClock(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)), memory.NewStateStore(), memory.NewStartPermitter(),
 		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents(), machine.WithKernels(memory.Kernels()))
-	return api.New(svc, nil, nil, []machine.DriverInfo{info}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil), svc
+	return api.New(svc, nil, nil, info, capacitymemory.NewReader(nodecapacity.Capacity{}), nil), svc
 }
 
 func createRequest(id string, vcpus, ceilingVCPUs uint32) *v1alpha2.CreateMachineRequest {
@@ -46,15 +46,17 @@ func createRequest(id string, vcpus, ceilingVCPUs uint32) *v1alpha2.CreateMachin
 }
 
 func TestGetRuntimeInfo_ReportsTheDriversLimitsOrNoneWhenItStatesNone(t *testing.T) {
-	srv := api.New(nil, nil, nil, []machine.DriverInfo{
-		{Name: "a", Version: "1", Limits: machine.DriverLimits{MaxVCPUs: 32}},
-		{Name: "b", Version: "1"},
-	}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
-	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+	limited := api.New(nil, nil, nil, machine.DriverInfo{Name: "a", Version: "1", Limits: machine.DriverLimits{MaxVCPUs: 32}}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
+	resp, err := limited.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
-	require.Len(t, resp.GetDrivers(), 2)
+	require.Len(t, resp.GetDrivers(), 1)
 	assert.Equal(t, uint32(32), resp.GetDrivers()[0].GetLimits().GetMaxVcpus())
-	assert.Nil(t, resp.GetDrivers()[1].GetLimits(), "a Driver that states none reports none, not zero")
+
+	unlimited := api.New(nil, nil, nil, machine.DriverInfo{Name: "b", Version: "1"}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
+	resp, err = unlimited.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetDrivers(), 1)
+	assert.Nil(t, resp.GetDrivers()[0].GetLimits(), "a Driver that states none reports none, not zero")
 }
 
 func TestCreateMachine_RefusesAboveTheReportedLimitAsRejectedAndCreatesNothing(t *testing.T) {

@@ -39,7 +39,7 @@ func TestExec_ReportsWhenTheCommandEndedAndNothingWhereItIsUnknown(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			m := &execer{record: tt.record}
 
-			resp, err := api.New(m, nil, nil, nil, nil, nil).Exec(context.Background(), &v1alpha2.ExecRequest{ExecId: "e", RequestId: "r", MachineId: "m", Command: []string{"x"}})
+			resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).Exec(context.Background(), &v1alpha2.ExecRequest{ExecId: "e", RequestId: "r", MachineId: "m", Command: []string{"x"}})
 
 			require.NoError(t, err)
 			if tt.want == nil {
@@ -66,7 +66,7 @@ func TestExec_ReportsTheSignalThatEndedTheCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &execer{record: tt.record}
 
-			resp, err := api.New(m, nil, nil, nil, nil, nil).Exec(context.Background(), &v1alpha2.ExecRequest{ExecId: "e", RequestId: "r", MachineId: "m", Command: []string{"x"}})
+			resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).Exec(context.Background(), &v1alpha2.ExecRequest{ExecId: "e", RequestId: "r", MachineId: "m", Command: []string{"x"}})
 
 			require.NoError(t, err)
 			assert.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, resp.GetRecord().GetStatus())

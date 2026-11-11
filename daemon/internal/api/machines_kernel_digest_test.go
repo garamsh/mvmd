@@ -22,7 +22,7 @@ func (l *lister) List(context.Context) ([]machine.Machine, error) { return l.all
 func TestListMachines_ReportsTheKernelDigestOrNone(t *testing.T) {
 	m := &lister{all: []machine.Machine{{ID: "booted", KernelDigest: "abc123"}, {ID: "never"}}}
 
-	resp, err := api.New(m, nil, nil, nil, nil, nil).ListMachines(context.Background(), &v1alpha2.ListMachinesRequest{})
+	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListMachines(context.Background(), &v1alpha2.ListMachinesRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Machines, 2)

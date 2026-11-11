@@ -223,7 +223,7 @@ func New(cfg Config) (*App, error) {
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels)),
+		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels)),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil

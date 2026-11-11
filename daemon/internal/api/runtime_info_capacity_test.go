@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/api"
+	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/nodecapacity"
 	capacitymemory "github.com/garamsh/mvmd/daemon/internal/nodecapacity/memory"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
@@ -20,7 +21,7 @@ func TestGetRuntimeInfo_ReportsEachFigureOfTheNodesCapacity(t *testing.T) {
 		CPUs: 6, MemoryBytes: 17 << 30, StateTotalBytes: 500 << 30, StateAvailableBytes: 123 << 30,
 		MachineLimit: 250, Machines: 7,
 	})
-	srv := api.New(nil, nil, nil, nil, reader, nil)
+	srv := api.New(nil, nil, nil, machine.DriverInfo{}, reader, nil)
 	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
 	c := resp.GetCapacity()
@@ -35,7 +36,7 @@ func TestGetRuntimeInfo_ReportsEachFigureOfTheNodesCapacity(t *testing.T) {
 
 func TestGetRuntimeInfo_ReadsTheCapacityAtEachCall(t *testing.T) {
 	reader := capacitymemory.NewReader(nodecapacity.Capacity{StateAvailableBytes: 100})
-	srv := api.New(nil, nil, nil, nil, reader, nil)
+	srv := api.New(nil, nil, nil, machine.DriverInfo{}, reader, nil)
 	first, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
 	require.EqualValues(t, 100, first.GetCapacity().GetStateAvailableBytes(), "the setup reported what it was given")
@@ -48,7 +49,7 @@ func TestGetRuntimeInfo_ReadsTheCapacityAtEachCall(t *testing.T) {
 
 func TestGetRuntimeInfo_FailsRatherThanReportZeroWhenTheCapacityCannotBeRead(t *testing.T) {
 	reader := capacitymemory.NewReader(nodecapacity.Capacity{CPUs: 2})
-	srv := api.New(nil, nil, nil, nil, reader, nil)
+	srv := api.New(nil, nil, nil, machine.DriverInfo{}, reader, nil)
 	_, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err, "control: the same server answers while the capacity reads")
 
