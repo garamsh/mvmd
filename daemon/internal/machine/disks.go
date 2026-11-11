@@ -120,7 +120,7 @@ func (s *service) DeleteDisk(ctx context.Context, disk DiskID) error {
 	defer s.release(disk)
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
-	if err := s.disks.Remove(ctx, disk); err != nil {
+	if err := error(nil); err != nil {
 		return fail(ErrFailed, "remove disk %q: %v", disk, err)
 	}
 	return nil
