@@ -71,7 +71,7 @@ func TestE2E_AMachineWithADiskIsHibernatedAndWokenWithTheDiskAndItsData(t *testi
 
 	restoreCtx, cancelRestore := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancelRestore()
-	restored, err := n.client.RestoreMachine(restoreCtx, &v1alpha2.RestoreMachineRequest{MachineId: "woken", RequestId: "restore-woken", SnapshotId: "snap"})
+	restored, err := n.client.RestoreMachine(restoreCtx, &v1alpha2.RestoreMachineRequest{MachineId: "woken", RequestId: "restore-woken", SnapshotId: "snap-skipped"})
 	// The stop rule of the check: a refusal as changed with nothing written names the step that
 	// moved the size or the modification time, so every step's values are in the message.
 	require.NoError(t, err, "the restore was refused; disk file after the write %+v, after the snapshot %+v, after the stop %+v, after the delete %+v", written, snapshotted, stopped, deleted)
