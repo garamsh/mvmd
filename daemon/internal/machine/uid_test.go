@@ -166,8 +166,13 @@ func TestUIDRange_Validate(t *testing.T) {
 
 // newEnvWithRange is like newEnv but with a custom UID range.
 func newEnvWithRange(uidRange machine.UIDRange) *env {
+	return newEnvWithRangeAndCaps(uidRange, hotplugAndResize...)
+}
+
+// newEnvWithRangeAndCaps is newEnvWithRange with the Driver's capabilities.
+func newEnvWithRangeAndCaps(uidRange machine.UIDRange, caps ...machine.Capability) *env {
 	e := &env{
-		driver: memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", Capabilities: hotplugAndResize}),
+		driver: memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: caps}),
 		sup:    memory.NewSupervision(),
 		net:    memory.NewNetwork(),
 		disks:  memory.NewDisk(),

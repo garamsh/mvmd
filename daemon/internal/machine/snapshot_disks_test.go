@@ -19,8 +19,13 @@ var snapshotDiskCaps = []machine.Capability{machine.CapabilitySnapshot, machine.
 // written, so its size and modification time are not the zero values.
 func snapshottedWithDisks(t *testing.T) *env {
 	t.Helper()
+	return snapshottedWithDisksIn(t, newEnv(snapshotDiskCaps...))
+}
+
+// snapshottedWithDisksIn is snapshottedWithDisks on the env it is given.
+func snapshottedWithDisksIn(t *testing.T, e *env) *env {
+	t.Helper()
 	ctx := context.Background()
-	e := newEnv(snapshotDiskCaps...)
 	e.disks.Provide("d1")
 	e.disks.Provide("d2")
 	e.disks.Write("d1", 4096)
@@ -186,6 +191,7 @@ func TestRestoreSnapshot_AFailureAfterTheDisksWereTakenReleasesThem(t *testing.T
 		{"the Driver cannot load the snapshot", func(e *env) { e.driver.FailAt("restore", errBoom) }, func(e *env) { e.driver.Heal("restore") }},
 		{"the second disk cannot be given", func(e *env) { e.disks.FailAfter("give", e.disks.Calls("give")+1, errBoom) }, func(e *env) { e.disks.Heal("give") }},
 		{"the root disk cannot be made", func(e *env) { e.disks.FailAt("create-root-from", errBoom) }, func(e *env) { e.disks.Heal("create-root-from") }},
+		{"the network cannot be allocated", func(e *env) { e.net.FailAt("allocate", errBoom) }, func(e *env) { e.net.Heal("allocate") }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := snapshottedWithDisks(t)
@@ -237,5 +243,50 @@ func TestRestoreSnapshot_RepeatWithDisksReturnsTheOriginalOutcome(t *testing.T) 
 		e.requireNoDiskHolder(t, "d1", "d2")
 
 		require.NoError(t, e.svc.RestoreSnapshot(ctx, "new", "r-second", "snap", narrowPolicy), "control: a new request ID is a new attempt")
+	})
+}
+
+// A refusal after the disks' slots were claimed and before any file was given
+// releases the slots and leaves the files mvmd's, and a restore after the cause
+// is gone succeeds.
+func TestRestoreSnapshot_ARefusalAfterTheDisksWereClaimedReleasesThem(t *testing.T) {
+	ctx := context.Background()
+
+	requireReleased := func(t *testing.T, e *env) {
+		t.Helper()
+		_, err := e.svc.Inspect(ctx, "new")
+		requireKind(t, err, machine.ErrNotFound)
+		e.requireNoDiskHolder(t, "d1", "d2")
+		_, owned1 := e.disks.Owner("d1")
+		_, owned2 := e.disks.Owner("d2")
+		assert.False(t, owned1, "the file of d1 is mvmd's")
+		assert.False(t, owned2, "the file of d2 is mvmd's")
+	}
+
+	t.Run("the UID range is used up", func(t *testing.T) {
+		e := newEnvWithRangeAndCaps(machine.UIDRange{First: 1000, Count: 1}, snapshotDiskCaps...)
+		snapshottedWithDisksIn(t, e)
+		e.created(t, "other") // takes the one UID
+
+		require.Error(t, e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy))
+		requireReleased(t, e)
+
+		require.NoError(t, e.svc.Delete(ctx, "other"))
+		require.NoError(t, e.svc.RestoreSnapshot(ctx, "new", "r-again", "snap", narrowPolicy), "control: the UID is free")
+		assert.Len(t, e.requireState(t, "new", machine.StateRunning).Disks, 2)
+	})
+
+	t.Run("the name of the new root disk is held", func(t *testing.T) {
+		e := snapshottedWithDisks(t)
+		require.NoError(t, e.svc.CreateDisk(ctx, machine.RootDiskID("new"), "r-root", 1<<20))
+		e.created(t, "other")
+		require.NoError(t, e.svc.AttachDisk(ctx, "other", rw(machine.RootDiskID("new"))))
+
+		requireKind(t, e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy), machine.ErrPreconditionFailed)
+		requireReleased(t, e)
+
+		require.NoError(t, e.svc.DetachDisk(ctx, "other", machine.RootDiskID("new")))
+		require.NoError(t, e.svc.DeleteDisk(ctx, machine.RootDiskID("new")))
+		require.NoError(t, e.svc.RestoreSnapshot(ctx, "new", "r-again", "snap", narrowPolicy), "control: the name is free")
 	})
 }
