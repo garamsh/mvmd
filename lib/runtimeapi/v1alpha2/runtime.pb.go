@@ -1052,8 +1052,13 @@ type Machine struct {
 	// The most a live resize reaches. Never below resources: a Machine created
 	// with none reports its resources.
 	ResourceCeiling *Resources `protobuf:"bytes,10,opt,name=resource_ceiling,json=resourceCeiling,proto3" json:"resource_ceiling,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The SHA-256 digest, in hex, of the kernel the Machine's running guest was
+	// booted with: the kernel the node pinned at the Machine's last start, or the
+	// one its snapshot recorded for a Machine restored from it. Empty for a
+	// Machine that has never booted.
+	KernelDigest  string `protobuf:"bytes,11,opt,name=kernel_digest,json=kernelDigest,proto3" json:"kernel_digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Machine) Reset() {
@@ -1154,6 +1159,13 @@ func (x *Machine) GetResourceCeiling() *Resources {
 		return x.ResourceCeiling
 	}
 	return nil
+}
+
+func (x *Machine) GetKernelDigest() string {
+	if x != nil {
+		return x.KernelDigest
+	}
+	return ""
 }
 
 type CreateMachineRequest struct {
@@ -4985,6 +4997,9 @@ type Snapshot struct {
 	CpuModel string  `protobuf:"bytes,5,opt,name=cpu_model,json=cpuModel,proto3" json:"cpu_model,omitempty"`
 	// The size of the root disk the snapshot holds a copy of.
 	RootDiskBytes uint64 `protobuf:"varint,6,opt,name=root_disk_bytes,json=rootDiskBytes,proto3" json:"root_disk_bytes,omitempty"`
+	// The SHA-256 digest, in hex, of the guest kernel the snapshot's Machine was
+	// running when the snapshot was taken. Empty when the snapshot recorded none.
+	KernelDigest  string `protobuf:"bytes,7,opt,name=kernel_digest,json=kernelDigest,proto3" json:"kernel_digest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5059,6 +5074,13 @@ func (x *Snapshot) GetRootDiskBytes() uint64 {
 		return x.RootDiskBytes
 	}
 	return 0
+}
+
+func (x *Snapshot) GetKernelDigest() string {
+	if x != nil {
+		return x.KernelDigest
+	}
+	return ""
 }
 
 type ListSnapshotsRequest struct {
@@ -5500,7 +5522,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\tread_only\x18\x02 \x01(\bR\breadOnly\"6\n" +
 	"\x06Driver\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"\x98\x04\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\xbd\x04\n" +
 	"\aMachine\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\x05state\x18\x02 \x01(\x0e2#.mvmd.runtime.v1alpha2.MachineStateR\x05state\x12.\n" +
@@ -5512,7 +5534,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\taddresses\x18\b \x03(\tR\taddresses\x12K\n" +
 	"\x0enetwork_policy\x18\t \x01(\v2$.mvmd.runtime.v1alpha2.NetworkPolicyR\rnetworkPolicy\x12K\n" +
 	"\x10resource_ceiling\x18\n" +
-	" \x01(\v2 .mvmd.runtime.v1alpha2.ResourcesR\x0fresourceCeiling\"\xb6\x03\n" +
+	" \x01(\v2 .mvmd.runtime.v1alpha2.ResourcesR\x0fresourceCeiling\x12#\n" +
+	"\rkernel_digest\x18\v \x01(\tR\fkernelDigest\"\xb6\x03\n" +
 	"\x14CreateMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x1d\n" +
@@ -5759,7 +5782,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x06images\x18\x01 \x03(\v2\x1c.mvmd.runtime.v1alpha2.ImageR\x06images\",\n" +
 	"\x12RemoveImageRequest\x12\x16\n" +
 	"\x06digest\x18\x01 \x01(\tR\x06digest\"\x15\n" +
-	"\x13RemoveImageResponse\"\xd8\x01\n" +
+	"\x13RemoveImageResponse\"\xfd\x01\n" +
 	"\bSnapshot\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -5767,7 +5790,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\fimage_digest\x18\x03 \x01(\tR\vimageDigest\x125\n" +
 	"\x06driver\x18\x04 \x01(\v2\x1d.mvmd.runtime.v1alpha2.DriverR\x06driver\x12\x1b\n" +
 	"\tcpu_model\x18\x05 \x01(\tR\bcpuModel\x12&\n" +
-	"\x0froot_disk_bytes\x18\x06 \x01(\x04R\rrootDiskBytes\"\x16\n" +
+	"\x0froot_disk_bytes\x18\x06 \x01(\x04R\rrootDiskBytes\x12#\n" +
+	"\rkernel_digest\x18\a \x01(\tR\fkernelDigest\"\x16\n" +
 	"\x14ListSnapshotsRequest\"V\n" +
 	"\x15ListSnapshotsResponse\x12=\n" +
 	"\tsnapshots\x18\x01 \x03(\v2\x1f.mvmd.runtime.v1alpha2.SnapshotR\tsnapshots\"8\n" +

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 // The run directory a Driver is given in Describe is the one the supervisor
@@ -175,6 +176,7 @@ func TestStart_OnSuccess(t *testing.T) {
 	process, running := e.sup.Running("m")
 	require.True(t, running)
 	assert.Equal(t, []machine.File{
+		{Host: "/memory/kernel", In: machine.InKernel, ReadOnly: true, SHA256: memory.KernelDigest},
 		{Host: "/images/sha256:image.erofs", In: "/disk/0", ReadOnly: true},
 		{Host: "/disks/m-root", In: "/disk/1"},
 		{Host: "/disks/data", In: "/disk/2", ReadOnly: true},

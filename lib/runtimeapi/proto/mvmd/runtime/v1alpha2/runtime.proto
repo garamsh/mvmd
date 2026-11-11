@@ -193,6 +193,11 @@ message Machine {
   // The most a live resize reaches. Never below resources: a Machine created
   // with none reports its resources.
   Resources resource_ceiling = 10;
+  // The SHA-256 digest, in hex, of the kernel the Machine's running guest was
+  // booted with: the kernel the node pinned at the Machine's last start, or the
+  // one its snapshot recorded for a Machine restored from it. Empty for a
+  // Machine that has never booted.
+  string kernel_digest = 11;
 }
 
 message CreateMachineRequest {
@@ -648,6 +653,9 @@ message Snapshot {
   string cpu_model = 5;
   // The size of the root disk the snapshot holds a copy of.
   uint64 root_disk_bytes = 6;
+  // The SHA-256 digest, in hex, of the guest kernel the snapshot's Machine was
+  // running when the snapshot was taken. Empty when the snapshot recorded none.
+  string kernel_digest = 7;
 }
 
 message ListSnapshotsRequest {}

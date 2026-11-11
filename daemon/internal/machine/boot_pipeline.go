@@ -32,10 +32,13 @@ type begun struct{ network, vmm bool }
 // the VMM that exists could not be ended, in which case its network is kept,
 // and withdrawErr when the network could not be removed.
 type bootResult struct {
-	failure     *Error
-	begun       begun
-	endErr      error
-	withdrawErr error
+	failure *Error
+	// kernelDigest is the digest of the kernel file the Driver's description
+	// names, set when the VMM is up.
+	kernelDigest string
+	begun        begun
+	endErr       error
+	withdrawErr  error
 }
 
 // reason is the failure's reason, extended by what the unwind could not do.
@@ -95,7 +98,18 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	if err := s.awaitGuest(ctx, p.guestWhile, func(ctx context.Context) error { return p.guest(ctx, image) }); err != nil {
 		return stopped(fail(ErrFailed, "%v", err))
 	}
-	return bootResult{begun: up}
+	return bootResult{begun: up, kernelDigest: kernelDigest(process)}
+}
+
+// kernelDigest is the digest of the kernel file a description names, empty
+// when it names none or does not pin it.
+func kernelDigest(p ProcessDescription) string {
+	for _, f := range p.BootFiles {
+		if f.In == InKernel {
+			return f.SHA256
+		}
+	}
+	return ""
 }
 
 // unwind ends what a bring-up made, as far as up says it got, and returns the

@@ -196,7 +196,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		s.release(RootDiskID(id))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
-	m := Machine{ID: id, State: StateRunning, Spec: spec, BootMemoryBytes: held.Spec.BootMemoryBytes, RootDisk: root, RootDiskUUID: held.RootDiskUUID, User: User{UID: uid, GID: uid}, Network: identity}
+	m := Machine{ID: id, State: StateRunning, Spec: spec, BootMemoryBytes: held.Spec.BootMemoryBytes, RootDisk: root, RootDiskUUID: held.RootDiskUUID, KernelDigest: held.Compat.KernelDigest, User: User{UID: uid, GID: uid}, Network: identity}
 
 	res := s.bringUp(ctx, s.restorePlan(m, request, files))
 	if res.failure != nil {

@@ -224,7 +224,8 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 	if p != nil {
 		return *p, nil
 	}
-	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: machine.DeviceFiles(spec.Devices)}, nil
+	kernel := machine.File{Host: "/memory/kernel", In: machine.InKernel, ReadOnly: true, SHA256: KernelDigest}
+	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: append([]machine.File{kernel}, machine.DeviceFiles(spec.Devices)...)}, nil
 }
 
 // Boot implements machine.Driver.
@@ -379,8 +380,8 @@ func (d *Driver) Resize(_ context.Context, id machine.MachineID, target machine.
 	return nil
 }
 
-// KernelDigest is the digest of the guest kernel the Driver reports in every
-// snapshot.
+// KernelDigest is the digest of the guest kernel the Driver names in the boot
+// description of a start and reports in every snapshot.
 const KernelDigest = "sha256:memory-kernel"
 
 // Snapshot implements machine.Driver: two files in the Machine's run directory.

@@ -160,6 +160,12 @@ type Machine struct {
 	// live resize reaches (ADR 0029). It is set at each boot and restore, and is
 	// meaningful while the Machine is Running or Paused.
 	BootMemoryBytes uint64
+	// KernelDigest is the SHA-256 digest, in hex, of the kernel the Machine's
+	// running guest was booted with: the one in the boot description of its last
+	// start, or the one the snapshot it was restored from recorded. It is empty
+	// for a Machine that has never booted, and for a record written before it
+	// existed.
+	KernelDigest string
 	// User is the UID and GID allocated for this Machine's VMM (ADR 0015).
 	User User
 	// Network is the identity mvmd assigned for the Machine's life.

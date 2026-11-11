@@ -104,6 +104,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		Resources:         resourcesToWire(m.Resources),
 		ResourceCeiling:   resourcesToWire(m.Ceiling),
 		RootDiskBytes:     m.RootDiskBytes,
+		KernelDigest:      m.KernelDigest,
 		NetworkPolicy: &v1alpha2.NetworkPolicy{
 			Egress:  rulesToWire(m.Policy.Egress),
 			Ingress: rulesToWire(m.Policy.Ingress),

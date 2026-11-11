@@ -37,5 +37,6 @@ func snapshotToWire(snapshot machine.Snapshot) *v1alpha2.Snapshot {
 		Driver:        &v1alpha2.Driver{Name: snapshot.Compat.Driver, Version: snapshot.Compat.Version},
 		CpuModel:      snapshot.Compat.CPUModel,
 		RootDiskBytes: snapshot.Spec.RootDiskBytes,
+		KernelDigest:  snapshot.Compat.KernelDigest,
 	}
 }

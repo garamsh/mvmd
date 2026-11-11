@@ -96,3 +96,13 @@ func TestDeleteSnapshot_RejectsAnEmptyIdentifierBeforeTheUseCase(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []machine.SnapshotID{"snap"}, m.deleted)
 }
+
+func TestListSnapshots_ReportsTheKernelDigest(t *testing.T) {
+	m := &snapshotter{listed: []machine.Snapshot{{ID: "snap", Compat: machine.SnapshotCompat{KernelDigest: "abc123"}}}}
+
+	resp, err := api.New(m, nil, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Snapshots, 1)
+	assert.Equal(t, "abc123", resp.Snapshots[0].KernelDigest)
+}
