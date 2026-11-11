@@ -4,16 +4,20 @@
 // prints them, "exit N" ends with code N, "cat FILE" prints the file, "ls DIR" prints the names in
 // the directory, one to a line, "put FILE WORDS..." writes them to the start of the file and syncs it,
 // "head FILE N" prints its first N bytes, "now" prints the guest's wall clock in nanoseconds since
-// the epoch, and "console WORDS..." writes them to the guest's console.
+// the epoch, "console WORDS..." writes them to the guest's console, "dial HOST:PORT" opens a TCP
+// connection and prints connected, refused or timeout, and "listen PORT..." accepts TCP connections
+// on each port, prints "listening PORT" once each is bound, and stays running.
 package main
 
 import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -99,8 +103,55 @@ func command(name string, args []string) {
 		}
 		fmt.Fprintln(console, strings.Join(args, " "))
 		console.Close()
+	case "dial":
+		dial(args[0])
+	case "listen":
+		listen(args)
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command", name)
 		os.Exit(2)
 	}
+}
+
+// dial prints how a TCP connection to the address ended: connected, refused when the peer answered
+// with a reset, timeout when nothing answered, or the error otherwise.
+func dial(address string) {
+	conn, err := net.DialTimeout("tcp", address, 4*time.Second)
+	var timeout net.Error
+	switch {
+	case err == nil:
+		conn.Close()
+		fmt.Println("connected")
+	case errors.Is(err, syscall.ECONNREFUSED):
+		fmt.Println("refused")
+	case errors.As(err, &timeout) && timeout.Timeout():
+		fmt.Println("timeout")
+	default:
+		fmt.Println("error", err)
+	}
+}
+
+// listen binds every port, prints one line for each, then accepts and closes connections for good.
+func listen(ports []string) {
+	var wg sync.WaitGroup
+	for _, port := range ports {
+		listener, err := net.Listen("tcp", ":"+port)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Println("listening", port)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					return
+				}
+				conn.Close()
+			}
+		}()
+	}
+	wg.Wait()
 }
