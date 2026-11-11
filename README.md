@@ -2,7 +2,7 @@
 
 A node-local microVM runtime daemon: the kind of component containerd is to Kubernetes, for microVMs. It runs Machines on one node through a VM-native runtime API that it defines and versions, and it does not know gaon, the orchestration project that is its client.
 
-No code exists yet. The repository holds its conventions and its architecture.
+The repository holds the daemon, the Guest Agent, the converter, the runtime API library and the end-to-end tests, with the conventions and the architecture they follow.
 
 ## What it does
 
@@ -29,4 +29,4 @@ It contains no container runtime, and it does not decide when a Machine runs.
 - `docs/procedure/` — procedures for this repository's recurring acts
 - `.github/` — PR and issue templates, and CODEOWNERS
 
-Code folders are listed in `docs/architecture/structure.md` §Repository layout and are created by the pull request that first adds code to them.
+The code folders and what each holds are listed in `docs/architecture/structure.md` §Repository layout.
