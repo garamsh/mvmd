@@ -25,7 +25,7 @@ func TestGetRuntimeInfo_ReportsEachResizeCapabilityAsItsOwnWireValue(t *testing.
 }
 
 func TestGetRuntimeInfo_ListsTheOneDriverTheNodeServes(t *testing.T) {
-	srv := api.New(nil, nil, nil, []machine.DriverInfo{{Name: "only", Version: "1"}}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
+	srv := api.New(nil, nil, nil, machine.DriverInfo{Name: "only", Version: "1"}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
 	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.GetDrivers(), 1)

@@ -21,7 +21,7 @@ func TestGetRuntimeInfo_ListsTheKernelsByNameWithTheDefaultMarked(t *testing.T) 
 		"next":   {Path: "/k/b", SHA256: "digest-b"},
 	}}
 
-	resp, err := api.New(nil, nil, nil, nil, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, api.WithKernels(k)).GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+	resp, err := api.New(nil, nil, nil, machine.DriverInfo{}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, api.WithKernels(k)).GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.GetKernels(), 2)
@@ -36,7 +36,7 @@ func TestGetRuntimeInfo_ListsTheKernelsByNameWithTheDefaultMarked(t *testing.T) 
 func TestListMachines_ReportsTheKernelNameOrNone(t *testing.T) {
 	m := &lister{all: []machine.Machine{{ID: "named", Spec: machine.Spec{Kernel: "next"}}, {ID: "legacy"}}}
 
-	resp, err := api.New(m, nil, nil, nil, nil, nil).ListMachines(context.Background(), &v1alpha2.ListMachinesRequest{})
+	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListMachines(context.Background(), &v1alpha2.ListMachinesRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Machines, 2)
@@ -47,7 +47,7 @@ func TestListMachines_ReportsTheKernelNameOrNone(t *testing.T) {
 func TestListSnapshots_ReportsTheKernelName(t *testing.T) {
 	m := &snapshotter{listed: []machine.Snapshot{{ID: "snap", Compat: machine.SnapshotCompat{KernelName: "next"}}}}
 
-	resp, err := api.New(m, nil, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
+	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Snapshots, 1)

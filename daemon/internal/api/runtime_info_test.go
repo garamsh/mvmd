@@ -62,7 +62,7 @@ func driverCapabilities(t *testing.T) []machine.Capability {
 
 func runtimeInfo(t *testing.T, caps ...machine.Capability) []v1alpha2.Capability {
 	t.Helper()
-	srv := api.New(nil, nil, nil, []machine.DriverInfo{{Name: "d", Version: "1", Capabilities: caps}}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
+	srv := api.New(nil, nil, nil, machine.DriverInfo{Name: "d", Version: "1", Capabilities: caps}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
 	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.GetDrivers(), 1)
@@ -79,17 +79,12 @@ func TestGetRuntimeInfo_EveryDriverCapabilityHasAWireValue(t *testing.T) {
 	}
 }
 
-func TestGetRuntimeInfo_ReportsEachDriversCPUModel(t *testing.T) {
-	srv := api.New(nil, nil, nil, []machine.DriverInfo{
-		{Name: "a", Version: "1", CPUModel: "model of a"},
-		{Name: "b", Version: "1", CPUModel: "model of b"},
-	}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
+func TestGetRuntimeInfo_ReportsTheDriversCPUModel(t *testing.T) {
+	srv := api.New(nil, nil, nil, machine.DriverInfo{Name: "a", Version: "1", CPUModel: "model of a"}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
 	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
-	require.Len(t, resp.GetDrivers(), 2)
-	for i, want := range []string{"model of a", "model of b"} {
-		assert.Equal(t, want, resp.GetDrivers()[i].GetCpuModel(), "driver %s", resp.GetDrivers()[i].GetDriver().GetName())
-	}
+	require.Len(t, resp.GetDrivers(), 1)
+	assert.Equal(t, "model of a", resp.GetDrivers()[0].GetCpuModel())
 }
 
 func TestGetRuntimeInfo_ReportsSnapshotAndConsole(t *testing.T) {

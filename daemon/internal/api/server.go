@@ -31,7 +31,7 @@ type Server struct {
 	machines machine.Service
 	deadline fencing.Service
 	images   image.Service
-	drivers  []machine.DriverInfo
+	driver   machine.DriverInfo
 	capacity nodecapacity.Reader
 	events   events.Service
 	kernels  machine.Kernels
@@ -42,11 +42,11 @@ type Server struct {
 }
 
 // New returns the server over the lifecycle, the deadline, the image pull use
-// case and the event log, reporting the given Drivers and the capacity the
+// case and the event log, reporting the one Driver the node serves and the capacity the
 // reader reads in runtime info.
-func New(machines machine.Service, deadline fencing.Service, images image.Service, drivers []machine.DriverInfo, capacity nodecapacity.Reader, log events.Service, options ...Option) *Server {
+func New(machines machine.Service, deadline fencing.Service, images image.Service, driver machine.DriverInfo, capacity nodecapacity.Reader, log events.Service, options ...Option) *Server {
 	stopping, stop := context.WithCancel(context.Background())
-	s := &Server{machines: machines, deadline: deadline, images: images, drivers: drivers, capacity: capacity, events: log, stopping: stopping, stop: stop}
+	s := &Server{machines: machines, deadline: deadline, images: images, driver: driver, capacity: capacity, events: log, stopping: stopping, stop: stop}
 	for _, o := range options {
 		o(s)
 	}
@@ -163,15 +163,14 @@ func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest
 	for _, name := range s.kernels.Names() {
 		resp.Kernels = append(resp.Kernels, &v1alpha2.NodeKernel{Name: name, Digest: s.kernels.Offered[name].SHA256, IsDefault: name == s.kernels.Default})
 	}
-	for _, d := range s.drivers {
-		info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}, CpuModel: d.CPUModel}
-		if d.Limits != (machine.DriverLimits{}) {
-			info.Limits = &v1alpha2.DriverLimits{MaxVcpus: d.Limits.MaxVCPUs}
-		}
-		for _, c := range d.Capabilities {
-			info.Capabilities = append(info.Capabilities, wireCapabilities[c]...)
-		}
-		resp.Drivers = append(resp.Drivers, info)
+	d := s.driver
+	info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}, CpuModel: d.CPUModel}
+	if d.Limits != (machine.DriverLimits{}) {
+		info.Limits = &v1alpha2.DriverLimits{MaxVcpus: d.Limits.MaxVCPUs}
 	}
+	for _, c := range d.Capabilities {
+		info.Capabilities = append(info.Capabilities, wireCapabilities[c]...)
+	}
+	resp.Drivers = []*v1alpha2.DriverInfo{info}
 	return resp, nil
 }
