@@ -30,12 +30,14 @@ func ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t *testing.
 	d := s.Driver(t, RunDirs{"m1": run})
 
 	devices := []machine.BlockDevice{diskFile(t, state, "image", true), diskFile(t, state, "root", false)}
-	spec := machine.BootSpec{Devices: devices, Resources: resources, RunDir: run}
+	spec := machine.BootSpec{Kernel: s.Kernel, Devices: devices, Resources: resources, RunDir: run}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	p, err := d.Describe(ctx, "m1", spec)
 	require.NoError(t, err)
+	assert.Contains(t, p.BootFiles, machine.File{Host: s.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: s.Kernel.SHA256},
+		"the description boots the kernel the BootSpec names")
 
 	// What the supervisor does, without its confinement: the described process
 	// runs with its standard input and output on the console terminal the

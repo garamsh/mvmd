@@ -58,8 +58,8 @@ func TestReal_AGuestThatPanicsEndsItsVMMAndAGuestThatStaysUpDoesNot(t *testing.T
 	driver := func(initrd, initrdSHA256 string) machine.Driver {
 		d, err := cloudhypervisor.New(cloudhypervisor.Config{
 			Binary: input(t, "MVMD_CLOUD_HYPERVISOR"), BinarySHA256: input(t, "MVMD_CLOUD_HYPERVISOR_SHA256"),
-			Kernel: input(t, "MVMD_KERNEL"), KernelSHA256: input(t, "MVMD_KERNEL_SHA256"),
-			Initrd: initrd, InitrdSHA256: initrdSHA256,
+			Kernels: []machine.KernelFile{{Path: input(t, "MVMD_KERNEL"), SHA256: input(t, "MVMD_KERNEL_SHA256")}},
+			Initrd:  initrd, InitrdSHA256: initrdSHA256,
 			Dirs: dirs,
 		})
 		require.NoError(t, err)

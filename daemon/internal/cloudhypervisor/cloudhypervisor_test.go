@@ -48,14 +48,27 @@ func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
 		want   string
 	}{
 		{"a relative binary path", func(c *cloudhypervisor.Config) { c.Binary = "cloud-hypervisor" }, "absolute"},
-		{"a relative kernel path", func(c *cloudhypervisor.Config) { c.Kernel = "vmlinux" }, "absolute"},
+		{"a relative kernel path", func(c *cloudhypervisor.Config) {
+			c.Kernels = []machine.KernelFile{{Path: "vmlinux", SHA256: c.Kernels[0].SHA256}}
+		}, "absolute"},
+		{"a relative path on a later kernel", func(c *cloudhypervisor.Config) {
+			c.Kernels = []machine.KernelFile{c.Kernels[0], {Path: "vmlinux", SHA256: c.Kernels[1].SHA256}}
+		}, "absolute"},
+		{"no kernel", func(c *cloudhypervisor.Config) { c.Kernels = nil }, "kernel"},
 		{"a relative initrd path", func(c *cloudhypervisor.Config) { c.Initrd = "initrd" }, "absolute"},
 		{"a binary digest that is not hex", func(c *cloudhypervisor.Config) { c.BinarySHA256 = "sha256:abc" }, "digest"},
-		{"an upper-case kernel digest", func(c *cloudhypervisor.Config) { c.KernelSHA256 = strings.ToUpper(c.KernelSHA256) }, "digest"},
+		{"an upper-case kernel digest", func(c *cloudhypervisor.Config) {
+			c.Kernels = []machine.KernelFile{{Path: c.Kernels[0].Path, SHA256: strings.ToUpper(c.Kernels[0].SHA256)}}
+		}, "digest"},
 		{"an initrd digest that is not hex", func(c *cloudhypervisor.Config) { c.InitrdSHA256 = "sha256:abc" }, "digest"},
 		{"no run directories", func(c *cloudhypervisor.Config) { c.Dirs = nil }, "run directories"},
 		{"a binary that is not the pinned one", func(c *cloudhypervisor.Config) { c.BinarySHA256 = strings.Repeat("0", 64) }, "binary"},
-		{"a kernel that is not the pinned one", func(c *cloudhypervisor.Config) { c.KernelSHA256 = strings.Repeat("0", 64) }, "kernel"},
+		{"a kernel that is not the pinned one", func(c *cloudhypervisor.Config) {
+			c.Kernels = []machine.KernelFile{{Path: c.Kernels[0].Path, SHA256: strings.Repeat("0", 64)}, c.Kernels[1]}
+		}, "kernel"},
+		{"a later kernel that is not the pinned one", func(c *cloudhypervisor.Config) {
+			c.Kernels = []machine.KernelFile{c.Kernels[0], {Path: c.Kernels[1].Path, SHA256: strings.Repeat("0", 64)}}
+		}, "kernel"},
 		{"an initrd that is not the pinned one", func(c *cloudhypervisor.Config) { c.InitrdSHA256 = strings.Repeat("0", 64) }, "initrd"},
 		{"a missing initrd", func(c *cloudhypervisor.Config) { c.Initrd = "/nonexistent/initrd" }, "initrd"},
 	}

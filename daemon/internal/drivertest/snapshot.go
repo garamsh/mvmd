@@ -38,7 +38,7 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	d := s.Driver(t, runs)
 
 	devices := []machine.BlockDevice{diskFile(t, dir, "image", true), diskFile(t, dir, "root", false)}
-	spec := machine.BootSpec{Devices: devices, Resources: resources, RunDir: runs["m1"]}
+	spec := machine.BootSpec{Kernel: s.Kernel, Devices: devices, Resources: resources, RunDir: runs["m1"]}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -68,7 +68,6 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	second, err := d.Snapshot(ctx, "m1")
 	require.NoError(t, err)
 	assert.Equal(t, first, second, "two snapshots of one Machine name the same files")
-	assert.Equal(t, s.KernelDigest, first.KernelDigest)
 	require.Positive(t, s.Snapshot.Files, "the Subject states how many files its snapshot holds")
 	require.Len(t, first.Files, s.Snapshot.Files)
 	for _, f := range first.Files {
@@ -147,7 +146,7 @@ func ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive(t *testin
 	image, root, data := diskFile(t, dir, "image", true), diskFile(t, dir, "root", false), diskFile(t, dir, "data", false)
 	image.Disk = ""
 	devices := []machine.BlockDevice{image, root}
-	spec := machine.BootSpec{Devices: devices, Resources: resources, RunDir: runs["m1"]}
+	spec := machine.BootSpec{Kernel: s.Kernel, Devices: devices, Resources: resources, RunDir: runs["m1"]}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

@@ -30,7 +30,10 @@ func firecrackerConfig(t *testing.T) app.Config {
 	}
 	f := &app.VMMConfig{}
 	f.Binary, f.BinarySHA256 = file("firecracker", "a binary")
-	f.Kernel, f.KernelSHA256 = file("vmlinux", "a kernel")
+	stable, stableSum := file("vmlinux", "a kernel")
+	next, nextSum := file("vmlinux-next", "another kernel")
+	f.Kernels = map[string]app.KernelConfig{"stable": {Path: stable, SHA256: stableSum}, "next": {Path: next, SHA256: nextSum}}
+	f.DefaultKernel = "stable"
 	f.Initrd, f.InitrdSHA256 = file("initrd.cpio", "an initrd")
 	cv := &app.ConversionConfig{
 		Converter: "converter-1", VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m",
@@ -75,11 +78,11 @@ func TestFirecracker_TheDriverAndTheChannelReplaceTheMemoryOnes(t *testing.T) {
 }
 
 func TestFirecracker_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.T) {
-	for _, file := range []string{"binary", "kernel", "initrd", "converter initrd"} {
+	for _, file := range []string{"binary", "kernel", "another kernel", "initrd", "converter initrd"} {
 		t.Run(file, func(t *testing.T) {
 			cfg := firecrackerConfig(t)
 			path := map[string]string{
-				"binary": cfg.Firecracker.Binary, "kernel": cfg.Firecracker.Kernel,
+				"binary": cfg.Firecracker.Binary, "kernel": cfg.Firecracker.Kernels["stable"].Path, "another kernel": cfg.Firecracker.Kernels["next"].Path,
 				"initrd": cfg.Firecracker.Initrd, "converter initrd": cfg.Conversion.Initrd,
 			}[file]
 			pinned, err := os.ReadFile(path)
@@ -101,7 +104,8 @@ func TestFirecracker_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.
 
 const (
 	digest64    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	fcSection   = `,"firecracker":{"binary":"/opt/firecracker","binary_sha256":"` + digest64 + `","kernel":"/opt/vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/initrd.cpio","initrd_sha256":"` + digest64 + `"}`
+	kernelsRaw  = `"kernels":{"stable":{"path":"/opt/vmlinux","sha256":"` + digest64 + `"},"next":{"path":"/opt/vmlinux-next","sha256":"` + digest64 + `"}},"default_kernel":"stable"`
+	fcSection   = `,"firecracker":{"binary":"/opt/firecracker","binary_sha256":"` + digest64 + `",` + kernelsRaw + `,"initrd":"/opt/initrd.cpio","initrd_sha256":"` + digest64 + `"}`
 	dkSection   = `,"disk":{"mkfs":"/sbin/mkfs.ext4"}`
 	fcSupervise = `,"supervision":{"binary":"/usr/libexec/mvmd-supervisor"}`
 	cvSection   = `,"conversion":{"kernel":"/opt/converter-vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/converter-initrd.cpio","initrd_sha256":"` + digest64 + `","converter":"converter-1","vcpus":2,"memory_bytes":536870912,"output_bytes":1073741824,"name_set_bytes":1048576,"limit":"10m"}`
@@ -119,7 +123,9 @@ func TestFirecracker_ConfigParses(t *testing.T) {
 	cfg, err := app.ParseConfig([]byte(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise)))
 	require.NoError(t, err)
 	assert.Equal(t, &app.VMMConfig{
-		Binary: "/opt/firecracker", BinarySHA256: digest64, Kernel: "/opt/vmlinux", KernelSHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
+		Binary: "/opt/firecracker", BinarySHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
+		Kernels:       map[string]app.KernelConfig{"stable": {Path: "/opt/vmlinux", SHA256: digest64}, "next": {Path: "/opt/vmlinux-next", SHA256: digest64}},
+		DefaultKernel: "stable",
 	}, cfg.Firecracker)
 	assert.Equal(t, &app.ConversionConfig{
 		Kernel: "/opt/converter-vmlinux", KernelSHA256: digest64, Initrd: "/opt/converter-initrd.cpio", InitrdSHA256: digest64, Converter: "converter-1",
@@ -182,6 +188,17 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 		{"an option the conversion section does not read", conversion(`"limit":"10m"`, `"limit":"10m","extra":1`), "unknown field"},
 		{"a relative binary", changed(`"/opt/firecracker"`, `"firecracker"`), "firecracker binary"},
 		{"a relative kernel", changed(`"/opt/vmlinux"`, `"vmlinux"`), "firecracker kernel"},
+		{"the old kernel field", changed(`"kernels":`, `"kernel":"/opt/vmlinux","kernels":`), `unknown field "kernel"`},
+		{"the old kernel digest field", changed(`"kernels":`, `"kernel_sha256":"`+digest64+`","kernels":`), `unknown field "kernel_sha256"`},
+		{"no default kernel", changed(`,"default_kernel":"stable"`, ``), "default_kernel"},
+		{"a default kernel the node does not offer", changed(`"default_kernel":"stable"`, `"default_kernel":"gone"`), `default_kernel "gone"`},
+		{"no kernels", changed(kernelsRaw, `"kernels":{},"default_kernel":"stable"`), "kernels is empty"},
+		{"a kernel name with a capital", changed(`"next":{`, `"Next":{`), "kernels name"},
+		{"a kernel name with an underscore", changed(`"next":{`, `"ne_xt":{`), "kernels name"},
+		{"an empty kernel name", changed(`"next":{`, `"":{`), "kernels name"},
+		{"a kernel name of 64 characters", changed(`"next":{`, `"`+strings.Repeat("a", 64)+`":{`), "kernels name"},
+		{"a relative path on a later kernel", changed(`"/opt/vmlinux-next"`, `"vmlinux-next"`), "firecracker kernel"},
+		{"a digest that is not hex on a later kernel", changed(`"next":{"path":"/opt/vmlinux-next","sha256":"`+digest64, `"next":{"path":"/opt/vmlinux-next","sha256":"sha256:`+digest64), "firecracker kernel digest"},
 		{"a relative initrd", changed(`"/opt/initrd.cpio"`, `"initrd.cpio"`), "firecracker initrd"},
 		{"an initrd digest that is not hex", changed(`"initrd_sha256":"`+digest64, `"initrd_sha256":"sha256:`+digest64), "firecracker initrd digest"},
 		{"no initrd digest", changed(`,"initrd_sha256":"`+digest64+`"`, ``), "firecracker initrd digest"},

@@ -163,7 +163,9 @@ func New(cfg Config) (*App, error) {
 	var driver machine.Driver = sub.Driver
 	var guest machine.Guest = sub.Guest
 	var capacity nodecapacity.Reader = sub.Capacity
+	kernels := machinememory.Kernels()
 	if f, ok := cfg.vmm(); ok {
+		kernels = f.offered()
 		d, err := f.driver(cfg.Driver, supervisors)
 		if err != nil {
 			_ = db.Close()
@@ -206,7 +208,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels))
 
 	return &App{
 		cfg:         cfg,
@@ -214,7 +216,7 @@ func New(cfg Config) (*App, error) {
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, capacity, log),
+		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, capacity, log, api.WithKernels(kernels)),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil

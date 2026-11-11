@@ -45,7 +45,6 @@ func TestSnapshot_WritesTheSnapshotThroughTheAPIIntoTheRunDirectory(t *testing.T
 		"the VMM is given paths in its root, and no host path")
 	assert.Equal(t, []string{filepath.Join(n.run, "snapshot.state"), filepath.Join(n.run, "snapshot.mem")}, taken.Files,
 		"the files are the run directory's, at its host path")
-	assert.Equal(t, sum([]byte("a kernel")), taken.KernelDigest, "the digest is the pinned kernel's")
 }
 
 func TestSnapshot_NamesItsFilesTheSameOnEverySnapshotOfAMachine(t *testing.T) {

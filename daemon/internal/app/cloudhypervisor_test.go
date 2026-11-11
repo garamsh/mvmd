@@ -14,7 +14,7 @@ import (
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
-const chSection = `,"cloud_hypervisor":{"binary":"/opt/cloud-hypervisor","binary_sha256":"` + digest64 + `","kernel":"/opt/vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/initrd.cpio","initrd_sha256":"` + digest64 + `"}`
+const chSection = `,"cloud_hypervisor":{"binary":"/opt/cloud-hypervisor","binary_sha256":"` + digest64 + `",` + kernelsRaw + `,"initrd":"/opt/initrd.cpio","initrd_sha256":"` + digest64 + `"}`
 
 // cloudHypervisorConfig is firecrackerConfig with the Cloud Hypervisor Driver
 // selected over the same files: the files of the firecracker section are the
@@ -85,11 +85,11 @@ func TestDriverSelection_BothTheMachinesAndTheConvertersRunOnTheSelectedDriver(t
 }
 
 func TestCloudHypervisor_ANodeWhoseInputsAreNotThePinnedOnesDoesNotStart(t *testing.T) {
-	for _, file := range []string{"binary", "kernel", "initrd", "converter initrd"} {
+	for _, file := range []string{"binary", "kernel", "another kernel", "initrd", "converter initrd"} {
 		t.Run(file, func(t *testing.T) {
 			cfg := cloudHypervisorConfig(t)
 			path := map[string]string{
-				"binary": cfg.CloudHypervisor.Binary, "kernel": cfg.CloudHypervisor.Kernel,
+				"binary": cfg.CloudHypervisor.Binary, "kernel": cfg.CloudHypervisor.Kernels["stable"].Path, "another kernel": cfg.CloudHypervisor.Kernels["next"].Path,
 				"initrd": cfg.CloudHypervisor.Initrd, "converter initrd": cfg.Conversion.Initrd,
 			}[file]
 			pinned, err := os.ReadFile(path)
@@ -114,7 +114,9 @@ func TestCloudHypervisor_ConfigParses(t *testing.T) {
 	require.NoError(t, err, "no firecracker section is needed: the converter boots on the selected Driver")
 	assert.Equal(t, app.DriverCloudHypervisor, cfg.Driver)
 	assert.Equal(t, &app.VMMConfig{
-		Binary: "/opt/cloud-hypervisor", BinarySHA256: digest64, Kernel: "/opt/vmlinux", KernelSHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
+		Binary: "/opt/cloud-hypervisor", BinarySHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
+		Kernels:       map[string]app.KernelConfig{"stable": {Path: "/opt/vmlinux", SHA256: digest64}, "next": {Path: "/opt/vmlinux-next", SHA256: digest64}},
+		DefaultKernel: "stable",
 	}, cfg.CloudHypervisor)
 	assert.Nil(t, cfg.Firecracker)
 	assert.Equal(t, &app.DiskConfig{MKFS: "/sbin/mkfs.ext4"}, cfg.Disk)
@@ -142,6 +144,17 @@ func TestCloudHypervisor_ConfigRefuses(t *testing.T) {
 		{"the driver without the disk section", rawConfig("cloud-hypervisor", chSection+cvSection, fcSupervise), "disk section"},
 		{"a relative binary", changed(`"/opt/cloud-hypervisor"`, `"cloud-hypervisor"`), "cloud-hypervisor binary"},
 		{"a relative kernel", changed(`"/opt/vmlinux"`, `"vmlinux"`), "cloud-hypervisor kernel"},
+		{"the old kernel field", changed(`"kernels":`, `"kernel":"/opt/vmlinux","kernels":`), `unknown field "kernel"`},
+		{"the old kernel digest field", changed(`"kernels":`, `"kernel_sha256":"`+digest64+`","kernels":`), `unknown field "kernel_sha256"`},
+		{"no default kernel", changed(`,"default_kernel":"stable"`, ``), "default_kernel"},
+		{"a default kernel the node does not offer", changed(`"default_kernel":"stable"`, `"default_kernel":"gone"`), `default_kernel "gone"`},
+		{"no kernels", changed(kernelsRaw, `"kernels":{},"default_kernel":"stable"`), "kernels is empty"},
+		{"a kernel name with a capital", changed(`"next":{`, `"Next":{`), "kernels name"},
+		{"a kernel name with an underscore", changed(`"next":{`, `"ne_xt":{`), "kernels name"},
+		{"an empty kernel name", changed(`"next":{`, `"":{`), "kernels name"},
+		{"a kernel name of 64 characters", changed(`"next":{`, `"`+strings.Repeat("a", 64)+`":{`), "kernels name"},
+		{"a relative path on a later kernel", changed(`"/opt/vmlinux-next"`, `"vmlinux-next"`), "cloud-hypervisor kernel"},
+		{"a digest that is not hex on a later kernel", changed(`"next":{"path":"/opt/vmlinux-next","sha256":"`+digest64, `"next":{"path":"/opt/vmlinux-next","sha256":"sha256:`+digest64), "cloud-hypervisor kernel digest"},
 		{"a relative initrd", changed(`"/opt/initrd.cpio"`, `"initrd.cpio"`), "cloud-hypervisor initrd"},
 		{"no initrd digest", changed(`,"initrd_sha256":"`+digest64+`"`, ``), "cloud-hypervisor initrd digest"},
 		{"a binary digest that is not hex", changed(`"binary_sha256":"`+digest64, `"binary_sha256":"sha256:`+digest64), "cloud-hypervisor binary digest"},

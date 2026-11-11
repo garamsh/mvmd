@@ -82,7 +82,9 @@ func TestDriverSelection_TheSectionBuildsTheSelectedDriver(t *testing.T) {
 	}
 	files := VMMConfig{}
 	files.Binary, files.BinarySHA256 = file("vmm", "a binary")
-	files.Kernel, files.KernelSHA256 = file("vmlinux", "a kernel")
+	kernel, kernelSum := file("vmlinux", "a kernel")
+	files.Kernels = map[string]KernelConfig{"stable": {Path: kernel, SHA256: kernelSum}}
+	files.DefaultKernel = "stable"
 	files.Initrd, files.InitrdSHA256 = file("initrd", "an initrd")
 
 	for _, name := range []string{DriverFirecracker, DriverCloudHypervisor} {
@@ -92,7 +94,7 @@ func TestDriverSelection_TheSectionBuildsTheSelectedDriver(t *testing.T) {
 	}
 
 	// The control: a file that is not the pinned one is refused by either.
-	files.KernelSHA256 = strings.Repeat("0", 64)
+	files.Kernels = map[string]KernelConfig{"stable": {Path: kernel, SHA256: strings.Repeat("0", 64)}}
 	for _, name := range []string{DriverFirecracker, DriverCloudHypervisor} {
 		_, err := files.driver(name, fencingmemory.NewSupervisors(nil))
 		assert.ErrorContains(t, err, "digest", name)

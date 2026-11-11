@@ -88,7 +88,6 @@ func TestSnapshot_WritesTheSnapshotThroughTheAPIIntoTheRunDirectory(t *testing.T
 	assert.JSONEq(t, `{"destination_url":"file:///run"}`, seen[0].Body, "the VMM is given its root's run directory, and no host path")
 	assert.Equal(t, []string{filepath.Join(n.run, "config.json"), filepath.Join(n.run, "state.json"), filepath.Join(n.run, "memory-ranges")}, taken.Files,
 		"the files are the run directory's, at its host path")
-	assert.Equal(t, sum([]byte("a kernel")), taken.KernelDigest, "the digest is the pinned kernel's")
 }
 
 // v54.0 creates each file and refuses one that exists, so a second Snapshot of a

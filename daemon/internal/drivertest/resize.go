@@ -31,7 +31,7 @@ func AMachineIsResizedWhileRunningAndItsGuestSeesTheNewSize(t *testing.T, s Subj
 
 	image, root := diskFile(t, dir, "image", true), diskFile(t, dir, "root", false)
 	image.Disk = ""
-	spec := machine.BootSpec{Devices: []machine.BlockDevice{image, root}, Resources: resources, Ceiling: ceiling, RunDir: run}
+	spec := machine.BootSpec{Kernel: s.Kernel, Devices: []machine.BlockDevice{image, root}, Resources: resources, Ceiling: ceiling, RunDir: run}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

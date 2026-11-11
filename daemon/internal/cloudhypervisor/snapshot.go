@@ -49,7 +49,7 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 	if err := c.do(ctx, "PUT", "/vm.snapshot", map[string]string{"destination_url": "file://" + machine.InRunDir}, nil); err != nil {
 		return machine.DriverSnapshot{}, err
 	}
-	return machine.DriverSnapshot{Files: files, KernelDigest: d.cfg.KernelSHA256}, nil
+	return machine.DriverSnapshot{Files: files}, nil
 }
 
 // DescribeRestore implements machine.Driver. The files are the three Snapshot

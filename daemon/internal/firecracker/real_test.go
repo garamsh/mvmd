@@ -50,8 +50,8 @@ func subject(t *testing.T) drivertest.Subject {
 		Driver: func(t *testing.T, dirs drivertest.RunDirs) machine.Driver {
 			d, err := firecracker.New(firecracker.Config{
 				Binary: input(t, "MVMD_FIRECRACKER"), BinarySHA256: input(t, "MVMD_FIRECRACKER_SHA256"),
-				Kernel: input(t, "MVMD_KERNEL"), KernelSHA256: input(t, "MVMD_KERNEL_SHA256"),
-				Initrd: input(t, "MVMD_INITRD"), InitrdSHA256: input(t, "MVMD_INITRD_SHA256"),
+				Kernels: []machine.KernelFile{{Path: input(t, "MVMD_KERNEL"), SHA256: input(t, "MVMD_KERNEL_SHA256")}},
+				Initrd:  input(t, "MVMD_INITRD"), InitrdSHA256: input(t, "MVMD_INITRD_SHA256"),
 				Dirs: dirs,
 			})
 			require.NoError(t, err)
@@ -72,7 +72,7 @@ func subject(t *testing.T) drivertest.Subject {
 			go func() { _ = cmd.Wait(); close(exited) }()
 			return process{cmd, exited}
 		},
-		KernelDigest: input(t, "MVMD_KERNEL_SHA256"),
+		Kernel: machine.KernelFile{Path: input(t, "MVMD_KERNEL"), SHA256: input(t, "MVMD_KERNEL_SHA256")},
 		// A snapshot is a state file and a memory file. Its VMM opens no boot file
 		// on restore, and loads the snapshot when Restore asks it to.
 		Snapshot: drivertest.SnapshotFacts{Files: 2, LoadsOnRestore: true},

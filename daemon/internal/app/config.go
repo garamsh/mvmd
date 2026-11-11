@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -203,7 +206,9 @@ func (c ConversionConfig) check(driver string, vmm VMMConfig) error {
 func (c ConversionConfig) files(vmm VMMConfig) VMMConfig {
 	return VMMConfig{
 		Binary: vmm.Binary, BinarySHA256: vmm.BinarySHA256,
-		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256, Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256,
+		Kernels:       map[string]KernelConfig{conversionKernel: {Path: c.Kernel, SHA256: c.KernelSHA256}},
+		DefaultKernel: conversionKernel,
+		Initrd:        c.Initrd, InitrdSHA256: c.InitrdSHA256,
 	}
 }
 
@@ -216,6 +221,7 @@ func (c ConversionConfig) settings() (image.Settings, error) {
 	return image.Settings{
 		Platform:     platform(),
 		Converter:    c.Converter,
+		Kernel:       machine.KernelFile{Path: c.Kernel, SHA256: c.KernelSHA256},
 		Resources:    machine.Resources{VCPUs: c.VCPUs, MemoryBytes: c.MemoryBytes},
 		OutputBytes:  c.OutputBytes,
 		NameSetBytes: c.NameSetBytes,
@@ -280,24 +286,77 @@ type DiskConfig struct {
 }
 
 // VMMConfig is what the node says about the VMM of a real Driver and the guest
-// it boots (ADR 0010, ADR 0030): each file by absolute path, each also by
-// SHA-256 in hex, which the Driver checks at start and the supervisor before
-// every boot. Both real Drivers' sections have this shape.
+// it boots (ADR 0010, ADR 0030, ADR 0045): each file by absolute path, each
+// also by SHA-256 in hex, which the Driver checks at start and the supervisor
+// before every boot. Both real Drivers' sections have this shape.
 type VMMConfig struct {
 	Binary       string `json:"binary"`
 	BinarySHA256 string `json:"binary_sha256"`
-	Kernel       string `json:"kernel"`
-	KernelSHA256 string `json:"kernel_sha256"`
-	Initrd       string `json:"initrd"`
-	InitrdSHA256 string `json:"initrd_sha256"`
+	// Kernels are the guest kernels the node offers, by name; a name is 1 to
+	// 63 characters of lowercase letters, digits and "-". A Machine records
+	// the name it is created with and boots the file the name maps to.
+	Kernels map[string]KernelConfig `json:"kernels"`
+	// DefaultKernel is the name a Create that names no kernel gets; it is one
+	// of Kernels.
+	DefaultKernel string `json:"default_kernel"`
+	Initrd        string `json:"initrd"`
+	InitrdSHA256  string `json:"initrd_sha256"`
+}
+
+// KernelConfig is one guest kernel: its absolute path and its SHA-256 in hex.
+type KernelConfig struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+// kernelName is what a kernel's name may be.
+var kernelName = regexp.MustCompile(`^[a-z0-9-]{1,63}$`)
+
+// conversionKernel is the name of the converter's one kernel in the section
+// its Driver is built from; no Machine names it.
+const conversionKernel = "conversion"
+
+// kernelFiles are the kernels in the order of their names.
+func (c VMMConfig) kernelFiles() []machine.KernelFile {
+	files := make([]machine.KernelFile, 0, len(c.Kernels))
+	for _, name := range slices.Sorted(maps.Keys(c.Kernels)) {
+		files = append(files, machine.KernelFile{Path: c.Kernels[name].Path, SHA256: c.Kernels[name].SHA256})
+	}
+	return files
+}
+
+// offered is the kernels as the lifecycle resolves them.
+func (c VMMConfig) offered() machine.Kernels {
+	offered := make(map[string]machine.KernelFile, len(c.Kernels))
+	for name, k := range c.Kernels {
+		offered[name] = machine.KernelFile{Path: k.Path, SHA256: k.SHA256}
+	}
+	return machine.Kernels{Default: c.DefaultKernel, Offered: offered}
+}
+
+// checkKernels refuses a section without a kernel, with a bad name, or whose
+// default is not one of its kernels. It names the field.
+func (c VMMConfig) checkKernels() error {
+	if len(c.Kernels) == 0 {
+		return fmt.Errorf("kernels is empty: a node offers at least one kernel")
+	}
+	for _, name := range slices.Sorted(maps.Keys(c.Kernels)) {
+		if !kernelName.MatchString(name) {
+			return fmt.Errorf("kernels name %q is not 1 to 63 characters of a-z, 0-9 and \"-\"", name)
+		}
+	}
+	if _, ok := c.Kernels[c.DefaultKernel]; !ok {
+		return fmt.Errorf("default_kernel %q is not a name in kernels", c.DefaultKernel)
+	}
+	return nil
 }
 
 // firecracker names the Firecracker Driver's files; it adds the run directories.
 func (c VMMConfig) firecracker(dirs firecracker.RunDirs) firecracker.Config {
 	return firecracker.Config{
 		Binary: c.Binary, BinarySHA256: c.BinarySHA256,
-		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
-		Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256, Dirs: dirs,
+		Kernels: c.kernelFiles(),
+		Initrd:  c.Initrd, InitrdSHA256: c.InitrdSHA256, Dirs: dirs,
 	}
 }
 
@@ -306,8 +365,8 @@ func (c VMMConfig) firecracker(dirs firecracker.RunDirs) firecracker.Config {
 func (c VMMConfig) cloudHypervisor(dirs cloudhypervisor.RunDirs) cloudhypervisor.Config {
 	return cloudhypervisor.Config{
 		Binary: c.Binary, BinarySHA256: c.BinarySHA256,
-		Kernel: c.Kernel, KernelSHA256: c.KernelSHA256,
-		Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256, Dirs: dirs,
+		Kernels: c.kernelFiles(),
+		Initrd:  c.Initrd, InitrdSHA256: c.InitrdSHA256, Dirs: dirs,
 	}
 }
 
@@ -333,6 +392,9 @@ type realDriver interface {
 // validate runs the named real Driver's own check over these files; it reads
 // no file. Any other name is an error.
 func (c VMMConfig) validate(name string) error {
+	if err := c.checkKernels(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
 	switch name {
 	case DriverFirecracker:
 		return c.firecracker(nil).Validate()

@@ -119,7 +119,10 @@ func newNode(t *testing.T) *node {
 	require.Greater(t, len(filepath.Join(root, "run", "vsock.sock")), 107, "the control: a socket in the run directory is over what an address holds")
 	cfg := cloudhypervisor.Config{
 		Binary: write("cloud-hypervisor", "a binary"), BinarySHA256: sum([]byte("a binary")),
-		Kernel: write("vmlinux", "a kernel"), KernelSHA256: sum([]byte("a kernel")),
+		Kernels: []machine.KernelFile{
+			{Path: write("vmlinux", "a kernel"), SHA256: sum([]byte("a kernel"))},
+			{Path: write("vmlinux-next", "another kernel"), SHA256: sum([]byte("another kernel"))},
+		},
 		Initrd: write("initrd.cpio", "an initrd"), InitrdSHA256: sum([]byte("an initrd")),
 		Dirs: runDirs{run},
 	}
@@ -160,6 +163,7 @@ func (n *node) vsockSocket() string { return filepath.Join(n.run, "vsock.sock") 
 // spec is a Machine's boot description: its image, its root disk and a tap.
 func (n *node) spec() machine.BootSpec {
 	return machine.BootSpec{
+		Kernel: n.cfg.Kernels[0],
 		Devices: []machine.BlockDevice{
 			{Path: "/images/erofs", ReadOnly: true},
 			{Disk: "root", Path: "/disks/root.img"},
