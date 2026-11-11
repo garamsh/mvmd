@@ -350,6 +350,7 @@ dependencies = [
  "hyper-util",
  "nix",
  "prost",
+ "prost-types",
  "protox",
  "sha2",
  "tempfile",

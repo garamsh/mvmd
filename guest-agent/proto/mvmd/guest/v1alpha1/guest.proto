@@ -5,6 +5,8 @@ syntax = "proto3";
 
 package mvmd.guest.v1alpha1;
 
+import "google/protobuf/timestamp.proto";
+
 // GuestService is the guest channel. The Guest Agent serves it over vsock.
 service GuestService {
   // Describe the Machine to the agent, which runs as the guest's init and
@@ -195,6 +197,9 @@ message ExecRecord {
   // offset of the earliest byte still held; a read after an earlier offset
   // fails with OUT_OF_RANGE and names it.
   uint64 earliest_offset = 6;
+  // The guest's CLOCK_REALTIME when the agent reaped the command; set when
+  // status is EXITED and unset otherwise.
+  google.protobuf.Timestamp ended_at = 7;
 }
 
 message ExecRequest {

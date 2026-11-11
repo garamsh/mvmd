@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
@@ -263,6 +264,47 @@ async fn exec_reports_output_per_stream_and_the_exit_code() -> Result {
     assert_eq!(record.status(), ExecStatus::Exited);
     assert_eq!(record.exit_code, 3);
     assert_eq!(record.term_signal, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_exited_command_carries_the_guest_clock_between_before_its_end_and_after_its_reap()
+-> Result {
+    let mut h = Harness::start().await?;
+    let dir = tempfile::tempdir()?;
+    let flag = dir.path().join("end-now");
+    let script = format!("while [ ! -e {} ]; do sleep 0.02; done", flag.display());
+    let started = h.exec("e1", &[SH, "-c", &script]).await?;
+    // A command that runs has no end time yet.
+    assert_eq!(started.status(), ExecStatus::Started);
+    assert_eq!(started.ended_at, None);
+
+    let before = SystemTime::now();
+    std::fs::write(&flag, "")?;
+    let (_, record) = h.output("e1", 0).await?;
+    let after = SystemTime::now();
+
+    assert_eq!(record.status(), ExecStatus::Exited);
+    let ended = SystemTime::try_from(record.ended_at.ok_or("an exited record has no ended_at")?)?;
+    assert!(
+        before <= ended,
+        "ended_at {ended:?} is before the end {before:?}"
+    );
+    assert!(
+        ended <= after,
+        "ended_at {ended:?} is after the reap {after:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_command_that_did_not_start_has_no_end_time() -> Result {
+    let mut h = Harness::start().await?;
+
+    let record = h.exec("e1", &["/nonexistent/program"]).await?;
+
+    assert_eq!(record.status(), ExecStatus::NotStarted);
+    assert_eq!(record.ended_at, None);
     Ok(())
 }
 
@@ -594,6 +636,7 @@ async fn a_command_still_running_when_the_agent_ends_is_recorded_as_cut_short() 
 
     assert_eq!(record.status(), ExecStatus::CutShort);
     assert!(!record.reason.is_empty());
+    assert_eq!(record.ended_at, None);
     h.server.await??;
     Ok(())
 }
