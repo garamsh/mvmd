@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrImageAbsent is what ImageStore.Locate returns for an image the node does
@@ -23,12 +24,24 @@ type LocatedImage struct {
 	Run ExecSpec
 }
 
+// ImageInfo is what the node holds of an image, for a client to decide whether
+// to keep it.
+type ImageInfo struct {
+	Digest ImageDigest
+	// SizeBytes is the disk space the node's files for the image occupy:
+	// allocated blocks, summed over every file the node holds for it.
+	SizeBytes uint64
+	// CreatedAt is when the node stored the image, and the zero time for an
+	// image stored before the node recorded it.
+	CreatedAt time.Time
+}
+
 // ImageStore is the conversation with the node's image cache.
 type ImageStore interface {
 	// Locate returns what the node holds of the image, or ErrImageAbsent.
 	Locate(ctx context.Context, image ImageDigest) (LocatedImage, error)
-	// List returns the digest of every image the node holds, ordered.
-	List(ctx context.Context) ([]ImageDigest, error)
+	// List returns every image the node holds, ordered by digest.
+	List(ctx context.Context) ([]ImageInfo, error)
 	// Remove unlists the image and reclaims the blobs only it reached. An
 	// absent image succeeds. A failure after the image was unlisted leaves it
 	// unlisted, and its blobs for the next start's sweep.

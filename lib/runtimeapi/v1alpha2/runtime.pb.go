@@ -1063,7 +1063,10 @@ type Machine struct {
 	// The name of the node's guest kernel the Machine boots, recorded at Create.
 	// Empty for a Machine recorded before kernels had names, which boots the
 	// node's default.
-	Kernel        string `protobuf:"bytes,12,opt,name=kernel,proto3" json:"kernel,omitempty"`
+	Kernel string `protobuf:"bytes,12,opt,name=kernel,proto3" json:"kernel,omitempty"`
+	// The digest of the image the Machine was created or restored from, in the
+	// form ImageRef.digest has, reported in every state.
+	ImageDigest   string `protobuf:"bytes,13,opt,name=image_digest,json=imageDigest,proto3" json:"image_digest,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1178,6 +1181,13 @@ func (x *Machine) GetKernelDigest() string {
 func (x *Machine) GetKernel() string {
 	if x != nil {
 		return x.Kernel
+	}
+	return ""
+}
+
+func (x *Machine) GetImageDigest() string {
+	if x != nil {
+		return x.ImageDigest
 	}
 	return ""
 }
@@ -4947,7 +4957,13 @@ func (*PullImageResponse) Descriptor() ([]byte, []int) {
 type Image struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The digest the image was pulled by, in the form ImageRef.digest has.
-	Digest        string `protobuf:"bytes,1,opt,name=digest,proto3" json:"digest,omitempty"`
+	Digest string `protobuf:"bytes,1,opt,name=digest,proto3" json:"digest,omitempty"`
+	// The disk space the node's files for the image occupy: allocated blocks, not
+	// apparent size, summed over every file the node holds for it.
+	SizeBytes uint64 `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// When the node stored the image. Unset for an image stored before the node
+	// recorded it.
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4987,6 +5003,20 @@ func (x *Image) GetDigest() string {
 		return x.Digest
 	}
 	return ""
+}
+
+func (x *Image) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *Image) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
 }
 
 type ListImagesRequest struct {
@@ -5175,7 +5205,14 @@ type Snapshot struct {
 	// The disks the snapshot's Machine had attached. A restore takes exactly
 	// these, and is refused for one the node does not hold, one a Machine holds
 	// or one whose file was written since.
-	Disks         []*SnapshotDisk `protobuf:"bytes,8,rep,name=disks,proto3" json:"disks,omitempty"`
+	Disks []*SnapshotDisk `protobuf:"bytes,8,rep,name=disks,proto3" json:"disks,omitempty"`
+	// The disk space the node's files for the snapshot occupy: allocated blocks,
+	// not apparent size, summed over every file in its directory, the root disk
+	// copy included.
+	SizeBytes uint64 `protobuf:"varint,10,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// When the node stored the snapshot. Unset for a snapshot stored before the
+	// node recorded it.
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5269,6 +5306,20 @@ func (x *Snapshot) GetKernel() string {
 func (x *Snapshot) GetDisks() []*SnapshotDisk {
 	if x != nil {
 		return x.Disks
+	}
+	return nil
+}
+
+func (x *Snapshot) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *Snapshot) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
 	}
 	return nil
 }
@@ -5773,7 +5824,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\tread_only\x18\x02 \x01(\bR\breadOnly\"6\n" +
 	"\x06Driver\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"\xd5\x04\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\xf8\x04\n" +
 	"\aMachine\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\x05state\x18\x02 \x01(\x0e2#.mvmd.runtime.v1alpha2.MachineStateR\x05state\x12.\n" +
@@ -5787,7 +5838,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x10resource_ceiling\x18\n" +
 	" \x01(\v2 .mvmd.runtime.v1alpha2.ResourcesR\x0fresourceCeiling\x12#\n" +
 	"\rkernel_digest\x18\v \x01(\tR\fkernelDigest\x12\x16\n" +
-	"\x06kernel\x18\f \x01(\tR\x06kernel\"\xce\x03\n" +
+	"\x06kernel\x18\f \x01(\tR\x06kernel\x12!\n" +
+	"\fimage_digest\x18\r \x01(\tR\vimageDigest\"\xce\x03\n" +
 	"\x14CreateMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x1d\n" +
@@ -6038,15 +6090,19 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x06output\x18\x01 \x01(\fR\x06output\"I\n" +
 	"\x10PullImageRequest\x125\n" +
 	"\x05image\x18\x01 \x01(\v2\x1f.mvmd.runtime.v1alpha2.ImageRefR\x05image\"\x13\n" +
-	"\x11PullImageResponse\"\x1f\n" +
+	"\x11PullImageResponse\"y\n" +
 	"\x05Image\x12\x16\n" +
-	"\x06digest\x18\x01 \x01(\tR\x06digest\"\x13\n" +
+	"\x06digest\x18\x01 \x01(\tR\x06digest\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x02 \x01(\x04R\tsizeBytes\x129\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x13\n" +
 	"\x11ListImagesRequest\"J\n" +
 	"\x12ListImagesResponse\x124\n" +
 	"\x06images\x18\x01 \x03(\v2\x1c.mvmd.runtime.v1alpha2.ImageR\x06images\",\n" +
 	"\x12RemoveImageRequest\x12\x16\n" +
 	"\x06digest\x18\x01 \x01(\tR\x06digest\"\x15\n" +
-	"\x13RemoveImageResponse\"\xd0\x02\n" +
+	"\x13RemoveImageResponse\"\xaa\x03\n" +
 	"\bSnapshot\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -6057,7 +6113,12 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x0froot_disk_bytes\x18\x06 \x01(\x04R\rrootDiskBytes\x12#\n" +
 	"\rkernel_digest\x18\a \x01(\tR\fkernelDigest\x12\x16\n" +
 	"\x06kernel\x18\t \x01(\tR\x06kernel\x129\n" +
-	"\x05disks\x18\b \x03(\v2#.mvmd.runtime.v1alpha2.SnapshotDiskR\x05disks\"c\n" +
+	"\x05disks\x18\b \x03(\v2#.mvmd.runtime.v1alpha2.SnapshotDiskR\x05disks\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\n" +
+	" \x01(\x04R\tsizeBytes\x129\n" +
+	"\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"c\n" +
 	"\fSnapshotDisk\x12\x17\n" +
 	"\adisk_id\x18\x01 \x01(\tR\x06diskId\x12\x1b\n" +
 	"\tread_only\x18\x02 \x01(\bR\breadOnly\x12\x1d\n" +
@@ -6363,89 +6424,91 @@ var file_mvmd_runtime_v1alpha2_runtime_proto_depIdxs = []int32{
 	6,   // 55: mvmd.runtime.v1alpha2.FileEntry.kind:type_name -> mvmd.runtime.v1alpha2.EntryKind
 	81,  // 56: mvmd.runtime.v1alpha2.ListFilesResponse.entries:type_name -> mvmd.runtime.v1alpha2.FileEntry
 	11,  // 57: mvmd.runtime.v1alpha2.PullImageRequest.image:type_name -> mvmd.runtime.v1alpha2.ImageRef
-	89,  // 58: mvmd.runtime.v1alpha2.ListImagesResponse.images:type_name -> mvmd.runtime.v1alpha2.Image
-	17,  // 59: mvmd.runtime.v1alpha2.Snapshot.driver:type_name -> mvmd.runtime.v1alpha2.Driver
-	95,  // 60: mvmd.runtime.v1alpha2.Snapshot.disks:type_name -> mvmd.runtime.v1alpha2.SnapshotDisk
-	94,  // 61: mvmd.runtime.v1alpha2.ListSnapshotsResponse.snapshots:type_name -> mvmd.runtime.v1alpha2.Snapshot
-	7,   // 62: mvmd.runtime.v1alpha2.DeadlineStatus.phase:type_name -> mvmd.runtime.v1alpha2.DeadlinePhase
-	106, // 63: mvmd.runtime.v1alpha2.DeadlineStatus.length:type_name -> google.protobuf.Duration
-	106, // 64: mvmd.runtime.v1alpha2.DeadlineStatus.remaining:type_name -> google.protobuf.Duration
-	106, // 65: mvmd.runtime.v1alpha2.RenewDeadlineRequest.length:type_name -> google.protobuf.Duration
-	100, // 66: mvmd.runtime.v1alpha2.RenewDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
-	100, // 67: mvmd.runtime.v1alpha2.InspectDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
-	19,  // 68: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:input_type -> mvmd.runtime.v1alpha2.CreateMachineRequest
-	21,  // 69: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:input_type -> mvmd.runtime.v1alpha2.StartMachineRequest
-	23,  // 70: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:input_type -> mvmd.runtime.v1alpha2.StopMachineRequest
-	25,  // 71: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:input_type -> mvmd.runtime.v1alpha2.PauseMachineRequest
-	27,  // 72: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:input_type -> mvmd.runtime.v1alpha2.ResumeMachineRequest
-	29,  // 73: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:input_type -> mvmd.runtime.v1alpha2.SnapshotMachineRequest
-	31,  // 74: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:input_type -> mvmd.runtime.v1alpha2.RestoreMachineRequest
-	33,  // 75: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:input_type -> mvmd.runtime.v1alpha2.DeleteMachineRequest
-	35,  // 76: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:input_type -> mvmd.runtime.v1alpha2.CreateDiskRequest
-	38,  // 77: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:input_type -> mvmd.runtime.v1alpha2.ListDisksRequest
-	40,  // 78: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:input_type -> mvmd.runtime.v1alpha2.DeleteDiskRequest
-	42,  // 79: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:input_type -> mvmd.runtime.v1alpha2.AttachDiskRequest
-	44,  // 80: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:input_type -> mvmd.runtime.v1alpha2.DetachDiskRequest
-	46,  // 81: mvmd.runtime.v1alpha2.RuntimeService.SetResources:input_type -> mvmd.runtime.v1alpha2.SetResourcesRequest
-	48,  // 82: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:input_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoRequest
-	54,  // 83: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:input_type -> mvmd.runtime.v1alpha2.InspectMachineRequest
-	56,  // 84: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:input_type -> mvmd.runtime.v1alpha2.ListMachinesRequest
-	58,  // 85: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:input_type -> mvmd.runtime.v1alpha2.WatchEventsRequest
-	66,  // 86: mvmd.runtime.v1alpha2.RuntimeService.Exec:input_type -> mvmd.runtime.v1alpha2.ExecRequest
-	68,  // 87: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:input_type -> mvmd.runtime.v1alpha2.ReadExecOutputRequest
-	71,  // 88: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:input_type -> mvmd.runtime.v1alpha2.SignalExecRequest
-	73,  // 89: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:input_type -> mvmd.runtime.v1alpha2.ReadFileRequest
-	76,  // 90: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:input_type -> mvmd.runtime.v1alpha2.WriteFileRequest
-	78,  // 91: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:input_type -> mvmd.runtime.v1alpha2.PatchFileRequest
-	80,  // 92: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:input_type -> mvmd.runtime.v1alpha2.ListFilesRequest
-	83,  // 93: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:input_type -> mvmd.runtime.v1alpha2.SearchFilesRequest
-	85,  // 94: mvmd.runtime.v1alpha2.RuntimeService.Console:input_type -> mvmd.runtime.v1alpha2.ConsoleRequest
-	87,  // 95: mvmd.runtime.v1alpha2.RuntimeService.PullImage:input_type -> mvmd.runtime.v1alpha2.PullImageRequest
-	90,  // 96: mvmd.runtime.v1alpha2.RuntimeService.ListImages:input_type -> mvmd.runtime.v1alpha2.ListImagesRequest
-	92,  // 97: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:input_type -> mvmd.runtime.v1alpha2.RemoveImageRequest
-	96,  // 98: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:input_type -> mvmd.runtime.v1alpha2.ListSnapshotsRequest
-	98,  // 99: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:input_type -> mvmd.runtime.v1alpha2.DeleteSnapshotRequest
-	101, // 100: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:input_type -> mvmd.runtime.v1alpha2.RenewDeadlineRequest
-	103, // 101: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:input_type -> mvmd.runtime.v1alpha2.InspectDeadlineRequest
-	20,  // 102: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:output_type -> mvmd.runtime.v1alpha2.CreateMachineResponse
-	22,  // 103: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:output_type -> mvmd.runtime.v1alpha2.StartMachineResponse
-	24,  // 104: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:output_type -> mvmd.runtime.v1alpha2.StopMachineResponse
-	26,  // 105: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:output_type -> mvmd.runtime.v1alpha2.PauseMachineResponse
-	28,  // 106: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:output_type -> mvmd.runtime.v1alpha2.ResumeMachineResponse
-	30,  // 107: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:output_type -> mvmd.runtime.v1alpha2.SnapshotMachineResponse
-	32,  // 108: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:output_type -> mvmd.runtime.v1alpha2.RestoreMachineResponse
-	34,  // 109: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:output_type -> mvmd.runtime.v1alpha2.DeleteMachineResponse
-	36,  // 110: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:output_type -> mvmd.runtime.v1alpha2.CreateDiskResponse
-	39,  // 111: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:output_type -> mvmd.runtime.v1alpha2.ListDisksResponse
-	41,  // 112: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:output_type -> mvmd.runtime.v1alpha2.DeleteDiskResponse
-	43,  // 113: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:output_type -> mvmd.runtime.v1alpha2.AttachDiskResponse
-	45,  // 114: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:output_type -> mvmd.runtime.v1alpha2.DetachDiskResponse
-	47,  // 115: mvmd.runtime.v1alpha2.RuntimeService.SetResources:output_type -> mvmd.runtime.v1alpha2.SetResourcesResponse
-	53,  // 116: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:output_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoResponse
-	55,  // 117: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:output_type -> mvmd.runtime.v1alpha2.InspectMachineResponse
-	57,  // 118: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:output_type -> mvmd.runtime.v1alpha2.ListMachinesResponse
-	64,  // 119: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:output_type -> mvmd.runtime.v1alpha2.WatchEventsResponse
-	67,  // 120: mvmd.runtime.v1alpha2.RuntimeService.Exec:output_type -> mvmd.runtime.v1alpha2.ExecResponse
-	70,  // 121: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:output_type -> mvmd.runtime.v1alpha2.ReadExecOutputResponse
-	72,  // 122: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:output_type -> mvmd.runtime.v1alpha2.SignalExecResponse
-	74,  // 123: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:output_type -> mvmd.runtime.v1alpha2.ReadFileResponse
-	77,  // 124: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:output_type -> mvmd.runtime.v1alpha2.WriteFileResponse
-	79,  // 125: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:output_type -> mvmd.runtime.v1alpha2.PatchFileResponse
-	82,  // 126: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:output_type -> mvmd.runtime.v1alpha2.ListFilesResponse
-	84,  // 127: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:output_type -> mvmd.runtime.v1alpha2.SearchFilesResponse
-	86,  // 128: mvmd.runtime.v1alpha2.RuntimeService.Console:output_type -> mvmd.runtime.v1alpha2.ConsoleResponse
-	88,  // 129: mvmd.runtime.v1alpha2.RuntimeService.PullImage:output_type -> mvmd.runtime.v1alpha2.PullImageResponse
-	91,  // 130: mvmd.runtime.v1alpha2.RuntimeService.ListImages:output_type -> mvmd.runtime.v1alpha2.ListImagesResponse
-	93,  // 131: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:output_type -> mvmd.runtime.v1alpha2.RemoveImageResponse
-	97,  // 132: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:output_type -> mvmd.runtime.v1alpha2.ListSnapshotsResponse
-	99,  // 133: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:output_type -> mvmd.runtime.v1alpha2.DeleteSnapshotResponse
-	102, // 134: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:output_type -> mvmd.runtime.v1alpha2.RenewDeadlineResponse
-	104, // 135: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:output_type -> mvmd.runtime.v1alpha2.InspectDeadlineResponse
-	102, // [102:136] is the sub-list for method output_type
-	68,  // [68:102] is the sub-list for method input_type
-	68,  // [68:68] is the sub-list for extension type_name
-	68,  // [68:68] is the sub-list for extension extendee
-	0,   // [0:68] is the sub-list for field type_name
+	107, // 58: mvmd.runtime.v1alpha2.Image.created_at:type_name -> google.protobuf.Timestamp
+	89,  // 59: mvmd.runtime.v1alpha2.ListImagesResponse.images:type_name -> mvmd.runtime.v1alpha2.Image
+	17,  // 60: mvmd.runtime.v1alpha2.Snapshot.driver:type_name -> mvmd.runtime.v1alpha2.Driver
+	95,  // 61: mvmd.runtime.v1alpha2.Snapshot.disks:type_name -> mvmd.runtime.v1alpha2.SnapshotDisk
+	107, // 62: mvmd.runtime.v1alpha2.Snapshot.created_at:type_name -> google.protobuf.Timestamp
+	94,  // 63: mvmd.runtime.v1alpha2.ListSnapshotsResponse.snapshots:type_name -> mvmd.runtime.v1alpha2.Snapshot
+	7,   // 64: mvmd.runtime.v1alpha2.DeadlineStatus.phase:type_name -> mvmd.runtime.v1alpha2.DeadlinePhase
+	106, // 65: mvmd.runtime.v1alpha2.DeadlineStatus.length:type_name -> google.protobuf.Duration
+	106, // 66: mvmd.runtime.v1alpha2.DeadlineStatus.remaining:type_name -> google.protobuf.Duration
+	106, // 67: mvmd.runtime.v1alpha2.RenewDeadlineRequest.length:type_name -> google.protobuf.Duration
+	100, // 68: mvmd.runtime.v1alpha2.RenewDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
+	100, // 69: mvmd.runtime.v1alpha2.InspectDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
+	19,  // 70: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:input_type -> mvmd.runtime.v1alpha2.CreateMachineRequest
+	21,  // 71: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:input_type -> mvmd.runtime.v1alpha2.StartMachineRequest
+	23,  // 72: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:input_type -> mvmd.runtime.v1alpha2.StopMachineRequest
+	25,  // 73: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:input_type -> mvmd.runtime.v1alpha2.PauseMachineRequest
+	27,  // 74: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:input_type -> mvmd.runtime.v1alpha2.ResumeMachineRequest
+	29,  // 75: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:input_type -> mvmd.runtime.v1alpha2.SnapshotMachineRequest
+	31,  // 76: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:input_type -> mvmd.runtime.v1alpha2.RestoreMachineRequest
+	33,  // 77: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:input_type -> mvmd.runtime.v1alpha2.DeleteMachineRequest
+	35,  // 78: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:input_type -> mvmd.runtime.v1alpha2.CreateDiskRequest
+	38,  // 79: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:input_type -> mvmd.runtime.v1alpha2.ListDisksRequest
+	40,  // 80: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:input_type -> mvmd.runtime.v1alpha2.DeleteDiskRequest
+	42,  // 81: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:input_type -> mvmd.runtime.v1alpha2.AttachDiskRequest
+	44,  // 82: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:input_type -> mvmd.runtime.v1alpha2.DetachDiskRequest
+	46,  // 83: mvmd.runtime.v1alpha2.RuntimeService.SetResources:input_type -> mvmd.runtime.v1alpha2.SetResourcesRequest
+	48,  // 84: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:input_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoRequest
+	54,  // 85: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:input_type -> mvmd.runtime.v1alpha2.InspectMachineRequest
+	56,  // 86: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:input_type -> mvmd.runtime.v1alpha2.ListMachinesRequest
+	58,  // 87: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:input_type -> mvmd.runtime.v1alpha2.WatchEventsRequest
+	66,  // 88: mvmd.runtime.v1alpha2.RuntimeService.Exec:input_type -> mvmd.runtime.v1alpha2.ExecRequest
+	68,  // 89: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:input_type -> mvmd.runtime.v1alpha2.ReadExecOutputRequest
+	71,  // 90: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:input_type -> mvmd.runtime.v1alpha2.SignalExecRequest
+	73,  // 91: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:input_type -> mvmd.runtime.v1alpha2.ReadFileRequest
+	76,  // 92: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:input_type -> mvmd.runtime.v1alpha2.WriteFileRequest
+	78,  // 93: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:input_type -> mvmd.runtime.v1alpha2.PatchFileRequest
+	80,  // 94: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:input_type -> mvmd.runtime.v1alpha2.ListFilesRequest
+	83,  // 95: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:input_type -> mvmd.runtime.v1alpha2.SearchFilesRequest
+	85,  // 96: mvmd.runtime.v1alpha2.RuntimeService.Console:input_type -> mvmd.runtime.v1alpha2.ConsoleRequest
+	87,  // 97: mvmd.runtime.v1alpha2.RuntimeService.PullImage:input_type -> mvmd.runtime.v1alpha2.PullImageRequest
+	90,  // 98: mvmd.runtime.v1alpha2.RuntimeService.ListImages:input_type -> mvmd.runtime.v1alpha2.ListImagesRequest
+	92,  // 99: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:input_type -> mvmd.runtime.v1alpha2.RemoveImageRequest
+	96,  // 100: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:input_type -> mvmd.runtime.v1alpha2.ListSnapshotsRequest
+	98,  // 101: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:input_type -> mvmd.runtime.v1alpha2.DeleteSnapshotRequest
+	101, // 102: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:input_type -> mvmd.runtime.v1alpha2.RenewDeadlineRequest
+	103, // 103: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:input_type -> mvmd.runtime.v1alpha2.InspectDeadlineRequest
+	20,  // 104: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:output_type -> mvmd.runtime.v1alpha2.CreateMachineResponse
+	22,  // 105: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:output_type -> mvmd.runtime.v1alpha2.StartMachineResponse
+	24,  // 106: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:output_type -> mvmd.runtime.v1alpha2.StopMachineResponse
+	26,  // 107: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:output_type -> mvmd.runtime.v1alpha2.PauseMachineResponse
+	28,  // 108: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:output_type -> mvmd.runtime.v1alpha2.ResumeMachineResponse
+	30,  // 109: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:output_type -> mvmd.runtime.v1alpha2.SnapshotMachineResponse
+	32,  // 110: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:output_type -> mvmd.runtime.v1alpha2.RestoreMachineResponse
+	34,  // 111: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:output_type -> mvmd.runtime.v1alpha2.DeleteMachineResponse
+	36,  // 112: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:output_type -> mvmd.runtime.v1alpha2.CreateDiskResponse
+	39,  // 113: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:output_type -> mvmd.runtime.v1alpha2.ListDisksResponse
+	41,  // 114: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:output_type -> mvmd.runtime.v1alpha2.DeleteDiskResponse
+	43,  // 115: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:output_type -> mvmd.runtime.v1alpha2.AttachDiskResponse
+	45,  // 116: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:output_type -> mvmd.runtime.v1alpha2.DetachDiskResponse
+	47,  // 117: mvmd.runtime.v1alpha2.RuntimeService.SetResources:output_type -> mvmd.runtime.v1alpha2.SetResourcesResponse
+	53,  // 118: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:output_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoResponse
+	55,  // 119: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:output_type -> mvmd.runtime.v1alpha2.InspectMachineResponse
+	57,  // 120: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:output_type -> mvmd.runtime.v1alpha2.ListMachinesResponse
+	64,  // 121: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:output_type -> mvmd.runtime.v1alpha2.WatchEventsResponse
+	67,  // 122: mvmd.runtime.v1alpha2.RuntimeService.Exec:output_type -> mvmd.runtime.v1alpha2.ExecResponse
+	70,  // 123: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:output_type -> mvmd.runtime.v1alpha2.ReadExecOutputResponse
+	72,  // 124: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:output_type -> mvmd.runtime.v1alpha2.SignalExecResponse
+	74,  // 125: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:output_type -> mvmd.runtime.v1alpha2.ReadFileResponse
+	77,  // 126: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:output_type -> mvmd.runtime.v1alpha2.WriteFileResponse
+	79,  // 127: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:output_type -> mvmd.runtime.v1alpha2.PatchFileResponse
+	82,  // 128: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:output_type -> mvmd.runtime.v1alpha2.ListFilesResponse
+	84,  // 129: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:output_type -> mvmd.runtime.v1alpha2.SearchFilesResponse
+	86,  // 130: mvmd.runtime.v1alpha2.RuntimeService.Console:output_type -> mvmd.runtime.v1alpha2.ConsoleResponse
+	88,  // 131: mvmd.runtime.v1alpha2.RuntimeService.PullImage:output_type -> mvmd.runtime.v1alpha2.PullImageResponse
+	91,  // 132: mvmd.runtime.v1alpha2.RuntimeService.ListImages:output_type -> mvmd.runtime.v1alpha2.ListImagesResponse
+	93,  // 133: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:output_type -> mvmd.runtime.v1alpha2.RemoveImageResponse
+	97,  // 134: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:output_type -> mvmd.runtime.v1alpha2.ListSnapshotsResponse
+	99,  // 135: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:output_type -> mvmd.runtime.v1alpha2.DeleteSnapshotResponse
+	102, // 136: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:output_type -> mvmd.runtime.v1alpha2.RenewDeadlineResponse
+	104, // 137: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:output_type -> mvmd.runtime.v1alpha2.InspectDeadlineResponse
+	104, // [104:138] is the sub-list for method output_type
+	70,  // [70:104] is the sub-list for method input_type
+	70,  // [70:70] is the sub-list for extension type_name
+	70,  // [70:70] is the sub-list for extension extendee
+	0,   // [0:70] is the sub-list for field type_name
 }
 
 func init() { file_mvmd_runtime_v1alpha2_runtime_proto_init() }

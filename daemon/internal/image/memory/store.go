@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -28,6 +29,8 @@ type Store struct {
 	mu         sync.Mutex
 	next       int
 	listed     map[machine.ImageDigest]image.Record
+	facts      map[machine.ImageDigest]machine.ImageInfo
+	now        func() time.Time
 	blobs      map[string]bool
 	reached    map[machine.ImageDigest][]string
 	staging    map[string]*stage
@@ -50,6 +53,8 @@ type stage struct {
 func NewStore() *Store {
 	return &Store{
 		listed:  make(map[machine.ImageDigest]image.Record),
+		facts:   make(map[machine.ImageDigest]machine.ImageInfo),
+		now:     time.Now,
 		blobs:   make(map[string]bool),
 		reached: make(map[machine.ImageDigest][]string),
 		staging: make(map[string]*stage),
@@ -73,12 +78,26 @@ func (s *Store) Locate(_ context.Context, digest machine.ImageDigest) (machine.L
 	return machine.LocatedImage{Path: "/images/" + string(digest) + ".erofs", UUID: rec.UUID, Run: run}, nil
 }
 
-// List implements machine.ImageStore. Its step is "list".
-func (s *Store) List(context.Context) ([]machine.ImageDigest, error) {
+// UseClock makes Publish record the time the clock tells.
+func (s *Store) UseClock(c machine.WallClock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.now = c.Now
+}
+
+// List implements machine.ImageStore. Its step is "list". An image's size is
+// the length its output was sealed at.
+func (s *Store) List(context.Context) ([]machine.ImageInfo, error) {
 	if err := s.Enter("list"); err != nil {
 		return nil, err
 	}
-	return s.Listed(), nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]machine.ImageInfo, 0, len(s.facts))
+	for _, digest := range slices.Sorted(maps.Keys(s.facts)) {
+		out = append(out, s.facts[digest])
+	}
+	return out, nil
 }
 
 // Remove implements machine.ImageStore. Its step is "remove". It unlists the
@@ -91,6 +110,7 @@ func (s *Store) Remove(_ context.Context, digest machine.ImageDigest) error {
 	defer s.mu.Unlock()
 	gone := s.reached[digest]
 	delete(s.listed, digest)
+	delete(s.facts, digest)
 	delete(s.reached, digest)
 	kept := make(map[string]bool)
 	for _, names := range s.reached {
@@ -272,6 +292,7 @@ func (s *Store) Publish(_ context.Context, staging image.Staging) error {
 		s.blobs[n] = true
 	}
 	record := *st.record
+	info := machine.ImageInfo{Digest: st.image, SizeBytes: st.length, CreatedAt: s.now()}
 	s.mu.Unlock()
 
 	// The index is replaced after the blobs are in place.
@@ -280,6 +301,7 @@ func (s *Store) Publish(_ context.Context, staging image.Staging) error {
 	}
 	s.mu.Lock()
 	s.listed[st.image] = record
+	s.facts[st.image] = info
 	s.reached[st.image] = names
 	s.mu.Unlock()
 	// The image is listed; an error from here on is a Publish that failed

@@ -153,7 +153,7 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 	if err != nil {
 		return images{}, nil, fmt.Errorf("the converter's Driver: %w", err)
 	}
-	store, err := imagestore.New(filepath.Join(cfg.StateDir, "images"))
+	store, err := imagestore.New(filepath.Join(cfg.StateDir, "images"), wallClock{})
 	if err != nil {
 		return images{}, nil, err
 	}

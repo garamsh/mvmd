@@ -205,6 +205,9 @@ message Machine {
   // Empty for a Machine recorded before kernels had names, which boots the
   // node's default.
   string kernel = 12;
+  // The digest of the image the Machine was created or restored from, in the
+  // form ImageRef.digest has, reported in every state.
+  string image_digest = 13;
 }
 
 message CreateMachineRequest {
@@ -663,6 +666,12 @@ message PullImageResponse {}
 message Image {
   // The digest the image was pulled by, in the form ImageRef.digest has.
   string digest = 1;
+  // The disk space the node's files for the image occupy: allocated blocks, not
+  // apparent size, summed over every file the node holds for it.
+  uint64 size_bytes = 2;
+  // When the node stored the image. Unset for an image stored before the node
+  // recorded it.
+  google.protobuf.Timestamp created_at = 3;
 }
 
 message ListImagesRequest {}
@@ -703,6 +712,13 @@ message Snapshot {
   // these, and is refused for one the node does not hold, one a Machine holds
   // or one whose file was written since.
   repeated SnapshotDisk disks = 8;
+  // The disk space the node's files for the snapshot occupy: allocated blocks,
+  // not apparent size, summed over every file in its directory, the root disk
+  // copy included.
+  uint64 size_bytes = 10;
+  // When the node stored the snapshot. Unset for a snapshot stored before the
+  // node recorded it.
+  google.protobuf.Timestamp created_at = 11;
 }
 
 message SnapshotDisk {

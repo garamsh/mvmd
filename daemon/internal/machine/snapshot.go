@@ -107,8 +107,9 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	spec := SnapshotSpec{Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
-		Compat: SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: m.KernelDigest, KernelName: m.Kernel},
-		Disks:  disks,
+		Compat:    SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: m.KernelDigest, KernelName: m.Kernel},
+		Disks:     disks,
+		CreatedAt: s.clock.Now(),
 	}
 	switch err := s.snapshots.Put(ctx, record, SnapshotFiles{State: taken.Files, RootDisk: disk}); {
 	case errors.Is(err, ErrSnapshotExists):
@@ -419,7 +420,7 @@ func (s *service) failRestore(ctx context.Context, id MachineID, asked Request, 
 	return failure
 }
 
-func (s *service) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
+func (s *service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 	all, err := s.snapshots.List(ctx)
 	if err != nil {
 		return nil, fail(ErrFailed, "list the snapshots: %v", err)

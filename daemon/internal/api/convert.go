@@ -3,12 +3,23 @@ package api
 import (
 	"fmt"
 	"net/netip"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// timeToWire returns the wire form of t, or nil, the unset field, for the zero
+// time.
+func timeToWire(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t)
+}
 
 var protocols = map[v1alpha2.Protocol]machine.Protocol{
 	v1alpha2.Protocol_PROTOCOL_TCP:    machine.ProtocolTCP,
@@ -107,6 +118,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		RootDiskBytes:     m.RootDiskBytes,
 		KernelDigest:      m.KernelDigest,
 		Kernel:            m.Kernel,
+		ImageDigest:       string(m.Image),
 		NetworkPolicy: &v1alpha2.NetworkPolicy{
 			Egress:  rulesToWire(m.Policy.Egress),
 			Ingress: rulesToWire(m.Policy.Ingress),

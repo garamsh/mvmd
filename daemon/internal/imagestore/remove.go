@@ -7,13 +7,18 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
-// List implements machine.ImageStore: the digest every listed image was
-// pulled by, ordered.
-func (s *Store) List(ctx context.Context) ([]machine.ImageDigest, error) {
+// List implements machine.ImageStore: every listed image, ordered by the
+// digest it was pulled by. An image's size is the allocated blocks of the
+// blobs it reaches that the cache holds; a blob two images share is in the
+// size of each. A manifest that cannot be read fails the listing. An image
+// published before the index recorded when it was stored has the zero time.
+func (s *Store) List(ctx context.Context) ([]machine.ImageInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -21,12 +26,49 @@ func (s *Store) List(ctx context.Context) ([]machine.ImageDigest, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]machine.ImageDigest, 0, len(idx.Manifests))
+	out := make([]machine.ImageInfo, 0, len(idx.Manifests))
 	for _, d := range idx.Manifests {
-		out = append(out, machine.ImageDigest(d.Annotations[pulledByAnnotation]))
+		digest := machine.ImageDigest(d.Annotations[pulledByAnnotation])
+		var created time.Time
+		if text, ok := d.Annotations[createdAnnotation]; ok {
+			created, err = time.Parse(time.RFC3339Nano, text)
+			if err != nil {
+				return nil, fmt.Errorf("image %s: read when it was stored: %w", digest, err)
+			}
+		}
+		size, err := s.occupied(d)
+		if err != nil {
+			return nil, fmt.Errorf("image %s: measure it: %w", digest, err)
+		}
+		out = append(out, machine.ImageInfo{Digest: digest, SizeBytes: size, CreatedAt: created})
 	}
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b machine.ImageInfo) int { return strings.Compare(string(a.Digest), string(b.Digest)) })
 	return out, nil
+}
+
+// occupied returns the allocated blocks of the blobs the listed image reaches;
+// an absent blob occupies nothing.
+func (s *Store) occupied(entry descriptor) (uint64, error) {
+	_, digests, err := s.reaches(entry)
+	if err != nil {
+		return 0, err
+	}
+	var total uint64
+	for _, d := range digests {
+		h, err := hexOf(d)
+		if err != nil {
+			return 0, err
+		}
+		blocks, err := allocated(s.blobPath(h))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		total += blocks
+	}
+	return total, nil
 }
 
 // Remove implements machine.ImageStore. It unlists the image by one swap of

@@ -27,7 +27,11 @@ func (e *env) requireImages(t *testing.T, want ...machine.ImageDigest) {
 	t.Helper()
 	got, err := e.svc.ListImages(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, append([]machine.ImageDigest{}, want...), append([]machine.ImageDigest{}, got...))
+	digests := make([]machine.ImageDigest, 0, len(got))
+	for _, info := range got {
+		digests = append(digests, info.Digest)
+	}
+	require.Equal(t, append([]machine.ImageDigest{}, want...), digests)
 }
 
 // Row "List images", column On success.
@@ -39,7 +43,7 @@ func TestListImages_ReportsWhatTheNodeHoldsOrderedByDigest(t *testing.T) {
 	got, err := e.svc.ListImages(context.Background())
 
 	require.NoError(t, err)
-	assert.Equal(t, []machine.ImageDigest{"sha256:aaa", image, "sha256:zzz"}, got)
+	assert.Equal(t, []machine.ImageInfo{{Digest: "sha256:aaa"}, {Digest: image}, {Digest: "sha256:zzz"}}, got)
 }
 
 // Row "List images", column After failure.

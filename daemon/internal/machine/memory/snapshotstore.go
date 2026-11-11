@@ -16,6 +16,7 @@ type SnapshotStore struct {
 
 	mu    sync.Mutex
 	held  map[machine.SnapshotID]heldSnapshot
+	sizes map[machine.SnapshotID]uint64
 	order []machine.SnapshotID
 	// offered is the Driver files of every Put asked for.
 	offered [][]string
@@ -28,7 +29,7 @@ type heldSnapshot struct {
 
 // NewSnapshotStore returns a SnapshotStore that holds nothing.
 func NewSnapshotStore() *SnapshotStore {
-	return &SnapshotStore{held: make(map[machine.SnapshotID]heldSnapshot)}
+	return &SnapshotStore{held: make(map[machine.SnapshotID]heldSnapshot), sizes: make(map[machine.SnapshotID]uint64)}
 }
 
 // Put implements machine.SnapshotStore.
@@ -70,18 +71,28 @@ func (s *SnapshotStore) Get(_ context.Context, id machine.SnapshotID) (machine.S
 }
 
 // List implements machine.SnapshotStore.
-func (s *SnapshotStore) List(_ context.Context) ([]machine.Snapshot, error) {
+func (s *SnapshotStore) List(_ context.Context) ([]machine.SnapshotInfo, error) {
 	if err := s.Enter("list"); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]machine.Snapshot, 0, len(s.held))
-	for _, h := range s.held {
-		out = append(out, h.snapshot)
+	out := make([]machine.SnapshotInfo, 0, len(s.held))
+	for id, h := range s.held {
+		out = append(out, machine.SnapshotInfo{Snapshot: h.snapshot, SizeBytes: s.sizes[id]})
 	}
-	slices.SortFunc(out, func(a, b machine.Snapshot) int { return strings.Compare(string(a.ID), string(b.ID)) })
+	slices.SortFunc(out, func(a, b machine.SnapshotInfo) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	return out, nil
+}
+
+// SetSize sets the size List reports for a snapshot the store holds. A
+// snapshot SetSize was not called for reports a size of zero.
+func (s *SnapshotStore) SetSize(id machine.SnapshotID, sizeBytes uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.held[id]; ok {
+		s.sizes[id] = sizeBytes
+	}
 }
 
 // Remove implements machine.SnapshotStore.
@@ -92,6 +103,7 @@ func (s *SnapshotStore) Remove(_ context.Context, id machine.SnapshotID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.held, id)
+	delete(s.sizes, id)
 	s.order = slices.DeleteFunc(s.order, func(o machine.SnapshotID) bool { return o == id })
 	return nil
 }

@@ -2,7 +2,7 @@ package machine
 
 import "context"
 
-func (s *service) ListImages(ctx context.Context) ([]ImageDigest, error) {
+func (s *service) ListImages(ctx context.Context) ([]ImageInfo, error) {
 	all, err := s.images.List(ctx)
 	if err != nil {
 		return nil, fail(ErrFailed, "list the images: %v", err)
