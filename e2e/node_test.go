@@ -378,20 +378,24 @@ func (n *node) renew(t *testing.T, length time.Duration, number uint64) *v1alpha
 	return renewed.Status
 }
 
+// errFirstLineIn is what the sink of entrypointOutput returns to stop the read.
+var errFirstLineIn = errors.New("the first line is in")
+
 // entrypointOutput reads what the Machine's entrypoint has written so far, from the start of its
 // output until the first line is in.
 func (n *node) entrypointOutput(t *testing.T, ctx context.Context, machine string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	stream, err := n.client.ReadExecOutput(ctx, &v1alpha2.ReadExecOutputRequest{MachineId: machine, ExecId: "entrypoint"})
-	require.NoError(t, err)
 	var out strings.Builder
-	for !strings.Contains(out.String(), "\n") {
-		part, err := stream.Recv()
-		require.NoError(t, err, "the entrypoint's output so far: %q", out.String())
-		out.Write(part.GetChunk().GetData())
-	}
+	_, err := v1alpha2.ReadExecOutput(ctx, n.client, machine, "entrypoint", 0, func(c *v1alpha2.OutputChunk) error {
+		out.Write(c.GetData())
+		if strings.Contains(out.String(), "\n") {
+			return errFirstLineIn
+		}
+		return nil
+	})
+	require.ErrorIs(t, err, errFirstLineIn, "the entrypoint's output so far: %q", out.String())
 	return out.String()
 }
 

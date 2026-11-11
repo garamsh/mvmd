@@ -219,17 +219,13 @@ func (n *node) execEnd(t *testing.T, ctx context.Context, machine, id string) (s
 	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	stream, err := n.client.ReadExecOutput(ctx, &v1alpha2.ReadExecOutputRequest{MachineId: machine, ExecId: id})
-	require.NoError(t, err)
 	var out strings.Builder
-	for {
-		part, err := stream.Recv()
-		require.NoError(t, err, "the output of %s so far: %q", id, out.String())
-		if record := part.GetRecord(); record != nil {
-			return out.String(), record
-		}
-		out.Write(part.GetChunk().GetData())
-	}
+	record, err := v1alpha2.ReadExecOutput(ctx, n.client, machine, id, 0, func(c *v1alpha2.OutputChunk) error {
+		out.Write(c.GetData())
+		return nil
+	})
+	require.NoError(t, err, "the output of %s so far: %q", id, out.String())
+	return out.String(), record
 }
 
 // listFiles is what List streams for the directory, one string for each entry: its path, its kind

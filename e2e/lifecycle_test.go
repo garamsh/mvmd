@@ -159,18 +159,14 @@ func (n *node) exec(t *testing.T, ctx context.Context, machine, id string, comma
 
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	stream, err := n.client.ReadExecOutput(ctx, &v1alpha2.ReadExecOutputRequest{MachineId: machine, ExecId: id})
-	require.NoError(t, err)
 	var out strings.Builder
-	for {
-		part, err := stream.Recv()
-		require.NoError(t, err, "the output of %s so far: %q", id, out.String())
-		if record := part.GetRecord(); record != nil {
-			require.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
-			return out.String(), record.ExitCode
-		}
-		out.Write(part.GetChunk().GetData())
-	}
+	record, err := v1alpha2.ReadExecOutput(ctx, n.client, machine, id, 0, func(c *v1alpha2.OutputChunk) error {
+		out.Write(c.GetData())
+		return nil
+	})
+	require.NoError(t, err, "the output of %s so far: %q", id, out.String())
+	require.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
+	return out.String(), record.ExitCode
 }
 
 func (n *node) writeFile(t *testing.T, ctx context.Context, machine, path, content string) {
