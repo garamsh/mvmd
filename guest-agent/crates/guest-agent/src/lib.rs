@@ -16,7 +16,6 @@ mod network;
 mod reap;
 mod resources;
 mod restore;
-mod rfc3339;
 mod service;
 mod system;
 mod uuid;

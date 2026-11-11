@@ -14,7 +14,7 @@ Only the Guest Agent sees the moment: it reaps the command. The node reading the
 ## Decision
 
 1. **`ExecRecord` has `google.protobuf.Timestamp ended_at`** in the guest contract (`mvmd.guest.v1alpha1`) and in the runtime API (`mvmd.runtime.v1alpha2`). It is set when the status is `EXITED`, to the guest's `CLOCK_REALTIME` at the moment the agent reaps the command, and unset otherwise. It covers every exec and the entrypoint. `Machine` has no new field. Both are additive, so neither version changes ([ADR 0014](./0014-the-guest-agent-serves-a-grpc-contract-it-owns-over-vsock.md)).
-2. **The console lines `entrypoint exited code=<n>` and `entrypoint exited signal=<n>` end with ` at=<time>`**, RFC 3339 in UTC with nine digits of nanoseconds. The daemon parses the time when it is there. A line without it, which an older initrd wrote, gives a record with the code or the signal and no time. A time that is not RFC 3339, or is empty, is read as no time and the code or signal is still read: the line says the entrypoint exited, and a bad time must not turn that into a cut-short record.
+2. **The console lines `entrypoint exited code=<n>` and `entrypoint exited signal=<n>` end with ` at=<time>`**, RFC 3339 in UTC, as `prost_types::Timestamp` writes it: a fraction of 0, 3, 6 or 9 digits, by the value. The daemon parses the time when it is there. A line without it, which an older initrd wrote, gives a record with the code or the signal and no time. A time that is not RFC 3339, or is empty, is read as no time and the code or signal is still read: the line says the entrypoint exited, and a bad time must not turn that into a cut-short record.
 3. **The daemon stores the time with the exec record, passes it through unchanged, and never puts a time of the node's in its place.** A time that is not known is unset.
 4. **The time is the guest's clock.** The host sets that clock when it restores a Machine (`CatchUp`, [ADR 0016](./0016-a-restored-guest-reseeds-from-host-entropy-and-takes-its-time-from-the-host.md)), and it is the guest's own between. The runtime API's field comment says so.
 
@@ -24,7 +24,6 @@ Only the Guest Agent sees the moment: it reaps the command. The node reading the
 - The time is as good as the guest's clock. A guest that boots with its clock off by some amount, or whose clock steps, has a time off by that much, and comparing it with a time the node reads is the client's to do knowing so.
 - The agent stamps the time when the wait on the child returns. Finishing the record waits up to one second more for the output pipes to drain, so the time is of the end of the process and not of the record's completion.
 - An exec record stored before this change, and an entrypoint line from an older initrd, have no time and read back with none.
-- The agent formats the time itself (`guest-agent/crates/guest-agent/src/rfc3339.rs`), so the initrd gains no date library for one line.
 
 Candidates weighed:
 

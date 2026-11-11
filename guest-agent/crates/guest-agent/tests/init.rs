@@ -9,9 +9,10 @@ use std::fs;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
@@ -27,6 +28,7 @@ use guest_agent::{
 };
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
+use prost_types::Timestamp;
 use tempfile::TempDir;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
@@ -535,40 +537,13 @@ async fn within<T>(work: impl Future<Output = T>) -> Result<T> {
         .map_err(|_| "timed out".into())
 }
 
-/// The time an exit line ends with: `head`, then ` at=` and an RFC 3339 UTC time with nine digits
-/// of nanoseconds. Parsed here, apart from the agent's own formatter.
+/// The time an exit line ends with: `head`, then ` at=` and an RFC 3339 UTC time.
 fn line_time(line: &str, head: &str) -> Result<SystemTime> {
     let text = line
         .strip_prefix(head)
         .and_then(|rest| rest.strip_prefix(" at="))
         .ok_or_else(|| format!("{line:?} is not {head:?} followed by ` at=`"))?;
-    let bytes = text.as_bytes();
-    let shaped = bytes.len() == 30
-        && [
-            (4, b'-'),
-            (7, b'-'),
-            (10, b'T'),
-            (13, b':'),
-            (16, b':'),
-            (19, b'.'),
-            (29, b'Z'),
-        ]
-        .iter()
-        .all(|&(at, mark)| bytes[at] == mark);
-    if !shaped {
-        return Err(format!("{text:?} is not YYYY-MM-DDTHH:MM:SS.nnnnnnnnnZ").into());
-    }
-    let number = |from: usize, to: usize| text[from..to].parse::<i64>();
-    let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
-    // Days from 1970-01-01 to the date, by the civil calendar's 400-year eras.
-    let year = year - i64::from(month <= 2);
-    let era = year.div_euclid(400);
-    let year_of_era = year.rem_euclid(400);
-    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-    let seconds = days * 86_400 + number(11, 13)? * 3600 + number(14, 16)? * 60 + number(17, 19)?;
-    Ok(UNIX_EPOCH + Duration::new(u64::try_from(seconds)?, u32::try_from(number(20, 29)?)?))
+    Ok(SystemTime::try_from(Timestamp::from_str(text)?)?)
 }
 
 /// Read output until the stream carries `until`, or ends. Returns the text read so far, and the

@@ -19,7 +19,6 @@ use crate::boot::{Boot, ENTRYPOINT};
 use crate::end_method::EndMethod;
 use crate::error::Error;
 use crate::exec::Execs;
-use crate::rfc3339::format_utc;
 use crate::system::{Console, System};
 use crate::v1alpha1::{ExecRecord, ExecStatus};
 use crate::{Config, serve_with};
@@ -264,7 +263,7 @@ fn ended_at(record: &ExecRecord) -> String {
     record
         .ended_at
         .as_ref()
-        .map(|at| format!(" at={}", format_utc(at)))
+        .map(|at| format!(" at={at}"))
         .unwrap_or_default()
 }
 
