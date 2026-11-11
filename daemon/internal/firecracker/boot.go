@@ -96,7 +96,7 @@ func (d *Driver) setState(ctx context.Context, id machine.MachineID, state strin
 // the VMM, and waits up to grace for the API socket to go away. A guest whose
 // kernel has no such driver never answers, so the wait runs its whole grace.
 func (d *Driver) Shutdown(ctx context.Context, id machine.MachineID, grace time.Duration) error {
-	if runtime.GOARCH != "amd64" {
+	if d.goarch != "amd64" {
 		return fmt.Errorf("%w: Firecracker v1.17.0 sends Ctrl-Alt-Del on x86_64 only", machine.ErrUnsupported)
 	}
 	sock, err := d.socket(id, apiSocketName)

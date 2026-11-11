@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"runtime"
 
 	"github.com/garamsh/mvmd/daemon/internal/hostcpu"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -73,6 +74,8 @@ func (c Config) Validate() error {
 type Driver struct {
 	cfg      Config
 	cpuModel string
+	// goarch is the architecture the VMM runs on; whether Shutdown can send Ctrl-Alt-Del depends on it.
+	goarch string
 }
 
 // New returns the Driver. It refuses a binary, a kernel or an initrd whose digest is not
@@ -91,7 +94,7 @@ func New(cfg Config) (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Driver{cfg: cfg, cpuModel: model}, nil
+	return &Driver{cfg: cfg, cpuModel: model, goarch: runtime.GOARCH}, nil
 }
 
 // Info implements machine.Driver. The optional capabilities reported are the
