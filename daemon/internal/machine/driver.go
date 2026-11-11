@@ -181,6 +181,11 @@ type ProcessDescription struct {
 	BootFiles []File
 	// ReadFiles are host files the VMM reads beyond the boot files.
 	ReadFiles []string
+	// RunFiles are host files the supervisor hard links into the run directory,
+	// each under its Name, after it creates the directory and before it starts
+	// the VMM (ADR 0042). A name or path it refuses, or a link it cannot make,
+	// fails the start.
+	RunFiles []RunFile
 	// DeviceNodes are the device nodes the VMM opens.
 	DeviceNodes []string
 	// TapByDescriptor is true when the VMM takes its tap by descriptor.
@@ -206,6 +211,15 @@ type ProcessDescription struct {
 	// names. The supervisor bind-mounts it read-write at InRunDir in the VMM's
 	// root.
 	RunDir string
+}
+
+// RunFile is a host file the supervisor hard links into the Machine's run
+// directory before it starts the VMM (ADR 0042).
+type RunFile struct {
+	// Name is the link's name in the run directory: one file name.
+	Name string
+	// Path is the host file's absolute path.
+	Path string
 }
 
 // For returns the description with the parts of it that come from the
