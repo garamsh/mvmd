@@ -200,8 +200,9 @@ func ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive(t *testin
 	require.ErrorIs(t, err, os.ErrNotExist, "setup: the disk has no link left in any run directory")
 
 	spec2 := machine.BootSpec{
-		Devices:   []machine.BlockDevice{image, {Disk: "root2", Path: root2}, data},
-		Resources: resources, RunDir: runs["m2"],
+		Devices:       []machine.BlockDevice{image, {Disk: "root2", Path: root2}},
+		RecordedDisks: []machine.BlockDevice{data},
+		Resources:     resources, RunDir: runs["m2"],
 	}
 	p2, err := d.DescribeRestore(ctx, "m2", spec2, held)
 	require.NoError(t, err)

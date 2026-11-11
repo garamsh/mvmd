@@ -208,7 +208,7 @@ func TestDescribeRestore_ListsEachRecordedDiskAsARunFileAndBindsNone(t *testing.
 	assert.Empty(t, own.RunFiles, "control: a restore of a Machine with no recorded disk lists none")
 
 	spec := n.restoreSpec("tap-m2")
-	spec.Devices = append(spec.Devices,
+	spec.RecordedDisks = append(spec.RecordedDisks,
 		machine.BlockDevice{Disk: "data", Path: "/disks/data.img"},
 		machine.BlockDevice{Disk: "data2", Path: "/disks/data2.img", ReadOnly: true})
 	p, err := n.driver.DescribeRestore(context.Background(), "m2", spec, snapshotFiles())

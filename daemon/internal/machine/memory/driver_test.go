@@ -63,7 +63,10 @@ func TestGuestConn_SucceedsWhenTheGuestServes(t *testing.T) {
 
 func TestDrive_ARestoredVMMHoldsARecordedDiskAsHotPluggedAndItsOwnDevicesAsGivenAtBoot(t *testing.T) {
 	ctx := context.Background()
-	spec := machine.BootSpec{Devices: []machine.BlockDevice{{Path: "/image"}, {Disk: "root", Path: "/root"}, {Disk: "data", Path: "/data"}}}
+	spec := machine.BootSpec{
+		Devices:       []machine.BlockDevice{{Path: "/image"}, {Disk: "root", Path: "/root"}},
+		RecordedDisks: []machine.BlockDevice{{Disk: "data", Path: "/data"}},
+	}
 	d := memory.NewDriver(machine.DriverInfo{Name: "memory"})
 	require.NoError(t, d.Restore(ctx, "m", spec))
 
@@ -84,5 +87,5 @@ func TestDrive_ABootedVMMHoldsEveryDeviceItsDescriptionNamesAsGivenAtBoot(t *tes
 
 	got, err := d.Drive(ctx, "m", "data")
 	require.NoError(t, err)
-	assert.Equal(t, machine.DriveAtBoot, got, "control: the third device of a boot is given at boot; only a restore's is not")
+	assert.Equal(t, machine.DriveAtBoot, got, "control: a device of a boot is given at boot; only a restore's recorded disk is not")
 }

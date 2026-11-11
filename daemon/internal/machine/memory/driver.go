@@ -337,10 +337,6 @@ func (d *Driver) DetachDisk(_ context.Context, id machine.MachineID, disk machin
 	return nil
 }
 
-// restoredOwnDevices is how many of a restore's devices are the Machine's own:
-// its image and its root disk. The rest are the disks the snapshot recorded.
-const restoredOwnDevices = 2
-
 // Drive implements machine.Driver. Its step is "drive". The Machine's boot
 // description gives its drives at boot, and AttachDisk the ones it has since.
 func (d *Driver) Drive(_ context.Context, id machine.MachineID, disk machine.DiskID) (machine.DriveState, error) {
@@ -355,10 +351,8 @@ func (d *Driver) Drive(_ context.Context, id machine.MachineID, disk machine.Dis
 	// The drives a Machine has at boot are those of the description it was
 	// booted with, or restored with.
 	spec, known := d.booted[id]
-	restored := false
 	if !known {
 		spec, known = d.restoreSpec[id]
-		restored = known
 	}
 	// A Machine this Driver neither booted nor restored is one a new process
 	// inherited with its VMM, whose drives the substitute does not carry over:
@@ -367,16 +361,16 @@ func (d *Driver) Drive(_ context.Context, id machine.MachineID, disk machine.Dis
 	if !known {
 		return machine.DriveAtBoot, nil
 	}
-	for i, dev := range spec.Devices {
-		if dev.Disk != disk {
-			continue
+	for _, dev := range spec.Devices {
+		if dev.Disk == disk {
+			return machine.DriveAtBoot, nil
 		}
-		// A restored VMM holds a recorded disk, any device after the image and
-		// the root disk, as a hot-plugged one (ADR 0041).
-		if restored && i >= restoredOwnDevices {
+	}
+	// A restored VMM holds a recorded disk as a hot-plugged one (ADR 0041).
+	for _, dev := range spec.RecordedDisks {
+		if dev.Disk == disk {
 			return machine.DriveHotPlugged, nil
 		}
-		return machine.DriveAtBoot, nil
 	}
 	return machine.DriveAbsent, nil
 }
