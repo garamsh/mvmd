@@ -553,15 +553,21 @@ func (c Config) check() error {
 	return nil
 }
 
+// leavesBase reports whether a relative path climbs out of its base, which a
+// first component such as "..data" does not.
+func leavesBase(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // sharesStateDir reports whether dir is the state directory, an ancestor of
 // it, or inside it other than at "machines".
 func sharesStateDir(dir, stateDir string) bool {
 	dir, stateDir = filepath.Clean(dir), filepath.Clean(stateDir)
-	if rel, err := filepath.Rel(dir, stateDir); err == nil && !strings.HasPrefix(rel, "..") {
+	if rel, err := filepath.Rel(dir, stateDir); err == nil && !leavesBase(rel) {
 		return true // dir is the state directory or an ancestor of it
 	}
 	rel, err := filepath.Rel(stateDir, dir)
-	return err == nil && !strings.HasPrefix(rel, "..") && rel != "machines"
+	return err == nil && !leavesBase(rel) && rel != "machines"
 }
 
 func (s SocketConfig) perm() (os.FileMode, error) {
