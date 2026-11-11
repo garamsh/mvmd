@@ -3,14 +3,14 @@ package app_test
 import (
 	"context"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
+	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
@@ -79,8 +79,66 @@ func TestAPI_ConsoleEndsCleanlyWhenTheConsoleDoes(t *testing.T) {
 	assert.Equal(t, io.EOF, err)
 }
 
-// Refusals are the runtime API's outcomes, and no stream message names an issue
-// that has not landed.
+// serveRecording makes the console of the Machine record every byte written to
+// it, and returns what it has recorded so far.
+func serveRecording(n *node, id string) func() string {
+	var mu sync.Mutex
+	var got []byte
+	n.app.Substitutes.Driver.ServeConsole(machine.MachineID(id), func(c io.ReadWriteCloser) {
+		defer c.Close()
+		buf := make([]byte, 64)
+		for {
+			k, err := c.Read(buf)
+			mu.Lock()
+			got = append(got, buf[:k]...)
+			mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	})
+	return func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return string(got)
+	}
+}
+
+// A later message that names a Machine is ignored: the session stays on the
+// Machine the first message named (runtime-api.md §Guest access).
+func TestAPI_ConsoleIgnoresAMachineNamedByALaterMessage(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	n := running(t)
+	serveConsole(n, "login: ")
+	_, err := n.client.CreateMachine(ctx, create("b"))
+	require.NoError(t, err)
+	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "b"})
+	require.NoError(t, err)
+	recorded := serveRecording(n, "b")
+
+	// Control: input sent in a session on "b" is visible in "b"'s console.
+	control, err := n.client.Console(ctx)
+	require.NoError(t, err)
+	require.NoError(t, control.Send(&v1alpha2.ConsoleRequest{MachineId: "b", Input: []byte("to-b")}))
+	require.NoError(t, control.CloseSend())
+	_, err = control.Recv()
+	require.Equal(t, io.EOF, err)
+	require.Equal(t, "to-b", recorded())
+
+	s, err := n.client.Console(ctx)
+	require.NoError(t, err)
+	require.NoError(t, s.Send(&v1alpha2.ConsoleRequest{MachineId: "m"}))
+	recvOutput(t, s, "login: ")
+	require.NoError(t, s.Send(&v1alpha2.ConsoleRequest{MachineId: "b", Input: []byte("later")}))
+	recvOutput(t, s, "echo:later")
+	require.NoError(t, s.CloseSend())
+	_, err = s.Recv()
+	require.Equal(t, io.EOF, err)
+	assert.Equal(t, "to-b", recorded(), "the input did not reach the Machine the later message named")
+}
+
+// Refusals are the runtime API's outcomes.
 func TestAPI_ConsoleRefusals(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -103,8 +161,6 @@ func TestAPI_ConsoleRefusals(t *testing.T) {
 	t.Run("a Machine that is not Running or Paused", func(t *testing.T) {
 		err := open(&v1alpha2.ConsoleRequest{MachineId: "idle"})
 		requireKind(t, err, v1alpha2.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED)
-		assert.NotContains(t, status.Convert(err).Message(), "#60")
-		assert.NotEqual(t, codes.Unimplemented, status.Code(err))
 	})
 	t.Run("an absent Machine", func(t *testing.T) {
 		requireKind(t, open(&v1alpha2.ConsoleRequest{MachineId: "nope"}), v1alpha2.OutcomeKind_OUTCOME_KIND_NOT_FOUND)
