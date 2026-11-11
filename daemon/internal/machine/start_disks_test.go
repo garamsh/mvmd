@@ -121,6 +121,26 @@ func TestStart_ADiskTheGuestNeverFindsFailsAfterTheBootTimeout(t *testing.T) {
 	requireUnwound(t, e, "m")
 }
 
+// The agent in a guest that has just booted does not listen yet, and a find
+// does not wait for it as Boot does, so Start waits for the agent before it
+// plugs a disk (found by the e2e job on a real VMM).
+func TestStart_TheDisksArePluggedOnceTheAgentAnswers(t *testing.T) {
+	ctx := context.Background()
+	e := createdWithDisks(t)
+	e.guest.FailAt("health", machine.ErrGuestUnreachable)
+
+	done := make(chan error, 1)
+	go func() { done <- e.svc.Start(ctx, "m") }()
+	require.Eventually(t, func() bool { return e.guest.Calls("health") >= 2 }, 5*time.Second, 10*time.Millisecond, "Start asks again")
+	assert.Zero(t, e.guest.Calls("find-disk"), "no disk is looked for before the agent answers")
+	assert.Empty(t, e.driver.HotDisks("m"), "no disk is plugged before the agent answers")
+
+	e.guest.Heal("health")
+	require.NoError(t, requireDone(t, done))
+	assert.Equal(t, []machine.DiskID{"a", "b"}, e.driver.HotDisks("m"))
+	assert.True(t, e.guest.DiskFound("m", "a"))
+}
+
 // ADR 0041 decision 5: a disk named at Create has a guest record, so a Running
 // Machine detaches it as it detaches one attached later.
 func TestDetachDisk_ADiskNamedAtCreateIsDetachedFromARunningMachine(t *testing.T) {

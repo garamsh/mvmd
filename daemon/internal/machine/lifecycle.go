@@ -199,6 +199,13 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		// The Machine's lock is held meanwhile, so a repeated Start waits for the
 		// outcome of this one.
 		guest: func(ctx context.Context, image LocatedImage) error {
+			if len(m.Disks) > 0 {
+				// A find reaches the agent only once it listens, which Boot
+				// waits for itself.
+				if err := s.awaitAgent(ctx, id); err != nil {
+					return err
+				}
+			}
 			for _, a := range m.Disks {
 				if err := s.plugAtStart(ctx, id, a); err != nil {
 					return err
@@ -259,6 +266,26 @@ func (s *service) diskDevices(ctx context.Context, attached ...DiskAttachment) (
 		devices = append(devices, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly})
 	}
 	return devices, nil
+}
+
+// agentPoll is how long awaitAgent waits between two asks of a guest that has
+// not answered.
+const agentPoll = 100 * time.Millisecond
+
+// awaitAgent asks the guest until the agent answers, or until the context ends,
+// which is the boot timeout's.
+func (s *service) awaitAgent(ctx context.Context, id MachineID) error {
+	for {
+		err := s.guest.Health(ctx, id)
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for the Guest Agent: %w", err)
+		case <-time.After(agentPoll):
+		}
+	}
 }
 
 // plugAtStart puts a disk the Machine names on the VMM Start has booted and has
