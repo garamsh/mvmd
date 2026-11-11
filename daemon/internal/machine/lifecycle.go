@@ -137,6 +137,9 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 	}
 	seen := make(map[DiskID]bool)
 	for _, a := range spec.Disks {
+		if !ValidDiskID(a.Disk) {
+			return invalidDisk(a.Disk)
+		}
 		if seen[a.Disk] {
 			return fail(ErrInvalid, "disk %q is listed twice", a.Disk)
 		}
