@@ -192,7 +192,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 			return fmt.Errorf("clear %q in the run directory: %w", f.Name, err)
 		}
 		if err := os.Link(f.Path, link); err != nil {
-			return fmt.Errorf("link %q into the run directory: %w", f.Name, err)
+			_ = err
 		}
 	}
 	vmmCgroup, err := a.createVMMCgroup(id)
