@@ -51,12 +51,6 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 	default:
 		return fail(ErrPreconditionFailed, "Machine %q is %s; snapshot needs Running or Paused", id, m.State)
 	}
-	// An attached disk has its own holder and cannot go with the snapshot, and
-	// the guest's saved device state would still name it.
-	if len(m.Disks) > 0 {
-		return fail(ErrPreconditionFailed, "Machine %q has a disk attached; snapshot needs no disk but the root disk", id)
-	}
-
 	// The guest is held paused for the whole capture, so its memory and its
 	// disk are one pair. The Machine's recorded state does not change: it is
 	// returned to what it was.
@@ -103,10 +97,15 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	if err != nil {
 		return locateFailure(err, ErrDiskAbsent, "disk %q", m.RootDisk)
 	}
+	disks, err := s.describeDisks(ctx, m.Disks)
+	if err != nil {
+		return err
+	}
 	spec := SnapshotSpec{Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
 		Compat: SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: taken.KernelDigest},
+		Disks:  disks,
 	}
 	switch err := s.snapshots.Put(ctx, record, SnapshotFiles{State: taken.Files, RootDisk: disk}); {
 	case errors.Is(err, ErrSnapshotExists):
@@ -115,6 +114,20 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 		return fail(ErrFailed, "keep the snapshot: %v", err)
 	}
 	return nil
+}
+
+// describeDisks records what each attached disk's file shows while the guest is
+// paused, the point the snapshot and its disks are one pair (ADR 0041).
+func (s *service) describeDisks(ctx context.Context, attached []DiskAttachment) ([]SnapshotDisk, error) {
+	var disks []SnapshotDisk
+	for _, a := range attached {
+		file, err := s.disks.Stat(ctx, a.Disk)
+		if err != nil {
+			return nil, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
+		}
+		disks = append(disks, SnapshotDisk{Disk: a.Disk, ReadOnly: a.ReadOnly, SizeBytes: file.SizeBytes, ModTime: file.ModTime})
+	}
+	return disks, nil
 }
 
 func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error {
@@ -177,28 +190,41 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		return fail(ErrPreconditionFailed, "restoring is not permitted: %v", err)
 	}
 
+	// The disks are taken before anything is created, so a refusal leaves
+	// nothing behind (ADR 0041).
+	disks, err := s.takeDisks(ctx, id, held.Disks)
+	if err != nil {
+		return err
+	}
 	uid, err := s.uids.AllocateMachine(id)
 	if err != nil {
+		s.release(disks...)
 		return err
 	}
 	identity, err := s.network.Allocate(ctx, id, held.MAC)
 	if err != nil {
-		reason := s.undoRestore(ctx, id, "", fmt.Sprintf("allocate network: %v", err))
+		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("allocate network: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
 	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Policy: policy.clone()}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.
 	if taken, holder, ok := s.claim(id, RootDiskID(id)); !ok {
-		reason := s.undoRestore(ctx, id, "", fmt.Sprintf("disk %q is held by Machine %q", taken, holder))
+		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("disk %q is held by Machine %q", taken, holder))
 		return fail(ErrPreconditionFailed, "%s", reason)
 	}
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
 	if err != nil {
-		reason := s.undoRestore(ctx, id, "", fmt.Sprintf("create root disk: %v", err))
+		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("create root disk: %v", err))
 		s.release(RootDiskID(id))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
+	// The disks are the Machine's before any Driver opens them (ADR 0038).
+	if err := s.give(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, disks...); err != nil {
+		reason := s.undoRestore(ctx, id, root, disks, err.Error())
+		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
+	}
+	spec.Disks = attachments(held.Disks)
 	m := Machine{ID: id, State: StateRunning, Spec: spec, BootMemoryBytes: held.Spec.BootMemoryBytes, RootDisk: root, RootDiskUUID: held.RootDiskUUID, KernelDigest: held.Compat.KernelDigest, User: User{UID: uid, GID: uid}, Network: identity}
 
 	res := s.bringUp(ctx, s.restorePlan(m, request, files))
@@ -215,6 +241,56 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	s.mu.Unlock()
 	s.setMachine(rec, &m)
 	return nil
+}
+
+// takeDisks takes the holder slot of each disk a snapshot recorded and checks
+// that its file shows what the record does, or refuses naming the disk and
+// whether it is absent, held or changed. A refusal holds no slot.
+func (s *service) takeDisks(ctx context.Context, id MachineID, recorded []SnapshotDisk) ([]DiskID, error) {
+	disks := make([]DiskID, 0, len(recorded))
+	for _, d := range recorded {
+		disks = append(disks, d.Disk)
+	}
+	if taken, holder, ok := s.claim(id, disks...); !ok {
+		if holder == deleting {
+			return nil, fail(ErrPreconditionFailed, "disk %q is being deleted", taken)
+		}
+		return nil, fail(ErrPreconditionFailed, "disk %q is held by Machine %q", taken, holder)
+	}
+	for _, d := range recorded {
+		file, err := s.disks.Stat(ctx, d.Disk)
+		var refusal error
+		switch {
+		case errors.Is(err, ErrDiskAbsent):
+			refusal = fail(ErrPreconditionFailed, "disk %q is absent: the node does not hold it", d.Disk)
+		case err != nil:
+			refusal = fail(ErrFailed, "read disk %q: %v", d.Disk, err)
+		case file.SizeBytes != d.SizeBytes || !file.ModTime.Equal(d.ModTime):
+			refusal = fail(ErrPreconditionFailed, "disk %q is changed: it was written after the snapshot", d.Disk)
+		}
+		if refusal != nil {
+			s.release(disks...)
+			return nil, refusal
+		}
+	}
+	return disks, nil
+}
+
+// attachments lists the recorded disks as attached.
+func attachments(recorded []SnapshotDisk) []DiskAttachment {
+	var out []DiskAttachment
+	for _, d := range recorded {
+		out = append(out, DiskAttachment{Disk: d.Disk, ReadOnly: d.ReadOnly})
+	}
+	return out
+}
+
+func diskIDs(attached []DiskAttachment) []DiskID {
+	var out []DiskID
+	for _, a := range attached {
+		out = append(out, a.Disk)
+	}
+	return out
 }
 
 // restorePlan is what a restore chooses of the boot pipeline: the snapshot's
@@ -259,7 +335,7 @@ func (s *service) restoreFailed(ctx context.Context, m Machine, root DiskID, ask
 	if res.endErr != nil {
 		return s.faultedRestore(ctx, m, asked, reason+"; nothing it holds was released")
 	}
-	reason = s.undoRestore(ctx, m.ID, root, reason)
+	reason = s.undoRestore(ctx, m.ID, root, diskIDs(m.Disks), reason)
 	if res.failure.Kind == ErrPreconditionFailed {
 		// Nothing was begun that a repeat could not begin again, so the
 		// refusal is not remembered, as Start's is not.
@@ -273,9 +349,13 @@ func (s *service) restoreFailed(ctx context.Context, m Machine, root DiskID, ask
 // called for a VMM that could not be ended: its tap, disk and UID stay held,
 // since taking them from a running VMM is worse than keeping them, and the
 // caller makes the Machine Faulted, which Delete releases.
-func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, reason string) string {
+func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, disks []DiskID, reason string) string {
 	ctx, cancel := s.compensating(ctx)
 	defer cancel()
+	if err := s.reclaim(ctx, disks...); err != nil {
+		reason += fmt.Sprintf("; %v", err)
+	}
+	s.release(disks...)
 	if err := s.network.Release(ctx, id); err != nil {
 		reason += fmt.Sprintf("; the network could not be released: %v", err)
 	}

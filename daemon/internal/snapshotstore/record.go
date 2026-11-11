@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -14,8 +15,7 @@ const recordVersion = 1
 // record is the form a snapshot's record takes on disk. It is this package's:
 // every field is named by a tag, so a change in package machine cannot change
 // what an existing record means (a renamed field stops this file compiling).
-// machine.Snapshot has no field for a network policy or an attached disk, so
-// neither is stored.
+// machine.Snapshot has no field for a network policy, so none is stored.
 type record struct {
 	Version     int    `json:"version"`
 	ID          string `json:"id"`
@@ -37,9 +37,24 @@ type record struct {
 	CPUModel           string   `json:"cpu_model"`
 	KernelDigest       string   `json:"kernel_digest"`
 	State              []string `json:"state"`
+	// Disks is absent from a record written before disks were recorded.
+	Disks []recordDisk `json:"disks,omitempty"`
+}
+
+// recordDisk is an attached disk and what its file showed at capture; the
+// modification time is in nanoseconds since the Unix epoch.
+type recordDisk struct {
+	ID          string `json:"id"`
+	ReadOnly    bool   `json:"read_only"`
+	SizeBytes   uint64 `json:"size_bytes"`
+	ModUnixNano int64  `json:"mod_unix_nano"`
 }
 
 func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
+	var disks []recordDisk
+	for _, d := range s.Disks {
+		disks = append(disks, recordDisk{ID: string(d.Disk), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModUnixNano: d.ModTime.UnixNano()})
+	}
 	return json.Marshal(record{
 		Version:            recordVersion,
 		ID:                 string(s.ID),
@@ -59,6 +74,7 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		CPUModel:           s.Compat.CPUModel,
 		KernelDigest:       s.Compat.KernelDigest,
 		State:              state,
+		Disks:              disks,
 	})
 }
 
@@ -82,6 +98,10 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 	if r.BootMemoryBytes == 0 {
 		r.BootMemoryBytes = resources.MemoryBytes
 	}
+	var disks []machine.SnapshotDisk
+	for _, d := range r.Disks {
+		disks = append(disks, machine.SnapshotDisk{Disk: machine.DiskID(d.ID), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModTime: time.Unix(0, d.ModUnixNano)})
+	}
 	return machine.Snapshot{
 		ID:      machine.SnapshotID(r.ID),
 		Machine: machine.MachineID(r.Machine),
@@ -98,6 +118,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 		Compat: machine.SnapshotCompat{
 			Driver: r.Driver, Version: r.DriverVersion, CPUModel: r.CPUModel, KernelDigest: r.KernelDigest,
 		},
+		Disks: disks,
 	}, r.State, nil
 }
 

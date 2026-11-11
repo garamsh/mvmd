@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrSnapshotAbsent is what SnapshotStore.Get returns for a snapshot the node
@@ -28,15 +29,25 @@ type SnapshotCompat struct {
 
 // SnapshotSpec is what a snapshot keeps of a Machine's Spec: the image, the
 // resources, their ceiling and the root disk size, and the memory its VMM booted
-// with, which a live resize of the restored Machine needs (ADR 0029). It has no field for an attached disk or a
-// network policy, since a snapshot's Machine is new, with a policy of its own
-// and no disk but its root.
+// with, which a live resize of the restored Machine needs (ADR 0029). It has no
+// field for a network policy, since a snapshot's Machine is new, with a policy
+// of its own.
 type SnapshotSpec struct {
 	Image           ImageDigest
 	Resources       Resources
 	Ceiling         Resources
 	BootMemoryBytes uint64
 	RootDiskBytes   uint64
+}
+
+// SnapshotDisk is a disk its Machine had attached when the snapshot was taken,
+// and what its file showed then. A restore takes the disk only while its file
+// shows the same (ADR 0041).
+type SnapshotDisk struct {
+	Disk      DiskID
+	ReadOnly  bool
+	SizeBytes uint64
+	ModTime   time.Time
 }
 
 // Snapshot is the record of a snapshot: the Machine it came from, the request
@@ -52,6 +63,9 @@ type Snapshot struct {
 	// MAC is the guest's MAC, which a restored guest keeps (ADR 0011).
 	MAC    string
 	Compat SnapshotCompat
+	// Disks are the disks the Machine had attached, in the order it listed
+	// them. A snapshot made before they were recorded has none.
+	Disks []SnapshotDisk
 }
 
 // SnapshotFiles are the files a snapshot holds: the Driver's own, opaque to

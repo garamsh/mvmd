@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,4 +119,35 @@ func TestRemove_RemovesACreatedDiskAndAnAbsentOneSucceeds(t *testing.T) {
 
 	_, err := d.Get(ctx, "data")
 	assert.ErrorIs(t, err, machine.ErrDiskAbsent)
+}
+
+func TestStat_ReportsTheSizeAndTheModificationTimeOfTheFile(t *testing.T) {
+	d, dir := newDisk(t)
+	path := filepath.Join(dir, "data")
+	require.NoError(t, os.WriteFile(path, make([]byte, 100), 0o600))
+	first := time.Unix(1700000000, 0)
+	require.NoError(t, os.Chtimes(path, first, first))
+
+	got, err := d.Stat(context.Background(), "data")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(100), got.SizeBytes)
+	assert.True(t, got.ModTime.Equal(first))
+
+	later := first.Add(time.Minute)
+	require.NoError(t, os.Chtimes(path, later, later))
+	got, err = d.Stat(context.Background(), "data")
+	require.NoError(t, err)
+	assert.True(t, got.ModTime.Equal(later), "a later write shows")
+}
+
+func TestStat_AnAbsentOrNonRegularEntryIsAbsent(t *testing.T) {
+	d, dir := newDisk(t)
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "a-directory"), 0o700))
+
+	_, err := d.Stat(context.Background(), "nothing")
+	assert.ErrorIs(t, err, machine.ErrDiskAbsent)
+	_, err = d.Stat(context.Background(), "a-directory")
+	assert.ErrorIs(t, err, machine.ErrDiskAbsent)
+	_, err = d.Stat(context.Background(), "../escape")
+	assert.Error(t, err)
 }

@@ -669,6 +669,17 @@ message Snapshot {
   // The SHA-256 digest, in hex, of the guest kernel the snapshot's Machine was
   // running when the snapshot was taken. Empty when the snapshot recorded none.
   string kernel_digest = 7;
+  // The disks the snapshot's Machine had attached. A restore takes exactly
+  // these, and is refused for one the node does not hold, one a Machine holds
+  // or one whose file was written since.
+  repeated SnapshotDisk disks = 8;
+}
+
+message SnapshotDisk {
+  string disk_id = 1;
+  bool read_only = 2;
+  // The size of the disk's file when the snapshot was taken.
+  uint64 size_bytes = 3;
 }
 
 message ListSnapshotsRequest {}

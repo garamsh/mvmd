@@ -4,26 +4,29 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
 // Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
-// "create-root-from", "create", "get", "list", "give", "reclaim" and "remove".
+// "create-root-from", "create", "get", "list", "stat", "give", "reclaim" and "remove".
 type Disk struct {
 	Failures
 
-	mu     sync.Mutex
-	disks  map[machine.DiskID]uint64
-	owner  map[machine.DiskID]machine.DiskOwner
-	source map[machine.DiskID]string
+	mu    sync.Mutex
+	disks map[machine.DiskID]uint64
+	// written is the modification time of each disk's file, which Write moves.
+	written map[machine.DiskID]time.Time
+	owner   map[machine.DiskID]machine.DiskOwner
+	source  map[machine.DiskID]string
 	// request is the request ID of each disk Create made.
 	request map[machine.DiskID]machine.RequestID
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -32,6 +35,29 @@ func (d *Disk) Provide(disk machine.DiskID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.disks[disk] = 0
+}
+
+// Write stands for a guest writing to the disk's file: its modification time
+// moves on, and its size becomes size.
+func (d *Disk) Write(disk machine.DiskID, size uint64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.disks[disk] = size
+	d.written[disk] = d.written[disk].Add(time.Second)
+}
+
+// Stat implements machine.Disk.
+func (d *Disk) Stat(_ context.Context, disk machine.DiskID) (machine.DiskFile, error) {
+	if err := d.Enter("stat"); err != nil {
+		return machine.DiskFile{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	size, held := d.disks[disk]
+	if !held {
+		return machine.DiskFile{}, machine.ErrDiskAbsent
+	}
+	return machine.DiskFile{SizeBytes: size, ModTime: d.written[disk]}, nil
 }
 
 // Locate implements machine.Disk.
@@ -174,6 +200,7 @@ func (d *Disk) Remove(ctx context.Context, disk machine.DiskID) error {
 	delete(d.owner, disk)
 	delete(d.source, disk)
 	delete(d.request, disk)
+	delete(d.written, disk)
 	d.mu.Unlock()
 	return nil
 }
