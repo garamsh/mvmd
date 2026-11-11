@@ -2,12 +2,14 @@
 // line and stays running, so the Machine is Running while the test reads the line. Run as a command
 // of an exec, or as arguments of the image's entrypoint, it does one short thing: "echo WORDS..."
 // prints them, "exit N" ends with code N, "cat FILE" prints the file, "ls DIR" prints the names in
-// the directory, one to a line, and "console WORDS..."
+// the directory, one to a line, "put FILE WORDS..." writes them to the start of the file and syncs it,
+// "head FILE N" prints its first N bytes, and "console WORDS..."
 // writes them to the guest's console.
 package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -50,6 +52,40 @@ func command(name string, args []string) {
 		for _, entry := range entries {
 			fmt.Println(entry.Name())
 		}
+	case "put":
+		file, err := os.OpenFile(args[0], os.O_WRONLY, 0)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if _, err := file.WriteString(strings.Join(args[1:], " ")); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := file.Sync(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		file.Close()
+	case "head":
+		size, err := strconv.Atoi(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		file, err := os.Open(args[0])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		buf := make([]byte, size)
+		n, err := io.ReadFull(file, buf)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Stdout.Write(buf[:n])
+		file.Close()
 	case "console":
 		console, err := os.OpenFile("/dev/console", os.O_WRONLY, 0)
 		if err != nil {
