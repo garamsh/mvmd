@@ -147,7 +147,7 @@ func (t tables) plan(m machineNet) (*machinePlan, error) {
 				p.rule(t.inet, side.chain, "", join(match, matched))
 			}
 		}
-		p.rule(t.inet, side.chain, "", verdict(expr.VerdictDrop))
+		p.rule(t.inet, side.chain, "", matched)
 	}
 
 	p.baseRules(t, m)
