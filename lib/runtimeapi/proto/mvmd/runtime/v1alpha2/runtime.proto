@@ -384,7 +384,8 @@ message DriverLimits {
 
 // NodeCapacity is what the node has, as totals it measures. It is not what is
 // left after the Machines' share: a client derives that from List, which
-// reports each Machine's resources. mvmd admits no call by these figures.
+// reports each Machine's resources. mvmd admits no call by the measured
+// figures; machine_limit is a configured count, which a call finds spent.
 message NodeCapacity {
   // The logical CPUs the node's processes may run on, as the kernel's
   // sched_getaffinity reports them for mvmd, which its VMMs inherit.
@@ -398,6 +399,13 @@ message NodeCapacity {
   // The bytes of that filesystem available to an unprivileged process: statfs
   // f_bavail times f_frsize, read at each call.
   uint64 state_available_bytes = 4;
+  // The most Machines the node can hold: the smaller of the node's VMM user
+  // range and, for each IP family the node serves, the addresses its prefix has
+  // to assign. It is the node's configuration, not a measurement. A Create
+  // machine or Restore that would pass it is PRECONDITION_FAILED.
+  uint32 machine_limit = 5;
+  // The Machines the node holds: the ones List machines returns.
+  uint32 machines = 6;
 }
 
 // NodeKernel is a guest kernel the node offers a Machine by name.
