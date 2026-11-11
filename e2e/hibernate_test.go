@@ -44,7 +44,7 @@ func TestE2E_AMachineWithADiskIsHibernatedAndWokenWithTheDiskAndItsData(t *testi
 	n.runMachine(t, ctx, req)
 
 	device := n.deviceOfSize(t, ctx, "origin", "origin", diskBytes)
-	n.put(t, ctx, "origin", "write-marker", "/dev/"+device, marker)
+	n.put(t, ctx, "origin", "write-marker", "/dev/"+device, "not the marker of the test....")
 	disk := filepath.Join(n.stateDir, "disks", "extra")
 	written := statDisk(t, disk)
 	require.Equal(t, int64(diskBytes), written.size, "the disk file is the size the disk was created with")
