@@ -22,6 +22,19 @@ func attachedRunning(t *testing.T) *env {
 	return e
 }
 
+// givesDisksAtBoot is a Driver that boots a VMM with disk "d" among its devices
+// and takes no attach of it, as a Driver did before ADR 0041.
+type givesDisksAtBoot struct{ machine.Driver }
+
+func (g givesDisksAtBoot) Boot(ctx context.Context, id machine.MachineID, boot machine.BootSpec) error {
+	boot.Devices = append(boot.Devices, machine.BlockDevice{Disk: "d", Path: "/disks/d"})
+	return g.Driver.Boot(ctx, id, boot)
+}
+
+func (givesDisksAtBoot) AttachDisk(context.Context, machine.MachineID, machine.BlockDevice) error {
+	return nil
+}
+
 // A hot attach records the holder, asks the Driver, then has the guest find the
 // disk (ADR 0023). Each case is the state a death after one step leaves.
 func TestRestore_ARunningMachineHoldsOnlyDisksTheVMMAndTheGuestAgreeOn(t *testing.T) {
@@ -109,11 +122,18 @@ func TestRestore_ARunningMachineHoldsOnlyDisksTheVMMAndTheGuestAgreeOn(t *testin
 	})
 
 	t.Run("a disk given at boot is kept and not asked of the guest", func(t *testing.T) {
+		// A VMM started before ADR 0041 was given the disk at boot, and its
+		// guest never found it.
 		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
-		e.created(t, "m")
-		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
-		require.NoError(t, e.svc.Start(ctx, "m"))
+		old := machine.NewService(givesDisksAtBoot{e.driver}, e.sup, e.net, e.disks, e.images, e.snaps, blindGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events)
+		spec := baseSpec()
+		spec.Disks = []machine.DiskAttachment{rw("d")}
+		require.NoError(t, old.Create(ctx, "m", request("m"), spec))
+		require.NoError(t, old.Start(ctx, "m"))
+		state, err := e.driver.Drive(ctx, "m", "d")
+		require.NoError(t, err)
+		require.Equal(t, machine.DriveAtBoot, state, "setup: the VMM was given the disk at boot")
 
 		svc := e.reopened(t)
 		m, err := svc.Inspect(ctx, "m")
@@ -178,6 +198,7 @@ func TestRestore_AnInheritedMachineKeepsItsDisks(t *testing.T) {
 	e.created(t, "m")
 	require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
 	require.NoError(t, e.svc.Start(ctx, "m"))
+	found := e.guest.Calls("find-disk")
 
 	e.driver = memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: []machine.Capability{machine.CapabilityDiskHotplug}})
 	require.Empty(t, e.driver.BootedWith("m").Devices, "the setup: the new Driver never booted it")
@@ -189,5 +210,5 @@ func TestRestore_AnInheritedMachineKeepsItsDisks(t *testing.T) {
 	assert.Equal(t, machine.StateRunning, m.State)
 	assert.Equal(t, []machine.DiskAttachment{rw("d")}, m.Disks)
 	assert.Equal(t, 1, e.driver.Calls("drive"), "control: the Driver was asked")
-	assert.Zero(t, e.guest.Calls("find-disk"))
+	assert.Equal(t, found, e.guest.Calls("find-disk"), "the guest was not asked again")
 }

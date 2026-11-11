@@ -23,7 +23,7 @@ func diskIDs(infos []machine.DiskInfo) []machine.DiskID {
 // Row "Create disk", columns Needs and On success.
 func TestCreateDisk_MakesADiskTheNodeHolds(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req-1", 1<<20))
 
@@ -34,7 +34,7 @@ func TestCreateDisk_MakesADiskTheNodeHolds(t *testing.T) {
 
 func TestCreateDisk_RejectsWhatNamesNoDisk(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 
 	requireKind(t, e.svc.CreateDisk(ctx, "", "req", 1<<20), machine.ErrInvalid)
 	requireKind(t, e.svc.CreateDisk(ctx, "data", "", 1<<20), machine.ErrInvalid)
@@ -47,7 +47,7 @@ func TestCreateDisk_RejectsWhatNamesNoDisk(t *testing.T) {
 // Row "Create disk", column Repeat.
 func TestCreateDisk_RepeatIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req-1", 1<<20))
 
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req-1", 1<<20))
@@ -60,7 +60,7 @@ func TestCreateDisk_RepeatIsIdempotent(t *testing.T) {
 
 func TestCreateDisk_RefusesTheRootDiskOfAMachine(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.created(t, "m")
 
 	requireKind(t, e.svc.CreateDisk(ctx, "m-root", "req", 1<<20), machine.ErrConflict)
@@ -71,7 +71,7 @@ func TestCreateDisk_StateAfterFailure(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("a failed create is Failed and a retry makes the disk", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.FailAt("create", errBoom)
 		requireKind(t, e.svc.CreateDisk(ctx, "data", "req", 1<<20), machine.ErrFailed)
 		_, held := e.disks.Holds("data")
@@ -82,7 +82,7 @@ func TestCreateDisk_StateAfterFailure(t *testing.T) {
 	})
 
 	t.Run("a failed lookup is Failed and makes nothing", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.FailAt("get", errBoom)
 		requireKind(t, e.svc.CreateDisk(ctx, "data", "req", 1<<20), machine.ErrFailed)
 		assert.Zero(t, e.disks.Calls("create"))
@@ -92,7 +92,7 @@ func TestCreateDisk_StateAfterFailure(t *testing.T) {
 // Row "List disks", column On success.
 func TestListDisks_ReportsEveryDiskWithItsHolder(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.created(t, "m")
 	require.NoError(t, e.svc.CreateDisk(ctx, "b-data", "r1", 2<<20))
 	require.NoError(t, e.svc.CreateDisk(ctx, "a-data", "r2", 1<<20))
@@ -109,14 +109,14 @@ func TestListDisks_ReportsEveryDiskWithItsHolder(t *testing.T) {
 }
 
 func TestListDisks_ANodeWithNoDiskListsNone(t *testing.T) {
-	got, err := newEnv().svc.ListDisks(context.Background())
+	got, err := newEnv(machine.CapabilityDiskHotplug).svc.ListDisks(context.Background())
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
 
 func TestListDisks_FailureIsFailed(t *testing.T) {
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.disks.FailAt("list", errBoom)
 
 	_, err := e.svc.ListDisks(context.Background())
@@ -127,7 +127,7 @@ func TestListDisks_FailureIsFailed(t *testing.T) {
 // Row "Delete disk", column Needs.
 func TestDeleteDisk_RefusesADiskThatHasAHolder(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.created(t, "m")
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req", 1<<20))
 	require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("data")))
@@ -149,7 +149,7 @@ func TestDeleteDisk_RefusesADiskThatHasAHolder(t *testing.T) {
 // Row "Delete disk", column Repeat.
 func TestDeleteDisk_AnAbsentDiskSucceeds(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req", 1<<20))
 	require.NoError(t, e.svc.DeleteDisk(ctx, "data"))
 
@@ -161,7 +161,7 @@ func TestDeleteDisk_AnAbsentDiskSucceeds(t *testing.T) {
 // Row "Delete disk", column State after failure.
 func TestDeleteDisk_FailedRemovalLeavesTheDiskUnheldAndDeletable(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.created(t, "m")
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req", 1<<20))
 	e.disks.FailAt("remove", errBoom)
@@ -179,7 +179,7 @@ func TestDeleteDisk_FailedRemovalLeavesTheDiskUnheldAndDeletable(t *testing.T) {
 
 func TestDeleteDisk_NoAttachHoldsADiskWhileItIsRemoved(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.created(t, "m")
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req", 1<<20))
 	entered, release := e.disks.Hold("remove")
@@ -199,7 +199,7 @@ func TestDeleteDisk_NoAttachHoldsADiskWhileItIsRemoved(t *testing.T) {
 // holds, and holds one holder at a time.
 func TestAttachDisk_ADiskCreateDiskMade(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.created(t, "m")
 	e.created(t, "other")
 	require.NoError(t, e.svc.CreateDisk(ctx, "data", "req", 1<<20))
@@ -218,7 +218,7 @@ func TestAttachDisk_ADiskCreateDiskMade(t *testing.T) {
 // is making it.
 func TestDeleteDisk_RefusesARootDiskWhileCreateIsPublishingIt(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	entered, release := e.disks.Hold("create-root")
 	created := make(chan error, 1)
 	go func() { created <- e.svc.Create(ctx, "m", request("m"), baseSpec()) }()
@@ -235,7 +235,7 @@ func TestDeleteDisk_RefusesARootDiskWhileCreateIsPublishingIt(t *testing.T) {
 
 func TestDeleteDisk_ARootDiskNameIsFreeAfterAFailedCreate(t *testing.T) {
 	ctx := context.Background()
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	e.disks.FailAt("create-root", errBoom)
 	requireKind(t, e.svc.Create(ctx, "m", request("m"), baseSpec()), machine.ErrFailed)
 
@@ -308,7 +308,7 @@ func awaitWaiting(t *testing.T, e *env, disk machine.DiskID, n int) {
 
 // Runtime API §Calling rules, "A repeat while the first call runs waits".
 func TestCreateDisk_ARepeatWhileTheFirstCallRunsWaitsAndMakesNothing(t *testing.T) {
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	first, release := heldCreate(t, e, "data", "req-1")
 	second := createDiskInBackground(e, "data", "req-1")
 	awaitWaiting(t, e, "data", 2)
@@ -323,7 +323,7 @@ func TestCreateDisk_ARepeatWhileTheFirstCallRunsWaitsAndMakesNothing(t *testing.
 }
 
 func TestCreateDisk_ACallUnderAnotherRequestIDWhileTheFirstRunsIsAConflict(t *testing.T) {
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	first, release := heldCreate(t, e, "data", "req-1")
 	second := createDiskInBackground(e, "data", "req-2")
 	awaitWaiting(t, e, "data", 2)
@@ -336,7 +336,7 @@ func TestCreateDisk_ACallUnderAnotherRequestIDWhileTheFirstRunsIsAConflict(t *te
 }
 
 func TestCreateDisk_CallsForOtherDisksDoNotWaitForTheOneThatRuns(t *testing.T) {
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	first, release := heldCreate(t, e, "data", "req-1")
 
 	// The first disk's call is still held while the other disk's call ends.

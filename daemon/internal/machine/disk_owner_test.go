@@ -124,7 +124,7 @@ func TestDiskFileOwner(t *testing.T) {
 	})
 
 	t.Run("Delete Machine gives its attached disks back and keeps their files", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
 		e.inState(t, "m", machine.StateStopped)
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
@@ -137,7 +137,7 @@ func TestDiskFileOwner(t *testing.T) {
 	})
 
 	t.Run("Delete Machine that cannot give a disk back fails and keeps the Machine", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
 		e.inState(t, "m", machine.StateStopped)
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
@@ -152,7 +152,7 @@ func TestDiskFileOwner(t *testing.T) {
 	})
 
 	t.Run("Create gives the disks it names to the Machine", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("a")
 		e.disks.Provide("b")
 		spec := baseSpec()
@@ -174,7 +174,7 @@ func TestDiskFileOwner(t *testing.T) {
 		}
 		for _, tt := range failures {
 			t.Run(tt.name, func(t *testing.T) {
-				e := newEnv()
+				e := newEnv(machine.CapabilityDiskHotplug)
 				e.disks.Provide("a")
 				e.disks.Provide("b")
 				spec := baseSpec()
@@ -191,7 +191,7 @@ func TestDiskFileOwner(t *testing.T) {
 	})
 
 	t.Run("a restart gives a recorded disk to its Machine again", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
 		e.inState(t, "m", machine.StateStopped)
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))

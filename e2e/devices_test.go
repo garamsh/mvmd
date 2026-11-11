@@ -137,6 +137,46 @@ func TestE2E_SetResourcesChangesWhatTheGuestReportsWithinTheCeiling(t *testing.T
 	assert.Equal(t, start.MemoryBytes, inspected.Machine.Resources.MemoryBytes, "the refused call changed nothing")
 }
 
+// A disk named at Create Machine is found by the guest once the Machine is Running, as one
+// attached to it is, and a Running Machine detaches it: the guest then lists the devices it
+// would list without it. Both Drivers hot-plug a disk at Start, so neither is expected to refuse.
+func TestE2E_ADiskNamedAtCreateIsFoundByTheGuestAndDetachedWhileRunning(t *testing.T) {
+	const diskBytes = 64 << 20
+	n := startNode(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	info, err := n.client.GetRuntimeInfo(ctx, &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	require.Contains(t, info.Drivers[0].Capabilities, v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG, "the Driver reports the hot-plug capability a disk at Create needs")
+	n.arm(t)
+	pulled := n.pullBootable(t, "named")
+
+	_, err = n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "extra", RequestId: "create-extra", SizeBytes: diskBytes})
+	require.NoError(t, err)
+	req := createRequest("named", pulled.Digest)
+	req.Disks = []*v1alpha2.DiskAttachment{{DiskId: "extra"}}
+	n.runMachine(t, ctx, req)
+
+	running := n.blockDevices(t, ctx, "named", "running")
+	sectors := strconv.Itoa(diskBytes/512) + "\n"
+	var ofDisk []string
+	for _, dev := range running {
+		if n.guestFile(t, ctx, "named", "size-of-"+dev, "/sys/class/block/"+dev+"/size") == sectors {
+			ofDisk = append(ofDisk, dev)
+		}
+	}
+	require.Len(t, ofDisk, 1, "the guest lists one device of the disk's size: %v", running)
+	assert.Equal(t, map[string]string{"extra": "named", "named-root": "named"}, n.holders(t, ctx), "the Machine holds the disk")
+
+	detached, err := n.client.DetachDisk(ctx, &v1alpha2.DetachDiskRequest{MachineId: "named", DiskId: "extra"})
+	require.NoError(t, err)
+	assert.Empty(t, detached.Machine.Disks)
+	after := n.blockDevices(t, ctx, "named", "detached")
+	assert.Equal(t, ofDisk, difference(running, after), "the device of the disk is the one gone")
+	assert.Empty(t, difference(after, running), "no device appeared")
+	assert.Equal(t, "", n.holders(t, ctx)["extra"], "the disk has no holder again")
+}
+
 // holders is what List disks answers: each disk's holding Machine by the disk's identifier, empty
 // for a disk no Machine holds.
 func (n *node) holders(t *testing.T, ctx context.Context) map[string]string {

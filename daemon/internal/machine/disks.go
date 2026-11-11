@@ -152,8 +152,10 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	if m.State == StatePaused {
 		return fail(ErrPreconditionFailed, "Machine %q is Paused and its guest cannot find a disk; resume it first", id)
 	}
-	if hot(m) && !s.driver.Info().has(CapabilityDiskHotplug) {
-		return fail(ErrUnsupported, "the Driver cannot attach a disk to a %s Machine", m.State)
+	// Start plugs every attached disk (ADR 0041), so a Driver that cannot
+	// hot-plug takes no attach in any state: it would fail every later Start.
+	if !s.driver.Info().has(CapabilityDiskHotplug) {
+		return fail(ErrUnsupported, "the Driver cannot hot-plug, so it cannot attach a disk to a %s Machine", m.State)
 	}
 	// One holder per disk (ADR 0009): a disk another Machine holds, as writer
 	// or as reader, takes no second holder.

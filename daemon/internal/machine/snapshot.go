@@ -300,7 +300,8 @@ func diskIDs(attached []DiskAttachment) []DiskID {
 func (s *service) restorePlan(m Machine, request RequestID, files SnapshotFiles) bootPlan {
 	id := m.ID
 	return bootPlan{
-		machine: m,
+		machine:       m,
+		restoredDisks: m.Disks,
 		describe: func(ctx context.Context, boot BootSpec) (ProcessDescription, error) {
 			return s.driver.DescribeRestore(ctx, id, boot, files.State)
 		},
