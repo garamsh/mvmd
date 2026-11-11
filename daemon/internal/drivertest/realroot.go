@@ -163,6 +163,22 @@ func StartInRoot(t *testing.T, p machine.ProcessDescription, s Streams) Process 
 	return rootProcess{cmd, exited}
 }
 
+// linkRunFiles hard links each run file of the description into the run
+// directory, replacing what stands at its name, as the supervisor does before
+// it starts the VMM (ADR 0042).
+func linkRunFiles(p machine.ProcessDescription) error {
+	for _, f := range p.RunFiles {
+		link := filepath.Join(p.RunDir, f.Name)
+		if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", link, err)
+		}
+		if err := os.Link(f.Path, link); err != nil {
+			return fmt.Errorf("link run file %s: %w", f.Name, err)
+		}
+	}
+	return nil
+}
+
 // enterRoot builds the root in this process, pivots into it and execs the
 // process. It returns only the error that stopped it.
 func enterRoot(raw string) error {
@@ -214,6 +230,9 @@ func enterRoot(raw string) error {
 		if err := bind(n, n); err != nil {
 			return err
 		}
+	}
+	if err := linkRunFiles(p); err != nil {
+		return err
 	}
 	if err := bind(p.RunDir, machine.InRunDir); err != nil {
 		return err

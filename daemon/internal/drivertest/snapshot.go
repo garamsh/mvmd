@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -117,6 +118,120 @@ func ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testing.T, s S
 	// The restored VMM is its own process, with its own sockets, which only the
 	// VMM's own files can show.
 	s.check(t, Restored, Machine{ID: "m1", RunDir: runs["m1"], Devices: devices})
+	s.check(t, Restored, Machine{ID: "m2", RunDir: runs["m2"], Devices: spec2.Devices})
+}
+
+// ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive attaches a
+// disk to a booted Machine, snapshots it and ends it, removing its run
+// directory with the link the attach made, and restores the snapshot as a new
+// Machine whose disk is the same file. The restore's description lists the disk
+// as a run file under its device's name and does not bind it, the process the
+// description names finds the file at the path the snapshot recorded (ADR 0042),
+// and the restored VMM answers that it holds the disk as one added since boot
+// (ADR 0041). The disk's file is as the snapshot found it, which is what a
+// restore through the service compares.
+//
+// A Driver that reports no disk-hotplug or no snapshot capability is held to
+// refusing the operations instead.
+func ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive(t *testing.T, s Subject) {
+	dir := tempDir(t, "dtrdisk")
+	runs := RunDirs{}
+	for _, id := range []machine.MachineID{"m1", "m2"} {
+		runs[id] = filepath.Join(dir, "run-"+string(id))
+		require.NoError(t, os.Mkdir(runs[id], 0o700))
+	}
+	store := filepath.Join(dir, "store")
+	require.NoError(t, os.Mkdir(store, 0o700))
+	d := s.Driver(t, runs)
+
+	image, root, data := diskFile(t, dir, "image", true), diskFile(t, dir, "root", false), diskFile(t, dir, "data", false)
+	image.Disk = ""
+	devices := []machine.BlockDevice{image, root}
+	spec := machine.BootSpec{Devices: devices, Resources: resources, RunDir: runs["m1"]}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	p, err := d.Describe(ctx, "m1", spec)
+	require.NoError(t, err)
+	first := startLogged(t, s, p.For(spec), runs["m1"])
+	require.NoError(t, d.Boot(ctx, "m1", spec))
+
+	guest := s.Guest(d)
+	answers := func(id machine.MachineID) bool { return healthy(ctx, guest, id, 5*time.Second) }
+	require.Eventually(t, func() bool { return answers("m1") }, time.Minute, 500*time.Millisecond, "the Guest Agent never answered on the first Machine")
+
+	if !has(d, machine.CapabilityDiskHotplug) {
+		refusesDisks(ctx, t, d, "m1", data)
+		return
+	}
+	if !has(d, machine.CapabilitySnapshot) {
+		require.NoError(t, d.Pause(ctx, "m1"))
+		refusesSnapshot(ctx, t, d, "m1", spec)
+		return
+	}
+
+	require.NoError(t, d.AttachDisk(ctx, "m1", data))
+	link := filepath.Join(runs["m1"], diskdevice.Name(0, data.Disk))
+	_, err = os.Stat(link)
+	require.NoError(t, err, "setup: the attach linked the disk into the run directory")
+	require.NoError(t, d.Pause(ctx, "m1"))
+	taken, err := d.Snapshot(ctx, "m1")
+	require.NoError(t, err)
+	captured, err := os.Stat(data.Path)
+	require.NoError(t, err)
+
+	// What the Snapshot Store and a Delete do: the state files go into the
+	// store, the root disk is copied, and the VMM and the run directory, with
+	// the attach's link, go away. The disk's file is all that is left of it.
+	var held []string
+	for _, f := range taken.Files {
+		to := filepath.Join(store, filepath.Base(f))
+		require.NoError(t, os.Rename(f, to))
+		held = append(held, to)
+	}
+	root2 := filepath.Join(dir, "root2.img")
+	raw, err := os.ReadFile(root.Path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(root2, raw, 0o600))
+	require.NoError(t, first.Kill())
+	<-first.Exited()
+	require.NoError(t, os.RemoveAll(runs["m1"]))
+	_, err = os.Lstat(link)
+	require.ErrorIs(t, err, os.ErrNotExist, "setup: the disk has no link left in any run directory")
+
+	spec2 := machine.BootSpec{
+		Devices:       []machine.BlockDevice{image, {Disk: "root2", Path: root2}},
+		RecordedDisks: []machine.BlockDevice{data},
+		Resources:     resources, RunDir: runs["m2"],
+	}
+	p2, err := d.DescribeRestore(ctx, "m2", spec2, held)
+	require.NoError(t, err)
+	assert.Equal(t, []machine.RunFile{{Name: diskdevice.Name(0, data.Disk), Path: data.Path}}, p2.RunFiles,
+		"the recorded disk is a run file under its device's name")
+	for position := 0; position <= 1; position++ {
+		assert.NotEmpty(t, hostOf(p2.BootFiles, machine.InDisk(position)), "control: the Machine's own device %d is bound", position)
+	}
+	assert.Empty(t, hostOf(p2.BootFiles, machine.InDisk(2)), "the recorded disk is not bound at /disk/2")
+
+	startLogged(t, s, p2.For(spec2), runs["m2"])
+	require.NoError(t, d.Restore(ctx, "m2", spec2))
+	require.Eventually(t, func() bool { return answers("m2") }, time.Minute, 500*time.Millisecond, "the Guest Agent never answered on the restored Machine")
+
+	linked, err := os.Stat(filepath.Join(runs["m2"], diskdevice.Name(0, data.Disk)))
+	require.NoError(t, err)
+	file, err := os.Stat(data.Path)
+	require.NoError(t, err)
+	assert.True(t, os.SameFile(file, linked), "the link in the restored Machine's run directory is the disk's own file")
+	assert.Equal(t, captured.Size(), file.Size(), "the disk's size is as the snapshot found it")
+	assert.True(t, captured.ModTime().Equal(file.ModTime()), "the disk's modification time is as the snapshot found it: it was %v and is %v", captured.ModTime(), file.ModTime())
+
+	for disk, want := range map[machine.DiskID]machine.DriveState{
+		data.Disk: machine.DriveHotPlugged, root.Disk: machine.DriveAtBoot, "none": machine.DriveAbsent,
+	} {
+		got, err := d.Drive(ctx, "m2", disk)
+		require.NoError(t, err, disk)
+		assert.Equal(t, want, got, "the restored VMM's drive for %q", disk)
+	}
 	s.check(t, Restored, Machine{ID: "m2", RunDir: runs["m2"], Devices: spec2.Devices})
 }
 

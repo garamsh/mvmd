@@ -96,11 +96,16 @@ type NetworkDevice struct {
 }
 
 // BootSpec is what a Driver needs from the lifecycle to boot a Machine.
-// Devices are in boot order: the image, the root disk, then attached disks.
+// Devices are in boot order: the image, then the root disk.
 type BootSpec struct {
-	Devices   []BlockDevice
-	Network   NetworkDevice
-	Resources Resources
+	Devices []BlockDevice
+	// RecordedDisks are the disks a restored snapshot recorded, which its saved
+	// state already holds (ADR 0041). A Driver does not bind them as devices:
+	// it lists each as a run file for the supervisor to link (ADR 0042). A boot
+	// has none; it hot-plugs its disks.
+	RecordedDisks []BlockDevice
+	Network       NetworkDevice
+	Resources     Resources
 	// Ceiling is the most the guest can have (ADR 0029). A figure left zero is
 	// the figure of Resources.
 	Ceiling Resources

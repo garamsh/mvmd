@@ -366,6 +366,12 @@ func (d *Driver) Drive(_ context.Context, id machine.MachineID, disk machine.Dis
 			return machine.DriveAtBoot, nil
 		}
 	}
+	// A restored VMM holds a recorded disk as a hot-plugged one (ADR 0041).
+	for _, dev := range spec.RecordedDisks {
+		if dev.Disk == disk {
+			return machine.DriveHotPlugged, nil
+		}
+	}
 	return machine.DriveAbsent, nil
 }
 

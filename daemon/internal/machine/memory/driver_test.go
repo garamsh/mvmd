@@ -60,3 +60,32 @@ func TestGuestConn_SucceedsWhenTheGuestServes(t *testing.T) {
 	require.NotNil(t, conn)
 	_ = conn.Close()
 }
+
+func TestDrive_ARestoredVMMHoldsARecordedDiskAsHotPluggedAndItsOwnDevicesAsGivenAtBoot(t *testing.T) {
+	ctx := context.Background()
+	spec := machine.BootSpec{
+		Devices:       []machine.BlockDevice{{Path: "/image"}, {Disk: "root", Path: "/root"}},
+		RecordedDisks: []machine.BlockDevice{{Disk: "data", Path: "/data"}},
+	}
+	d := memory.NewDriver(machine.DriverInfo{Name: "memory"})
+	require.NoError(t, d.Restore(ctx, "m", spec))
+
+	for disk, want := range map[machine.DiskID]machine.DriveState{
+		"data": machine.DriveHotPlugged, "root": machine.DriveAtBoot, "none": machine.DriveAbsent,
+	} {
+		got, err := d.Drive(ctx, "m", disk)
+		require.NoError(t, err, disk)
+		assert.Equal(t, want, got, disk)
+	}
+}
+
+func TestDrive_ABootedVMMHoldsEveryDeviceItsDescriptionNamesAsGivenAtBoot(t *testing.T) {
+	ctx := context.Background()
+	spec := machine.BootSpec{Devices: []machine.BlockDevice{{Path: "/image"}, {Disk: "root", Path: "/root"}, {Disk: "data", Path: "/data"}}}
+	d := memory.NewDriver(machine.DriverInfo{Name: "memory"})
+	require.NoError(t, d.Boot(ctx, "m", spec))
+
+	got, err := d.Drive(ctx, "m", "data")
+	require.NoError(t, err)
+	assert.Equal(t, machine.DriveAtBoot, got, "control: a device of a boot is given at boot; only a restore's recorded disk is not")
+}
