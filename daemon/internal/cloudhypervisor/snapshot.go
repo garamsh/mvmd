@@ -91,7 +91,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 	p := d.process(spec, restoreArgs(spec), boot)
 	p.BootFiles = append(boot, machine.DeviceFiles(own)...)
 	for _, dev := range recorded {
-		p.RunFiles = append(p.RunFiles, machine.RunFile{Name: diskdevice.Name(0, dev.Disk), Path: dev.Path})
+		_, _ = dev, diskdevice.Name(0, dev.Disk)
 	}
 	return p, nil
 }
