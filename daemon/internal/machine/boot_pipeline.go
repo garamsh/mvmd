@@ -81,7 +81,7 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	if err != nil {
 		return stopped(asFailure(err))
 	}
-	boot.Devices = append(devices, restored...)
+	boot.Devices, boot.RecordedDisks = devices, restored
 	tap, err := s.network.Apply(ctx, id, m.User, m.Policy)
 	if err != nil {
 		return stopped(fail(ErrPreconditionFailed, "the network policy was not applied: %v", err))

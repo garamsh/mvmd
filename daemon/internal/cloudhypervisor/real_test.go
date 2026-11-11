@@ -71,6 +71,10 @@ func TestReal_ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t *testi
 	drivertest.ASnapshotRestoresAsANewMachineThatAnswersThroughGuestConn(t, subject(t))
 }
 
+func TestReal_ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive(t *testing.T) {
+	drivertest.ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive(t, subject(t))
+}
+
 func TestReal_ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T) {
 	drivertest.ADiskIsAttachedToARunningMachineAndDetachedAgain(t, subject(t))
 }

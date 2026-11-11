@@ -135,11 +135,16 @@ func TestRestoreSnapshot_TakesTheRecordedDisks(t *testing.T) {
 		assert.Equal(t, machine.MachineID("new"), holders["d2"])
 		e.requireOwnedBy(t, "d1", "new")
 		e.requireOwnedBy(t, "d2", "new")
-		var devices []machine.DiskID
-		for _, dev := range e.driver.RestoredWith("new").Devices {
-			devices = append(devices, dev.Disk)
+		disks := func(devices []machine.BlockDevice) []machine.DiskID {
+			var ids []machine.DiskID
+			for _, dev := range devices {
+				ids = append(ids, dev.Disk)
+			}
+			return ids
 		}
-		assert.Equal(t, []machine.DiskID{"", "new-root", "d1", "d2"}, devices, "the Driver is given the recorded disks, which its saved state holds (ADR 0041)")
+		restored := e.driver.RestoredWith("new")
+		assert.Equal(t, []machine.DiskID{"", "new-root"}, disks(restored.Devices), "the VMM's own devices are the image and the root disk")
+		assert.Equal(t, []machine.DiskID{"d1", "d2"}, disks(restored.RecordedDisks), "the Driver is given the recorded disks apart, which its saved state holds (ADR 0041)")
 	})
 
 	for _, tt := range []struct {
