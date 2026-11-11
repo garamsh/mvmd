@@ -126,9 +126,8 @@ func (s *Store) Get(ctx context.Context, id machine.SnapshotID) (machine.Snapsho
 // List implements machine.SnapshotStore. The staging directory holds no
 // record, so it is left out, as is a snapshot retired between the listing of
 // the directory and the read of its record or its measurement: that one is
-// gone. A record that
-// cannot be read fails the listing, since a node holding one is not in a state
-// a client can reconcile against.
+// gone. A record that cannot be read fails the listing, since a node holding
+// one is not in a state a client can reconcile against.
 func (s *Store) List(ctx context.Context) ([]machine.SnapshotInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

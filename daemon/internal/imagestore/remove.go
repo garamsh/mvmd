@@ -15,10 +15,9 @@ import (
 
 // List implements machine.ImageStore: every listed image, ordered by the
 // digest it was pulled by. An image's size is the allocated blocks of the
-// blobs it reaches that the cache holds, so a blob two images share is in the
-// size of each, and a manifest that cannot be read leaves the image with the
-// size of what could be measured. An image published before the index
-// recorded when it was stored has the zero time.
+// blobs it reaches that the cache holds; a blob two images share is in the
+// size of each. A manifest that cannot be read fails the listing. An image
+// published before the index recorded when it was stored has the zero time.
 func (s *Store) List(ctx context.Context) ([]machine.ImageInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -47,12 +46,12 @@ func (s *Store) List(ctx context.Context) ([]machine.ImageInfo, error) {
 	return out, nil
 }
 
-// occupied returns the allocated blocks of the blobs the listed image reaches.
-// A blob that is absent occupies nothing.
+// occupied returns the allocated blocks of the blobs the listed image reaches;
+// an absent blob occupies nothing.
 func (s *Store) occupied(entry descriptor) (uint64, error) {
-	digests := []string{entry.Digest}
-	if _, reached, err := s.reaches(entry); err == nil {
-		digests = reached
+	_, digests, err := s.reaches(entry)
+	if err != nil {
+		return 0, err
 	}
 	var total uint64
 	for _, d := range digests {

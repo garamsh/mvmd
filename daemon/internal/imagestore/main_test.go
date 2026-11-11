@@ -72,7 +72,7 @@ func supportsVerity(dir string) error {
 		return err
 	}
 	defer os.RemoveAll(probe)
-	_, err = imagestore.New(probe)
+	_, err = imagestore.New(probe, testClock)
 	return err
 }
 

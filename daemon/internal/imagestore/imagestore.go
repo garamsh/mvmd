@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -30,9 +29,8 @@ type Store struct {
 	// and may fail it. It is nil in production.
 	fault func(step string) error
 
-	// now is the seam of the tests for the time Publish records. It is nil in
-	// production, which records the wall clock.
-	now func() time.Time
+	// clock tells the time Publish records for an image.
+	clock machine.WallClock
 
 	// swap is held by Publish from its first blob move to the swap of
 	// index.json, and by Remove throughout: both read the index, rewrite it
@@ -64,9 +62,9 @@ type recorded struct {
 
 // New opens the image cache in dir, creating the layout when dir holds none.
 // It fails when the file system under dir cannot hold fs-verity files, which
-// the cache cannot do without (ADR 0008).
-func New(dir string) (*Store, error) {
-	s := &Store{dir: dir, stages: make(map[string]*stage)}
+// the cache cannot do without (ADR 0008). Publish records the time clock tells.
+func New(dir string, clock machine.WallClock) (*Store, error) {
+	s := &Store{dir: dir, clock: clock, stages: make(map[string]*stage)}
 	for _, d := range []string{s.blobsDir(), s.stagingDir()} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return nil, fmt.Errorf("create the image cache: %w", err)

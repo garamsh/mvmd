@@ -129,9 +129,8 @@ func TestStore_RemoveLeavesTheBlobsToTheSweepWhenAListedManifestIsUnreadable(t *
 
 	require.Error(t, err, "the removal reports that it did not reclaim")
 	assert.Contains(t, err.Error(), "left for the next start's sweep")
-	got, lerr := s.List(ctx)
-	require.NoError(t, lerr)
-	assert.Equal(t, []machine.ImageDigest{imageB}, digestsOf(got), "the image is unlisted")
+	assert.NotContains(t, listing(t, dir), string(imageA), "the image is unlisted")
+	assert.Contains(t, listing(t, dir), string(imageB), "control: the other is still listed")
 	assert.Len(t, blobsOf(t, dir), 5, "the blobs the image reached are kept: B's manifest is gone, the rest stay")
 }
 

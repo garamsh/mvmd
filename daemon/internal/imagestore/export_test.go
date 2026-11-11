@@ -3,15 +3,11 @@ package imagestore
 import (
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // SetFault makes the Store ask fault before each step of Publish, and fail the
 // step with what it returns.
 func (s *Store) SetFault(fault func(step string) error) { s.fault = fault }
-
-// SetClock makes Publish record the time now returns.
-func (s *Store) SetClock(now func() time.Time) { s.now = now }
 
 // OpenWithoutVerity opens the image cache in dir as New does, without the
 // probe for fs-verity, for a test of what List reads from files it wrote by

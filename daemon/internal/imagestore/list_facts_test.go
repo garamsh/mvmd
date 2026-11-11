@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,4 +164,22 @@ func TestStore_ListMeasuresAnImageWhoseLayerIsAbsentByWhatRemains(t *testing.T) 
 	assert.Equal(t, machine.ImageDigest("sha256:cut"), got[0].Digest)
 	assert.Greater(t, got[0].SizeBytes, uint64(0), "its manifest and config are measured")
 	assert.Less(t, got[0].SizeBytes, got[1].SizeBytes, "control: the image with its layer is larger")
+}
+
+// A manifest that cannot be read fails the listing: a size measured from part
+// of an image is not reported as the image's.
+func TestStore_ListFailsWhenAListedManifestCannotBeRead(t *testing.T) {
+	c := newHandCache(t)
+	c.add("sha256:readable", denseLayer(1<<20), "")
+	_, err := c.open().List(ctx)
+	require.NoError(t, err, "control: the cache lists while every manifest is readable")
+
+	c.add("sha256:broken", denseLayer(1<<20), "")
+	manifest := c.entries[1]["digest"].(string)
+	require.NoError(t, os.Remove(filepath.Join(c.blobsDir(), strings.TrimPrefix(manifest, "sha256:"))))
+
+	got, err := c.open().List(ctx)
+
+	assert.Error(t, err, "the listing fails and does not understate the image")
+	assert.Nil(t, got, "with no partial list")
 }

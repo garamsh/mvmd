@@ -9,8 +9,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/imagestore"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 // The Image Store of the Firecracker configuration needs a file system with
@@ -89,7 +91,7 @@ func supportsVerity(dir string) error {
 		return err
 	}
 	defer os.RemoveAll(probe)
-	_, err = imagestore.New(probe)
+	_, err = imagestore.New(probe, memory.NewWallClock(time.Now()))
 	return err
 }
 

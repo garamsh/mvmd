@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/imagestore"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 const (
@@ -25,10 +27,13 @@ const (
 
 var ctx = context.Background()
 
+// testClock is the time Publish records in a test that does not set one.
+var testClock = memory.NewWallClock(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
 func newStore(t *testing.T) (*imagestore.Store, string) {
 	t.Helper()
 	dir := verityDir(t)
-	s, err := imagestore.New(dir)
+	s, err := imagestore.New(dir, testClock)
 	require.NoError(t, err)
 	return s, dir
 }
@@ -133,7 +138,7 @@ func TestNew_SetsTheModeOfTheImagesOfAnEarlierRun(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chmod(located.Path, 0o600), "setup: the mode of an image published earlier")
 
-	_, err = imagestore.New(dir)
+	_, err = imagestore.New(dir, testClock)
 	require.NoError(t, err)
 
 	_, _, mode := ownerOf(t, located.Path)
@@ -174,7 +179,7 @@ func TestStore_LocateRefusesAFileWhoseVerityDiffers(t *testing.T) {
 func replaceWith(t *testing.T, path string, data []byte, verity bool) {
 	t.Helper()
 	if verity {
-		other, err := imagestore.New(verityDir(t))
+		other, err := imagestore.New(verityDir(t), testClock)
 		require.NoError(t, err)
 		staging, _ := stageAndSeal(t, other, imageB, data)
 		require.NoError(t, os.Rename(staging.Output, path))
@@ -186,13 +191,13 @@ func replaceWith(t *testing.T, path string, data []byte, verity bool) {
 }
 
 func TestNew_RefusesAFileSystemWithoutVerity(t *testing.T) {
-	_, err := imagestore.New(verityDir(t))
+	_, err := imagestore.New(verityDir(t), testClock)
 	require.NoError(t, err, "control: the file system the tests found accepts the cache")
 
 	shm, err := os.MkdirTemp("/dev/shm", "mvmd-no-verity-")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(shm) })
-	_, err = imagestore.New(shm)
+	_, err = imagestore.New(shm, testClock)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fs-verity")
 	assert.Contains(t, err.Error(), "will not start")
@@ -202,7 +207,7 @@ func TestNew_KeepsTheImagesOfAnEarlierRun(t *testing.T) {
 	s, dir := newStore(t)
 	pull(t, s, imageA, content("a"))
 
-	reopened, err := imagestore.New(dir)
+	reopened, err := imagestore.New(dir, testClock)
 	require.NoError(t, err)
 	_, err = reopened.Locate(ctx, imageA)
 	assert.NoError(t, err)
