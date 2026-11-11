@@ -73,5 +73,6 @@ Decisions:
 - [ADR 0040](./adr/0040-a-driver-states-the-most-of-a-machine-it-accepts-and-the-inside-refuses-a-request-above-it.md) — a Driver states the most of a Machine it accepts, and the inside refuses a request above it
 - [ADR 0041](./adr/0041-a-snapshot-records-its-disks-a-restore-takes-exactly-those-and-a-non-root-disk-reaches-the-guest-by-hot-plug.md) — a snapshot records its disks, a restore takes exactly those, and a non-root disk reaches the guest by hot-plug (decision 3 superseded by ADR 0042)
 - [ADR 0042](./adr/0042-the-supervisor-links-the-files-a-process-description-lists-into-the-run-directory-before-the-vmm-starts.md) — the supervisor links the files a process description lists into the run directory before the VMM starts
+- [ADR 0043](./adr/0043-an-exited-command-carries-the-time-the-guest-agent-reaped-it-by-the-guests-clock.md) — an exited command carries the time the Guest Agent reaped it, by the guest's clock
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

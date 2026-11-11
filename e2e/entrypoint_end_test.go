@@ -25,6 +25,7 @@ func TestE2E_AnEntrypointThatEndsStopsTheMachineWithItsExitCode(t *testing.T) {
 
 	_, err := n.client.CreateMachine(ctx, createRequest("ends", pulled.Digest))
 	require.NoError(t, err)
+	beforeStart := time.Now()
 	_, err = n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "ends"})
 	require.NoError(t, err)
 
@@ -53,4 +54,13 @@ func TestE2E_AnEntrypointThatEndsStopsTheMachineWithItsExitCode(t *testing.T) {
 	require.NoError(t, err, "the entrypoint's record of an ended Machine")
 	assert.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
 	assert.Equal(t, int32(7), record.ExitCode)
+
+	// The time is the guest's clock, which the host set at the boot, so it lies between the
+	// host's readings taken before the Start and after this read.
+	afterRead := time.Now()
+	require.NotNil(t, record.EndedAt, "the entrypoint's record names when it ended")
+	assert.True(t, record.EndedAt.IsValid())
+	endedAt := record.EndedAt.AsTime()
+	assert.False(t, endedAt.Before(beforeStart) || endedAt.After(afterRead),
+		"the entrypoint ended at %v by the guest's clock, outside %v..%v", endedAt, beforeStart, afterRead)
 }
