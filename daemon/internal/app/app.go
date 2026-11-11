@@ -131,6 +131,9 @@ func New(cfg Config) (*App, error) {
 	if n := cfg.Network; n != nil {
 		hc, err := n.toHostnet(cfg.VMMUIDRange)
 		if err == nil {
+			err = hc.CheckForwarding(os.ReadFile)
+		}
+		if err == nil {
 			network, err = hostnet.New(hc)
 		}
 		if err != nil {

@@ -22,10 +22,25 @@ import (
 // they change the kernel's network configuration and run in a network
 // namespace made for them (internal/nstest).
 
-func networkConfigured(t *testing.T) app.Config {
+func networkUnforwarded(t *testing.T) app.Config {
 	cfg := testConfig(t)
 	cfg.Network = &app.NetworkConfig{IPv4Prefix: "10.78.0.0/24", IPv4Gateway: "10.78.0.1", IPv6Prefix: "fd78::/64"}
 	return cfg
+}
+
+// forwarding sets both forwarding sysctls of the test's namespace, as the host
+// of a node does.
+func forwarding(t *testing.T, value string) {
+	t.Helper()
+	for _, path := range []string{"/proc/sys/net/ipv4/ip_forward", "/proc/sys/net/ipv6/conf/all/forwarding"} {
+		require.NoError(t, os.WriteFile(path, []byte(value), 0o644), path)
+	}
+}
+
+// networkConfigured is networkUnforwarded in a namespace whose forwarding is on.
+func networkConfigured(t *testing.T) app.Config {
+	forwarding(t, "1")
+	return networkUnforwarded(t)
 }
 
 // tapChains names the chains the adapter's netdev table holds, one per tap, or
@@ -82,6 +97,19 @@ func TestNetwork_AStartMakesATapAndAStopRemovesIt(t *testing.T) {
 		_, err := n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "a", GracePeriod: durationpb.New(time.Second)})
 		require.NoError(t, err)
 		assert.Empty(t, tapChains(t), "Stop removed the rules")
+	})
+}
+
+// A node whose forwarding is off for a family it serves does not start, and
+// names the sysctl; the same node starts once the host has set it.
+func TestNetwork_AStartRefusesAServedFamilyWhoseForwardingIsOff(t *testing.T) {
+	nstest.Run(t, func(t *testing.T) {
+		forwarding(t, "0")
+		_, err := app.New(networkUnforwarded(t))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "/proc/sys/net/ipv4/ip_forward")
+
+		serve(t, networkConfigured(t)) // control: the same configuration starts with forwarding on
 	})
 }
 
