@@ -83,4 +83,4 @@ The use case is `daemon/internal/image/` ([structure.md](./structure.md) §Ports
 
 - **Reconversion** when the converter changes: each image records its converter, and nothing yet decides when an image converted by an older one is replaced.
 - **Distribution of MachineImages** between nodes and registries, and the published media types it needs.
-- Whether and how the required kernel conditions of an image are negotiated with the guest kernel project once it exists ([guest.md](./guest.md) §Open questions).
+- Whether and how the required kernel conditions of an image are negotiated with naru, the owner of the guest kernel ([guest.md](./guest.md) §Open questions).
