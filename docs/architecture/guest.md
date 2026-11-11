@@ -97,4 +97,5 @@ The finding: of the candidates checked, only Kata Containers 4.3.1's kernel meet
 
 ## Open questions
 
+- **What the guest does with a non-root disk (#2 §6 item 9).** The agent finds and releases a disk and does nothing else with it: it does not mount, format or partition it, and leaves the device to the entrypoint. Whether it should, and what a disk is for, waits on item 9. How the agent identifies a disk is settled ([ADR 0041](./adr/0041-a-snapshot-records-its-disks-a-restore-takes-exactly-those-and-a-non-root-disk-reaches-the-guest-by-hot-plug.md)).
 - **Guest kernel management and the allowed scope of user-supplied kernels (#2 §6 item 11).** The first real Machine boots on a published kernel (Current decisions), so what remains open is when a kernel built by naru replaces it (a condition no published kernel meets becomes necessary, or the missing `CONFIG_VMGENID` is shown to matter), and the scope of user-supplied kernels.
