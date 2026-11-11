@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	guestv1alpha1 "github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -301,7 +302,16 @@ func execRecord(r *guestv1alpha1.ExecRecord) (machine.ExecRecord, error) {
 		Reason:     r.GetReason(),
 		ExitCode:   r.GetExitCode(),
 		TermSignal: r.GetTermSignal(),
+		EndedAt:    endedAt(r.GetEndedAt()),
 	}, nil
+}
+
+// endedAt is the time the guest reported, or zero where it reported none.
+func endedAt(at *timestamppb.Timestamp) time.Time {
+	if at == nil {
+		return time.Time{}
+	}
+	return at.AsTime()
 }
 
 // Health implements machine.Guest.

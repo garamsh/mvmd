@@ -44,6 +44,10 @@ type ExecRecord struct {
 	ExitCode int32
 	// TermSignal is the signal that ended an exited command, or zero.
 	TermSignal int32
+	// EndedAt is when an exited command ended by the guest's clock, as the
+	// Guest Agent read it when it reaped the command. It is zero where the
+	// guest gave no time; mvmd never puts its own in its place.
+	EndedAt time.Time
 }
 
 // OutputStream names which of the command's streams a chunk came from.

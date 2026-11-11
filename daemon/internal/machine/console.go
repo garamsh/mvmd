@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // consoleLinePrefix begins every line the Guest Agent writes to the console
@@ -132,6 +133,22 @@ func readConsoleLine(r *bufio.Reader) (string, error) {
 	}
 }
 
+// cutEndedAt splits an exit line's tail into the number and the time after
+// ` at=`. A line from an older initrd has no time, and one whose time is not
+// RFC 3339 has none that can be trusted: the time is then zero, and the
+// number is still read.
+func cutEndedAt(tail string) (string, time.Time) {
+	number, text, found := strings.Cut(tail, " at=")
+	if !found {
+		return number, time.Time{}
+	}
+	at, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return number, time.Time{}
+	}
+	return number, at.UTC()
+}
+
 // parseConsoleLine reads one line of the forms guest.md lists.
 func parseConsoleLine(line string) (consoleOutcome, bool) {
 	text, ok := strings.CutPrefix(line, consoleLinePrefix)
@@ -142,17 +159,19 @@ func parseConsoleLine(line string) (consoleOutcome, bool) {
 	exec := func(r ExecRecord) ExecRecord { r.ID = entrypointExec; return r }
 	switch {
 	case strings.HasPrefix(text, "entrypoint exited code="):
-		n, err := strconv.ParseInt(strings.TrimPrefix(text, "entrypoint exited code="), 10, 32)
+		number, at := cutEndedAt(strings.TrimPrefix(text, "entrypoint exited code="))
+		n, err := strconv.ParseInt(number, 10, 32)
 		if err != nil {
 			return consoleOutcome{}, false
 		}
-		return consoleOutcome{entrypointRank, exec(ExecRecord{Status: ExecExited, ExitCode: int32(n)})}, true
+		return consoleOutcome{entrypointRank, exec(ExecRecord{Status: ExecExited, ExitCode: int32(n), EndedAt: at})}, true
 	case strings.HasPrefix(text, "entrypoint exited signal="):
-		n, err := strconv.ParseInt(strings.TrimPrefix(text, "entrypoint exited signal="), 10, 32)
+		number, at := cutEndedAt(strings.TrimPrefix(text, "entrypoint exited signal="))
+		n, err := strconv.ParseInt(number, 10, 32)
 		if err != nil || n <= 0 {
 			return consoleOutcome{}, false
 		}
-		return consoleOutcome{entrypointRank, exec(ExecRecord{Status: ExecExited, TermSignal: int32(n)})}, true
+		return consoleOutcome{entrypointRank, exec(ExecRecord{Status: ExecExited, TermSignal: int32(n), EndedAt: at})}, true
 	case strings.HasPrefix(text, "entrypoint not started reason="):
 		reason := strings.TrimPrefix(text, "entrypoint not started reason=")
 		return consoleOutcome{entrypointRank, exec(ExecRecord{Status: ExecNotStarted, Reason: reason})}, true

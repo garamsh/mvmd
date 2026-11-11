@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/protoadapt"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	guestv1alpha1 "github.com/garamsh/mvmd/daemon/internal/guestapi/v1alpha1"
 	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
@@ -52,6 +53,7 @@ type state struct {
 	onlined    []uint32 // the vCPU counts OnlineVcpus asked for, in order
 	exec       *guestv1alpha1.ExecRequest
 	execStatus guestv1alpha1.ExecStatus
+	endedAt    *timestamppb.Timestamp // the time the exec's records carry
 	outStream  guestv1alpha1.OutputStream
 	outAfter   []uint64
 	patchOut   guestv1alpha1.PatchOutcome
@@ -237,18 +239,18 @@ func (a *agent) ReleaseDisk(_ context.Context, r *guestv1alpha1.ReleaseDiskReque
 func (a *agent) Exec(_ context.Context, r *guestv1alpha1.ExecRequest) (*guestv1alpha1.ExecResponse, error) {
 	a.mu.Lock()
 	a.exec = r
-	st := a.execStatus
+	st, endedAt := a.execStatus, a.endedAt
 	a.mu.Unlock()
 	if err := a.failure("Exec"); err != nil {
 		return nil, err
 	}
-	return &guestv1alpha1.ExecResponse{Record: &guestv1alpha1.ExecRecord{ExecId: r.GetExecId(), Status: st, Reason: "why", ExitCode: 3, TermSignal: 9}}, nil
+	return &guestv1alpha1.ExecResponse{Record: &guestv1alpha1.ExecRecord{ExecId: r.GetExecId(), Status: st, Reason: "why", ExitCode: 3, TermSignal: 9, EndedAt: endedAt}}, nil
 }
 
 func (a *agent) ReadExecOutput(r *guestv1alpha1.ReadExecOutputRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ReadExecOutputResponse]) error {
 	a.mu.Lock()
 	a.outAfter = append(a.outAfter, r.GetAfterOffset())
-	output, hold, stream := a.output, a.holdAfter, a.outStream
+	output, hold, stream, endedAt := a.output, a.holdAfter, a.outStream, a.endedAt
 	a.mu.Unlock()
 	if err := a.failure("ReadExecOutput"); err != nil {
 		return err
@@ -268,7 +270,7 @@ func (a *agent) ReadExecOutput(r *guestv1alpha1.ReadExecOutputRequest, srv grpc.
 		sent++
 	}
 	return srv.Send(&guestv1alpha1.ReadExecOutputResponse{Part: &guestv1alpha1.ReadExecOutputResponse_Record{
-		Record: &guestv1alpha1.ExecRecord{ExecId: r.GetExecId(), Status: guestv1alpha1.ExecStatus_EXEC_STATUS_EXITED, ExitCode: 7},
+		Record: &guestv1alpha1.ExecRecord{ExecId: r.GetExecId(), Status: guestv1alpha1.ExecStatus_EXEC_STATUS_EXITED, ExitCode: 7, EndedAt: endedAt},
 	}})
 }
 
@@ -581,6 +583,36 @@ func TestExec_MapsEachStatus(t *testing.T) {
 			assert.Equal(t, []string{"ls", "-l"}, a.exec.GetArgv())
 			assert.Equal(t, map[string]string{"A": "b"}, a.exec.GetEnv())
 			assert.Equal(t, "/w", a.exec.GetWorkingDir())
+		})
+	}
+}
+
+// The time the agent stamped on a record reaches the daemon's record as the
+// agent sent it, in a start's answer and in the final record of an output read;
+// a record with no time maps to none.
+func TestExec_CarriesTheTimeTheAgentStamped(t *testing.T) {
+	stamped := time.Date(2026, 11, 11, 12, 34, 56, 123456789, time.UTC)
+	for _, tt := range []struct {
+		name string
+		sent *timestamppb.Timestamp
+		want time.Time
+	}{
+		{"a time", timestamppb.New(stamped), stamped},
+		{"no time", nil, time.Time{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			a := h.agentOf(t, "m")
+			a.execStatus = guestv1alpha1.ExecStatus_EXEC_STATUS_EXITED
+			a.endedAt = tt.sent
+
+			started, err := h.guest.Exec(context.Background(), "m", "x", machine.ExecSpec{Command: []string{"ls"}})
+			require.NoError(t, err)
+			read, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 0, func(machine.OutputChunk) error { return nil })
+			require.NoError(t, err)
+
+			assert.True(t, tt.want.Equal(started.EndedAt), "the start's answer: %v", started.EndedAt)
+			assert.True(t, tt.want.Equal(read.EndedAt), "the output read's record: %v", read.EndedAt)
 		})
 	}
 }

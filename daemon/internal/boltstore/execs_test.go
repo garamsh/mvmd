@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,6 +59,38 @@ func TestStore_ExecEntriesSurviveCloseAndReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, entries, got[0].Execs, "ordered by exec identifier")
+}
+
+// The time an exited command ended is part of its record: it is read back after
+// a restart as it was stored, and a record that has none reads back with none.
+func TestStore_AnExecsEndTimeSurvivesCloseAndReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db := open(t, dir)
+	ended := time.Date(2026, 11, 11, 12, 34, 56, 123456789, time.UTC)
+	timed := machine.ExecEntry{
+		Machine: "m", ID: "timed", Request: "r1", Answered: true,
+		Spec:   machine.ExecSpec{Command: []string{"true"}},
+		Record: machine.ExecRecord{ID: "timed", Status: machine.ExecExited, EndedAt: ended},
+	}
+	untimed := machine.ExecEntry{
+		Machine: "m", ID: "untimed", Request: "r2", Answered: true,
+		Spec:   machine.ExecSpec{Command: []string{"true"}},
+		Record: machine.ExecRecord{ID: "untimed", Status: machine.ExecExited},
+	}
+	r := records()[0]
+	r.Execs = []machine.ExecEntry{timed, untimed}
+	require.NoError(t, db.Machines().Save(ctx, r))
+	require.NoError(t, db.Close())
+
+	db = open(t, dir)
+	defer db.Close()
+	got, err := db.Machines().Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Execs, 2)
+	assert.True(t, ended.Equal(got[0].Execs[0].Record.EndedAt), "the time: %v", got[0].Execs[0].Record.EndedAt)
+	assert.True(t, got[0].Execs[1].Record.EndedAt.IsZero(), "no time is not a time: %v", got[0].Execs[1].Record.EndedAt)
 }
 
 // A Save that carries no entries keeps the Machine's, and one that carries
