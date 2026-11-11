@@ -257,6 +257,21 @@ func TestEvents_TheExpiryIsOnTheStream(t *testing.T) {
 	assert.Equal(t, v1alpha2.DeadlineEvent_KIND_EXPIRED, events[1].GetDeadline().GetKind())
 }
 
+func TestEvents_ARenewalIsOnTheStreamAsRenewed(t *testing.T) {
+	n := start(t, testConfig(t))
+	s := watch(t, n, 0)
+	for number := uint64(1); number <= 2; number++ {
+		_, err := n.client.RenewDeadline(context.Background(), &v1alpha2.RenewDeadlineRequest{
+			Length: durationpb.New(time.Hour), RenewalNumber: number,
+		})
+		require.NoError(t, err)
+	}
+
+	events := recvN(t, s, 2)
+	assert.Equal(t, v1alpha2.DeadlineEvent_KIND_ARMED, events[0].GetDeadline().GetKind())
+	assert.Equal(t, v1alpha2.DeadlineEvent_KIND_RENEWED, events[1].GetDeadline().GetKind())
+}
+
 // Machines changing state together are one consecutive sequence, and each
 // Machine's own events are in the order its states were committed.
 func TestEvents_ConcurrentStateChangesAreOneOrderedSequence(t *testing.T) {
