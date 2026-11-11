@@ -45,6 +45,14 @@ func (c conversionSupervision) Terminate(ctx context.Context, id machine.Machine
 	return c.sup.Terminate(ctx, id)
 }
 
+func (c conversionSupervision) RemoveState(ctx context.Context, id machine.MachineID) error {
+	return c.sup.RemoveState(ctx, id)
+}
+
+func (c conversionSupervision) ListState(ctx context.Context) ([]machine.MachineID, error) {
+	return c.sup.ListState(ctx)
+}
+
 func (c conversionSupervision) Live(ctx context.Context) ([]machine.MachineID, error) {
 	live, err := c.sup.Live(ctx)
 	if err != nil {

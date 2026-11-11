@@ -41,6 +41,13 @@ func TestConfig_Parses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &app.SupervisionConfig{Binary: "/usr/libexec/mvmd-supervisor", Cgroup: "/sys/fs/cgroup/mvmd-supervisors"}, withSupervision.Supervision)
 
+	// Control for the supervision.dir refusals: the default, the machines
+	// directory under the state directory, and a path outside it are accepted.
+	for _, dir := range []string{``, `/v/s/machines`, `/v/s/machines/`, `/var/lib/other`, `/v/sibling`} {
+		_, err := app.ParseConfig([]byte(`{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"` + dir + `"}}`))
+		require.NoError(t, err, "dir %q", dir)
+	}
+
 	// A valid absolute vmm_cgroup is parsed into the struct.
 	withVMMCgroup, err := app.ParseConfig([]byte(`{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/usr/libexec/mvmd-supervisor","vmm_cgroup":"/sys/fs/cgroup/mvmd-vmm"}}`))
 	require.NoError(t, err)
@@ -90,6 +97,14 @@ func TestConfig_Refuses(t *testing.T) {
 		{"an unknown driver", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"qemu"}`, "is not one of"},
 		{"a relative supervisor binary", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"mvmd-supervisor"}}`, "supervision.binary"},
 		{"a relative supervisor directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"d"}}`, "supervision.dir"},
+		{"a supervisor directory that is the state directory itself", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/v/s"}}`, "supervision.dir"},
+		{"a supervisor directory that is the state directory spelled with a dot", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/v/s/."}}`, "supervision.dir"},
+		{"a supervisor directory that is an ancestor of the state directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/v"}}`, "supervision.dir"},
+		{"a supervisor directory that is the root directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/"}}`, "supervision.dir"},
+		{"a supervisor directory that is a path inside the state directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/v/s/other"}}`, "supervision.dir"},
+		{"a supervisor directory that is a path below the machines directory", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/v/s/machines/m"}}`, "supervision.dir"},
+		{"a supervisor directory that is an ancestor above a state directory path component named like ..data", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/srv/..data/mvmd","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/srv"}}`, "supervision.dir"},
+		{"a supervisor directory inside the state directory named like ..runs", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v/s","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","dir":"/v/s/..runs"}}`, "supervision.dir"},
 		{"a relative supervisor cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","cgroup":"c"}}`, "supervision.cgroup"},
 		{"a relative vmm cgroup", `{"socket":{"path":"/s","mode":"0660"},"state_dir":"/v","driver":"memory","vmm_uid_range":{"first":1000,"count":10},"supervision":{"binary":"/b","vmm_cgroup":"vmm"}}`, "supervision.vmm_cgroup"},
 		{"a network that serves no family", networkConfig(`{}`), "serves neither"},

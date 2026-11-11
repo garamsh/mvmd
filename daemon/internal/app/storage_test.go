@@ -91,7 +91,7 @@ func TestStorage_ANodeWhoseRunDirectoriesAreOnAnotherFileSystemDoesNotStart(t *t
 
 	// The control: the same node with its run directories under the state
 	// directory starts, and the probe leaves nothing there either.
-	cfg.Supervision.Dir = filepath.Join(cfg.StateDir, "runs")
+	cfg.Supervision.Dir = filepath.Join(cfg.StateDir, "machines")
 	_, err = app.New(cfg)
 	require.NoError(t, err)
 	for _, dir := range []string{cfg.Supervision.Dir, filepath.Join(cfg.StateDir, "snapshots", "staging")} {

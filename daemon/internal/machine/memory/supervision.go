@@ -2,18 +2,21 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
 // Supervision is an in-memory machine.Supervision. Its steps are "run-dir",
-// "start", "terminate" and "live".
+// "start", "terminate", "live", "remove-state" and "list-state". A Machine has
+// state from its first Start until RemoveState.
 type Supervision struct {
 	Failures
 
 	mu      sync.Mutex
 	running map[machine.MachineID]started
+	state   map[machine.MachineID]bool
 }
 
 type started struct {
@@ -23,7 +26,7 @@ type started struct {
 
 // NewSupervision returns a Supervision with no process running.
 func NewSupervision() *Supervision {
-	return &Supervision{running: make(map[machine.MachineID]started)}
+	return &Supervision{running: make(map[machine.MachineID]started), state: make(map[machine.MachineID]bool)}
 }
 
 // Start implements machine.Supervision.
@@ -33,6 +36,7 @@ func (s *Supervision) Start(_ context.Context, id machine.MachineID, process mac
 	}
 	s.mu.Lock()
 	s.running[id] = started{process, user}
+	s.state[id] = true
 	s.mu.Unlock()
 	return nil
 }
@@ -68,6 +72,50 @@ func (s *Supervision) Live(context.Context) ([]machine.MachineID, error) {
 		out = append(out, id)
 	}
 	return out, nil
+}
+
+// RemoveState implements machine.Supervision. It refuses a Machine whose
+// process exists, as the real adapter does.
+func (s *Supervision) RemoveState(_ context.Context, id machine.MachineID) error {
+	if err := s.Enter("remove-state"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.running[id]; ok {
+		return fmt.Errorf("the supervisor of %q is running", id)
+	}
+	delete(s.state, id)
+	return nil
+}
+
+// ListState implements machine.Supervision.
+func (s *Supervision) ListState(context.Context) ([]machine.MachineID, error) {
+	if err := s.Enter("list-state"); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []machine.MachineID
+	for id := range s.state {
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// HasState reports whether the Machine has state kept.
+func (s *Supervision) HasState(id machine.MachineID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state[id]
+}
+
+// KeepState makes the Machine have state, as a state directory a Delete that
+// never finished leaves.
+func (s *Supervision) KeepState(id machine.MachineID) {
+	s.mu.Lock()
+	s.state[id] = true
+	s.mu.Unlock()
 }
 
 // Running returns the process the Machine's supervisor was started with, and
