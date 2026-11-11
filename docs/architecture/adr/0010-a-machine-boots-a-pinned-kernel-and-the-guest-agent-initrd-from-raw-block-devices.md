@@ -67,3 +67,7 @@ A Driver boots a VM from boot artefacts stated in mvmd's terms: a kernel file, a
 - A VMM admitted later cannot boot a PVH ELF kernel or an `Image` and needs a per-Driver kernel.
 - The guest kernel project chooses a kernel these conditions do not describe, or finds a published kernel that meets them, so the project was not needed for the first Machine.
 - Booting stalls or fails when mvmd is slow to reach the Guest Agent at boot, so the boot description belongs in the guest before the channel exists.
+
+## Errata
+
+- 2026-11-11. The decision stands. §Context, §Decision (The guest kernel project is due) and §Consequences call the owner of the guest kernel "a separate project" and "the guest kernel project", created at the prototype stage. Decision 6 of [garamsh/discussions#3](https://github.com/garamsh/discussions/discussions/3), the owner's, read on 2026-11-11, replaces the guest kernel reply this ADR cites: the project that builds and manages the guest kernel is naru, and the rule that mvmd holds no kernel configuration or patches is unchanged. Where this ADR says "the guest kernel project", it means that project. The kernel is still a file the node's configuration pins by path and digest, and mvmd builds none.

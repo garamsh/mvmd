@@ -50,3 +50,7 @@ The structure of the daemon is recorded in [ADR 0002](./0002-mvmd-is-structured-
 - Machines run on two nodes after a Node Agent failure although the deadline is configured, so the fencing mechanism does not do what assigning it to mvmd assumed.
 - Most runtime API changes are forced by a single client's needs, which means the API models that client rather than a Machine.
 - The Driver contract needs a Firecracker or Cloud Hypervisor term to express an operation, or changes when the first out-of-process VMM arrives.
+
+## Errata
+
+- 2026-11-11. The decision stands. §Context, the guest kernel reply, and §Decision, Guest kernel, say the guest kernel is built and managed by a separate project created at the prototype stage. Decision 6 of [garamsh/discussions#3](https://github.com/garamsh/discussions/discussions/3), the owner's, read on 2026-11-11, replaces that reply: the project that builds and manages the guest kernel is naru, with [the same reasons](https://github.com/garamsh/discussions/discussions/2#discussioncomment-19533418) and the same rule that mvmd holds no kernel configuration or patches. mvmd still builds no kernel, and the Dependency direction is unchanged: mvmd depends on nothing of gaon or naru.
