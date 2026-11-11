@@ -51,6 +51,9 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 	default:
 		return fail(ErrPreconditionFailed, "Machine %q is %s; snapshot needs Running or Paused", id, m.State)
 	}
+	if m.KernelDigest == "" {
+		return fail(ErrPreconditionFailed, "Machine %q records no kernel digest, so a snapshot of it could not be restored; restart it, which records one", id)
+	}
 	// The guest is held paused for the whole capture, so its memory and its
 	// disk are one pair. The Machine's recorded state does not change: it is
 	// returned to what it was.

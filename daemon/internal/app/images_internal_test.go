@@ -47,7 +47,7 @@ func TestConversionSupervision_ExpiresAtTheEndOfTheLimit(t *testing.T) {
 }
 
 func validConversion() ConversionConfig {
-	return ConversionConfig{Converter: "converter-1", VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m"}
+	return ConversionConfig{Kernel: "/opt/conversion-kernel", KernelSHA256: strings.Repeat("a", 64), Converter: "converter-1", VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m"}
 }
 
 // The section reaches the use case's settings as written.
@@ -56,6 +56,7 @@ func TestConversionConfig_SettingsCarryTheSection(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "converter-1", settings.Converter)
+	assert.Equal(t, machine.KernelFile{Path: "/opt/conversion-kernel", SHA256: strings.Repeat("a", 64)}, settings.Kernel)
 	assert.Equal(t, machine.Resources{VCPUs: 2, MemoryBytes: 512 << 20}, settings.Resources)
 	assert.Equal(t, uint64(1<<30), settings.OutputBytes)
 	assert.Equal(t, uint64(1<<20), settings.NameSetBytes)

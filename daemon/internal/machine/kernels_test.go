@@ -3,6 +3,7 @@ package machine_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -175,4 +176,32 @@ func TestRestoreSnapshot_RequiresTheKernelTheSnapshotRecorded(t *testing.T) {
 		require.NoError(t, e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", machine.NetworkPolicy{}))
 		assert.Equal(t, "next", e.requireState(t, "new", machine.StateRunning).Kernel)
 	})
+}
+
+// A Machine whose record carries no kernel digest (written before the digest was
+// kept) cannot be snapshotted: a restore needs the digest, so the snapshot would
+// be one no node could restore. The refusal writes nothing and says a restart
+// records one (ADR 0045).
+func TestSnapshot_RefusesAMachineWithNoRecordedKernelDigest(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(snapshotCaps...)
+	e.inState(t, "m", machine.StateRunning)
+	rec, ok := e.store.Record("m")
+	require.True(t, ok)
+	legacy := *rec.Machine
+	legacy.KernelDigest = ""
+	rec.Machine = &legacy
+	require.NoError(t, e.store.Save(ctx, rec))
+
+	svc := e.reopenedWith(t)
+	err := svc.Snapshot(ctx, "m", "snap", "r-snap")
+	requireKind(t, err, machine.ErrPreconditionFailed)
+	assert.ErrorContains(t, err, "restart")
+	assert.Empty(t, e.snaps.Held(), "nothing is written")
+	assert.False(t, e.driver.PausedAtSnapshot("m"), "the guest was not paused for it")
+
+	require.NoError(t, svc.Stop(ctx, "m", time.Second))
+	require.NoError(t, svc.Start(ctx, "m"))
+	require.NoError(t, svc.Snapshot(ctx, "m", "snap", "r-snap"), "control: after a start the same Machine records a digest and snapshots")
+	assert.Equal(t, []machine.SnapshotID{"snap"}, e.snaps.Held())
 }
