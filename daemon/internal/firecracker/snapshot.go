@@ -76,7 +76,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 		{Host: state, In: inSnapshot(inStateName), ReadOnly: true},
 		{Host: memory, In: inSnapshot(inMemoryName), ReadOnly: true},
 	}
-	p, err := d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
+	p, err := d.process(spec, append(boot, machine.DeviceFiles(append(spec.Devices[:len(spec.Devices):len(spec.Devices)], spec.RecordedDisks...))...))
 	if err != nil {
 		return machine.ProcessDescription{}, err
 	}
