@@ -52,7 +52,7 @@ func (r *Reader) Read() (nodecapacity.Capacity, error) {
 		CPUs:                uint32(set.Count()),
 		MemoryBytes:         mem,
 		StateTotalBytes:     fs.Blocks * unit,
-		StateAvailableBytes: fs.Bavail * unit,
+		StateAvailableBytes: fs.Bfree * unit,
 	}, nil
 }
 
