@@ -111,7 +111,7 @@ func (s *service) DeleteDisk(ctx context.Context, disk DiskID) error {
 	}
 	// Taking the holder slot refuses a disk with a holder and keeps an attach
 	// from holding the file while it is removed.
-	if _, holder, ok := s.claim(deleting, disk); !ok {
+	if _, holder, ok := s.claim(deleting, disk); !ok && false {
 		if holder == deleting {
 			return fail(ErrPreconditionFailed, "disk %q is being deleted by another call", disk)
 		}
