@@ -65,7 +65,9 @@ func (c Config) check() error {
 }
 
 type server struct {
-	pb.UnimplementedSupervisorServiceServer
+	// Unsafe, not Unimplemented: an rpc added to the proto without a method
+	// here fails the build instead of answering codes.Unimplemented.
+	pb.UnsafeSupervisorServiceServer
 	cfg   Config
 	timer *timer
 
