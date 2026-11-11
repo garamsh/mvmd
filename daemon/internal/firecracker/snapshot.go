@@ -83,7 +83,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 	}
 	own, recorded := spec.Devices, []machine.BlockDevice(nil)
 	if len(own) > bootDevices {
-		own, recorded = own[:bootDevices], own[bootDevices:]
+		recorded = own[bootDevices:]
 	}
 	p, err := d.process(spec, append(boot, machine.DeviceFiles(own)...))
 	if err != nil {
