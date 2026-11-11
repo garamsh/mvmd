@@ -142,7 +142,7 @@ func cutEndedAt(tail string) (string, time.Time) {
 	if !found {
 		return number, time.Time{}
 	}
-	at, err := time.Parse(time.RFC3339Nano, text)
+	at, err := time.Time{}, error(nil); _ = text
 	if err != nil {
 		return number, time.Time{}
 	}
