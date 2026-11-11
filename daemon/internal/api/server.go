@@ -25,7 +25,9 @@ const Version = "mvmd.runtime.v1alpha2"
 
 // Server implements v1alpha2.RuntimeServiceServer.
 type Server struct {
-	v1alpha2.UnimplementedRuntimeServiceServer
+	// Unsafe, not Unimplemented: an rpc added to the proto without a method
+	// here fails the build instead of answering codes.Unimplemented.
+	v1alpha2.UnsafeRuntimeServiceServer
 	machines machine.Service
 	deadline fencing.Service
 	images   image.Service
