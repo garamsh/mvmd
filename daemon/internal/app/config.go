@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/cloudhypervisor"
@@ -413,7 +414,10 @@ type SupervisionConfig struct {
 	// Binary is the absolute path of mvmd-supervisor.
 	Binary string `json:"binary"`
 	// Dir holds one state directory per Machine, with the supervisor's socket
-	// in it. Empty is "machines" under the state directory.
+	// in it. Empty is "machines" under the state directory. The directory is
+	// the Machines' supervision's alone: a start removes any directory in it
+	// whose Machine the State Store does not hold, so it is neither the state
+	// directory, nor an ancestor of it, nor inside it other than "machines".
 	Dir string `json:"dir"`
 	// Cgroup is a cgroup v2 directory the supervisors start in, outside
 	// mvmd's cgroup. Empty leaves them in mvmd's.
@@ -538,6 +542,8 @@ func (c Config) check() error {
 			return fmt.Errorf("supervision.binary %q is not an absolute path", s.Binary)
 		case s.Dir != "" && !filepath.IsAbs(s.Dir):
 			return fmt.Errorf("supervision.dir %q is not an absolute path", s.Dir)
+		case s.Dir != "" && sharesStateDir(s.Dir, c.StateDir):
+			return fmt.Errorf("supervision.dir %q conflicts with state_dir %q: it must be \"machines\" under it or a path outside it, because a start removes every directory in it that no Machine owns", s.Dir, c.StateDir)
 		case s.Cgroup != "" && !filepath.IsAbs(s.Cgroup):
 			return fmt.Errorf("supervision.cgroup %q is not an absolute path", s.Cgroup)
 		case s.VMMCgroup != "" && !filepath.IsAbs(s.VMMCgroup):
@@ -545,6 +551,17 @@ func (c Config) check() error {
 		}
 	}
 	return nil
+}
+
+// sharesStateDir reports whether dir is the state directory, an ancestor of
+// it, or inside it other than at "machines".
+func sharesStateDir(dir, stateDir string) bool {
+	dir, stateDir = filepath.Clean(dir), filepath.Clean(stateDir)
+	if rel, err := filepath.Rel(dir, stateDir); err == nil && !strings.HasPrefix(rel, "..") {
+		return true // dir is the state directory or an ancestor of it
+	}
+	rel, err := filepath.Rel(stateDir, dir)
+	return err == nil && !strings.HasPrefix(rel, "..") && rel != "machines"
 }
 
 func (s SocketConfig) perm() (os.FileMode, error) {
