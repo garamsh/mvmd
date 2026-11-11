@@ -29,7 +29,7 @@ var ErrBadMKFS = errors.New("mkfs.ext4 not available")
 
 // tempPrefix starts the name of a file a disk is built in before it is
 // published. No disk has such a name, so no unfinished file is listed.
-const tempPrefix = "tmp-"
+const tempPrefix = machine.TempDiskPrefix
 
 // requestAttr is the extended attribute that holds the request ID of the call
 // that made a disk, so the disk and its record are published together.

@@ -152,11 +152,12 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		// Only a failed attempt is recorded, and no Machine exists: the
 		// identifier is free again.
 	}
+	idErr := CheckMachineID(id)
 	switch {
 	case id == "":
 		return fail(ErrInvalid, "the Machine identifier is empty")
-	case CheckMachineID(id) != nil:
-		return fail(ErrInvalid, "the Machine identifier: %v", CheckMachineID(id))
+	case idErr != nil:
+		return fail(ErrInvalid, "the Machine identifier: %v", idErr)
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
 	case snapshot == "":

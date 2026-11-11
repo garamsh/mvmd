@@ -44,6 +44,7 @@ func TestCreate_MachineIdentifierForm(t *testing.T) {
 			requireKind(t, err, machine.ErrInvalid)
 			e.requireNoMachine(t, tt.id)
 			assert.Zero(t, e.disks.Calls("create-root"), "no disk was made")
+			assert.False(t, e.net.Allocated(tt.id), "no address was taken")
 
 			for _, ok := range accepted {
 				e := newEnvWithRange(machine.UIDRange{First: 2000, Count: 1})
@@ -64,6 +65,10 @@ func TestRestoreSnapshot_MachineIdentifierForm(t *testing.T) {
 			err := e.svc.RestoreSnapshot(ctx, tt.id, "r", "snap", narrowPolicy)
 			requireKind(t, err, machine.ErrInvalid)
 			e.requireNoMachine(t, tt.id)
+			assert.Zero(t, e.disks.Calls("create-root-from"), "no disk was made")
+			assert.False(t, e.net.Allocated(tt.id), "no address was taken")
+			_, held := e.disks.Holds(machine.RootDiskID(tt.id))
+			assert.False(t, held, "no root disk of the identifier is held")
 
 			require.NoError(t, e.svc.RestoreSnapshot(ctx, "a.b_C-1", "r", "snap", narrowPolicy), "the refusal took no UID")
 			e2 := newEnvWithRangeAndCaps(machine.UIDRange{First: 2000, Count: 2}, snapshotCaps...)

@@ -27,14 +27,15 @@ func RootDiskID(id MachineID) DiskID { return DiskID(string(id) + "-root") }
 // maxNameBytes is the longest name one path component holds.
 const maxNameBytes = 255
 
-// tempDiskPrefix starts the name of a file the Disk adapter builds a disk in.
-const tempDiskPrefix = "tmp-"
+// TempDiskPrefix starts the name of a file the Disk adapter builds a disk in.
+// No disk identifier starts with it.
+const TempDiskPrefix = "tmp-"
 
 // ValidDiskID reports whether id can name a disk file of the node: it is not
 // empty, ".", ".." or a name starting with "tmp-", and has no "/".
 func ValidDiskID(id DiskID) bool {
 	s := string(id)
-	if s == "" || s == "." || s == ".." || strings.HasPrefix(s, tempDiskPrefix) {
+	if s == "" || s == "." || s == ".." || strings.HasPrefix(s, TempDiskPrefix) {
 		return false
 	}
 	return !strings.Contains(s, "/")
