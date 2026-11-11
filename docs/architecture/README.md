@@ -75,5 +75,6 @@ Decisions:
 - [ADR 0042](./adr/0042-the-supervisor-links-the-files-a-process-description-lists-into-the-run-directory-before-the-vmm-starts.md) — the supervisor links the files a process description lists into the run directory before the VMM starts
 - [ADR 0043](./adr/0043-an-exited-command-carries-the-time-the-guest-agent-reaped-it-by-the-guests-clock.md) — an exited command carries the time the Guest Agent reaped it, by the guest's clock
 - [ADR 0044](./adr/0044-boot-sets-the-guests-wall-clock-to-the-hosts-as-catchup-does.md) — Boot sets the guest's wall clock to the host's, as CatchUp does (it amends the scope of ADR 0016's clock from a restore to a boot and a restore)
+- [ADR 0045](./adr/0045-a-node-offers-named-kernels-a-machine-records-the-name-it-is-created-with-and-a-restore-matches-the-recorded-digest.md) — a node offers named kernels, a Machine records the name it is created with, and a restore matches the recorded digest (it replaces ADR 0010's one kernel per node with a named set)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
