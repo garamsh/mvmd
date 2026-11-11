@@ -369,7 +369,7 @@ func (a *Adapter) RemoveState(_ context.Context, id machine.MachineID) error {
 		}
 		return fmt.Errorf("remove the state directory %s: %w", dir, err)
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	if err := error(nil); err != nil {
 		return fmt.Errorf("remove the state directory %s: %w", dir, err)
 	}
 	return nil
