@@ -353,6 +353,31 @@ func (d *Disk) Locate(_ context.Context, disk machine.DiskID) (string, error) {
 	return path, nil
 }
 
+// Give chowns the disk file to the owner's user and group.
+func (d *Disk) Give(_ context.Context, disk machine.DiskID, owner machine.DiskOwner) error {
+	return d.chown(disk, int(owner.UID), int(owner.GID))
+}
+
+// Reclaim chowns the disk file to the user and group mvmd runs as.
+func (d *Disk) Reclaim(_ context.Context, disk machine.DiskID) error {
+	return d.chown(disk, os.Getuid(), os.Getgid())
+}
+
+func (d *Disk) chown(disk machine.DiskID, uid, gid int) error {
+	if !validDiskID(disk) {
+		return fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+	}
+	path := filepath.Join(d.dir, string(disk))
+	err := os.Chown(path, uid, gid)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return machine.ErrDiskAbsent
+	case err != nil:
+		return fmt.Errorf("chown disk %s: %w", path, err)
+	}
+	return nil
+}
+
 // Remove deletes the disk file. Invalid DiskID is refused.
 // Removing an absent disk succeeds.
 func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {

@@ -73,18 +73,26 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))
 	}
-	root, uuid, err := s.disks.CreateRoot(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, spec.RootDiskBytes)
+	owner := DiskOwner{ID: id, UID: uid, GID: uid}
+	root, uuid, err := s.disks.CreateRoot(ctx, owner, spec.RootDiskBytes)
 	if err != nil {
 		reason := fmt.Sprintf("create root disk: %v", err)
 		s.release(disks...)
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", reason)))
+		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", nil, reason)))
+	}
+	// The attached disks are the Machine's before any Driver opens them
+	// (ADR 0038); the root disk was made its own.
+	attached := disks[:len(disks)-1]
+	if err := s.give(ctx, owner, attached...); err != nil {
+		s.release(disks...)
+		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, nil, err.Error())))
 	}
 	m := Machine{ID: id, State: StateCreated, Spec: held, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
 	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
 		reason := fmt.Sprintf("record the Machine: %v", err)
 		s.release(disks...)
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, reason)))
+		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, attached, reason)))
 	}
 	s.mu.Lock()
 	s.records[id] = rec
@@ -121,10 +129,13 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 
 // undoCreate releases what a failed Create made and returns the failure's
 // reason, extended by anything that could not be undone. It also releases the
-// UID allocated for id.
-func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, reason string) string {
+// UID allocated for id and gives the attached disks back to mvmd.
+func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, attached []DiskID, reason string) string {
 	ctx, cancel := s.compensating(ctx)
 	defer cancel()
+	if err := s.reclaim(ctx, attached...); err != nil {
+		reason += fmt.Sprintf("; %v", err)
+	}
 	if root != "" {
 		if err := s.disks.Remove(ctx, root); err != nil {
 			reason += fmt.Sprintf("; the root disk could not be removed: %v", err)
@@ -412,6 +423,12 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	}
 	if err := s.network.Release(ctx, id); err != nil {
 		return fail(ErrFailed, "release the network: %v", err)
+	}
+	// The attached disks outlive the Machine and are mvmd's again.
+	for _, a := range rec.Machine.Disks {
+		if err := s.reclaim(ctx, a.Disk); err != nil {
+			return fail(ErrFailed, "%v", err)
+		}
 	}
 	// A Machine restored from an unreadable record has no root disk name:
 	// the disk file is left for the operator, since naming one to remove

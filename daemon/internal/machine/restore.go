@@ -114,7 +114,7 @@ func (s *service) Restore(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	return errors.Join(append(errs, s.reconcileDisks(ctx), s.reconcileNetwork(ctx))...)
+	return errors.Join(append(errs, s.reconcileDisks(ctx), s.reconcileOwners(ctx), s.reconcileNetwork(ctx))...)
 }
 
 // reconcileDisks brings each Running Machine's record of its disks into
@@ -171,12 +171,37 @@ func (s *service) settleDisk(ctx context.Context, rec *Record, disk DiskID) erro
 			// The record could not be updated: hold the finding in memory.
 			s.setMachine(rec, &next)
 		}
-		s.release(disk)
+		var recorded error
 		if err != nil {
-			return fmt.Errorf("record the restored disks of %q: %w", rec.ID, err)
+			recorded = fmt.Errorf("record the restored disks of %q: %w", rec.ID, err)
 		}
+		return errors.Join(recorded, s.giveBack(ctx, disk))
 	}
 	return nil
+}
+
+// reconcileOwners gives each disk a record lists to its Machine again, so a
+// disk file is owned by its holder whatever a death left (ADR 0038). A disk the
+// node no longer holds is skipped.
+func (s *service) reconcileOwners(ctx context.Context) error {
+	s.mu.Lock()
+	var machines []Machine
+	for _, rec := range s.records {
+		if m := rec.Machine; m != nil && rec.Unreadable == "" && len(m.Disks) > 0 {
+			machines = append(machines, m.clone())
+		}
+	}
+	s.mu.Unlock()
+
+	var errs []error
+	for _, m := range machines {
+		for _, a := range m.Disks {
+			if err := s.disks.Give(ctx, a.Disk, ownerOf(m)); err != nil && !errors.Is(err, ErrDiskAbsent) {
+				errs = append(errs, fmt.Errorf("give disk %q to Machine %q: %w", a.Disk, m.ID, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // faultRestored records a Running Machine as Faulted with the reason.

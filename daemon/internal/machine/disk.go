@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-// ErrDiskAbsent is what Disk.Locate returns for a disk the node does not hold.
+// ErrDiskAbsent is what Disk.Locate, Give and Reclaim return for a disk the node does not hold.
 var ErrDiskAbsent = errors.New("disk not held by the node")
 
 // ErrDiskExists is what Disk.Create, CreateRoot and CreateRootFrom return for
@@ -59,6 +59,12 @@ type Disk interface {
 	// List returns every disk the node holds, root disks included, ordered by
 	// identifier.
 	List(ctx context.Context) ([]DiskEntry, error)
+	// Give makes the disk file owned by the owner's user, so the VMM of the
+	// Machine that holds the disk can open it, or returns ErrDiskAbsent.
+	Give(ctx context.Context, disk DiskID, owner DiskOwner) error
+	// Reclaim makes the disk file owned by mvmd's own user again, or returns
+	// ErrDiskAbsent.
+	Reclaim(ctx context.Context, disk DiskID) error
 	// Remove deletes a disk file. Removing an absent disk succeeds.
 	Remove(ctx context.Context, disk DiskID) error
 }

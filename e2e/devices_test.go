@@ -17,6 +17,63 @@ import (
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
+// A disk made by Create disk is listed with no holder, is a block device of the disk's size in
+// the guest of the Machine it is attached to, which List disks then names as its holder, and is
+// not deletable while attached. After Detach the guest lists the devices it listed before, and
+// Delete disk removes it. Both Drivers hot-plug a disk, so neither is expected to refuse.
+func TestE2E_ADiskMadeByCreateDiskIsAttachedToAGuestAndDetachedAgain(t *testing.T) {
+	const diskBytes = 64 << 20
+	n := startNode(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	info, err := n.client.GetRuntimeInfo(ctx, &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	require.Contains(t, info.Drivers[0].Capabilities, v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG, "the Driver reports the hot-plug capability the attach below needs")
+	n.startRunning(t, ctx, "hosting")
+
+	create := &v1alpha2.CreateDiskRequest{DiskId: "extra", RequestId: "create-extra", SizeBytes: diskBytes}
+	_, err = n.client.CreateDisk(ctx, create)
+	require.NoError(t, err)
+	_, err = n.client.CreateDisk(ctx, create)
+	assert.NoError(t, err, "the same request again succeeds")
+	_, err = n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "extra", RequestId: "create-extra-again", SizeBytes: diskBytes})
+	require.Error(t, err)
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_CONFLICT, v1alpha2.KindOf(err), "the same identifier under another request ID")
+	assert.Equal(t, map[string]string{"extra": "", "hosting-root": "hosting"}, n.holders(t, ctx), "the disk has no holder, and the Machine's root disk has the Machine")
+	assert.Equal(t, uint64(diskBytes), n.diskSizes(t, ctx)["extra"])
+
+	before := n.blockDevices(t, ctx, "hosting", "before")
+	require.NotEmpty(t, before, "the guest lists the devices of the disks it booted with")
+	attached, err := n.client.AttachDisk(ctx, &v1alpha2.AttachDiskRequest{MachineId: "hosting", Disk: &v1alpha2.DiskAttachment{DiskId: "extra"}})
+	require.NoError(t, err)
+	require.Len(t, attached.Machine.Disks, 1)
+	assert.Equal(t, "extra", attached.Machine.Disks[0].DiskId)
+
+	after := n.blockDevices(t, ctx, "hosting", "attached")
+	added := difference(after, before)
+	require.Len(t, added, 1, "the guest lists one device more than before: before %v, after %v", before, after)
+	assert.Equal(t, strconv.Itoa(diskBytes/512)+"\n", n.guestFile(t, ctx, "hosting", "size-of-"+added[0], "/sys/class/block/"+added[0]+"/size"), "the device is the disk's size in sectors")
+	assert.Empty(t, difference(before, after), "no device the guest had is gone")
+	assert.Equal(t, map[string]string{"extra": "hosting", "hosting-root": "hosting"}, n.holders(t, ctx), "the Machine holds the disk")
+
+	// The control: the refusal is the holder's, since the same call succeeds below once the disk
+	// is detached.
+	_, err = n.client.DeleteDisk(ctx, &v1alpha2.DeleteDiskRequest{DiskId: "extra"})
+	require.Error(t, err)
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED, v1alpha2.KindOf(err), "a disk a Machine holds")
+	assert.Contains(t, n.holders(t, ctx), "extra", "the refused call removed nothing")
+
+	detached, err := n.client.DetachDisk(ctx, &v1alpha2.DetachDiskRequest{MachineId: "hosting", DiskId: "extra"})
+	require.NoError(t, err)
+	assert.Empty(t, detached.Machine.Disks)
+	assert.Equal(t, before, n.blockDevices(t, ctx, "hosting", "detached"), "the guest lists the devices it listed before the attach")
+	assert.Equal(t, "", n.holders(t, ctx)["extra"], "the disk has no holder again")
+
+	_, err = n.client.DeleteDisk(ctx, &v1alpha2.DeleteDiskRequest{DiskId: "extra"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"hosting-root": "hosting"}, n.holders(t, ctx), "the deleted disk is no longer listed")
+}
+
 // SetResources within the ceiling changes the vCPUs and memory the guest reports, and one above
 // it is rejected as invalid and changes nothing. A Driver that cannot resize a running Machine
 // refuses it as unsupported, with the guest as it was.
@@ -78,6 +135,55 @@ func TestE2E_SetResourcesChangesWhatTheGuestReportsWithinTheCeiling(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, start.CpuCount, inspected.Machine.Resources.CpuCount, "the refused call changed nothing")
 	assert.Equal(t, start.MemoryBytes, inspected.Machine.Resources.MemoryBytes, "the refused call changed nothing")
+}
+
+// holders is what List disks answers: each disk's holding Machine by the disk's identifier, empty
+// for a disk no Machine holds.
+func (n *node) holders(t *testing.T, ctx context.Context) map[string]string {
+	t.Helper()
+	held := map[string]string{}
+	for _, d := range n.listedDisks(t, ctx) {
+		held[d.Id] = d.HolderMachineId
+	}
+	return held
+}
+
+// diskSizes is what List disks answers: each disk's size in bytes by its identifier.
+func (n *node) diskSizes(t *testing.T, ctx context.Context) map[string]uint64 {
+	t.Helper()
+	sizes := map[string]uint64{}
+	for _, d := range n.listedDisks(t, ctx) {
+		sizes[d.Id] = d.SizeBytes
+	}
+	return sizes
+}
+
+func (n *node) listedDisks(t *testing.T, ctx context.Context) []*v1alpha2.Disk {
+	t.Helper()
+	listed, err := n.client.ListDisks(ctx, &v1alpha2.ListDisksRequest{})
+	require.NoError(t, err)
+	return listed.Disks
+}
+
+// blockDevices lists the block devices the guest has, sorted.
+func (n *node) blockDevices(t *testing.T, ctx context.Context, machine, id string) []string {
+	t.Helper()
+	out, code := n.exec(t, ctx, machine, "devices-"+id, "/bin/entry", "ls", "/sys/class/block")
+	require.Equal(t, int32(0), code, "ls /sys/class/block: %s", out)
+	names := strings.Fields(out)
+	slices.Sort(names)
+	return names
+}
+
+// difference lists what a holds and b does not.
+func difference(a, b []string) []string {
+	var only []string
+	for _, name := range a {
+		if !slices.Contains(b, name) {
+			only = append(only, name)
+		}
+	}
+	return only
 }
 
 // guestFile reads a file of the guest through an exec of its entrypoint program.

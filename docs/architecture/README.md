@@ -68,5 +68,6 @@ Decisions:
 - [ADR 0035](./adr/0035-the-runtime-api-streams-listings-and-searches-and-serves-one-alpha-version-at-a-time.md) — the runtime API streams listings and searches and serves one alpha version at a time (`v1alpha2`)
 - [ADR 0036](./adr/0036-the-runtime-api-creates-lists-and-deletes-a-node-local-disk-through-the-disk-adapter.md) — the runtime API creates, lists and deletes a node-local disk through the Disk adapter
 - [ADR 0037](./adr/0037-a-restores-guest-catch-up-is-bounded-by-the-boot-timeout-as-a-starts-boot-is.md) — a restore's guest catch-up is bounded by the boot timeout, as a start's guest boot is
+- [ADR 0038](./adr/0038-a-disk-file-belongs-to-the-machine-that-holds-it.md) — a disk file belongs to the Machine that holds it (completes what ADR 0036 left open about a VMM opening a Create disk disk)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
