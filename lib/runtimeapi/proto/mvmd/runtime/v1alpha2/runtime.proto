@@ -5,6 +5,7 @@ syntax = "proto3";
 package mvmd.runtime.v1alpha2;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2;v1alpha2";
 
@@ -476,6 +477,12 @@ message ExecRecord {
   // The signal number that ended the command, as on Linux; set only when
   // status is EXITED and a signal ended the command, zero otherwise.
   int32 term_signal = 5;
+  // When the command ended, by the guest's clock, not the node's: the Guest
+  // Agent's reading of CLOCK_REALTIME when it reaped the command. The node
+  // sets that clock at Boot and at a restore, and between those it is the
+  // guest's own. Set only when status is EXITED, and unset where the time is
+  // not known.
+  google.protobuf.Timestamp ended_at = 6;
 }
 
 message ExecRequest {

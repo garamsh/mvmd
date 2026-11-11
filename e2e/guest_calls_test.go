@@ -68,6 +68,34 @@ func TestE2E_SignalExecEndsTheCommandItNamesAndNoOther(t *testing.T) {
 	assert.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, inspected.Machine.State, "a signal to a command leaves the Machine as it was")
 }
 
+// A command that has exited carries when it ended, by the guest's clock: the start's answer holds
+// none, the record that ends the output holds a time between the host's readings taken before the
+// Exec and after the read, and the record read again holds the same time.
+func TestE2E_AnExitedExecCarriesWhenItEnded(t *testing.T) {
+	n := startNode(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	n.startRunning(t, ctx, "timed")
+
+	beforeExec := time.Now()
+	started, err := n.client.Exec(ctx, &v1alpha2.ExecRequest{ExecId: "short", RequestId: "exec-short", MachineId: "timed", Command: []string{"/bin/entry", "exit", "3"}})
+	require.NoError(t, err)
+	assert.Nil(t, started.Record.EndedAt, "a command that has not ended has no end time")
+	_, record := n.execEnd(t, ctx, "timed", "short")
+	afterRead := time.Now()
+
+	require.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_EXITED, record.Status, record.Reason)
+	require.Equal(t, int32(3), record.ExitCode)
+	require.NotNil(t, record.EndedAt, "the exited command's record names when it ended")
+	endedAt := record.EndedAt.AsTime()
+	assert.False(t, endedAt.Before(beforeExec) || endedAt.After(afterRead),
+		"the command ended at %v by the guest's clock, outside %v..%v", endedAt, beforeExec, afterRead)
+
+	_, again := n.execEnd(t, ctx, "timed", "short")
+	require.NotNil(t, again.EndedAt)
+	assert.True(t, endedAt.Equal(again.EndedAt.AsTime()), "a second read gives the time the first did: %v", again.EndedAt.AsTime())
+}
+
 // Patch applies at the base digest, a retry at the expected digest succeeds with the content as
 // it is, and a base the file is not at is refused with the content as it was.
 func TestE2E_PatchFileAppliesAtTheBaseDigestAndRefusesAnotherBase(t *testing.T) {

@@ -7,7 +7,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use nix::sys::signal::{Signal, kill};
 use nix::sys::wait::{WaitPidFlag, waitpid};
@@ -57,7 +57,8 @@ struct State {
 }
 
 enum Ended {
-    Exit(ExitStatus),
+    /// The status, and the guest's clock when the command was reaped.
+    Exit(ExitStatus, SystemTime),
     Lost(String),
 }
 
@@ -310,8 +311,9 @@ impl Exec {
         let mut state = lock(&self.state);
         if state.record.status() == ExecStatus::Started {
             match state.ended.take() {
-                Some(Ended::Exit(status)) => {
+                Some(Ended::Exit(status, at)) => {
                     state.record.status = ExecStatus::Exited.into();
+                    state.record.ended_at = Some(at.into());
                     state.record.exit_code = status.code().unwrap_or_default();
                     state.record.term_signal = status.signal().unwrap_or_default();
                 }
@@ -404,7 +406,7 @@ async fn supervise(
     }
     // The process ID is out of reach of a signal from here on, whatever the pipes still hold.
     exec.reaped(match child.wait().await {
-        Ok(status) => Ended::Exit(status),
+        Ok(status) => Ended::Exit(status, SystemTime::now()),
         Err(error) => Ended::Lost(format!("the agent lost the command: {error}")),
     });
     let drained = tokio::time::timeout(DRAIN_GRACE, async {

@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
@@ -24,7 +25,11 @@ var outputStreams = map[machine.OutputStream]v1alpha2.OutputStream{
 }
 
 func execRecordToWire(r machine.ExecRecord) *v1alpha2.ExecRecord {
-	return &v1alpha2.ExecRecord{ExecId: string(r.ID), Status: execStatuses[r.Status], Reason: r.Reason, ExitCode: r.ExitCode, TermSignal: r.TermSignal}
+	wire := &v1alpha2.ExecRecord{ExecId: string(r.ID), Status: execStatuses[r.Status], Reason: r.Reason, ExitCode: r.ExitCode, TermSignal: r.TermSignal}
+	if !r.EndedAt.IsZero() {
+		wire.EndedAt = timestamppb.New(r.EndedAt)
+	}
+	return wire
 }
 
 func (s *Server) Exec(ctx context.Context, req *v1alpha2.ExecRequest) (*v1alpha2.ExecResponse, error) {

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -235,6 +236,15 @@ func (g *Guest) Finish(exec machine.ExecID, exitCode int32) {
 	defer g.mu.Unlock()
 	r := &g.execs[exec].record
 	r.Status, r.ExitCode = machine.ExecExited, exitCode
+}
+
+// FinishAt ends the command with the exit code, and the time the guest read
+// when it reaped it.
+func (g *Guest) FinishAt(exec machine.ExecID, exitCode int32, at time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	r := &g.execs[exec].record
+	r.Status, r.ExitCode, r.EndedAt = machine.ExecExited, exitCode, at
 }
 
 // Signal implements machine.Guest: a command that runs takes the signal, which

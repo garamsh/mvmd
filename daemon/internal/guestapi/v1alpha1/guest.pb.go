@@ -13,6 +13,7 @@ package guestv1alpha1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -924,8 +925,11 @@ type ExecRecord struct {
 	// offset of the earliest byte still held; a read after an earlier offset
 	// fails with OUT_OF_RANGE and names it.
 	EarliestOffset uint64 `protobuf:"varint,6,opt,name=earliest_offset,json=earliestOffset,proto3" json:"earliest_offset,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The guest's CLOCK_REALTIME when the agent reaped the command; set when
+	// status is EXITED and unset otherwise.
+	EndedAt       *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecRecord) Reset() {
@@ -998,6 +1002,13 @@ func (x *ExecRecord) GetEarliestOffset() uint64 {
 		return x.EarliestOffset
 	}
 	return 0
+}
+
+func (x *ExecRecord) GetEndedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EndedAt
+	}
+	return nil
 }
 
 type ExecRequest struct {
@@ -2864,7 +2875,7 @@ var File_guest_v1alpha1_guest_proto protoreflect.FileDescriptor
 
 const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\n" +
-	"\x1aguest/v1alpha1/guest.proto\x12\x13mvmd.guest.v1alpha1\"\xea\x01\n" +
+	"\x1aguest/v1alpha1/guest.proto\x12\x13mvmd.guest.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xea\x01\n" +
 	"\vBootRequest\x12\x1d\n" +
 	"\n" +
 	"image_uuid\x18\x01 \x01(\tR\timageUuid\x12$\n" +
@@ -2902,7 +2913,7 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\aentropy\x18\x02 \x01(\fR\aentropy\x12&\n" +
 	"\x0fhost_unix_nanos\x18\x03 \x01(\x03R\rhostUnixNanos\x12<\n" +
 	"\anetwork\x18\x04 \x01(\v2\".mvmd.guest.v1alpha1.NetworkConfigR\anetwork\"\x11\n" +
-	"\x0fCatchUpResponse\"\xdd\x01\n" +
+	"\x0fCatchUpResponse\"\x94\x02\n" +
 	"\n" +
 	"ExecRecord\x12\x17\n" +
 	"\aexec_id\x18\x01 \x01(\tR\x06execId\x127\n" +
@@ -2911,7 +2922,8 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\texit_code\x18\x04 \x01(\x05R\bexitCode\x12\x1f\n" +
 	"\vterm_signal\x18\x05 \x01(\x05R\n" +
 	"termSignal\x12'\n" +
-	"\x0fearliest_offset\x18\x06 \x01(\x04R\x0eearliestOffset\"\xd0\x01\n" +
+	"\x0fearliest_offset\x18\x06 \x01(\x04R\x0eearliestOffset\x125\n" +
+	"\bended_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\"\xd0\x01\n" +
 	"\vExecRequest\x12\x17\n" +
 	"\aexec_id\x18\x01 \x01(\tR\x06execId\x12\x12\n" +
 	"\x04argv\x18\x02 \x03(\tR\x04argv\x12;\n" +
@@ -3136,6 +3148,7 @@ var file_guest_v1alpha1_guest_proto_goTypes = []any{
 	(*DiskInUse)(nil),              // 53: mvmd.guest.v1alpha1.DiskInUse
 	nil,                            // 54: mvmd.guest.v1alpha1.RunConfig.EnvEntry
 	nil,                            // 55: mvmd.guest.v1alpha1.ExecRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),  // 56: google.protobuf.Timestamp
 }
 var file_guest_v1alpha1_guest_proto_depIdxs = []int32{
 	8,  // 0: mvmd.guest.v1alpha1.BootRequest.run:type_name -> mvmd.guest.v1alpha1.RunConfig
@@ -3146,59 +3159,60 @@ var file_guest_v1alpha1_guest_proto_depIdxs = []int32{
 	9,  // 5: mvmd.guest.v1alpha1.UpdateNetworkRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
 	9,  // 6: mvmd.guest.v1alpha1.CatchUpRequest.network:type_name -> mvmd.guest.v1alpha1.NetworkConfig
 	0,  // 7: mvmd.guest.v1alpha1.ExecRecord.status:type_name -> mvmd.guest.v1alpha1.ExecStatus
-	55, // 8: mvmd.guest.v1alpha1.ExecRequest.env:type_name -> mvmd.guest.v1alpha1.ExecRequest.EnvEntry
-	16, // 9: mvmd.guest.v1alpha1.ExecResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
-	1,  // 10: mvmd.guest.v1alpha1.OutputChunk.stream:type_name -> mvmd.guest.v1alpha1.OutputStream
-	20, // 11: mvmd.guest.v1alpha1.ReadExecOutputResponse.chunk:type_name -> mvmd.guest.v1alpha1.OutputChunk
-	16, // 12: mvmd.guest.v1alpha1.ReadExecOutputResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
-	26, // 13: mvmd.guest.v1alpha1.WriteFileRequest.start:type_name -> mvmd.guest.v1alpha1.WriteFileStart
-	27, // 14: mvmd.guest.v1alpha1.WriteFileRequest.end:type_name -> mvmd.guest.v1alpha1.WriteFileEnd
-	2,  // 15: mvmd.guest.v1alpha1.PatchFileResponse.outcome:type_name -> mvmd.guest.v1alpha1.PatchOutcome
-	3,  // 16: mvmd.guest.v1alpha1.FileEntry.kind:type_name -> mvmd.guest.v1alpha1.EntryKind
-	33, // 17: mvmd.guest.v1alpha1.ListFilesResponse.entries:type_name -> mvmd.guest.v1alpha1.FileEntry
-	33, // 18: mvmd.guest.v1alpha1.SearchFilesResponse.matches:type_name -> mvmd.guest.v1alpha1.FileEntry
-	4,  // 19: mvmd.guest.v1alpha1.BootFailed.step:type_name -> mvmd.guest.v1alpha1.BootStep
-	3,  // 20: mvmd.guest.v1alpha1.WrongFileKind.expected:type_name -> mvmd.guest.v1alpha1.EntryKind
-	5,  // 21: mvmd.guest.v1alpha1.NotBooted.state:type_name -> mvmd.guest.v1alpha1.BootState
-	6,  // 22: mvmd.guest.v1alpha1.GuestService.Boot:input_type -> mvmd.guest.v1alpha1.BootRequest
-	12, // 23: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:input_type -> mvmd.guest.v1alpha1.UpdateNetworkRequest
-	14, // 24: mvmd.guest.v1alpha1.GuestService.CatchUp:input_type -> mvmd.guest.v1alpha1.CatchUpRequest
-	17, // 25: mvmd.guest.v1alpha1.GuestService.Exec:input_type -> mvmd.guest.v1alpha1.ExecRequest
-	19, // 26: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:input_type -> mvmd.guest.v1alpha1.ReadExecOutputRequest
-	22, // 27: mvmd.guest.v1alpha1.GuestService.Signal:input_type -> mvmd.guest.v1alpha1.SignalRequest
-	24, // 28: mvmd.guest.v1alpha1.GuestService.ReadFile:input_type -> mvmd.guest.v1alpha1.ReadFileRequest
-	28, // 29: mvmd.guest.v1alpha1.GuestService.WriteFile:input_type -> mvmd.guest.v1alpha1.WriteFileRequest
-	30, // 30: mvmd.guest.v1alpha1.GuestService.PatchFile:input_type -> mvmd.guest.v1alpha1.PatchFileRequest
-	32, // 31: mvmd.guest.v1alpha1.GuestService.ListFiles:input_type -> mvmd.guest.v1alpha1.ListFilesRequest
-	35, // 32: mvmd.guest.v1alpha1.GuestService.SearchFiles:input_type -> mvmd.guest.v1alpha1.SearchFilesRequest
-	37, // 33: mvmd.guest.v1alpha1.GuestService.Terminate:input_type -> mvmd.guest.v1alpha1.TerminateRequest
-	39, // 34: mvmd.guest.v1alpha1.GuestService.FindDisk:input_type -> mvmd.guest.v1alpha1.FindDiskRequest
-	41, // 35: mvmd.guest.v1alpha1.GuestService.ReleaseDisk:input_type -> mvmd.guest.v1alpha1.ReleaseDiskRequest
-	43, // 36: mvmd.guest.v1alpha1.GuestService.OnlineVcpus:input_type -> mvmd.guest.v1alpha1.OnlineVcpusRequest
-	45, // 37: mvmd.guest.v1alpha1.GuestService.Health:input_type -> mvmd.guest.v1alpha1.HealthRequest
-	47, // 38: mvmd.guest.v1alpha1.GuestService.Info:input_type -> mvmd.guest.v1alpha1.InfoRequest
-	7,  // 39: mvmd.guest.v1alpha1.GuestService.Boot:output_type -> mvmd.guest.v1alpha1.BootResponse
-	13, // 40: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:output_type -> mvmd.guest.v1alpha1.UpdateNetworkResponse
-	15, // 41: mvmd.guest.v1alpha1.GuestService.CatchUp:output_type -> mvmd.guest.v1alpha1.CatchUpResponse
-	18, // 42: mvmd.guest.v1alpha1.GuestService.Exec:output_type -> mvmd.guest.v1alpha1.ExecResponse
-	21, // 43: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:output_type -> mvmd.guest.v1alpha1.ReadExecOutputResponse
-	23, // 44: mvmd.guest.v1alpha1.GuestService.Signal:output_type -> mvmd.guest.v1alpha1.SignalResponse
-	25, // 45: mvmd.guest.v1alpha1.GuestService.ReadFile:output_type -> mvmd.guest.v1alpha1.ReadFileResponse
-	29, // 46: mvmd.guest.v1alpha1.GuestService.WriteFile:output_type -> mvmd.guest.v1alpha1.WriteFileResponse
-	31, // 47: mvmd.guest.v1alpha1.GuestService.PatchFile:output_type -> mvmd.guest.v1alpha1.PatchFileResponse
-	34, // 48: mvmd.guest.v1alpha1.GuestService.ListFiles:output_type -> mvmd.guest.v1alpha1.ListFilesResponse
-	36, // 49: mvmd.guest.v1alpha1.GuestService.SearchFiles:output_type -> mvmd.guest.v1alpha1.SearchFilesResponse
-	38, // 50: mvmd.guest.v1alpha1.GuestService.Terminate:output_type -> mvmd.guest.v1alpha1.TerminateResponse
-	40, // 51: mvmd.guest.v1alpha1.GuestService.FindDisk:output_type -> mvmd.guest.v1alpha1.FindDiskResponse
-	42, // 52: mvmd.guest.v1alpha1.GuestService.ReleaseDisk:output_type -> mvmd.guest.v1alpha1.ReleaseDiskResponse
-	44, // 53: mvmd.guest.v1alpha1.GuestService.OnlineVcpus:output_type -> mvmd.guest.v1alpha1.OnlineVcpusResponse
-	46, // 54: mvmd.guest.v1alpha1.GuestService.Health:output_type -> mvmd.guest.v1alpha1.HealthResponse
-	48, // 55: mvmd.guest.v1alpha1.GuestService.Info:output_type -> mvmd.guest.v1alpha1.InfoResponse
-	39, // [39:56] is the sub-list for method output_type
-	22, // [22:39] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	56, // 8: mvmd.guest.v1alpha1.ExecRecord.ended_at:type_name -> google.protobuf.Timestamp
+	55, // 9: mvmd.guest.v1alpha1.ExecRequest.env:type_name -> mvmd.guest.v1alpha1.ExecRequest.EnvEntry
+	16, // 10: mvmd.guest.v1alpha1.ExecResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
+	1,  // 11: mvmd.guest.v1alpha1.OutputChunk.stream:type_name -> mvmd.guest.v1alpha1.OutputStream
+	20, // 12: mvmd.guest.v1alpha1.ReadExecOutputResponse.chunk:type_name -> mvmd.guest.v1alpha1.OutputChunk
+	16, // 13: mvmd.guest.v1alpha1.ReadExecOutputResponse.record:type_name -> mvmd.guest.v1alpha1.ExecRecord
+	26, // 14: mvmd.guest.v1alpha1.WriteFileRequest.start:type_name -> mvmd.guest.v1alpha1.WriteFileStart
+	27, // 15: mvmd.guest.v1alpha1.WriteFileRequest.end:type_name -> mvmd.guest.v1alpha1.WriteFileEnd
+	2,  // 16: mvmd.guest.v1alpha1.PatchFileResponse.outcome:type_name -> mvmd.guest.v1alpha1.PatchOutcome
+	3,  // 17: mvmd.guest.v1alpha1.FileEntry.kind:type_name -> mvmd.guest.v1alpha1.EntryKind
+	33, // 18: mvmd.guest.v1alpha1.ListFilesResponse.entries:type_name -> mvmd.guest.v1alpha1.FileEntry
+	33, // 19: mvmd.guest.v1alpha1.SearchFilesResponse.matches:type_name -> mvmd.guest.v1alpha1.FileEntry
+	4,  // 20: mvmd.guest.v1alpha1.BootFailed.step:type_name -> mvmd.guest.v1alpha1.BootStep
+	3,  // 21: mvmd.guest.v1alpha1.WrongFileKind.expected:type_name -> mvmd.guest.v1alpha1.EntryKind
+	5,  // 22: mvmd.guest.v1alpha1.NotBooted.state:type_name -> mvmd.guest.v1alpha1.BootState
+	6,  // 23: mvmd.guest.v1alpha1.GuestService.Boot:input_type -> mvmd.guest.v1alpha1.BootRequest
+	12, // 24: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:input_type -> mvmd.guest.v1alpha1.UpdateNetworkRequest
+	14, // 25: mvmd.guest.v1alpha1.GuestService.CatchUp:input_type -> mvmd.guest.v1alpha1.CatchUpRequest
+	17, // 26: mvmd.guest.v1alpha1.GuestService.Exec:input_type -> mvmd.guest.v1alpha1.ExecRequest
+	19, // 27: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:input_type -> mvmd.guest.v1alpha1.ReadExecOutputRequest
+	22, // 28: mvmd.guest.v1alpha1.GuestService.Signal:input_type -> mvmd.guest.v1alpha1.SignalRequest
+	24, // 29: mvmd.guest.v1alpha1.GuestService.ReadFile:input_type -> mvmd.guest.v1alpha1.ReadFileRequest
+	28, // 30: mvmd.guest.v1alpha1.GuestService.WriteFile:input_type -> mvmd.guest.v1alpha1.WriteFileRequest
+	30, // 31: mvmd.guest.v1alpha1.GuestService.PatchFile:input_type -> mvmd.guest.v1alpha1.PatchFileRequest
+	32, // 32: mvmd.guest.v1alpha1.GuestService.ListFiles:input_type -> mvmd.guest.v1alpha1.ListFilesRequest
+	35, // 33: mvmd.guest.v1alpha1.GuestService.SearchFiles:input_type -> mvmd.guest.v1alpha1.SearchFilesRequest
+	37, // 34: mvmd.guest.v1alpha1.GuestService.Terminate:input_type -> mvmd.guest.v1alpha1.TerminateRequest
+	39, // 35: mvmd.guest.v1alpha1.GuestService.FindDisk:input_type -> mvmd.guest.v1alpha1.FindDiskRequest
+	41, // 36: mvmd.guest.v1alpha1.GuestService.ReleaseDisk:input_type -> mvmd.guest.v1alpha1.ReleaseDiskRequest
+	43, // 37: mvmd.guest.v1alpha1.GuestService.OnlineVcpus:input_type -> mvmd.guest.v1alpha1.OnlineVcpusRequest
+	45, // 38: mvmd.guest.v1alpha1.GuestService.Health:input_type -> mvmd.guest.v1alpha1.HealthRequest
+	47, // 39: mvmd.guest.v1alpha1.GuestService.Info:input_type -> mvmd.guest.v1alpha1.InfoRequest
+	7,  // 40: mvmd.guest.v1alpha1.GuestService.Boot:output_type -> mvmd.guest.v1alpha1.BootResponse
+	13, // 41: mvmd.guest.v1alpha1.GuestService.UpdateNetwork:output_type -> mvmd.guest.v1alpha1.UpdateNetworkResponse
+	15, // 42: mvmd.guest.v1alpha1.GuestService.CatchUp:output_type -> mvmd.guest.v1alpha1.CatchUpResponse
+	18, // 43: mvmd.guest.v1alpha1.GuestService.Exec:output_type -> mvmd.guest.v1alpha1.ExecResponse
+	21, // 44: mvmd.guest.v1alpha1.GuestService.ReadExecOutput:output_type -> mvmd.guest.v1alpha1.ReadExecOutputResponse
+	23, // 45: mvmd.guest.v1alpha1.GuestService.Signal:output_type -> mvmd.guest.v1alpha1.SignalResponse
+	25, // 46: mvmd.guest.v1alpha1.GuestService.ReadFile:output_type -> mvmd.guest.v1alpha1.ReadFileResponse
+	29, // 47: mvmd.guest.v1alpha1.GuestService.WriteFile:output_type -> mvmd.guest.v1alpha1.WriteFileResponse
+	31, // 48: mvmd.guest.v1alpha1.GuestService.PatchFile:output_type -> mvmd.guest.v1alpha1.PatchFileResponse
+	34, // 49: mvmd.guest.v1alpha1.GuestService.ListFiles:output_type -> mvmd.guest.v1alpha1.ListFilesResponse
+	36, // 50: mvmd.guest.v1alpha1.GuestService.SearchFiles:output_type -> mvmd.guest.v1alpha1.SearchFilesResponse
+	38, // 51: mvmd.guest.v1alpha1.GuestService.Terminate:output_type -> mvmd.guest.v1alpha1.TerminateResponse
+	40, // 52: mvmd.guest.v1alpha1.GuestService.FindDisk:output_type -> mvmd.guest.v1alpha1.FindDiskResponse
+	42, // 53: mvmd.guest.v1alpha1.GuestService.ReleaseDisk:output_type -> mvmd.guest.v1alpha1.ReleaseDiskResponse
+	44, // 54: mvmd.guest.v1alpha1.GuestService.OnlineVcpus:output_type -> mvmd.guest.v1alpha1.OnlineVcpusResponse
+	46, // 55: mvmd.guest.v1alpha1.GuestService.Health:output_type -> mvmd.guest.v1alpha1.HealthResponse
+	48, // 56: mvmd.guest.v1alpha1.GuestService.Info:output_type -> mvmd.guest.v1alpha1.InfoResponse
+	40, // [40:57] is the sub-list for method output_type
+	23, // [23:40] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_guest_v1alpha1_guest_proto_init() }

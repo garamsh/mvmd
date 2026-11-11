@@ -258,6 +258,15 @@ async fn terminate_entrypoint(execs: &Execs, requested: Signal) -> Option<Ended>
     }
 }
 
+/// The trailing ` at=<time>` of an exit line; nothing when the record holds no time.
+fn ended_at(record: &ExecRecord) -> String {
+    record
+        .ended_at
+        .as_ref()
+        .map(|at| format!(" at={at}"))
+        .unwrap_or_default()
+}
+
 /// The line the console carries about why the agent is ending.
 fn describe(ended: &Ended) -> String {
     match ended {
@@ -265,12 +274,14 @@ fn describe(ended: &Ended) -> String {
         Ended::Failed(line) => line.clone(),
         Ended::Entrypoint(record) => match record.status() {
             ExecStatus::Exited if record.term_signal != 0 => format!(
-                "mvmd-guest-agent: entrypoint exited signal={}",
-                record.term_signal
+                "mvmd-guest-agent: entrypoint exited signal={}{}",
+                record.term_signal,
+                ended_at(record)
             ),
             ExecStatus::Exited => format!(
-                "mvmd-guest-agent: entrypoint exited code={}",
-                record.exit_code
+                "mvmd-guest-agent: entrypoint exited code={}{}",
+                record.exit_code,
+                ended_at(record)
             ),
             ExecStatus::NotStarted => format!(
                 "mvmd-guest-agent: entrypoint not started reason={}",

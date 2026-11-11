@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,9 @@ import (
 )
 
 const agent = "mvmd-guest-agent: "
+
+// endedAt is the time the console lines of the exit cases name.
+var endedAt = time.Date(2026, 11, 11, 12, 34, 56, 123456789, time.UTC)
 
 // TestReadExecOutput_EntrypointEndFromTheConsoleLog parses each line form that
 // guest.md lists, through the read of the entrypoint's record of a Stopped
@@ -28,6 +32,22 @@ func TestReadExecOutput_EntrypointEndFromTheConsoleLog(t *testing.T) {
 			machine.ExecRecord{Status: machine.ExecExited}},
 		{"exited by a signal", agent + "entrypoint exited signal=9\n",
 			machine.ExecRecord{Status: machine.ExecExited, TermSignal: 9}},
+		{"exited with a code at a time", agent + "entrypoint exited code=3 at=2026-11-11T12:34:56.123456789Z\n",
+			machine.ExecRecord{Status: machine.ExecExited, ExitCode: 3, EndedAt: endedAt}},
+		{"exited by a signal at a time", agent + "entrypoint exited signal=9 at=2026-11-11T12:34:56.123456789Z\n",
+			machine.ExecRecord{Status: machine.ExecExited, TermSignal: 9, EndedAt: endedAt}},
+		{"a time with a 3-digit fraction", agent + "entrypoint exited code=3 at=2026-11-11T12:34:56.123Z\n",
+			machine.ExecRecord{Status: machine.ExecExited, ExitCode: 3, EndedAt: endedAt.Truncate(time.Millisecond)}},
+		{"a time with no fraction", agent + "entrypoint exited signal=9 at=2026-11-11T12:34:56Z\n",
+			machine.ExecRecord{Status: machine.ExecExited, TermSignal: 9, EndedAt: endedAt.Truncate(time.Second)}},
+		{"a time with an offset is the same instant in UTC", agent + "entrypoint exited code=3 at=2026-11-11T21:34:56.123456789+09:00\n",
+			machine.ExecRecord{Status: machine.ExecExited, ExitCode: 3, EndedAt: endedAt}},
+		{"a code at a time that is not a time keeps the code and no time", agent + "entrypoint exited code=3 at=yesterday\n",
+			machine.ExecRecord{Status: machine.ExecExited, ExitCode: 3}},
+		{"a signal at an empty time keeps the signal and no time", agent + "entrypoint exited signal=9 at=\n",
+			machine.ExecRecord{Status: machine.ExecExited, TermSignal: 9}},
+		{"a code that is not a number is not a line, whatever time follows", agent + "entrypoint exited code=abc at=2026-11-11T12:34:56.123456789Z\n",
+			machine.ExecRecord{Status: machine.ExecCutShort}},
 		{"not started", agent + "entrypoint not started reason=no such file: /bin/app\n",
 			machine.ExecRecord{Status: machine.ExecNotStarted, Reason: "no such file: /bin/app"}},
 		{"ended, cut short", agent + "entrypoint ended reason=the output could not be kept\n",

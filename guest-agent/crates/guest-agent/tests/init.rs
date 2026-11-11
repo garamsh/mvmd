@@ -9,9 +9,10 @@ use std::fs;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
@@ -27,6 +28,7 @@ use guest_agent::{
 };
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
+use prost_types::Timestamp;
 use tempfile::TempDir;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
@@ -534,6 +536,15 @@ async fn within<T>(work: impl Future<Output = T>) -> Result<T> {
     tokio::time::timeout(Duration::from_secs(20), work)
         .await
         .map_err(|_| "timed out".into())
+}
+
+/// The time an exit line ends with: `head`, then ` at=` and an RFC 3339 UTC time.
+fn line_time(line: &str, head: &str) -> Result<SystemTime> {
+    let text = line
+        .strip_prefix(head)
+        .and_then(|rest| rest.strip_prefix(" at="))
+        .ok_or_else(|| format!("{line:?} is not {head:?} followed by ` at=`"))?;
+    Ok(SystemTime::try_from(Timestamp::from_str(text)?)?)
 }
 
 /// Read output until the stream carries `until`, or ends. Returns the text read so far, and the
@@ -1258,16 +1269,26 @@ async fn the_entrypoints_exit_is_reported_and_the_machine_powers_off() -> Result
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!agent.is_powered_off());
 
+    let before = SystemTime::now();
     fs::write(&flag, "")?;
     let (_, record) = within(read_to_record(&mut stream, None)).await??;
     agent.powered_off().await?;
+    let after = SystemTime::now();
 
     let record = record.ok_or("the stream ended without the record")?;
     assert_eq!(record.status(), ExecStatus::Exited);
     assert_eq!(record.exit_code, 7);
+    let console = agent.console();
+    assert_eq!(console.len(), 1);
+    let at = line_time(&console[0], "mvmd-guest-agent: entrypoint exited code=7")?;
+    assert!(
+        before <= at && at <= after,
+        "{at:?} is outside {before:?}..{after:?}"
+    );
+    // The line carries the time of the record the clients read.
     assert_eq!(
-        agent.console(),
-        ["mvmd-guest-agent: entrypoint exited code=7".to_owned()]
+        SystemTime::try_from(record.ended_at.ok_or("the record has no ended_at")?)?,
+        at
     );
     Ok(())
 }
@@ -1291,15 +1312,20 @@ async fn an_entrypoint_killed_by_a_signal_is_reported_with_the_signal() -> Resul
         .await?
         .into_inner();
 
+    let before = SystemTime::now();
     fs::write(&flag, "")?;
     let (_, record) = within(read_to_record(&mut stream, None)).await??;
     let record = record.ok_or("the stream ended without the record")?;
     agent.powered_off().await?;
+    let after = SystemTime::now();
 
     assert_eq!(record.term_signal, 9);
-    assert_eq!(
-        agent.console(),
-        ["mvmd-guest-agent: entrypoint exited signal=9".to_owned()]
+    let console = agent.console();
+    assert_eq!(console.len(), 1);
+    let at = line_time(&console[0], "mvmd-guest-agent: entrypoint exited signal=9")?;
+    assert!(
+        before <= at && at <= after,
+        "{at:?} is outside {before:?}..{after:?}"
     );
     Ok(())
 }
@@ -1900,10 +1926,9 @@ async fn the_entrypoints_end_resets_the_machine_when_the_command_line_says_reset
 
     assert_eq!(agent.log.count("restart"), 1);
     assert_eq!(agent.log.count("power_off"), 0);
-    assert_eq!(
-        agent.console(),
-        ["mvmd-guest-agent: entrypoint exited code=7".to_owned()]
-    );
+    let console = agent.console();
+    assert_eq!(console.len(), 1);
+    line_time(&console[0], "mvmd-guest-agent: entrypoint exited code=7")?;
     Ok(())
 }
 

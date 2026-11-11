@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -120,6 +121,7 @@ type storedExecRecord struct {
 	Reason     string          `json:"Reason"`
 	ExitCode   int32           `json:"ExitCode"`
 	TermSignal int32           `json:"TermSignal"`
+	EndedAt    time.Time       `json:"EndedAt,omitzero"`
 }
 
 // enum is the stored names of one lifecycle enum. A value is written as its
@@ -359,7 +361,7 @@ func storeExec(e machine.ExecEntry) (storedExec, error) {
 	return storedExec{
 		Machine: e.Machine, ID: e.ID, Request: e.Request, Answered: e.Answered,
 		Spec:   storedExecSpec{Command: e.Spec.Command, Env: e.Spec.Env, WorkingDir: e.Spec.WorkingDir},
-		Record: storedExecRecord{ID: e.Record.ID, Status: status, Reason: e.Record.Reason, ExitCode: e.Record.ExitCode, TermSignal: e.Record.TermSignal},
+		Record: storedExecRecord{ID: e.Record.ID, Status: status, Reason: e.Record.Reason, ExitCode: e.Record.ExitCode, TermSignal: e.Record.TermSignal, EndedAt: e.Record.EndedAt},
 	}, nil
 }
 
@@ -371,6 +373,6 @@ func (s storedExec) load() (machine.ExecEntry, error) {
 	return machine.ExecEntry{
 		Machine: s.Machine, ID: s.ID, Request: s.Request, Answered: s.Answered,
 		Spec:   machine.ExecSpec{Command: s.Spec.Command, Env: s.Spec.Env, WorkingDir: s.Spec.WorkingDir},
-		Record: machine.ExecRecord{ID: s.Record.ID, Status: status, Reason: s.Record.Reason, ExitCode: s.Record.ExitCode, TermSignal: s.Record.TermSignal},
+		Record: machine.ExecRecord{ID: s.Record.ID, Status: status, Reason: s.Record.Reason, ExitCode: s.Record.ExitCode, TermSignal: s.Record.TermSignal, EndedAt: s.Record.EndedAt.UTC()},
 	}, nil
 }
