@@ -107,6 +107,7 @@ const (
 	kernelsRaw  = `"kernels":{"stable":{"path":"/opt/vmlinux","sha256":"` + digest64 + `"},"next":{"path":"/opt/vmlinux-next","sha256":"` + digest64 + `"}},"default_kernel":"stable"`
 	fcSection   = `,"firecracker":{"binary":"/opt/firecracker","binary_sha256":"` + digest64 + `",` + kernelsRaw + `,"initrd":"/opt/initrd.cpio","initrd_sha256":"` + digest64 + `"}`
 	dkSection   = `,"disk":{"mkfs":"/sbin/mkfs.ext4"}`
+	nwSection   = `,"network":{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1"}`
 	fcSupervise = `,"supervision":{"binary":"/usr/libexec/mvmd-supervisor"}`
 	cvSection   = `,"conversion":{"kernel":"/opt/converter-vmlinux","kernel_sha256":"` + digest64 + `","initrd":"/opt/converter-initrd.cpio","initrd_sha256":"` + digest64 + `","converter":"converter-1","vcpus":2,"memory_bytes":536870912,"output_bytes":1073741824,"name_set_bytes":1048576,"limit":"10m"}`
 )
@@ -116,11 +117,11 @@ func rawConfig(driver, section, supervision string) string {
 }
 
 func pullTimeoutRaw(d string) string {
-	return strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"pull_timeout":"`+d+`","driver"`, 1)
+	return strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection+nwSection, fcSupervise), `"driver"`, `"pull_timeout":"`+d+`","driver"`, 1)
 }
 
 func TestFirecracker_ConfigParses(t *testing.T) {
-	cfg, err := app.ParseConfig([]byte(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise)))
+	cfg, err := app.ParseConfig([]byte(rawConfig("firecracker", fcSection+cvSection+dkSection+nwSection, fcSupervise)))
 	require.NoError(t, err)
 	assert.Equal(t, &app.VMMConfig{
 		Binary: "/opt/firecracker", BinarySHA256: digest64, Initrd: "/opt/initrd.cpio", InitrdSHA256: digest64,
@@ -135,7 +136,7 @@ func TestFirecracker_ConfigParses(t *testing.T) {
 	assert.Nil(t, cfg.Registry)
 
 	// Control for the refusals of the registry section and the pull timeout.
-	withRegistry := strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"driver"`, `"registry":{"credentials_file":"/etc/mvmd/registry.json"},"pull_timeout":"45m","driver"`, 1)
+	withRegistry := strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection+nwSection, fcSupervise), `"driver"`, `"registry":{"credentials_file":"/etc/mvmd/registry.json"},"pull_timeout":"45m","driver"`, 1)
 	cfg, err = app.ParseConfig([]byte(withRegistry))
 	require.NoError(t, err)
 	assert.Equal(t, &app.RegistryConfig{CredentialsFile: "/etc/mvmd/registry.json"}, cfg.Registry)
@@ -146,29 +147,30 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 	changed := func(old, with string) string {
 		section := strings.Replace(fcSection, old, with, 1)
 		require.NotEqual(t, fcSection, section, "the row changes the section")
-		return rawConfig("firecracker", section+cvSection+dkSection, fcSupervise)
+		return rawConfig("firecracker", section+cvSection+dkSection+nwSection, fcSupervise)
 	}
 	conversion := func(old, with string) string {
 		section := strings.Replace(cvSection, old, with, 1)
 		require.NotEqual(t, cvSection, section, "the row changes the section")
-		return rawConfig("firecracker", fcSection+section+dkSection, fcSupervise)
+		return rawConfig("firecracker", fcSection+section+dkSection+nwSection, fcSupervise)
 	}
 	registry := func(driver, sections, section string) string {
 		return strings.Replace(rawConfig(driver, sections, fcSupervise), `"driver"`, `"registry":`+section+`,"driver"`, 1)
 	}
 	tests := []struct{ name, raw, reason string }{
 		{"the driver without its section", rawConfig("firecracker", "", fcSupervise), "firecracker section"},
-		{"the driver without supervision", rawConfig("firecracker", fcSection+cvSection+dkSection, ""), "supervision section"},
-		{"the driver without the conversion section", rawConfig("firecracker", fcSection+dkSection, fcSupervise), "conversion section"},
+		{"the driver without supervision", rawConfig("firecracker", fcSection+cvSection+dkSection+nwSection, ""), "supervision section"},
+		{"the driver without the conversion section", rawConfig("firecracker", fcSection+dkSection+nwSection, fcSupervise), "conversion section"},
+		{"the driver without the network section", rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), "network section"},
 		{"the section with the memory driver", rawConfig("memory", fcSection+cvSection, fcSupervise), "firecracker section is for"},
 		{"the driver without the disk section", rawConfig("firecracker", fcSection+cvSection, fcSupervise), "disk section"},
 		{"the disk section with the memory driver", rawConfig("memory", dkSection, fcSupervise), "disk section is for"},
-		{"a relative mkfs", strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), "/sbin/mkfs.ext4", "mkfs.ext4", 1), "disk.mkfs"},
-		{"an option the disk section does not read", strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection, fcSupervise), `"mkfs":"/sbin/mkfs.ext4"`, `"mkfs":"/sbin/mkfs.ext4","extra":1`, 1), "unknown field"},
+		{"a relative mkfs", strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection+nwSection, fcSupervise), "/sbin/mkfs.ext4", "mkfs.ext4", 1), "disk.mkfs"},
+		{"an option the disk section does not read", strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection+nwSection, fcSupervise), `"mkfs":"/sbin/mkfs.ext4"`, `"mkfs":"/sbin/mkfs.ext4","extra":1`, 1), "unknown field"},
 		{"the conversion section with the memory driver", rawConfig("memory", cvSection, fcSupervise), "conversion section is for"},
 		{"the registry section with the memory driver", registry("memory", "", `{"credentials_file":"/c"}`), "registry section is for"},
-		{"a relative credentials file", registry("firecracker", fcSection+cvSection+dkSection, `{"credentials_file":"c"}`), "registry.credentials_file"},
-		{"no credentials file", registry("firecracker", fcSection+cvSection+dkSection, `{}`), "registry.credentials_file"},
+		{"a relative credentials file", registry("firecracker", fcSection+cvSection+dkSection+nwSection, `{"credentials_file":"c"}`), "registry.credentials_file"},
+		{"no credentials file", registry("firecracker", fcSection+cvSection+dkSection+nwSection, `{}`), "registry.credentials_file"},
 		{"a pull timeout that is not a duration", pullTimeoutRaw("soon"), "pull_timeout"},
 		{"a pull timeout of zero", pullTimeoutRaw("0s"), "pull_timeout"},
 		{"a pull timeout above the maximum", pullTimeoutRaw("7h"), "pull_timeout"},
