@@ -30,4 +30,9 @@ type Supervisors interface {
 	Terminate(ctx context.Context, id machine.MachineID) error
 	// Live lists the supervisors that exist with what each holds.
 	Live(ctx context.Context) ([]Supervisor, error)
+	// RemoveState removes the Machine's state directory. It succeeds when none
+	// exists, and fails while the Machine has a supervisor.
+	RemoveState(ctx context.Context, id machine.MachineID) error
+	// ListState lists the Machines that have a state directory.
+	ListState(ctx context.Context) ([]machine.MachineID, error)
 }

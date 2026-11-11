@@ -502,6 +502,11 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 			return fail(ErrFailed, "remove the root disk: %v", err)
 		}
 	}
+	// Last of the host's state, so that a failure keeps the record and the
+	// Machine's identifier, and a repeat removes the directory again.
+	if err := s.supervisor.RemoveState(ctx, id); err != nil {
+		return fail(ErrFailed, "%v", err)
+	}
 	if err := s.store.Remove(ctx, id); err != nil {
 		return fail(ErrFailed, "remove the record: %v", err)
 	}

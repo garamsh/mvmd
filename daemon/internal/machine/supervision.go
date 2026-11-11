@@ -27,4 +27,11 @@ type Supervision interface {
 	Terminate(ctx context.Context, id MachineID) error
 	// Live lists the Machines that have a supervisor now.
 	Live(ctx context.Context) ([]MachineID, error)
+	// RemoveState removes what the Machine's supervision keeps of it on the
+	// host: its state directory, the run directory and every link in it
+	// included. It succeeds when nothing is kept, and fails while the Machine
+	// has a supervisor.
+	RemoveState(ctx context.Context, id MachineID) error
+	// ListState lists the Machines that have state kept on the host.
+	ListState(ctx context.Context) ([]MachineID, error)
 }

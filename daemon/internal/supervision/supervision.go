@@ -348,6 +348,52 @@ func (a *Adapter) Terminate(ctx context.Context, id machine.MachineID) error {
 	return nil
 }
 
+// RemoveState implements fencing.Supervisors. It removes the Machine's state
+// directory: the run directory, the supervisor's log and sockets, and every hard
+// link in them, which gives the linked files' inodes back. It takes the lock
+// that orders it against beginStart, so a Machine whose start is in progress
+// keeps its directory, and it refuses a Machine whose supervisor listens.
+func (a *Adapter) RemoveState(_ context.Context, id machine.MachineID) error {
+	dir, err := a.machineDir(id)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.starting[id] > 0 {
+		return fmt.Errorf("remove the state directory %s: a start of %q is in progress", dir, id)
+	}
+	if _, err := peerPID(statedir.SupervisorSocket(dir)); !isAbsent(err) {
+		if err == nil {
+			err = errors.New("its supervisor is running")
+		}
+		return fmt.Errorf("remove the state directory %s: %w", dir, err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove the state directory %s: %w", dir, err)
+	}
+	return nil
+}
+
+// ListState implements fencing.Supervisors: the Machines whose state
+// directories exist, whether or not a supervisor runs.
+func (a *Adapter) ListState(context.Context) ([]machine.MachineID, error) {
+	entries, err := os.ReadDir(a.cfg.Dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list the state directories: %w", err)
+	}
+	var out []machine.MachineID
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, machine.MachineID(e.Name()))
+		}
+	}
+	return out, nil
+}
+
 // Live implements fencing.Supervisors. A socket nobody listens on belongs to a
 // supervisor that has ended and is removed, unless a Start of its Machine is in
 // progress, which owns them. A supervisor that listens and does
