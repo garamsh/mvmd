@@ -423,11 +423,28 @@ func (s *service) awaitVcpusOnline(ctx context.Context, id MachineID, vcpus uint
 	}
 }
 
+// overLimits refuses resources or a ceiling above what the Driver accepts of a
+// Machine (ADR 0040), as ErrInvalid.
+func (s *service) overLimits(resources, ceiling Resources) error {
+	most := s.driver.Info().Limits.MaxVCPUs
+	switch {
+	case most == 0:
+	case resources.VCPUs > most:
+		return fail(ErrInvalid, "%d vCPUs is above the %d the Driver accepts", resources.VCPUs, most)
+	case ceiling.VCPUs > most:
+		return fail(ErrInvalid, "a ceiling of %d vCPUs is above the %d the Driver accepts", ceiling.VCPUs, most)
+	}
+	return nil
+}
+
 // checkCeiling refuses resources and a ceiling that break ADR 0029's rules:
-// a memory figure off the alignment, or resources above the ceiling, is
-// ErrInvalid; a ceiling asked for above the resources on a Driver that cannot
+// a memory figure off the alignment, resources above the ceiling, or a figure
+// above the Driver's limits, is ErrInvalid; a ceiling asked for above the resources on a Driver that cannot
 // resize is ErrUnsupported, as it could never be used.
 func (s *service) checkCeiling(resources, ceiling Resources, asked bool) error {
+	if err := s.overLimits(resources, ceiling); err != nil {
+		return err
+	}
 	switch {
 	case resources.MemoryBytes%MemoryAlignment != 0:
 		return fail(ErrInvalid, "the memory %d is not a multiple of %d bytes", resources.MemoryBytes, MemoryAlignment)

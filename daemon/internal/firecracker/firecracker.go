@@ -93,6 +93,7 @@ func New(cfg Config) (*Driver, error) {
 // one: v1.17.0 has no resize this Driver can reach (Resize says why).
 func (d *Driver) Info() machine.DriverInfo {
 	return machine.DriverInfo{Name: "firecracker", Version: Version, CPUModel: d.cpuModel,
+		Limits:       machine.DriverLimits{MaxVCPUs: maxVCPUs},
 		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}}
 }
 

@@ -99,7 +99,8 @@ func (d *Driver) Info() machine.DriverInfo {
 	if resizeCapable(d.goarch) {
 		caps = append(caps, machine.CapabilityResize)
 	}
-	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel, Capabilities: caps}
+	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel, Capabilities: caps,
+		Limits: machine.DriverLimits{MaxVCPUs: maxVCPUs}}
 }
 
 // Observe implements machine.Driver. It raises no event; see docs/architecture/driver.md.

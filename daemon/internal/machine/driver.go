@@ -47,6 +47,15 @@ type DriverInfo struct {
 	// snapshot is only restored on again.
 	CPUModel     string
 	Capabilities []Capability
+	// Limits is the most of a Machine the Driver accepts. The Driver enforces
+	// the same figures in Describe.
+	Limits DriverLimits
+}
+
+// DriverLimits are the upper bounds a Driver enforces on a Machine's
+// resources and ceiling. A zero figure states no bound.
+type DriverLimits struct {
+	MaxVCPUs uint32
 }
 
 // DriverSnapshot is what a Driver made of a paused Machine: the files it

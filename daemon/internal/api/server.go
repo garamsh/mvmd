@@ -144,6 +144,9 @@ func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest
 	}
 	for _, d := range s.drivers {
 		info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}, CpuModel: d.CPUModel}
+		if d.Limits != (machine.DriverLimits{}) {
+			info.Limits = &v1alpha2.DriverLimits{MaxVcpus: d.Limits.MaxVCPUs}
+		}
 		for _, c := range d.Capabilities {
 			info.Capabilities = append(info.Capabilities, wireCapabilities[c]...)
 		}
