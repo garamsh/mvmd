@@ -69,5 +69,6 @@ Decisions:
 - [ADR 0036](./adr/0036-the-runtime-api-creates-lists-and-deletes-a-node-local-disk-through-the-disk-adapter.md) — the runtime API creates, lists and deletes a node-local disk through the Disk adapter
 - [ADR 0037](./adr/0037-a-restores-guest-catch-up-is-bounded-by-the-boot-timeout-as-a-starts-boot-is.md) — a restore's guest catch-up is bounded by the boot timeout, as a start's guest boot is
 - [ADR 0038](./adr/0038-a-disk-file-belongs-to-the-machine-that-holds-it.md) — a disk file belongs to the Machine that holds it (completes what ADR 0036 left open about a VMM opening a Create disk disk)
+- [ADR 0039](./adr/0039-runtime-info-reports-the-nodes-capacity-and-mvmd-admits-no-call-by-it.md) — runtime info reports the node's capacity, and mvmd admits no call by it
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

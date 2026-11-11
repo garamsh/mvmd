@@ -26,10 +26,13 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
 	"github.com/garamsh/mvmd/daemon/internal/guestchannel"
+	"github.com/garamsh/mvmd/daemon/internal/hostcapacity"
 	"github.com/garamsh/mvmd/daemon/internal/hostnet"
 	imagememory "github.com/garamsh/mvmd/daemon/internal/image/memory"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	machinememory "github.com/garamsh/mvmd/daemon/internal/machine/memory"
+	"github.com/garamsh/mvmd/daemon/internal/nodecapacity"
+	capacitymemory "github.com/garamsh/mvmd/daemon/internal/nodecapacity/memory"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
 )
 
@@ -65,6 +68,7 @@ type Substitutes struct {
 	Cache                 *imagememory.Store
 	ConversionDriver      *machinememory.Driver
 	ConversionSupervision *machinememory.Supervision
+	Capacity              *capacitymemory.Reader
 }
 
 // App is the wired daemon.
@@ -121,6 +125,7 @@ func New(cfg Config) (*App, error) {
 		Snapshots:   machinememory.NewSnapshotStore(),
 		Guest:       machinememory.NewGuest(0),
 		Supervisors: fencingmemory.NewSupervisors(nil),
+		Capacity:    capacitymemory.NewReader(nodecapacity.Capacity{CPUs: 4, MemoryBytes: 8<<30 + 1, StateTotalBytes: 100<<30 + 1, StateAvailableBytes: 60<<30 + 1}),
 	}
 	var network machine.Network = sub.Network
 	if n := cfg.Network; n != nil {
@@ -154,6 +159,7 @@ func New(cfg Config) (*App, error) {
 	// run directories are the supervisors' (driver.md).
 	var driver machine.Driver = sub.Driver
 	var guest machine.Guest = sub.Guest
+	var capacity nodecapacity.Reader = sub.Capacity
 	if f, ok := cfg.vmm(); ok {
 		d, err := f.driver(cfg.Driver, supervisors)
 		if err != nil {
@@ -162,6 +168,7 @@ func New(cfg Config) (*App, error) {
 		}
 		driver, guest = d, guestchannel.NewGuest(d)
 		sub.Driver, sub.Guest = nil, nil
+		capacity, sub.Capacity = hostcapacity.New(cfg.StateDir), nil
 	}
 	// The one allocator of VMM users: the lifecycle's Machines and the
 	// conversions of pulls draw from it, so they never share a user.
@@ -204,7 +211,7 @@ func New(cfg Config) (*App, error) {
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, log),
+		server:      api.New(machines, deadline, imgs.service, []machine.DriverInfo{driver.Info()}, capacity, log),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil

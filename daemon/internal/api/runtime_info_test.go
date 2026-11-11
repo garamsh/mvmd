@@ -16,6 +16,8 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/api"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/nodecapacity"
+	capacitymemory "github.com/garamsh/mvmd/daemon/internal/nodecapacity/memory"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
@@ -60,7 +62,7 @@ func driverCapabilities(t *testing.T) []machine.Capability {
 
 func runtimeInfo(t *testing.T, caps ...machine.Capability) []v1alpha2.Capability {
 	t.Helper()
-	srv := api.New(nil, nil, nil, []machine.DriverInfo{{Name: "d", Version: "1", Capabilities: caps}}, nil)
+	srv := api.New(nil, nil, nil, []machine.DriverInfo{{Name: "d", Version: "1", Capabilities: caps}}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
 	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.GetDrivers(), 1)
@@ -81,7 +83,7 @@ func TestGetRuntimeInfo_ReportsEachDriversCPUModel(t *testing.T) {
 	srv := api.New(nil, nil, nil, []machine.DriverInfo{
 		{Name: "a", Version: "1", CPUModel: "model of a"},
 		{Name: "b", Version: "1", CPUModel: "model of b"},
-	}, nil)
+	}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil)
 	resp, err := srv.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.GetDrivers(), 2)

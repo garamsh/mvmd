@@ -37,7 +37,7 @@ func (d *diskKeeper) DeleteDisk(_ context.Context, disk machine.DiskID) error {
 func TestCreateDisk_PassesTheRequestAndReportsTheDisk(t *testing.T) {
 	m := &diskKeeper{}
 
-	resp, err := api.New(m, nil, nil, nil, nil).CreateDisk(context.Background(), &v1alpha2.CreateDiskRequest{DiskId: "data", RequestId: "req", SizeBytes: 1 << 20})
+	resp, err := api.New(m, nil, nil, nil, nil, nil).CreateDisk(context.Background(), &v1alpha2.CreateDiskRequest{DiskId: "data", RequestId: "req", SizeBytes: 1 << 20})
 
 	require.NoError(t, err)
 	assert.Equal(t, []machine.DiskEntry{{ID: "data", Request: "req", SizeBytes: 1 << 20}}, m.created)
@@ -48,7 +48,7 @@ func TestCreateDisk_PassesTheRequestAndReportsTheDisk(t *testing.T) {
 func TestCreateDisk_RejectsAZeroSizeBeforeTheUseCase(t *testing.T) {
 	m := &diskKeeper{}
 
-	_, err := api.New(m, nil, nil, nil, nil).CreateDisk(context.Background(), &v1alpha2.CreateDiskRequest{DiskId: "data", RequestId: "req"})
+	_, err := api.New(m, nil, nil, nil, nil, nil).CreateDisk(context.Background(), &v1alpha2.CreateDiskRequest{DiskId: "data", RequestId: "req"})
 
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
 	assert.Empty(t, m.created, "the use case was not asked")
@@ -67,7 +67,7 @@ func TestCreateDisk_MapsTheUseCaseOutcome(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &diskKeeper{err: tt.err}
 
-			resp, err := api.New(m, nil, nil, nil, nil).CreateDisk(context.Background(), &v1alpha2.CreateDiskRequest{DiskId: "data", RequestId: "req", SizeBytes: 1})
+			resp, err := api.New(m, nil, nil, nil, nil, nil).CreateDisk(context.Background(), &v1alpha2.CreateDiskRequest{DiskId: "data", RequestId: "req", SizeBytes: 1})
 
 			assert.Nil(t, resp)
 			assert.Equal(t, tt.kind, v1alpha2.KindOf(err))
@@ -78,7 +78,7 @@ func TestCreateDisk_MapsTheUseCaseOutcome(t *testing.T) {
 func TestListDisks_ReportsEveryDiskWithItsHolder(t *testing.T) {
 	m := &diskKeeper{listed: []machine.DiskInfo{{ID: "a", SizeBytes: 1 << 20}, {ID: "b", SizeBytes: 2 << 20, Holder: "m"}}}
 
-	resp, err := api.New(m, nil, nil, nil, nil).ListDisks(context.Background(), &v1alpha2.ListDisksRequest{})
+	resp, err := api.New(m, nil, nil, nil, nil, nil).ListDisks(context.Background(), &v1alpha2.ListDisksRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Disks, 2)
@@ -92,7 +92,7 @@ func TestListDisks_ReportsEveryDiskWithItsHolder(t *testing.T) {
 func TestListDisks_MapsTheUseCaseOutcome(t *testing.T) {
 	m := &diskKeeper{err: machine.NewError(machine.ErrFailed, "list: boom")}
 
-	resp, err := api.New(m, nil, nil, nil, nil).ListDisks(context.Background(), &v1alpha2.ListDisksRequest{})
+	resp, err := api.New(m, nil, nil, nil, nil, nil).ListDisks(context.Background(), &v1alpha2.ListDisksRequest{})
 
 	assert.Nil(t, resp)
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_FAILED, v1alpha2.KindOf(err))
@@ -112,7 +112,7 @@ func TestDeleteDisk_PassesTheIdentifierAndMapsTheUseCaseOutcome(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &diskKeeper{err: tt.err}
 
-			_, err := api.New(m, nil, nil, nil, nil).DeleteDisk(context.Background(), &v1alpha2.DeleteDiskRequest{DiskId: "data"})
+			_, err := api.New(m, nil, nil, nil, nil, nil).DeleteDisk(context.Background(), &v1alpha2.DeleteDiskRequest{DiskId: "data"})
 
 			assert.Equal(t, tt.kind, v1alpha2.KindOf(err))
 			assert.Equal(t, []machine.DiskID{"data"}, m.deleted)
@@ -123,7 +123,7 @@ func TestDeleteDisk_PassesTheIdentifierAndMapsTheUseCaseOutcome(t *testing.T) {
 func TestDeleteDisk_RejectsAnEmptyIdentifierBeforeTheUseCase(t *testing.T) {
 	m := &diskKeeper{}
 
-	_, err := api.New(m, nil, nil, nil, nil).DeleteDisk(context.Background(), &v1alpha2.DeleteDiskRequest{})
+	_, err := api.New(m, nil, nil, nil, nil, nil).DeleteDisk(context.Background(), &v1alpha2.DeleteDiskRequest{})
 
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
 	assert.Empty(t, m.deleted)
