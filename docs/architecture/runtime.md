@@ -31,6 +31,7 @@ The runtime API models a Machine, not a Pod or a container, and is not CRI (#2 �
 - Disk attach and detach, and resource resize.
 - Inspect, list and events.
 - Exec, a file API and a console.
+- Runtime info, which reports what the node has: its Drivers, and its CPUs, memory and the space of its state directory's filesystem. The node reports these as facts and admits no call by them; whether a Machine fits is the client's decision ([ADR 0039](./adr/0039-runtime-info-reports-the-nodes-capacity-and-mvmd-admits-no-call-by-it.md)).
 - List snapshots and delete a snapshot. A snapshot is a public resource of the runtime API: the identifier a client gives Snapshot is the one it gives Restore, and the client sees what the node holds and removes it ([ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md)). Its files stay inside the node.
 
 mvmd defines and versions it. Each operation states its idempotency and the state a Machine is left in after a failure (#2 §3 principle 5). The contract is published as `lib/runtimeapi/` and is a leaf module ([structure.md](./structure.md) §Repository layout). Its operations, calling rules and version are in [runtime-api.md](./runtime-api.md).
@@ -114,6 +115,7 @@ mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node A
 - The node network and its enforcement: [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md), [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md).
 - Why the supervisor confines every VMM itself rather than each VMM's own mechanism, and what each VMM needs open: [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md).
 - Why the node reclaims nothing by its own policy, and what a snapshot's delete refuses: [ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md).
+- Why the node reports its capacity and leaves placement and admission to its client: [ADR 0039](./adr/0039-runtime-info-reports-the-nodes-capacity-and-mvmd-admits-no-call-by-it.md).
 - Why a VMM sees the Machine's files at fixed paths, and how the file checked is the file presented: [ADR 0019](./adr/0019-a-vmm-sees-its-machines-files-at-fixed-paths-in-its-root.md).
 - Why the boundary sits at a runtime API and not at gaon's resource API: the original requirement of swappable components behind interfaces, and a one-way dependency (#2 §3 principle 3).
 
