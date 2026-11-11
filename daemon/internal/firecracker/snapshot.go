@@ -90,7 +90,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 		return machine.ProcessDescription{}, err
 	}
 	for _, dev := range recorded {
-		_ = dev
+		_, _ = dev, diskdevice.Name(0, dev.Disk)
 	}
 	return p, nil
 }
