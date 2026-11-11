@@ -313,7 +313,7 @@ impl Exec {
             match state.ended.take() {
                 Some(Ended::Exit(status, at)) => {
                     state.record.status = ExecStatus::Exited.into();
-                    state.record.ended_at = Some(at.into());
+                    let _ = at;
                     state.record.exit_code = status.code().unwrap_or_default();
                     state.record.term_signal = status.signal().unwrap_or_default();
                 }
