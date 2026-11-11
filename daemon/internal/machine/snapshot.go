@@ -155,6 +155,8 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	switch {
 	case id == "":
 		return fail(ErrInvalid, "the Machine identifier is empty")
+	case CheckMachineID(id) != nil:
+		return fail(ErrInvalid, "the Machine identifier: %v", CheckMachineID(id))
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
 	case snapshot == "":

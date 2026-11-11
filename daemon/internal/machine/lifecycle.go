@@ -118,6 +118,8 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 	switch {
 	case id == "":
 		return fail(ErrInvalid, "the Machine identifier is empty")
+	case CheckMachineID(id) != nil:
+		return fail(ErrInvalid, "the Machine identifier: %v", CheckMachineID(id))
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
 	case spec.Image == "":

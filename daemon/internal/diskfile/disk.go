@@ -321,15 +321,10 @@ func validDiskName(name string) bool {
 	return !bytes.ContainsRune([]byte(name), '/')
 }
 
-// validDiskID checks that disk is safe to use in a path under a directory:
-// not empty, not . or .., not starting with the prefix of the files disks are
-// built in, and no /.
+// validDiskID checks that disk is safe to use in a path under a directory,
+// by the rule the node states for every disk identifier.
 func validDiskID(id machine.DiskID) bool {
-	s := string(id)
-	if s == "" || s == "." || s == ".." || strings.HasPrefix(s, tempPrefix) {
-		return false
-	}
-	return !bytes.ContainsRune([]byte(s), '/')
+	return machine.ValidDiskID(id)
 }
 
 // randomUUID generates a random v4 UUID, returning an error on read failure.
