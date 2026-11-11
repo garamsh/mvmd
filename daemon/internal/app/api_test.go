@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/garamsh/mvmd/daemon/internal/nodecapacity"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
@@ -79,6 +80,11 @@ func TestAPI_DrivesTheWholeLifecycle(t *testing.T) {
 		v1alpha2.Capability_CAPABILITY_SNAPSHOT, v1alpha2.Capability_CAPABILITY_CONSOLE, v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG,
 		v1alpha2.Capability_CAPABILITY_CPU_RESIZE, v1alpha2.Capability_CAPABILITY_MEMORY_RESIZE,
 	}, info.GetDrivers()[0].GetCapabilities())
+	assert.EqualValues(t, 4, info.GetCapacity().GetCpus(), "the memory substitute's capacity")
+	n.app.Substitutes.Capacity.Set(nodecapacity.Capacity{CPUs: 9})
+	info, err = n.client.GetRuntimeInfo(ctx, &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	assert.EqualValues(t, 9, info.GetCapacity().GetCpus(), "the capacity is read at each call")
 
 	// The deadline is not armed: a start is refused with its outcome.
 	st, err := n.client.InspectDeadline(ctx, &v1alpha2.InspectDeadlineRequest{})

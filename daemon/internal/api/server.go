@@ -16,6 +16,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/nodecapacity"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
@@ -29,6 +30,7 @@ type Server struct {
 	deadline fencing.Service
 	images   image.Service
 	drivers  []machine.DriverInfo
+	capacity nodecapacity.Reader
 	events   events.Service
 	// stopping ends the event streams when Stop is called: a stream has no
 	// end of its own, and a graceful stop of the gRPC server waits for it.
@@ -37,10 +39,11 @@ type Server struct {
 }
 
 // New returns the server over the lifecycle, the deadline, the image pull use
-// case and the event log, reporting the given Drivers in runtime info.
-func New(machines machine.Service, deadline fencing.Service, images image.Service, drivers []machine.DriverInfo, log events.Service) *Server {
+// case and the event log, reporting the given Drivers and the capacity the
+// reader reads in runtime info.
+func New(machines machine.Service, deadline fencing.Service, images image.Service, drivers []machine.DriverInfo, capacity nodecapacity.Reader, log events.Service) *Server {
 	stopping, stop := context.WithCancel(context.Background())
-	return &Server{machines: machines, deadline: deadline, images: images, drivers: drivers, events: log, stopping: stopping, stop: stop}
+	return &Server{machines: machines, deadline: deadline, images: images, drivers: drivers, capacity: capacity, events: log, stopping: stopping, stop: stop}
 }
 
 // Stop ends every event stream, so the gRPC server can stop gracefully.
@@ -128,7 +131,17 @@ var wireCapabilities = map[machine.Capability][]v1alpha2.Capability{
 }
 
 func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest) (*v1alpha2.GetRuntimeInfoResponse, error) {
-	resp := &v1alpha2.GetRuntimeInfoResponse{ApiVersions: []string{Version}}
+	have, err := s.capacity.Read()
+	if err != nil {
+		return nil, status(fmt.Errorf("read the node's capacity: %w", err))
+	}
+	resp := &v1alpha2.GetRuntimeInfoResponse{
+		ApiVersions: []string{Version},
+		Capacity: &v1alpha2.NodeCapacity{
+			Cpus: have.CPUs, MemoryBytes: have.MemoryBytes,
+			StateTotalBytes: have.StateTotalBytes, StateAvailableBytes: have.StateAvailableBytes,
+		},
+	}
 	for _, d := range s.drivers {
 		info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}, CpuModel: d.CPUModel}
 		for _, c := range d.Capabilities {

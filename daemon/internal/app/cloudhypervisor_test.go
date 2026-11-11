@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -68,6 +69,17 @@ func TestDriverSelection_BothTheMachinesAndTheConvertersRunOnTheSelectedDriver(t
 			require.Len(t, info.GetDrivers(), 1)
 			assert.Equal(t, tt.driver, info.GetDrivers()[0].GetDriver().GetName(), "the Machines' Driver")
 			assert.Equal(t, tt.driver, app.ConversionDriver(n.app).Info().Name, "the converters' Driver")
+
+			// The memory substitute's figures end in 1, which no host's memory
+			// (a multiple of 1024) or filesystem (a multiple of its block
+			// size) does, so a node still wired to it fails here.
+			c := info.GetCapacity()
+			require.NotNil(t, c)
+			assert.EqualValues(t, runtime.NumCPU(), c.GetCpus())
+			assert.Zero(t, c.GetMemoryBytes()%1024, "the host's memory, not the substitute's")
+			assert.NotZero(t, c.GetMemoryBytes())
+			assert.Zero(t, c.GetStateTotalBytes()%512, "the state directory's filesystem, not the substitute's")
+			assert.NotZero(t, c.GetStateTotalBytes())
 		})
 	}
 }

@@ -352,11 +352,30 @@ message DriverInfo {
   string cpu_model = 3;
 }
 
+// NodeCapacity is what the node has, as totals it measures. It is not what is
+// left after the Machines' share: a client derives that from List, which
+// reports each Machine's resources. mvmd admits no call by these figures.
+message NodeCapacity {
+  // The logical CPUs the node's processes may run on, as the kernel's
+  // sched_getaffinity reports them for mvmd, which its VMMs inherit.
+  uint32 cpus = 1;
+  // The host's total memory in bytes: MemTotal of /proc/meminfo.
+  uint64 memory_bytes = 2;
+  // The total size in bytes of the filesystem of mvmd's state directory, which
+  // holds the disks, the snapshots and the image store: statfs f_blocks times
+  // f_frsize.
+  uint64 state_total_bytes = 3;
+  // The bytes of that filesystem available to an unprivileged process: statfs
+  // f_bavail times f_frsize, read at each call.
+  uint64 state_available_bytes = 4;
+}
+
 message GetRuntimeInfoResponse {
   // The API versions served, as package identifiers (for example
   // "mvmd.runtime.v1alpha2").
   repeated string api_versions = 1;
   repeated DriverInfo drivers = 2;
+  NodeCapacity capacity = 3;
 }
 
 message InspectMachineRequest {

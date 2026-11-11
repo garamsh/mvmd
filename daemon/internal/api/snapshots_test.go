@@ -38,7 +38,7 @@ func TestListSnapshots_ReportsEverySnapshotWhole(t *testing.T) {
 		Compat:  machine.SnapshotCompat{Driver: "fake", Version: "1", CPUModel: "cpu"},
 	}}}
 
-	resp, err := api.New(m, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
+	resp, err := api.New(m, nil, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Snapshots, 1)
@@ -55,7 +55,7 @@ func TestListSnapshots_ReportsEverySnapshotWhole(t *testing.T) {
 func TestListSnapshots_MapsTheUseCaseOutcome(t *testing.T) {
 	m := &snapshotter{err: machine.NewError(machine.ErrFailed, "list: boom")}
 
-	resp, err := api.New(m, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
+	resp, err := api.New(m, nil, nil, nil, nil, nil).ListSnapshots(context.Background(), &v1alpha2.ListSnapshotsRequest{})
 
 	require.Error(t, err)
 	assert.Nil(t, resp)
@@ -76,7 +76,7 @@ func TestDeleteSnapshot_PassesTheIdentifierAndMapsTheUseCaseOutcome(t *testing.T
 		t.Run(tt.name, func(t *testing.T) {
 			m := &snapshotter{err: tt.err}
 
-			_, err := api.New(m, nil, nil, nil, nil).DeleteSnapshot(context.Background(), &v1alpha2.DeleteSnapshotRequest{SnapshotId: "snap"})
+			_, err := api.New(m, nil, nil, nil, nil, nil).DeleteSnapshot(context.Background(), &v1alpha2.DeleteSnapshotRequest{SnapshotId: "snap"})
 
 			assert.Equal(t, tt.kind, v1alpha2.KindOf(err))
 			assert.Equal(t, []machine.SnapshotID{"snap"}, m.deleted)
@@ -86,7 +86,7 @@ func TestDeleteSnapshot_PassesTheIdentifierAndMapsTheUseCaseOutcome(t *testing.T
 
 func TestDeleteSnapshot_RejectsAnEmptyIdentifierBeforeTheUseCase(t *testing.T) {
 	m := &snapshotter{}
-	server := api.New(m, nil, nil, nil, nil)
+	server := api.New(m, nil, nil, nil, nil, nil)
 
 	_, err := server.DeleteSnapshot(context.Background(), &v1alpha2.DeleteSnapshotRequest{})
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
