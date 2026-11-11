@@ -29,7 +29,7 @@ const (
 // gRPC status code carries the kind for a caller that reads no details:
 // SUCCESS is OK, REJECTED is INVALID_ARGUMENT, NOT_FOUND is NOT_FOUND,
 // CONFLICT is ALREADY_EXISTS, PRECONDITION_FAILED is FAILED_PRECONDITION,
-// UNSUPPORTED is UNIMPLEMENTED, FAILED is INTERNAL, IN_PROGRESS is ABORTED.
+// UNSUPPORTED is UNIMPLEMENTED, FAILED is INTERNAL.
 type OutcomeKind int32
 
 const (
@@ -41,7 +41,9 @@ const (
 	OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED OutcomeKind = 5
 	OutcomeKind_OUTCOME_KIND_UNSUPPORTED         OutcomeKind = 6
 	OutcomeKind_OUTCOME_KIND_FAILED              OutcomeKind = 7
-	// A repeated creating call whose original is still running.
+	// v1alpha2 never returns it: a repeat waits for the original's outcome
+	// (runtime-api.md, Calling rules). Kept because removing a value is a new
+	// version (runtime-api.md, Scope and version).
 	OutcomeKind_OUTCOME_KIND_IN_PROGRESS OutcomeKind = 8
 )
 

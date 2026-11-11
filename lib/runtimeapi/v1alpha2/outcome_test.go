@@ -5,9 +5,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
+
+// A bare ABORTED status is no kind: no call is answered "in progress", so the
+// code does not read as one. A code a kind maps to still reads as it.
+func TestKindOf_AbortedIsNoKind(t *testing.T) {
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_UNSPECIFIED, v1alpha2.KindOf(status.Error(codes.Aborted, "retry")))
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_CONFLICT, v1alpha2.KindOf(status.Error(codes.AlreadyExists, "control")))
+}
 
 // A read of exec output before the held window is answered with the earliest
 // offset held, as data a client resumes from; any other failure carries none.
