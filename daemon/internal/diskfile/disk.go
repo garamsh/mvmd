@@ -185,7 +185,7 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 		return err
 	}
 	if !validDiskID(entry.ID) {
-		return fmt.Errorf("%w: %q must not be empty, ., .., start with %s or contain /", machine.ErrDiskInvalid, entry.ID, tempPrefix)
+		return fmt.Errorf("%w: %q must not be empty, ., .., start with %s, contain / or a NUL, or exceed 255 bytes", machine.ErrDiskInvalid, entry.ID, tempPrefix)
 	}
 	if entry.SizeBytes > math.MaxInt64 {
 		return fmt.Errorf("%w: the size %d is too large", machine.ErrDiskInvalid, entry.SizeBytes)
@@ -229,7 +229,7 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 // Get returns the disk named by the identifier, or machine.ErrDiskAbsent.
 func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, error) {
 	if !validDiskID(disk) {
-		return machine.DiskEntry{}, fmt.Errorf("%w: %q must not be empty, ., .., start with %s or contain /", machine.ErrDiskInvalid, disk, tempPrefix)
+		return machine.DiskEntry{}, fmt.Errorf("%w: %q must not be empty, ., .., start with %s, contain / or a NUL, or exceed 255 bytes", machine.ErrDiskInvalid, disk, tempPrefix)
 	}
 	path := filepath.Join(d.dir, string(disk))
 	info, err := os.Lstat(path)
@@ -251,7 +251,7 @@ func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, e
 // Stat returns the size and modification time of the disk's file.
 func (d *Disk) Stat(_ context.Context, disk machine.DiskID) (machine.DiskFile, error) {
 	if !validDiskID(disk) {
-		return machine.DiskFile{}, fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+		return machine.DiskFile{}, fmt.Errorf("invalid disk ID %q: must not be empty, ., .., start with %s, contain / or a NUL, or exceed 255 bytes", disk, tempPrefix)
 	}
 	info, err := os.Lstat(filepath.Join(d.dir, string(disk)))
 	switch {
@@ -353,7 +353,7 @@ func runMKFS(mkfs, path, uuid string) error {
 // Invalid DiskID is refused and never touches the filesystem.
 func (d *Disk) Locate(_ context.Context, disk machine.DiskID) (string, error) {
 	if !validDiskID(disk) {
-		return "", fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+		return "", fmt.Errorf("invalid disk ID %q: must not be empty, ., .., start with %s, contain / or a NUL, or exceed 255 bytes", disk, tempPrefix)
 	}
 	path := filepath.Join(d.dir, string(disk))
 	if _, err := os.Stat(path); err != nil {
@@ -377,7 +377,7 @@ func (d *Disk) Reclaim(_ context.Context, disk machine.DiskID) error {
 
 func (d *Disk) chown(disk machine.DiskID, uid, gid int) error {
 	if !validDiskID(disk) {
-		return fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+		return fmt.Errorf("invalid disk ID %q: must not be empty, ., .., start with %s, contain / or a NUL, or exceed 255 bytes", disk, tempPrefix)
 	}
 	path := filepath.Join(d.dir, string(disk))
 	err := os.Chown(path, uid, gid)
@@ -394,7 +394,7 @@ func (d *Disk) chown(disk machine.DiskID, uid, gid int) error {
 // Removing an absent disk succeeds.
 func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {
 	if !validDiskID(disk) {
-		return fmt.Errorf("invalid disk ID %q: must not be empty, ., .., or contain /", disk)
+		return fmt.Errorf("invalid disk ID %q: must not be empty, ., .., start with %s, contain / or a NUL, or exceed 255 bytes", disk, tempPrefix)
 	}
 	path := filepath.Join(d.dir, string(disk))
 	err := os.Remove(path)

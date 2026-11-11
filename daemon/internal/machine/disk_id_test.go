@@ -2,6 +2,7 @@ package machine_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -125,19 +126,48 @@ func TestDetachDisk_DiskIdentifierForm(t *testing.T) {
 	}
 }
 
+func TestCreate_DiskIdentifierForm(t *testing.T) {
+	ctx := context.Background()
+	for _, tt := range badDiskIDs {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(machine.CapabilityDiskHotplug)
+			spec := baseSpec()
+			spec.Disks = []machine.DiskAttachment{{Disk: tt.id}}
+			requireKind(t, e.svc.Create(ctx, "m", "req", spec), machine.ErrInvalid)
+			e.requireNoMachine(t, "m")
+			_, recorded := e.store.Record("m")
+			assert.False(t, recorded, "nothing is recorded")
+			requireUntouched(t, e, "locate", "create-root", "give")
+
+			for i, ok := range goodDiskIDs {
+				e.disks.Provide(ok)
+				id := machine.MachineID(fmt.Sprintf("c%d", i))
+				spec.Disks = []machine.DiskAttachment{{Disk: ok}}
+				require.NoError(t, e.svc.Create(ctx, id, "req", spec), "control %.20q", ok)
+			}
+		})
+	}
+}
+
 // The real Disk adapter answers a bad identifier from Get with ErrDiskInvalid,
 // which the in-memory one never does, so the service is built on it here.
 func TestCreateDisk_RealAdapterRefusesAnIdentifierThatNamesNoFile(t *testing.T) {
 	ctx := context.Background()
 	disk, err := diskfile.NewDisk(t.TempDir(), "/bin/true")
 	require.NoError(t, err)
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	svc := machine.NewService(e.driver, e.sup, e.net, disk, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()))
 
 	for _, tt := range badDiskIDs {
 		t.Run(tt.name, func(t *testing.T) {
 			requireKind(t, svc.CreateDisk(ctx, tt.id, "req", 1<<20), machine.ErrInvalid)
 			requireKind(t, svc.DeleteDisk(ctx, tt.id), machine.ErrInvalid)
+
+			spec := baseSpec()
+			spec.Disks = []machine.DiskAttachment{{Disk: tt.id}}
+			requireKind(t, svc.Create(ctx, "m", "req", spec), machine.ErrInvalid)
+			_, recorded := e.store.Record("m")
+			assert.False(t, recorded, "no failed Machine is recorded")
 		})
 	}
 	entries, err := disk.List(ctx)
