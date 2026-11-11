@@ -14,7 +14,6 @@ var codeOfKind = map[OutcomeKind]codes.Code{
 	OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED: codes.FailedPrecondition,
 	OutcomeKind_OUTCOME_KIND_UNSUPPORTED:         codes.Unimplemented,
 	OutcomeKind_OUTCOME_KIND_FAILED:              codes.Internal,
-	OutcomeKind_OUTCOME_KIND_IN_PROGRESS:         codes.Aborted,
 }
 
 // NewError returns the error that ends a call in the given non-success
