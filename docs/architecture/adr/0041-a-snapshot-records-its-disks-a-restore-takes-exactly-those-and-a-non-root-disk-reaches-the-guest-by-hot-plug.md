@@ -1,0 +1,74 @@
+# ADR 0041: A snapshot records its disks, a restore takes exactly those, and a non-root disk reaches the guest by hot-plug
+
+> Status: accepted
+> Date: 2026-11-11
+
+Append-only: once merged, the body below is not rewritten. A fact later found wrong is corrected in an appended note, not edited out; a revised decision is a new ADR that supersedes this one.
+
+## Context
+
+Raised as garamsh/mvmd#323 from the QA gap hunt at 01a036c. garamsh/discussions#2 §상태 보존 범위 names two models of what a stop keeps: model A keeps the disk, model B adds the processes and memory ("hibernate"), and its list of what a snapshot-based stop must solve says the memory snapshot and the disk state are one pair. The user decided on 2026-11-11 that model B is supported for a Machine with attached disks, and that a disk given at boot can be detached from a Running Machine. Both are refused today: Snapshot requires no disk but the root disk, and a disk a Machine booted with has no ID the guest knows, so `ReleaseDisk` answers `NOT_FOUND`.
+
+What the code and the earlier decisions fix:
+
+- A disk has one holder on the node ([ADR 0009](./0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)), and the holder is given the file ([ADR 0038](./0038-a-disk-file-belongs-to-the-machine-that-holds-it.md)). The project's direction is the one a node-local volume has: one holder, on one node.
+- Each Driver names a disk's drive `disk_<hex sha256(disk ID)>` ([ADR 0022](./0022-the-guest-finds-a-hot-plugged-disk-by-rescan-and-releases-it-before-the-unplug.md); `daemon/internal/diskdevice`), and a disk added to a running VMM is hard linked into the run directory as `/run/<name>`. A disk given at boot is bound at `/disk/<n>` ([ADR 0019](./0019-a-vmm-sees-its-machines-files-at-fixed-paths-in-its-root.md)) and has a drive of the same name.
+- A VMM's saved state records each drive's name and path, and the guest's memory holds the agent's record of which PCI device is which disk ID ([ADR 0022](./0022-the-guest-finds-a-hot-plugged-disk-by-rescan-and-releases-it-before-the-unplug.md)). A restore therefore reproduces the names, the paths and the IDs of the Machine it was taken from, and cannot give a disk another one.
+- The agent finds a disk by the one virtio block device it has not accounted for, and accounts for every device present when it started. A disk given at boot is such a device, so the agent never matches it to an ID. [ADR 0010](./0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md) rejected finding a device by order, and by a filesystem UUID where the host does not choose it: the host never reads a guest disk, and the guest may reformat a non-root one. Firecracker's virtio-blk serial is built from the file's inode and cannot be chosen; Cloud Hypervisor's can.
+- A snapshot's files are owned by mvmd and read-only ([ADR 0031](./0031-the-snapshot-store-publishes-a-snapshots-state-files-owned-by-mvmd-and-read-only.md)); the root disk copy is the restored Machine's own. Clones from one snapshot are allowed ([ADR 0016](./0016-a-restored-guest-reseeds-from-host-entropy-and-takes-its-time-from-the-host.md)).
+
+## Decision
+
+1. **A snapshot records, for each disk its Machine had attached, the disk's ID, its read-only flag, and the file's size and modification time at the moment of capture.** It records no drive name, path or device name: the drive name and the path in the run directory derive from the ID by the one rule both Drivers already use, so no Driver-specific record exists. It does not copy the disk. The record's list is empty for a Machine with none, so a snapshot made before this decision is read as one with none. The Snapshot call no longer refuses a Machine with attached disks, and the paused guest is the point the pair is taken at.
+2. **A restore takes exactly the recorded disks, or fails before it creates anything.** Each disk must be held by the node, must have no holder, and must still have the size and modification time recorded. The restored Machine takes each as holder, is given its file ([ADR 0038](./0038-a-disk-file-belongs-to-the-machine-that-holds-it.md)), and lists it as attached with the recorded read-only flag. A disk that is absent, held by a Machine, or changed is precondition failed, and the reason names the disk and which of the three it is; no slot is taken, no file given and no Machine exists. A failure after slots were taken releases them and takes the files back, as a failed create does. The client does not choose a disk at restore: there is no mapping of recorded IDs to other disks.
+3. **A restored VMM reaches each disk at the path and name its saved state holds, because mvmd puts the file there before the VMM loads the state.** Restore gives the Driver the recorded disks as it gives Boot its devices, and the Driver hard links each file into the run directory under the name its ID derives, exactly as an attach does, before it asks the VMM to load the state. Firecracker's drive ID and Cloud Hypervisor's device name are that same name, so neither Driver reads the snapshot for them. A failure to link fails the restore as a failure of the VMM's start does.
+4. **A disk written after the snapshot makes the snapshot unrestorable, and the restore says so.** The comparison in decision 2 is the check: the restore compares the file's size and modification time with the record, and a difference is precondition failed naming the disk. The API has no way to restore past it. A client that wants the disk as it is now starts a Machine on it instead.
+5. **Every disk other than the root reaches the guest by hot-plug, at Start as at Attach.** Create Machine still names disks and takes their holder slots, and the file is given, as [ADR 0038](./0038-a-disk-file-belongs-to-the-machine-that-holds-it.md) says. Start boots the VMM with the image and the root disk only, and after the guest agent answers and before it sends `Boot`, attaches each recorded disk through the Driver and asks the guest to find it, as Attach on a Running Machine does. The guest therefore records every non-root disk under its ID, `ReleaseDisk` finds it, and a Running Machine detaches it as any other. A disk that fails to attach or be found fails the Start as a failed boot does, with the VMM ended. No boot description or serial carries a disk's identity, and `/disk/<n>` holds the image and the root disk only. A Create Machine that names a disk is unsupported on a Driver without the `disk-hotplug` capability.
+6. **A restart treats a non-root disk as ADR 0023 treats a hot-plugged one.** `Drive` answers absent or added since boot for it, and the guest is asked to find it again, which returns its record. The answer "given at boot" is left to a VMM started before this decision, whose disk the guest does not know: the Machine is kept, as ADR 0023 says, and the disk is detached after a stop. It is removed from the Driver port in the change that finds no such Machine possible.
+
+The proto changes are additions, and the version stays `v1alpha2`. The runtime API's `Snapshot` message gains `repeated SnapshotDisk disks` (disk ID, read-only flag, size in bytes) so a client reads what a restore needs; `SnapshotMachineRequest` and `RestoreMachineRequest` do not change; and no outcome kind is added, since an absent, held or changed disk is `PRECONDITION_FAILED` with the reason in `Failure.reason`. Snapshot of a Machine with disks and Detach of a Machine's create-time disk used to be precondition failed and now succeed, which relaxes a condition and moves nothing a client relied on: no idempotency rule or state after failure of an operation changes, and every new refusal applies to a snapshot that could not exist before. The guest channel's proto does not change: `FindDisk` and `ReleaseDisk` are served before `Boot` already, and `BootRequest` gains nothing.
+
+## Consequences
+
+- A Machine with disks can be snapshotted, deleted, and restored later on the same node, which is the hibernate flow of model B: the disks outlive the Machine and the restore takes them again. A snapshot with disks restores one Machine at a time: while a restored Machine holds the disks, another restore of the snapshot is precondition failed, and once it has written to one it is changed. The origin must have released the disks, which a Delete does and a Stop does not ([ADR 0038](./0038-a-disk-file-belongs-to-the-machine-that-holds-it.md)), so a client that wants a clone of a Machine with disks copies the disks itself.
+- There is one way a non-root disk reaches a guest and one way it is identified, so `Drive`'s given-at-boot answer, the `/disk/<n>` position of a data disk and the open question of the agent's identity for one all go.
+- Start of a Machine with disks takes one PCI rescan wait per disk, in series, before `Boot`, and is bounded by `boot_timeout`.
+- The check detects what the file shows: a write that leaves the size and the modification time as recorded, such as one within the file system's timestamp granularity of the capture or one that sets the time back, is not seen, and the guest's view and the disk disagree. `chown` ([ADR 0038](./0038-a-disk-file-belongs-to-the-machine-that-holds-it.md)) changes the change time and not the modification time, so a give and a take do not trip it.
+- A Driver that cannot hot-plug cannot serve a Machine with a data disk. Both Drivers can.
+- The snapshot's disks cannot be remapped, so a restore on a node without them fails and the snapshot is of use on its node only, as ADR 0031's record already ties it to the VMM and CPU.
+
+Candidates weighed:
+
+- **What a snapshot records.**
+  - **The disk's ID, read-only flag and a fingerprint** — chosen.
+  - **The drive name, device name or path as well.** Each derives from the ID by a rule both Drivers share, so a stored copy can only disagree with the rule, and it is a Driver-specific field in a neutral record.
+  - **A copy of the disk's contents.** A disk outlives its holders and is the client's data ([ADR 0009](./0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md)); a copy would be a second holder of it and cost its whole size at each snapshot.
+- **What a restore requires.**
+  - **The recorded disks, free and unchanged, or a precondition failure** — chosen.
+  - **Mapping each recorded ID to a disk the client names at restore.** The saved state and the guest's records name the original IDs, so a mapping would have to rewrite a VMM's state and a guest's memory.
+  - **Restore without the disks and let the guest find them gone.** The VMM's state names drives whose files are absent, so the load fails, and a guest with a mounted disk that vanishes under it has an I/O error where it expected none.
+  - **Take a disk from its holder.** It breaks ADR 0009's one holder for a call that the holder did not make.
+- **How the VMM reaches a disk's file.**
+  - **A link in the run directory from the ID, made by the Driver before the load** — chosen.
+  - **Bind each disk into the restored VMM's root.** The root is fixed when the supervisor starts the VMM, and a name would be a Driver-specific record of which disk is which; the run directory is already where a disk is added to a VMM ([ADR 0015](./0015-the-supervisor-confines-every-vmm-process-the-same-way.md)).
+  - **Rewrite the saved state's paths.** The state is the VMM's own format and each VMM's differs.
+- **A disk written after the snapshot.**
+  - **Refuse the restore when the file's size or modification time differs** — chosen. The guest's page cache and its file system's journal describe the disk as it was at capture, so a disk that moved on under a restored guest is corruption the guest cannot see, and model B says the two are one pair.
+  - **The client's responsibility.** The restore would succeed on a disk no snapshot describes, and the client, which did not see the other Machine's writes, has no way to know; a runtime that can see the file differs and does not say so leaves the client to lose data.
+  - **A generation mvmd counts.** Guest writes go to the file through the VMM and mvmd never sees them, so a generation moved only by mvmd's own gives and takes does not move when the origin writes after the snapshot, which is the case that matters.
+  - **A content digest of each disk.** It reads the whole disk at each snapshot and restore, which for a data disk is the cost this decision must not add.
+  - **A flag that restores past a change.** It would be an addition later, and nothing asks for it now; a disk that moved on is started as a new Machine's.
+- **How the guest identifies a non-root disk.**
+  - **No disk is given at boot: Start hot-plugs it and the guest finds it as it finds any disk** — chosen. It reuses the one identity rule ADR 0022 already tests on both Drivers and adds none.
+  - **The boot description carries the IDs and the agent matches them.** The agent has nothing to match them to: by order is rejected, a filesystem UUID is not the host's to know, and the serial cannot be chosen on Firecracker, so the description would need a per-Driver rule for the device.
+  - **A serial.** Cloud Hypervisor only; a Driver-specific field in the neutral Driver port, and Firecracker would still need another rule.
+  - **The drive name.** The guest cannot read it: the kernel sees a virtio block device and its serial, not the VMM's drive ID.
+  - **Boot disks stay and the guest gets no identity for them, so a Machine stops to detach one.** It is today's refusal, which the user chose not to keep.
+
+## Signs the decision was wrong
+
+- A Driver that cannot hot-plug, for which a Machine with a data disk is wanted.
+- A workload whose entrypoint needs a disk to have been plugged before the kernel's first boot step, which the order here, before `Boot`, does not give it, or a Start with many disks whose serial rescans exceed `boot_timeout`.
+- A disk whose file is rewritten by something that leaves its size and modification time as they were, and a guest that corrupts after a restore the check passed.
+- A client that needs to restore past a changed disk, or to restore one snapshot as a clone of a Machine with disks, which would ask for a remapping or a flag this decision leaves out.
+- A client that restores a snapshot without having read `Snapshot.disks` and meets the refusal for a disk it had deleted: the refusal's reason would then need to carry the whole list.
