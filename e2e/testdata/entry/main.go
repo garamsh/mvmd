@@ -8,11 +8,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -62,7 +64,8 @@ func command(name string, args []string) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
-		if err := file.Sync(); err != nil {
+		// A kernel setting under /proc has nothing to sync and refuses it as invalid.
+		if err := file.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
