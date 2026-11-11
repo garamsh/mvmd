@@ -24,7 +24,7 @@ var outputStreams = map[machine.OutputStream]v1alpha2.OutputStream{
 }
 
 func execRecordToWire(r machine.ExecRecord) *v1alpha2.ExecRecord {
-	return &v1alpha2.ExecRecord{ExecId: string(r.ID), Status: execStatuses[r.Status], Reason: r.Reason, ExitCode: r.ExitCode, TermSignal: r.TermSignal}
+	return &v1alpha2.ExecRecord{ExecId: string(r.ID), Status: execStatuses[r.Status], Reason: r.Reason, ExitCode: r.ExitCode}
 }
 
 func (s *Server) Exec(ctx context.Context, req *v1alpha2.ExecRequest) (*v1alpha2.ExecResponse, error) {
