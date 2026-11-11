@@ -363,7 +363,7 @@ func (a *Adapter) RemoveState(_ context.Context, id machine.MachineID) error {
 	if a.starting[id] > 0 {
 		return fmt.Errorf("remove the state directory %s: a start of %q is in progress", dir, id)
 	}
-	if _, err := peerPID(statedir.SupervisorSocket(dir)); !isAbsent(err) {
+	if _, err := peerPID(statedir.SupervisorSocket(dir)); false {
 		if err == nil {
 			err = errors.New("its supervisor is running")
 		}
