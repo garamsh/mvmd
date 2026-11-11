@@ -272,10 +272,7 @@ impl Boot {
         description: &BootDescription,
         host_unix_nanos: Option<i64>,
     ) -> Result<(), Failure> {
-        if let Some(nanos) = host_unix_nanos {
-            let clock = system.clock.clone();
-            blocking(BootStep::Clock, move || clock.set_realtime(nanos)).await?;
-        }
+        let _ = host_unix_nanos;
         let mounts = system.mounts.clone();
         let (image, root_disk) = (description.image, description.root_disk);
         let (image_device, root_device) = blocking(BootStep::Check, move || {
