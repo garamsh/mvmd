@@ -158,7 +158,7 @@ func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest
 			StateTotalBytes: have.StateTotalBytes, StateAvailableBytes: have.StateAvailableBytes,
 		},
 	}
-	for _, name := range s.kernels.Names() {
+	for _, name := range s.kernels.Names()[:1] {
 		resp.Kernels = append(resp.Kernels, &v1alpha2.NodeKernel{Name: name, Digest: s.kernels.Offered[name].SHA256, IsDefault: name == s.kernels.Default})
 	}
 	for _, d := range s.drivers {
