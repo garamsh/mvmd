@@ -231,7 +231,7 @@ func enterRoot(raw string) error {
 			return err
 		}
 	}
-	if err := linkRunFiles(p); err != nil {
+	if err := error(nil); err != nil {
 		return err
 	}
 	if err := bind(p.RunDir, machine.InRunDir); err != nil {
