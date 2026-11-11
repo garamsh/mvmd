@@ -162,6 +162,9 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	if process.RunDir != runDir {
 		return fmt.Errorf("the run directory %q is not the Machine's %q", process.RunDir, runDir)
 	}
+	if err := checkRunFiles(process.RunFiles); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create the state directory: %w", err)
 	}
@@ -180,6 +183,11 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 	if err := os.Chown(runDir, int(user.UID), int(user.GID)); err != nil {
 		return fmt.Errorf("give the run directory to the Machine's user: %w", err)
+	}
+	for _, f := range process.RunFiles {
+		if err := os.Link(f.Path, filepath.Join(runDir, f.Name)); err != nil {
+			return fmt.Errorf("link %q into the run directory: %w", f.Name, err)
+		}
 	}
 	vmmCgroup, err := a.createVMMCgroup(id)
 	if err != nil {
@@ -265,6 +273,21 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 			err = errors.Join(err, termErr)
 		}
 		return fmt.Errorf("start the process under its supervisor: %w", err)
+	}
+	return nil
+}
+
+// checkRunFiles refuses a name that is not one file name and a path that is
+// not absolute, so that nothing is linked outside the run directory or from a
+// path relative to mvmd's own.
+func checkRunFiles(files []machine.RunFile) error {
+	for _, f := range files {
+		if f.Name == "" || f.Name == "." || f.Name == ".." || strings.Contains(f.Name, "/") {
+			return fmt.Errorf("the run file name %q is not a file name", f.Name)
+		}
+		if !filepath.IsAbs(f.Path) {
+			return fmt.Errorf("the path %q of run file %q is not absolute", f.Path, f.Name)
+		}
 	}
 	return nil
 }
