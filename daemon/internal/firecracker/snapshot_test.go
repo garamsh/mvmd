@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -108,6 +109,27 @@ func TestDescribeRestore_MountsTheSnapshotAndTheMachinesOwnFilesAtFixedPaths(t *
 	assert.Equal(t, booted.DeviceNodes, p.DeviceNodes, "a Machine with a tap needs /dev/net/tun")
 	assert.Equal(t, booted.Overhead, p.Overhead)
 	assert.Contains(t, p.DeviceNodes, "/dev/net/tun")
+}
+
+func TestDescribeRestore_ListsEachRecordedDiskAsARunFileAndBindsNone(t *testing.T) {
+	n := newNode(t)
+	own, err := n.driver.DescribeRestore(context.Background(), "m2", n.restoreSpec("tap-m2"), snapshotFiles())
+	require.NoError(t, err)
+	assert.Empty(t, own.RunFiles, "control: a restore of a Machine with no recorded disk lists none")
+
+	spec := n.restoreSpec("tap-m2")
+	spec.Devices = append(spec.Devices,
+		machine.BlockDevice{Disk: "data", Path: "/disks/data.img"},
+		machine.BlockDevice{Disk: "data2", Path: "/disks/data2.img", ReadOnly: true})
+	p, err := n.driver.DescribeRestore(context.Background(), "m2", spec, snapshotFiles())
+	require.NoError(t, err)
+
+	assert.Equal(t, []machine.RunFile{
+		{Name: dataDrive, Path: "/disks/data.img"},
+		{Name: diskdevice.Name(0, "data2"), Path: "/disks/data2.img"},
+	}, p.RunFiles, "each recorded disk is linked in the run directory under its drive's name, at its host path")
+	assert.NotEqual(t, p.RunFiles[0].Name, p.RunFiles[1].Name)
+	assert.Equal(t, own.BootFiles, p.BootFiles, "the image and the root disk stay bound at /disk/0 and /disk/1, and a recorded disk is not bound at /disk/2")
 }
 
 func TestDescribeRestore_RefusesWhatIsNotTheSnapshotsOwnPairOfFiles(t *testing.T) {

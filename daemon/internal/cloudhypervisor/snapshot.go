@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -58,7 +59,9 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 // restored guest has already loaded, but it is given the initrd, with its digest: Cloud
 // Hypervisor opens the initramfs its snapshot's configuration names before it
 // restores (ADR 0027), and never loads it. The restore is the process's own
-// command line, so Restore only waits for it.
+// command line, so Restore only waits for it. Each recorded disk is a run file
+// under its device's name, where the snapshot recorded it (ADR 0042), and is
+// not bound.
 func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec machine.BootSpec, files []string) (machine.ProcessDescription, error) {
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
@@ -81,8 +84,22 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 		}
 		boot = append(boot, machine.File{Host: held[name], In: filepath.Join(machine.InSnapshotDir, name), ReadOnly: true})
 	}
-	return d.process(spec, restoreArgs(spec), boot), nil
+	own, recorded := spec.Devices, []machine.BlockDevice(nil)
+	if len(own) > bootDevices {
+		own, recorded = own[:bootDevices], own[bootDevices:]
+	}
+	p := d.process(spec, restoreArgs(spec), boot)
+	p.BootFiles = append(boot, machine.DeviceFiles(own)...)
+	for _, dev := range recorded {
+		p.RunFiles = append(p.RunFiles, machine.RunFile{Name: diskdevice.Name(0, dev.Disk), Path: dev.Path})
+	}
+	return p, nil
 }
+
+// bootDevices is how many of a restore's devices the Machine boots with: its
+// image and its root disk, at /disk/0 and /disk/1. Each after them is a disk
+// the snapshot recorded.
+const bootDevices = 2
 
 func isSnapshotName(name string) bool {
 	for _, n := range snapshotNames {

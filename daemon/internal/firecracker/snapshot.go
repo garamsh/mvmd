@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -48,11 +49,17 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 	}, nil
 }
 
+// bootDevices is how many of a restore's devices the Machine boots with: its
+// image and its root disk, at /disk/0 and /disk/1. Each after them is a disk
+// the snapshot recorded.
+const bootDevices = 2
+
 // DescribeRestore implements machine.Driver. The files are the two Snapshot
 // returned, wherever the Snapshot Store holds them now, and are told apart by
 // name. The VMM sees them read-only at their fixed paths beside the Machine's
 // own devices at theirs; it is given no kernel or initrd, since a restored
-// guest is already running one.
+// guest is already running one. Each recorded disk is a run file under its
+// drive's name, where the snapshot recorded it (ADR 0042), and is not bound.
 func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec machine.BootSpec, files []string) (machine.ProcessDescription, error) {
 	var state, memory string
 	for _, f := range files {
@@ -74,7 +81,18 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 		{Host: state, In: inSnapshot(inStateName), ReadOnly: true},
 		{Host: memory, In: inSnapshot(inMemoryName), ReadOnly: true},
 	}
-	return d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
+	own, recorded := spec.Devices, []machine.BlockDevice(nil)
+	if len(own) > bootDevices {
+		own, recorded = own[:bootDevices], own[bootDevices:]
+	}
+	p, err := d.process(spec, append(boot, machine.DeviceFiles(own)...))
+	if err != nil {
+		return machine.ProcessDescription{}, err
+	}
+	for _, dev := range recorded {
+		p.RunFiles = append(p.RunFiles, machine.RunFile{Name: diskdevice.Name(0, dev.Disk), Path: dev.Path})
+	}
+	return p, nil
 }
 
 // Restore implements machine.Driver. It loads the snapshot DescribeRestore
