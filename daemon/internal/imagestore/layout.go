@@ -24,6 +24,7 @@ const (
 	machineImageFilesys  = "application/vnd.mvmd.machineimage.erofs.v1"
 	verityAnnotation     = "io.mvmd.fsverity.digest"
 	pulledByAnnotation   = "io.mvmd.image.digest"
+	createdAnnotation    = "io.mvmd.image.created"
 	layoutVersionContent = `{"imageLayoutVersion":"1.0.0"}`
 )
 

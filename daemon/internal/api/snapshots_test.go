@@ -17,12 +17,17 @@ import (
 type snapshotter struct {
 	machine.Service
 	listed  []machine.Snapshot
+	sizes   map[machine.SnapshotID]uint64
 	err     error
 	deleted []machine.SnapshotID
 }
 
-func (s *snapshotter) ListSnapshots(context.Context) ([]machine.Snapshot, error) {
-	return s.listed, s.err
+func (s *snapshotter) ListSnapshots(context.Context) ([]machine.SnapshotInfo, error) {
+	var out []machine.SnapshotInfo
+	for _, snapshot := range s.listed {
+		out = append(out, machine.SnapshotInfo{Snapshot: snapshot, SizeBytes: s.sizes[snapshot.ID]})
+	}
+	return out, s.err
 }
 
 func (s *snapshotter) DeleteSnapshot(_ context.Context, id machine.SnapshotID) error {

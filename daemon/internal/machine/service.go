@@ -94,14 +94,14 @@ type Service interface {
 	RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error
 	// ListSnapshots returns every snapshot the node holds, ordered by
 	// identifier.
-	ListSnapshots(ctx context.Context) ([]Snapshot, error)
+	ListSnapshots(ctx context.Context) ([]SnapshotInfo, error)
 	// DeleteSnapshot removes the snapshot and its files. An absent snapshot
 	// succeeds. A snapshot a Snapshot or a restore call is using is refused
 	// with ErrPreconditionFailed; a snapshot whose Machine exists is not.
 	DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error
 
-	// ListImages returns the digest of every image the node holds, ordered.
-	ListImages(ctx context.Context) ([]ImageDigest, error)
+	// ListImages returns every image the node holds, ordered by digest.
+	ListImages(ctx context.Context) ([]ImageInfo, error)
 	// RemoveImage unlists the image and reclaims its blobs. An absent image
 	// succeeds. An image a Machine record references, a snapshot references,
 	// or a Create or restore call is locating is refused with

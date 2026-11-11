@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -16,11 +17,12 @@ type ImageStore struct {
 
 	mu     sync.Mutex
 	images map[machine.ImageDigest]machine.LocatedImage
+	facts  map[machine.ImageDigest]machine.ImageInfo
 }
 
 // NewImageStore returns an ImageStore that holds no image.
 func NewImageStore() *ImageStore {
-	return &ImageStore{images: make(map[machine.ImageDigest]machine.LocatedImage)}
+	return &ImageStore{images: make(map[machine.ImageDigest]machine.LocatedImage), facts: make(map[machine.ImageDigest]machine.ImageInfo)}
 }
 
 // Provide makes the node hold an image, with a filesystem UUID and a run
@@ -45,6 +47,14 @@ func (s *ImageStore) ProvideWith(image machine.ImageDigest, located machine.Loca
 	s.images[image] = located
 }
 
+// SetFacts sets the size and the storing time List reports for an image the
+// node holds. An image Provide made reports a size of zero and no time.
+func (s *ImageStore) SetFacts(image machine.ImageDigest, sizeBytes uint64, createdAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.facts[image] = machine.ImageInfo{Digest: image, SizeBytes: sizeBytes, CreatedAt: createdAt}
+}
+
 // Locate implements machine.ImageStore.
 func (s *ImageStore) Locate(_ context.Context, image machine.ImageDigest) (machine.LocatedImage, error) {
 	if err := s.Enter("locate"); err != nil {
@@ -63,13 +73,19 @@ func (s *ImageStore) Locate(_ context.Context, image machine.ImageDigest) (machi
 }
 
 // List implements machine.ImageStore.
-func (s *ImageStore) List(context.Context) ([]machine.ImageDigest, error) {
+func (s *ImageStore) List(context.Context) ([]machine.ImageInfo, error) {
 	if err := s.Enter("list"); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.Sorted(maps.Keys(s.images)), nil
+	out := make([]machine.ImageInfo, 0, len(s.images))
+	for _, digest := range slices.Sorted(maps.Keys(s.images)) {
+		info := s.facts[digest]
+		info.Digest = digest
+		out = append(out, info)
+	}
+	return out, nil
 }
 
 // Remove implements machine.ImageStore.
@@ -80,5 +96,6 @@ func (s *ImageStore) Remove(_ context.Context, image machine.ImageDigest) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.images, image)
+	delete(s.facts, image)
 	return nil
 }

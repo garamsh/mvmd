@@ -125,10 +125,11 @@ func (s *Store) Get(ctx context.Context, id machine.SnapshotID) (machine.Snapsho
 
 // List implements machine.SnapshotStore. The staging directory holds no
 // record, so it is left out, as is a snapshot retired between the listing of
-// the directory and the read of its record: that one is gone. A record that
+// the directory and the read of its record or its measurement: that one is
+// gone. A record that
 // cannot be read fails the listing, since a node holding one is not in a state
 // a client can reconcile against.
-func (s *Store) List(ctx context.Context) ([]machine.Snapshot, error) {
+func (s *Store) List(ctx context.Context) ([]machine.SnapshotInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -136,7 +137,7 @@ func (s *Store) List(ctx context.Context) ([]machine.Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]machine.Snapshot, 0, len(entries))
+	out := make([]machine.SnapshotInfo, 0, len(entries))
 	for _, e := range entries {
 		raw, err := os.ReadFile(filepath.Join(s.dir, e.Name(), recordName))
 		if errors.Is(err, os.ErrNotExist) {
@@ -149,9 +150,16 @@ func (s *Store) List(ctx context.Context) ([]machine.Snapshot, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read the record in %s: %w", e.Name(), err)
 		}
-		out = append(out, snapshot)
+		size, err := occupied(filepath.Join(s.dir, e.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("measure the snapshot in %s: %w", e.Name(), err)
+		}
+		out = append(out, machine.SnapshotInfo{Snapshot: snapshot, SizeBytes: size})
 	}
-	slices.SortFunc(out, func(a, b machine.Snapshot) int { return strings.Compare(string(a.ID), string(b.ID)) })
+	slices.SortFunc(out, func(a, b machine.SnapshotInfo) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	return out, nil
 }
 

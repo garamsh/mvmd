@@ -69,12 +69,12 @@ func TestPullImage_PassesTheReferenceAndMapsTheUseCaseOutcome(t *testing.T) {
 // what they were asked.
 type imager struct {
 	machine.Service
-	listed  []machine.ImageDigest
+	listed  []machine.ImageInfo
 	err     error
 	removed []machine.ImageDigest
 }
 
-func (i *imager) ListImages(context.Context) ([]machine.ImageDigest, error) {
+func (i *imager) ListImages(context.Context) ([]machine.ImageInfo, error) {
 	return i.listed, i.err
 }
 
@@ -84,7 +84,7 @@ func (i *imager) RemoveImage(_ context.Context, digest machine.ImageDigest) erro
 }
 
 func TestListImages_ReportsEveryImageAndMapsTheUseCaseOutcome(t *testing.T) {
-	m := &imager{listed: []machine.ImageDigest{pulled, "sha256:b"}}
+	m := &imager{listed: []machine.ImageInfo{{Digest: pulled}, {Digest: "sha256:b"}}}
 	resp, err := api.New(m, nil, nil, nil, nil, nil).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Images, 2)

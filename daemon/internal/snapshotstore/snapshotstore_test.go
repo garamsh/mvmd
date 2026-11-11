@@ -86,6 +86,7 @@ func snapshot(id string) machine.Snapshot {
 			RootDiskBytes:   diskSize,
 		},
 		RootDiskUUID: "uuid-of-" + id,
+		CreatedAt:    time.Unix(1700000200, 987654321),
 		MAC:          "02:00:00:00:00:01",
 		Compat:       machine.SnapshotCompat{Driver: "firecracker", Version: "1.17.0", CPUModel: "model-x", KernelDigest: "sha256:kernel", KernelName: "next"},
 		Disks: []machine.SnapshotDisk{

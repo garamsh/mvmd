@@ -41,6 +41,9 @@ type record struct {
 	State      []string `json:"state"`
 	// Disks is absent from a record written before disks were recorded.
 	Disks []recordDisk `json:"disks,omitempty"`
+	// CreatedUnixNano is when the snapshot was stored, in nanoseconds since the
+	// Unix epoch. It is absent from a record written before it was recorded.
+	CreatedUnixNano int64 `json:"created_unix_nano,omitempty"`
 }
 
 // recordDisk is an attached disk and what its file showed at capture; the
@@ -56,6 +59,10 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 	var disks []recordDisk
 	for _, d := range s.Disks {
 		disks = append(disks, recordDisk{ID: string(d.Disk), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModUnixNano: d.ModTime.UnixNano()})
+	}
+	var created int64
+	if !s.CreatedAt.IsZero() {
+		created = s.CreatedAt.UnixNano()
 	}
 	return json.Marshal(record{
 		Version:            recordVersion,
@@ -78,6 +85,7 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		KernelName:         s.Compat.KernelName,
 		State:              state,
 		Disks:              disks,
+		CreatedUnixNano:    created,
 	})
 }
 
@@ -105,10 +113,15 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 	for _, d := range r.Disks {
 		disks = append(disks, machine.SnapshotDisk{Disk: machine.DiskID(d.ID), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModTime: time.Unix(0, d.ModUnixNano)})
 	}
+	var created time.Time
+	if r.CreatedUnixNano != 0 {
+		created = time.Unix(0, r.CreatedUnixNano)
+	}
 	return machine.Snapshot{
-		ID:      machine.SnapshotID(r.ID),
-		Machine: machine.MachineID(r.Machine),
-		Request: machine.RequestID(r.Request),
+		CreatedAt: created,
+		ID:        machine.SnapshotID(r.ID),
+		Machine:   machine.MachineID(r.Machine),
+		Request:   machine.RequestID(r.Request),
 		Spec: machine.SnapshotSpec{
 			Image:           machine.ImageDigest(r.Image),
 			Resources:       resources,

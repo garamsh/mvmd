@@ -20,6 +20,14 @@ func blobsOf(t *testing.T, dir string) []string {
 	return names(t, filepath.Join(dir, "blobs", "sha256"))
 }
 
+func digestsOf(infos []machine.ImageInfo) []machine.ImageDigest {
+	out := make([]machine.ImageDigest, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, info.Digest)
+	}
+	return out
+}
+
 func TestStore_ListReportsTheListedImagesOrderedByDigest(t *testing.T) {
 	s, _ := newStore(t)
 	got, err := s.List(ctx)
@@ -31,7 +39,7 @@ func TestStore_ListReportsTheListedImagesOrderedByDigest(t *testing.T) {
 
 	got, err = s.List(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []machine.ImageDigest{imageA, imageB}, got)
+	assert.Equal(t, []machine.ImageDigest{imageA, imageB}, digestsOf(got))
 }
 
 func TestStore_RemoveUnlistsTheImageAndDeletesTheBlobsOnlyItReached(t *testing.T) {
@@ -52,7 +60,7 @@ func TestStore_RemoveUnlistsTheImageAndDeletesTheBlobsOnlyItReached(t *testing.T
 	assert.NoError(t, err, "the other image is still located")
 	listed, err := s.List(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []machine.ImageDigest{imageB}, listed)
+	assert.Equal(t, []machine.ImageDigest{imageB}, digestsOf(listed))
 }
 
 // The near miss of the test above: the EROFS file is the same for both.
@@ -123,7 +131,7 @@ func TestStore_RemoveLeavesTheBlobsToTheSweepWhenAListedManifestIsUnreadable(t *
 	assert.Contains(t, err.Error(), "left for the next start's sweep")
 	got, lerr := s.List(ctx)
 	require.NoError(t, lerr)
-	assert.Equal(t, []machine.ImageDigest{imageB}, got, "the image is unlisted")
+	assert.Equal(t, []machine.ImageDigest{imageB}, digestsOf(got), "the image is unlisted")
 	assert.Len(t, blobsOf(t, dir), 5, "the blobs the image reached are kept: B's manifest is gone, the rest stay")
 }
 

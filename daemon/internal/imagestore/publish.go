@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/image"
 )
@@ -75,10 +76,13 @@ func (s *Store) Publish(ctx context.Context, staging image.Staging) error {
 		return err
 	}
 	entry := descriptor{
-		MediaType:   ociManifestType,
-		Digest:      "sha256:" + st.record.manifestHex,
-		Size:        st.record.manifestSize,
-		Annotations: map[string]string{pulledByAnnotation: string(st.image)},
+		MediaType: ociManifestType,
+		Digest:    "sha256:" + st.record.manifestHex,
+		Size:      st.record.manifestSize,
+		Annotations: map[string]string{
+			pulledByAnnotation: string(st.image),
+			createdAnnotation:  s.storedAt().UTC().Format(time.RFC3339Nano),
+		},
 	}
 	idx.Manifests = withEntry(idx.Manifests, entry)
 	content, err := json.Marshal(idx)
@@ -92,6 +96,14 @@ func (s *Store) Publish(ctx context.Context, staging image.Staging) error {
 		return err
 	}
 	return syncDir(s.dir)
+}
+
+// storedAt returns the time Publish records for the image.
+func (s *Store) storedAt() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // setImageMode gives the staged output the mode of a published image.

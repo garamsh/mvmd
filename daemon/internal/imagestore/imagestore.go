@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -28,6 +29,10 @@ type Store struct {
 	// fault is the seam of the tests: it is asked before each step of Publish
 	// and may fail it. It is nil in production.
 	fault func(step string) error
+
+	// now is the seam of the tests for the time Publish records. It is nil in
+	// production, which records the wall clock.
+	now func() time.Time
 
 	// swap is held by Publish from its first blob move to the swap of
 	// index.json, and by Remove throughout: both read the index, rewrite it

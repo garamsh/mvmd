@@ -27,8 +27,8 @@ func (s *Server) ListImages(ctx context.Context, _ *v1alpha2.ListImagesRequest) 
 		return nil, status(err)
 	}
 	resp := &v1alpha2.ListImagesResponse{}
-	for _, digest := range all {
-		resp.Images = append(resp.Images, &v1alpha2.Image{Digest: string(digest)})
+	for _, info := range all {
+		resp.Images = append(resp.Images, &v1alpha2.Image{Digest: string(info.Digest), SizeBytes: info.SizeBytes, CreatedAt: timeToWire(info.CreatedAt)})
 	}
 	return resp, nil
 }

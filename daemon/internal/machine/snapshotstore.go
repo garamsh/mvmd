@@ -69,6 +69,17 @@ type Snapshot struct {
 	// Disks are the disks the Machine had attached, in the order it listed
 	// them. A snapshot made before they were recorded has none.
 	Disks []SnapshotDisk
+	// CreatedAt is when the snapshot was stored, written into its record by
+	// Put. It is the zero time in a record written before it existed.
+	CreatedAt time.Time
+}
+
+// SnapshotInfo is a snapshot's record and what the store holds of it.
+type SnapshotInfo struct {
+	Snapshot
+	// SizeBytes is the disk space the store's files for the snapshot occupy:
+	// allocated blocks, summed over every file in its directory.
+	SizeBytes uint64
 }
 
 // SnapshotFiles are the files a snapshot holds: the Driver's own, opaque to
@@ -97,7 +108,7 @@ type SnapshotStore interface {
 	Get(ctx context.Context, id SnapshotID) (Snapshot, SnapshotFiles, error)
 	// List returns every snapshot the store holds, ordered by identifier. A
 	// snapshot being put or removed at the time is either in it or not.
-	List(ctx context.Context) ([]Snapshot, error)
+	List(ctx context.Context) ([]SnapshotInfo, error)
 	// Remove deletes the snapshot and its files. Removing an absent snapshot
 	// succeeds.
 	Remove(ctx context.Context, id SnapshotID) error
