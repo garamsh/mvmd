@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 func rw(disk machine.DiskID) machine.DiskAttachment { return machine.DiskAttachment{Disk: disk} }
@@ -33,7 +34,7 @@ func TestAttachDisk_Needs(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("a disk the node holds", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.created(t, "m")
 		requireKind(t, e.svc.AttachDisk(ctx, "m", rw("missing")), machine.ErrNotFound)
 		assert.Empty(t, attached(t, e, "m"))
@@ -59,7 +60,7 @@ func TestAttachDisk_Needs(t *testing.T) {
 	}
 	for _, tt := range holders {
 		t.Run("refuses "+tt.name, func(t *testing.T) {
-			e := newEnv()
+			e := newEnv(machine.CapabilityDiskHotplug)
 			e.disks.Provide("d")
 			e.created(t, "first")
 			e.created(t, "other")
@@ -76,7 +77,7 @@ func TestAttachDisk_Needs(t *testing.T) {
 	}
 
 	t.Run("refuses another Machine's root disk", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.created(t, "m")
 		e.created(t, "other")
 		requireKind(t, e.svc.AttachDisk(ctx, "other", ro("m-root")), machine.ErrPreconditionFailed)
@@ -110,13 +111,21 @@ func TestAttachDisk_Needs(t *testing.T) {
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
 	})
 
-	t.Run("no capability if Created or Stopped", func(t *testing.T) {
+	// Start plugs every attached disk (ADR 0041), so a Driver that cannot
+	// hot-plug takes no attach in any state, or every later Start would fail.
+	t.Run("hotplug capability if Created or Stopped", func(t *testing.T) {
 		for _, state := range []machine.State{machine.StateCreated, machine.StateStopped} {
-			e := newEnv() // not Running: no capability is needed
+			e := newEnv() // a Driver without the capability
 			e.disks.Provide("d")
 			e.inState(t, "m", state)
-			require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
-			assert.Zero(t, e.guest.Calls("find-disk"), "there is no guest to ask")
+			requireKind(t, e.svc.AttachDisk(ctx, "m", rw("d")), machine.ErrUnsupported)
+			assert.Empty(t, attached(t, e, "m"), state)
+
+			with := newEnv(machine.CapabilityDiskHotplug)
+			with.disks.Provide("d")
+			with.inState(t, "m", state)
+			require.NoError(t, with.svc.AttachDisk(ctx, "m", rw("d")), state)
+			assert.Zero(t, with.guest.Calls("find-disk"), "there is no guest to ask")
 		}
 	})
 }
@@ -126,7 +135,7 @@ func TestAttachDisk_OnSuccess(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("a Machine without a VMM records the disk for its next boot", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
 		e.created(t, "m")
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", ro("d")))
@@ -211,15 +220,18 @@ func TestDetachDisk_Needs(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("hotplug capability if Running", func(t *testing.T) {
-		// The disk is attached while the Machine is Created, then the Machine
-		// is started.
-		e := newEnv()
+		// The disk is attached while the Machine is Created, under a Driver
+		// that could hot-plug, then the node restarts with one that cannot
+		// and starts the Machine.
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
 		e.created(t, "m")
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
-		require.NoError(t, e.svc.Start(ctx, "m"))
+		e.driver = memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a"})
+		svc := e.reopened(t)
+		require.NoError(t, svc.Start(ctx, "m"))
 
-		requireKind(t, e.svc.DetachDisk(ctx, "m", "d"), machine.ErrUnsupported)
+		requireKind(t, svc.DetachDisk(ctx, "m", "d"), machine.ErrUnsupported)
 		assert.Equal(t, []machine.DiskAttachment{rw("d")}, attached(t, e, "m"))
 		assert.Zero(t, e.driver.Calls("detach"))
 		assert.Zero(t, e.guest.Calls("release-disk"))
@@ -243,7 +255,7 @@ func TestDetachDisk_Needs(t *testing.T) {
 	})
 
 	t.Run("a Created or Stopped Machine needs no capability", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
 		e.created(t, "m")
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))
@@ -308,7 +320,7 @@ func TestDetachDisk_StateAfterFailure(t *testing.T) {
 	})
 
 	t.Run("the release cannot be recorded on a Machine without a VMM", func(t *testing.T) {
-		e := newEnv()
+		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
 		e.created(t, "m")
 		require.NoError(t, e.svc.AttachDisk(ctx, "m", rw("d")))

@@ -151,7 +151,7 @@ func requireKind(t *testing.T, err error, kind error) {
 }
 
 func TestService_ConcurrentCallsAreSerialized(t *testing.T) {
-	e := newEnv()
+	e := newEnv(machine.CapabilityDiskHotplug)
 	ctx := context.Background()
 	e.disks.Provide("shared")
 	for _, id := range []machine.MachineID{"a", "b"} {
