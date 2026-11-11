@@ -207,7 +207,7 @@ func TestE2E_AnIngressRuleAllowsItsSourceAndPortAndAnEmptyPolicyAdmitsNothing(t 
 
 	// Two ports no other process of the guest holds.
 	const allowed, other = 8081, 8082
-	closed := n.policyMachine(t, ctx, "closed", pulled.Digest, &v1alpha2.NetworkPolicy{})
+	closed := n.policyMachine(t, ctx, "closed", pulled.Digest, &v1alpha2.NetworkPolicy{Ingress: []*v1alpha2.NetworkRule{&v1alpha2.NetworkRule{Prefix: "0.0.0.0/0", Protocol: v1alpha2.Protocol_PROTOCOL_ANY}}})
 	open := n.policyMachine(t, ctx, "open", pulled.Digest, &v1alpha2.NetworkPolicy{
 		Ingress: []*v1alpha2.NetworkRule{tcpAllow(gateway, allowed)},
 	})
