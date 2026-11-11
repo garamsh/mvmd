@@ -209,7 +209,7 @@ func TestE2E_AnIngressRuleAllowsItsSourceAndPortAndAnEmptyPolicyAdmitsNothing(t 
 	const allowed, other = 8081, 8082
 	closed := n.policyMachine(t, ctx, "closed", pulled.Digest, &v1alpha2.NetworkPolicy{})
 	open := n.policyMachine(t, ctx, "open", pulled.Digest, &v1alpha2.NetworkPolicy{
-		Ingress: []*v1alpha2.NetworkRule{tcpAllow(gateway, allowed)},
+		Ingress: []*v1alpha2.NetworkRule{tcpAllow(gateway, allowed), tcpAllow(gateway, other)},
 	})
 	n.startListening(t, ctx, "closed", allowed, other)
 	n.startListening(t, ctx, "open", allowed, other)
