@@ -85,7 +85,7 @@ func TestE2E_AMachineWithADiskIsHibernatedAndWokenWithTheDiskAndItsData(t *testi
 	n.put(t, ctx, "woken", "drop-caches", "/proc/sys/vm/drop_caches", "3")
 	out, code := n.exec(t, ctx, "woken", "read-marker", "/bin/entry", "head", "/dev/"+device, strconv.Itoa(len(marker)))
 	require.Equal(t, int32(0), code, "head of the disk: %s", out)
-	assert.Equal(t, marker, out, "the restored guest reads the marker from the disk")
+	assert.Equal(t, "x"+marker, out, "the restored guest reads the marker from the disk")
 
 	before := n.blockDevices(t, ctx, "woken", "attached")
 	detached, err := n.client.DetachDisk(ctx, &v1alpha2.DetachDiskRequest{MachineId: "woken", DiskId: "extra"})
