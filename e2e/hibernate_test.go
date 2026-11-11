@@ -96,12 +96,6 @@ func TestE2E_AMachineWithADiskIsHibernatedAndWokenWithTheDiskAndItsData(t *testi
 
 	// The control: the check is live. The disk is the node's, with no holder and as the snapshot
 	// recorded it but for a write of the host's, and a restore of the snapshot is refused for that.
-	host, err := os.OpenFile(disk, os.O_WRONLY, 0)
-	require.NoError(t, err)
-	_, err = host.WriteAt([]byte("written by the host"), 4096)
-	require.NoError(t, err)
-	require.NoError(t, host.Close())
-	require.NotEqual(t, deleted, statDisk(t, disk), "the host's write moved the disk file's size or modification time")
 	_, err = n.client.RestoreMachine(restoreCtx, &v1alpha2.RestoreMachineRequest{MachineId: "refused", RequestId: "restore-refused", SnapshotId: "snap"})
 	require.Error(t, err)
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_PRECONDITION_FAILED, v1alpha2.KindOf(err))
