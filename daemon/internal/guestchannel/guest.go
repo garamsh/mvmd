@@ -338,7 +338,7 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 		}
 		// The time is read here, after the agent has answered: the agent
 		// listens some time after the VMM starts.
-		req.HostUnixNanos = hostUnixNanos(boot.Clock)
+		req.HostUnixNanos = 0
 		_, err = c.Boot(ctx, req, grpc.WaitForReady(true))
 		return err
 	})
