@@ -19,8 +19,9 @@ use guest_agent::v1alpha1::{
     BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, DiskInUse,
     ExecRecord, ExecRequest, ExecStatus, FindDiskRequest, HealthRequest, Ipv4Config, Ipv6Config,
     ListFilesRequest, NetworkConfig as WireNetworkConfig, NotBooted, OnlineVcpusRequest,
-    ReadExecOutputRequest, ReleaseDiskRequest, RunConfig, TerminateRequest, UpdateNetworkRequest,
-    WriteFileRequest, WriteFileStart, read_exec_output_response, write_file_request,
+    PatchFileRequest, ReadExecOutputRequest, ReadFileRequest, ReleaseDiskRequest, RunConfig,
+    SearchFilesRequest, SignalRequest, TerminateRequest, UpdateNetworkRequest, WriteFileRequest,
+    WriteFileStart, read_exec_output_response, write_file_request,
 };
 use guest_agent::{
     BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, GuestSize,
@@ -1080,6 +1081,121 @@ async fn the_guest_is_served_only_once_it_has_booted_except_health_and_info() ->
         .list_files(ListFilesRequest { path: "/".into() })
         .await?;
     Ok(())
+}
+
+type Refusal = std::result::Result<(), tonic::Status>;
+
+/// The gated calls that no other test makes before the boot, each with the name it is reported by.
+async fn gated_calls(client: &mut GuestServiceClient<Channel>) -> Vec<(&'static str, Refusal)> {
+    let write = vec![WriteFileRequest {
+        part: Some(write_file_request::Part::Start(WriteFileStart {
+            path: "/no/such/dir/file".into(),
+        })),
+    }];
+    vec![
+        (
+            "signal",
+            client
+                .signal(SignalRequest {
+                    exec_id: "x".into(),
+                    signal: 15,
+                })
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "read_exec_output",
+            client
+                .read_exec_output(ReadExecOutputRequest {
+                    exec_id: "x".into(),
+                    after_offset: 0,
+                })
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "read_file",
+            client
+                .read_file(ReadFileRequest {
+                    path: "/no/such/file".into(),
+                })
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "write_file",
+            client
+                .write_file(tokio_stream::iter(write))
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "patch_file",
+            client
+                .patch_file(PatchFileRequest {
+                    path: "/no/such/file".into(),
+                    ..PatchFileRequest::default()
+                })
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "search_files",
+            client
+                .search_files(SearchFilesRequest {
+                    path: "/no/such/dir".into(),
+                    pattern: "*".into(),
+                })
+                .await
+                .map(|_| ()),
+        ),
+    ]
+}
+
+/// Asserts that every gated call was refused as not booted, in `state`.
+fn assert_refused_as_not_booted(calls: Vec<(&'static str, Refusal)>, state: BootState) -> Result {
+    assert_eq!(calls.len(), 6);
+    for (call, result) in calls {
+        let refusal = result.err().ok_or_else(|| format!("{call}: was served"))?;
+        assert_eq!(refusal.code(), Code::FailedPrecondition, "{call}");
+        let not_booted: NotBooted =
+            details::detail(&refusal).ok_or_else(|| format!("{call}: no NotBooted detail"))?;
+        assert_eq!(not_booted.state(), state, "{call}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_signal_exec_output_and_file_calls_are_refused_before_the_boot() -> Result {
+    let mut agent = Agent::start().await?;
+
+    let calls = gated_calls(&mut agent.client).await;
+
+    assert_refused_as_not_booted(calls, BootState::Pending)?;
+    // The control: once booted the same calls are not refused as not booted. Each fails for its
+    // own reason, because the exec, the file and the directory do not exist.
+    agent.boot("sleep 30").await?;
+    for (call, result) in gated_calls(&mut agent.client).await {
+        if let Err(status) = result {
+            assert_ne!(status.code(), Code::FailedPrecondition, "{call}");
+            assert!(details::detail::<NotBooted>(&status).is_none(), "{call}");
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_signal_exec_output_and_file_calls_are_refused_after_a_failed_boot() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        fail_network: true,
+        ..Setup::default()
+    })
+    .await?;
+    agent.boot("sleep 30").await.unwrap_err();
+
+    let calls = gated_calls(&mut agent.client).await;
+
+    assert_refused_as_not_booted(calls, BootState::Failed)
 }
 
 #[tokio::test]
