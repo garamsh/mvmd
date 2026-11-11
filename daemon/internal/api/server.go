@@ -34,6 +34,7 @@ type Server struct {
 	drivers  []machine.DriverInfo
 	capacity nodecapacity.Reader
 	events   events.Service
+	kernels  machine.Kernels
 	// stopping ends the event streams when Stop is called: a stream has no
 	// end of its own, and a graceful stop of the gRPC server waits for it.
 	stopping context.Context
@@ -43,9 +44,22 @@ type Server struct {
 // New returns the server over the lifecycle, the deadline, the image pull use
 // case and the event log, reporting the given Drivers and the capacity the
 // reader reads in runtime info.
-func New(machines machine.Service, deadline fencing.Service, images image.Service, drivers []machine.DriverInfo, capacity nodecapacity.Reader, log events.Service) *Server {
+func New(machines machine.Service, deadline fencing.Service, images image.Service, drivers []machine.DriverInfo, capacity nodecapacity.Reader, log events.Service, options ...Option) *Server {
 	stopping, stop := context.WithCancel(context.Background())
-	return &Server{machines: machines, deadline: deadline, images: images, drivers: drivers, capacity: capacity, events: log, stopping: stopping, stop: stop}
+	s := &Server{machines: machines, deadline: deadline, images: images, drivers: drivers, capacity: capacity, events: log, stopping: stopping, stop: stop}
+	for _, o := range options {
+		o(s)
+	}
+	return s
+}
+
+// Option changes what the server reports from its defaults.
+type Option func(*Server)
+
+// WithKernels sets the guest kernels runtime info lists (ADR 0045). Without
+// it the node lists none.
+func WithKernels(k machine.Kernels) Option {
+	return func(s *Server) { s.kernels = k }
 }
 
 // Stop ends every event stream, so the gRPC server can stop gracefully.
@@ -143,6 +157,9 @@ func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest
 			Cpus: have.CPUs, MemoryBytes: have.MemoryBytes,
 			StateTotalBytes: have.StateTotalBytes, StateAvailableBytes: have.StateAvailableBytes,
 		},
+	}
+	for _, name := range s.kernels.Names() {
+		resp.Kernels = append(resp.Kernels, &v1alpha2.NodeKernel{Name: name, Digest: s.kernels.Offered[name].SHA256, IsDefault: name == s.kernels.Default})
 	}
 	for _, d := range s.drivers {
 		info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}, CpuModel: d.CPUModel}
