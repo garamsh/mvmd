@@ -83,7 +83,7 @@ func TestSetResources_RefusesAboveTheReportedLimitAsRejectedAndChangesNothing(t 
 	_, err := srv.CreateMachine(ctx, createRequest("m", 2, 4))
 	require.NoError(t, err)
 
-	_, err = srv.SetResources(ctx, &v1alpha2.SetResourcesRequest{MachineId: "m", Target: &v1alpha2.Resources{CpuCount: 5, MemoryBytes: 512 << 20}})
+	_, err = srv.SetResources(ctx, &v1alpha2.SetResourcesRequest{MachineId: "m", Target: &v1alpha2.Resources{CpuCount: 5, MemoryBytes: 512 << 20}, ResourceCeiling: &v1alpha2.Resources{CpuCount: 5}})
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
 	got, err := srv.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "m"})
 	require.NoError(t, err)
