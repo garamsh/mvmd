@@ -42,6 +42,18 @@ func KeyedLockCount(s Service) (snapshots, images int) {
 	return svc.snapLocks.held(), svc.imageLocks.held()
 }
 
+// DiskLockUsers returns how many Create disk calls hold or wait for the disk's
+// lock.
+func DiskLockUsers(s Service, disk DiskID) int {
+	k := &s.(*service).diskLocks
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if l, ok := k.m[disk]; ok {
+		return l.users
+	}
+	return 0
+}
+
 // ObserveEnds runs one look for the VMMs that have ended, as Watch does on each
 // tick.
 func ObserveEnds(ctx context.Context, s Service) {

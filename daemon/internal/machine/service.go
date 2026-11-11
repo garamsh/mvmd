@@ -166,6 +166,9 @@ type service struct {
 	// restore calls that locate it: they hold it shared from Locate until the
 	// Machine's record is set.
 	imageLocks keyedLocks[ImageDigest]
+	// diskLocks serializes the Create disk calls for one disk identifier, so a
+	// repeat waits for the first call and answers from the lookup.
+	diskLocks keyedLocks[DiskID]
 	// held maps each disk to its one holder (ADR 0009).
 	held map[DiskID]MachineID
 }
