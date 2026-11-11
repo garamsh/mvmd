@@ -53,6 +53,7 @@ func TestPull_ConverterVMIsBootedConfinedAndEndedThroughThePorts(t *testing.T) {
 	assert.Equal(t, machine.NetworkDevice{}, during.boot.Network, "the converter has no network device")
 	assert.Empty(t, during.process.Tap)
 	assert.Equal(t, r.settings.Resources, during.boot.Resources)
+	assert.Equal(t, machine.KernelFile{Path: "/kernels/converter", SHA256: "digest-converter"}, during.boot.Kernel, "the converter boots its own kernel")
 	runDir, err := r.sup.RunDir(id)
 	require.NoError(t, err)
 	assert.Equal(t, runDir, during.boot.RunDir)

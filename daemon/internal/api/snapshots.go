@@ -42,6 +42,7 @@ func snapshotToWire(snapshot machine.Snapshot) *v1alpha2.Snapshot {
 		CpuModel:      snapshot.Compat.CPUModel,
 		RootDiskBytes: snapshot.Spec.RootDiskBytes,
 		KernelDigest:  snapshot.Compat.KernelDigest,
+		Kernel:        snapshot.Compat.KernelName,
 		Disks:         disks,
 	}
 }

@@ -429,7 +429,7 @@ func TestDetachDisk_TheGuestReleasesTheDiskFirst(t *testing.T) {
 		// (TestDetachDisk_ADiskNamedAtCreateIsDetachedFromARunningMachine).
 		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
-		svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, blindGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events)
+		svc := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, blindGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()))
 		spec := baseSpec()
 		spec.Disks = []machine.DiskAttachment{rw("d")}
 		require.NoError(t, svc.Create(ctx, "m", request("m"), spec))

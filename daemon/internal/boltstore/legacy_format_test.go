@@ -147,3 +147,30 @@ func TestStore_ARecordWithoutAKernelDigestLoadsWithNone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "abc123", again[0].Machine.KernelDigest)
 }
+
+// A record written before kernels had names loads with none, and the name of a
+// record written now survives a close and reopen.
+func TestStore_ARecordWithoutAKernelNameLoadsWithNone(t *testing.T) {
+	ctx := context.Background()
+	dir := writeLegacy(t, map[string]string{"m": legacyMachine}, nil)
+	db := open(t, dir)
+
+	got, err := db.Machines().Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Empty(t, got[0].Machine.Kernel, "none until it is started")
+
+	m := *got[0].Machine
+	m.Kernel = "next"
+	got[0].Machine = &m
+	require.NoError(t, db.Machines().Save(ctx, got[0]))
+	require.NoError(t, db.Close())
+	record, _ := storedBytes(t, dir, "m")
+	assert.Contains(t, record, `"Kernel":"next"`)
+
+	db = open(t, dir)
+	defer db.Close()
+	again, err := db.Machines().Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "next", again[0].Machine.Kernel)
+}

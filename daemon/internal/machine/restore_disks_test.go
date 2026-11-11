@@ -126,7 +126,7 @@ func TestRestore_ARunningMachineHoldsOnlyDisksTheVMMAndTheGuestAgreeOn(t *testin
 		// guest never found it.
 		e := newEnv(machine.CapabilityDiskHotplug)
 		e.disks.Provide("d")
-		old := machine.NewService(givesDisksAtBoot{e.driver}, e.sup, e.net, e.disks, e.images, e.snaps, blindGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events)
+		old := machine.NewService(givesDisksAtBoot{e.driver}, e.sup, e.net, e.disks, e.images, e.snaps, blindGuest{e.guest}, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()))
 		spec := baseSpec()
 		spec.Disks = []machine.DiskAttachment{rw("d")}
 		require.NoError(t, old.Create(ctx, "m", request("m"), spec))

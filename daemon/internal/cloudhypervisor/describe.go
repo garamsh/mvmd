@@ -61,11 +61,14 @@ func cmdline(goarch string) string {
 // is how a node fails at its start and not at its first boot; the check of
 // record is the supervisor's, on the file it presents to the VMM (ADR 0019).
 func verify(cfg Config) error {
-	for _, f := range []struct{ name, path, want string }{
+	files := []struct{ name, path, want string }{
 		{"binary", cfg.Binary, cfg.BinarySHA256},
-		{"kernel", cfg.Kernel, cfg.KernelSHA256},
 		{"initrd", cfg.Initrd, cfg.InitrdSHA256},
-	} {
+	}
+	for _, k := range cfg.Kernels {
+		files = append(files, struct{ name, path, want string }{"kernel", k.Path, k.SHA256})
+	}
+	for _, f := range files {
 		if err := pinnedfile.Check("the cloud-hypervisor "+f.name, f.path, f.want); err != nil {
 			return err
 		}
@@ -82,7 +85,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		return machine.ProcessDescription{}, err
 	}
 	boot := []machine.File{
-		{Host: d.cfg.Kernel, In: machine.InKernel, ReadOnly: true, SHA256: d.cfg.KernelSHA256},
+		{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256},
 		d.initrd(),
 	}
 	return d.process(spec, args(spec, d.goarch), boot), nil

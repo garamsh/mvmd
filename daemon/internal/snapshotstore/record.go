@@ -26,17 +26,19 @@ type record struct {
 	MemoryBytes uint64 `json:"memory_bytes"`
 	// The ceiling and the boot memory are zero in a record written before
 	// they existed.
-	CeilingVCPUs       uint32   `json:"ceiling_vcpus"`
-	CeilingMemoryBytes uint64   `json:"ceiling_memory_bytes"`
-	BootMemoryBytes    uint64   `json:"boot_memory_bytes"`
-	RootDiskBytes      uint64   `json:"root_disk_bytes"`
-	RootDiskUUID       string   `json:"root_disk_uuid"`
-	MAC                string   `json:"mac"`
-	Driver             string   `json:"driver"`
-	DriverVersion      string   `json:"driver_version"`
-	CPUModel           string   `json:"cpu_model"`
-	KernelDigest       string   `json:"kernel_digest"`
-	State              []string `json:"state"`
+	CeilingVCPUs       uint32 `json:"ceiling_vcpus"`
+	CeilingMemoryBytes uint64 `json:"ceiling_memory_bytes"`
+	BootMemoryBytes    uint64 `json:"boot_memory_bytes"`
+	RootDiskBytes      uint64 `json:"root_disk_bytes"`
+	RootDiskUUID       string `json:"root_disk_uuid"`
+	MAC                string `json:"mac"`
+	Driver             string `json:"driver"`
+	DriverVersion      string `json:"driver_version"`
+	CPUModel           string `json:"cpu_model"`
+	KernelDigest       string `json:"kernel_digest"`
+	// KernelName is empty in a record written before kernels had names.
+	KernelName string   `json:"kernel_name"`
+	State      []string `json:"state"`
 	// Disks is absent from a record written before disks were recorded.
 	Disks []recordDisk `json:"disks,omitempty"`
 }
@@ -73,6 +75,7 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		DriverVersion:      s.Compat.Version,
 		CPUModel:           s.Compat.CPUModel,
 		KernelDigest:       s.Compat.KernelDigest,
+		KernelName:         s.Compat.KernelName,
 		State:              state,
 		Disks:              disks,
 	})
@@ -116,7 +119,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 		RootDiskUUID: r.RootDiskUUID,
 		MAC:          r.MAC,
 		Compat: machine.SnapshotCompat{
-			Driver: r.Driver, Version: r.DriverVersion, CPUModel: r.CPUModel, KernelDigest: r.KernelDigest,
+			Driver: r.Driver, Version: r.DriverVersion, CPUModel: r.CPUModel, KernelDigest: r.KernelDigest, KernelName: r.KernelName,
 		},
 		Disks: disks,
 	}, r.State, nil

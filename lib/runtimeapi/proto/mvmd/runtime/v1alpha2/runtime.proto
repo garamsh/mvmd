@@ -201,6 +201,10 @@ message Machine {
   // one its snapshot recorded for a Machine restored from it. Empty for a
   // Machine that has never booted.
   string kernel_digest = 11;
+  // The name of the node's guest kernel the Machine boots, recorded at Create.
+  // Empty for a Machine recorded before kernels had names, which boots the
+  // node's default.
+  string kernel = 12;
 }
 
 message CreateMachineRequest {
@@ -216,6 +220,10 @@ message CreateMachineRequest {
   NetworkPolicy network_policy = 7;
   // Optional. A figure not set is the figure of resources.
   Resources resource_ceiling = 8;
+  // Optional. The name of a kernel the node offers, as runtime info lists it.
+  // Empty is the node's default; the name is recorded at Create. A name the
+  // node does not offer is REJECTED.
+  string kernel = 9;
 }
 
 message CreateMachineResponse {
@@ -389,12 +397,24 @@ message NodeCapacity {
   uint64 state_available_bytes = 4;
 }
 
+// NodeKernel is a guest kernel the node offers a Machine by name.
+message NodeKernel {
+  // 1 to 63 characters of lowercase letters, digits and "-".
+  string name = 1;
+  // The SHA-256 digest of the kernel file the node pinned, in hex.
+  string digest = 2;
+  // Whether a Create machine that names no kernel gets this one.
+  bool is_default = 3;
+}
+
 message GetRuntimeInfoResponse {
   // The API versions served, as package identifiers (for example
   // "mvmd.runtime.v1alpha2").
   repeated string api_versions = 1;
   repeated DriverInfo drivers = 2;
   NodeCapacity capacity = 3;
+  // The kernels the node offers, ordered by name; exactly one is the default.
+  repeated NodeKernel kernels = 4;
 }
 
 message InspectMachineRequest {
@@ -676,6 +696,9 @@ message Snapshot {
   // The SHA-256 digest, in hex, of the guest kernel the snapshot's Machine was
   // running when the snapshot was taken. Empty when the snapshot recorded none.
   string kernel_digest = 7;
+  // The name the snapshot's Machine had recorded for its kernel. Empty when the
+  // snapshot recorded none. A restore matches on kernel_digest alone.
+  string kernel = 9;
   // The disks the snapshot's Machine had attached. A restore takes exactly
   // these, and is refused for one the node does not hold, one a Machine holds
   // or one whose file was written since.

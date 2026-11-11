@@ -26,7 +26,7 @@ func ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T, s Subject) {
 	image, root, given := diskFile(t, dir, "image", true), diskFile(t, dir, "root", false), diskFile(t, dir, "given", false)
 	image.Disk = ""
 	boot := []machine.BlockDevice{image, root, given}
-	spec := machine.BootSpec{Devices: boot, Resources: resources, RunDir: run}
+	spec := machine.BootSpec{Kernel: s.Kernel, Devices: boot, Resources: resources, RunDir: run}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -89,7 +89,7 @@ func AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.T, s Subj
 	image, root := diskFile(t, dir, "image", false), diskFile(t, dir, "root", false)
 	image.Disk = ""
 	boot := []machine.BlockDevice{image, root}
-	spec := machine.BootSpec{Devices: boot, Resources: resources, RunDir: run}
+	spec := machine.BootSpec{Kernel: s.Kernel, Devices: boot, Resources: resources, RunDir: run}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

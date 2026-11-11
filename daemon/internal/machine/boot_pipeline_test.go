@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 // pipelinePlan is the plan Start gives the pipeline, over the env's own
@@ -47,7 +48,7 @@ func requireUnwound(t *testing.T, e *env, id machine.MachineID) {
 // boundedService is a service over the env's adapters that waits at most d for
 // a VM or a guest.
 func boundedService(e *env, d time.Duration) machine.Service {
-	return machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithBootTimeout(d))
+	return machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()), machine.WithBootTimeout(d))
 }
 
 // The pipeline reports the step that failed and what it did about it: a

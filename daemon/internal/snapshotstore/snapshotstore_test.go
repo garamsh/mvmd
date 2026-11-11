@@ -2,6 +2,7 @@ package snapshotstore_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -86,7 +87,7 @@ func snapshot(id string) machine.Snapshot {
 		},
 		RootDiskUUID: "uuid-of-" + id,
 		MAC:          "02:00:00:00:00:01",
-		Compat:       machine.SnapshotCompat{Driver: "firecracker", Version: "1.17.0", CPUModel: "model-x", KernelDigest: "sha256:kernel"},
+		Compat:       machine.SnapshotCompat{Driver: "firecracker", Version: "1.17.0", CPUModel: "model-x", KernelDigest: "sha256:kernel", KernelName: "next"},
 		Disks: []machine.SnapshotDisk{
 			{Disk: "data", SizeBytes: 1 << 20, ModTime: time.Unix(1700000000, 123456789)},
 			{Disk: "tools", ReadOnly: true, SizeBytes: 2 << 20, ModTime: time.Unix(1700000100, 5)},
@@ -507,4 +508,29 @@ func TestGet_ARecordWithoutDisksReadsAsNone(t *testing.T) {
 	got, _, err = s.Get(ctx, "kept")
 	require.NoError(t, err)
 	assert.Equal(t, kept.Disks, got.Disks, "control: one that holds disks keeps them")
+}
+
+// A record written before kernels had names reads back with none, and the
+// name of a record written now is kept.
+func TestGet_ARecordWithoutAKernelNameReadsBackWithNone(t *testing.T) {
+	f := newFixture(t)
+	s := f.open(t)
+	require.NoError(t, s.Put(ctx, snapshot("a"), f.files(t, "a")))
+	got, files, err := s.Get(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, "next", got.Compat.KernelName, "control: a record written now keeps the name")
+
+	path := filepath.Join(filepath.Dir(files.RootDisk), "record.json")
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal([]byte(read(t, path)), &fields))
+	require.Contains(t, fields, "kernel_name")
+	delete(fields, "kernel_name")
+	legacy, err := json.Marshal(fields)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, legacy, 0o600))
+
+	got, _, err = f.open(t).Get(ctx, "a")
+	require.NoError(t, err)
+	assert.Empty(t, got.Compat.KernelName)
+	assert.Equal(t, "sha256:kernel", got.Compat.KernelDigest)
 }

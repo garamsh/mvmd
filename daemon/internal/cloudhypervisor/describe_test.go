@@ -47,7 +47,7 @@ func TestDescribe_StatesTheProcessAndWhatItNeedsOpen(t *testing.T) {
 	// The kernel and the initrd are read-only, then the Machine's devices as
 	// given, each at its fixed path. The kernel and the initrd carry their pins.
 	assert.Equal(t, []machine.File{
-		{Host: n.cfg.Kernel, In: "/boot/kernel", ReadOnly: true, SHA256: n.cfg.KernelSHA256},
+		{Host: n.cfg.Kernels[0].Path, In: "/boot/kernel", ReadOnly: true, SHA256: n.cfg.Kernels[0].SHA256},
 		{Host: n.cfg.Initrd, In: "/boot/initrd", ReadOnly: true, SHA256: n.cfg.InitrdSHA256},
 		{Host: "/images/erofs", In: "/disk/0", ReadOnly: true},
 		{Host: "/disks/root.img", In: "/disk/1"},
@@ -174,8 +174,8 @@ func TestDescribe_RefusesWhatTheVMMWould(t *testing.T) {
 // the pins and Describe reads neither file.
 func TestDescribe_StatesThePinsForTheSupervisorAndReadsNeitherFile(t *testing.T) {
 	n := newNode(t)
-	pinnedKernel, pinnedInitrd, pinnedBinary := n.cfg.KernelSHA256, n.cfg.InitrdSHA256, n.cfg.BinarySHA256
-	for _, path := range []string{n.cfg.Kernel, n.cfg.Initrd, n.cfg.Binary} {
+	pinnedKernel, pinnedInitrd, pinnedBinary := n.cfg.Kernels[0].SHA256, n.cfg.InitrdSHA256, n.cfg.BinarySHA256
+	for _, path := range []string{n.cfg.Kernels[0].Path, n.cfg.Initrd, n.cfg.Binary} {
 		require.NoError(t, os.WriteFile(path, []byte("another file"), 0o644))
 	}
 
@@ -244,4 +244,17 @@ func TestInfo_ReportsTheMostVCPUsDescribeAccepts(t *testing.T) {
 	_, err = n.driver.Describe(context.Background(), "m1", spec)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ceiling")
+}
+
+// A boot is given the kernel it uses, and the description names that one and
+// not another the node offers (ADR 0045).
+func TestDescribe_NamesTheKernelTheBootSpecCarries(t *testing.T) {
+	n := newNode(t)
+	for _, k := range n.cfg.Kernels {
+		spec := n.spec()
+		spec.Kernel = k
+		p, err := n.driver.Describe(context.Background(), "m1", spec)
+		require.NoError(t, err)
+		assert.Contains(t, p.BootFiles, machine.File{Host: k.Path, In: "/boot/kernel", ReadOnly: true, SHA256: k.SHA256})
+	}
 }

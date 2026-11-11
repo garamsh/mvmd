@@ -50,6 +50,7 @@ func newRig(t *testing.T, options ...image.Option) *rig {
 		settings: image.Settings{
 			Platform:     platform,
 			Converter:    "converter-1",
+			Kernel:       machine.KernelFile{Path: "/kernels/converter", SHA256: "digest-converter"},
 			Resources:    machine.Resources{VCPUs: 2, MemoryBytes: 512 << 20},
 			OutputBytes:  outputMax,
 			NameSetBytes: 1 << 16,

@@ -29,7 +29,7 @@ func limitedServer(snaps *memory.SnapshotStore, most uint32) (*api.Server, machi
 	images.Provide(limitImage)
 	svc := machine.NewService(memory.NewDriver(info), memory.NewSupervision(), memory.NewNetwork(), memory.NewDisk(), images, snaps,
 		memory.NewGuest(0), memory.NewWallClock(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)), memory.NewStateStore(), memory.NewStartPermitter(),
-		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents())
+		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents(), machine.WithKernels(memory.Kernels()))
 	return api.New(svc, nil, nil, []machine.DriverInfo{info}, capacitymemory.NewReader(nodecapacity.Capacity{}), nil), svc
 }
 

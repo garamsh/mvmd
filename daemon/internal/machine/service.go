@@ -129,6 +129,8 @@ type service struct {
 	permitter  StartPermitter
 	uids       *UIDs
 	events     Events
+	// kernels are the guest kernels the node offers.
+	kernels Kernels
 	// bootTimeout bounds the wait for the guest's boot in Start.
 	bootTimeout time.Duration
 	// resizeTimeout bounds the wait for the guest to bring the target's vCPUs
@@ -262,6 +264,12 @@ func WithBootTimeout(d time.Duration) Option {
 			s.bootTimeout = d
 		}
 	}
+}
+
+// WithKernels sets the guest kernels the node offers (ADR 0045). Without it
+// the node offers none, and Create and Start refuse.
+func WithKernels(k Kernels) Option {
+	return func(s *service) { s.kernels = k }
 }
 
 // NewService returns the lifecycle over the given ports. uids is the node's

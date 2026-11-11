@@ -185,6 +185,6 @@ func newEnvWithRangeAndCaps(uidRange machine.UIDRange, caps ...machine.Capabilit
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(uidRange), e.events)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(uidRange), e.events, machine.WithKernels(memory.Kernels()))
 	return e
 }

@@ -93,6 +93,7 @@ func TestCreate_OnSuccess(t *testing.T) {
 	m := e.requireState(t, "m", machine.StateCreated)
 	want := spec
 	want.Ceiling = spec.Resources // none was asked for: the ceiling is the resources
+	want.Kernel = "default"       // none was asked for: the node's default
 	assert.Equal(t, want, m.Spec)
 	assert.Equal(t, machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityConsole}}, m.Driver)
 	assert.NotEmpty(t, m.Network.MAC)

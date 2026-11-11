@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -30,7 +31,15 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if err := validateCreate(id, request, spec); err != nil {
 		return err
 	}
+	name, _, ok := s.kernels.resolve(spec.Kernel)
+	if !ok {
+		if spec.Kernel == "" {
+			return fail(ErrPreconditionFailed, "the node offers no default kernel")
+		}
+		return fail(ErrInvalid, "kernel %q is not offered by the node", spec.Kernel)
+	}
 	held := spec
+	held.Kernel = name
 	held.Ceiling = spec.Ceiling.OrElse(spec.Resources)
 	if err := s.checkCeiling(held.Resources, held.Ceiling, spec.Ceiling != Resources{}); err != nil {
 		return err
@@ -185,11 +194,16 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		return fail(ErrPreconditionFailed, "Machine %q is %s; start needs Created or Stopped", id, m.State)
 	}
 
+	_, kernel, ok := s.kernels.resolve(m.Kernel)
+	if !ok {
+		return fail(ErrPreconditionFailed, "kernel %q is not offered by the node", cmp.Or(m.Kernel, s.kernels.Default))
+	}
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
 	}
 	plan := bootPlan{
 		machine: m,
+		kernel:  kernel,
 		describe: func(ctx context.Context, boot BootSpec) (ProcessDescription, error) {
 			return s.driver.Describe(ctx, id, boot)
 		},

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 // exitsAtStart is a Supervision whose VMM ends right after the supervisor has
@@ -44,7 +45,7 @@ func (neverRuns) Restore(ctx context.Context, _ machine.MachineID, _ machine.Boo
 // RestoreSnapshot already show.
 func (e *env) waitEnv(sup machine.Supervision, options ...machine.Option) machine.Service {
 	options = append([]machine.Option{machine.WithCallTimeout(time.Minute), machine.WithBootTimeout(time.Minute), machine.WithVMMEndPoll(10 * time.Millisecond)}, options...)
-	return machine.NewService(neverRuns{e.driver}, sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, options...)
+	return machine.NewService(neverRuns{e.driver}, sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, append([]machine.Option{machine.WithKernels(memory.Kernels())}, options...)...)
 }
 
 // requireAnswer returns the call's result, failing with the time it took when

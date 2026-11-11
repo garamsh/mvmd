@@ -89,8 +89,9 @@ type Subject struct {
 	// Start runs the described process as the supervisor would, with the streams,
 	// and returns it. The suite ends it when the scenario does.
 	Start func(t *testing.T, p machine.ProcessDescription, s Streams) Process
-	// KernelDigest is the digest of the guest kernel a snapshot holds.
-	KernelDigest string
+	// Kernel is the guest kernel the suite boots: the file the Subject's Driver
+	// is configured with, and its pinned digest.
+	Kernel machine.KernelFile
 	// Snapshot is what only the Subject's VMM can say of its snapshot. It is
 	// read only when the Driver reports the snapshot capability.
 	Snapshot SnapshotFacts

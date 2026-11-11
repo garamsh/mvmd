@@ -12,6 +12,8 @@ import (
 // pipeline's. Start and RestoreSnapshot each fill one in.
 type bootPlan struct {
 	machine Machine
+	// kernel is the file a boot gives the VMM; a restore gives none.
+	kernel KernelFile
 	// restoredDisks are the disks the VMM is given at boot after the image and
 	// the root disk: a restore's recorded disks, which its saved state already
 	// holds (ADR 0041). Start gives none; it hot-plugs its disks.
@@ -68,7 +70,7 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	var up begun
 	stopped := func(failure *Error) bootResult { return s.unwind(ctx, id, up, failure) }
 
-	boot := BootSpec{Resources: m.Resources, Ceiling: m.Ceiling}
+	boot := BootSpec{Kernel: p.kernel, Resources: m.Resources, Ceiling: m.Ceiling}
 	var err error
 	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
 		return stopped(fail(ErrFailed, "name the run directory: %v", err))

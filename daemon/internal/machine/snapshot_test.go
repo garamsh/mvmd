@@ -40,7 +40,7 @@ func (e *env) elsewhere(info machine.DriverInfo) *env {
 		permit: memory.NewStartPermitter(),
 		events: memory.NewEvents(),
 	}
-	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.guest, o.clock, o.store, o.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), o.events)
+	o.svc = machine.NewService(o.driver, o.sup, o.net, o.disks, o.images, o.snaps, o.guest, o.clock, o.store, o.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), o.events, machine.WithKernels(memory.Kernels()))
 	return o
 }
 
@@ -121,7 +121,7 @@ func TestSnapshot_OnSuccess(t *testing.T) {
 
 		got, files, err := e.snaps.Get(ctx, "snap")
 		require.NoError(t, err)
-		assert.Equal(t, machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a", KernelDigest: memory.KernelDigest}, got.Compat)
+		assert.Equal(t, machine.SnapshotCompat{Driver: "inmem", Version: "1", CPUModel: "cpu-a", KernelDigest: memory.KernelDigest, KernelName: "default"}, got.Compat)
 		assert.Equal(t, machine.MachineID("m"), got.Machine)
 		assert.Equal(t, m.Network.MAC, got.MAC, "the MAC the guest uses")
 		assert.Equal(t, machine.SnapshotSpec{Image: image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.Resources.MemoryBytes, RootDiskBytes: m.RootDiskBytes}, got.Spec,

@@ -48,6 +48,8 @@ type storedSpec struct {
 	RootDiskBytes uint64             `json:"RootDiskBytes"`
 	Disks         []storedAttachment `json:"Disks"`
 	Policy        storedPolicy       `json:"Policy"`
+	// Kernel is empty in a record written before kernels had names.
+	Kernel string `json:"Kernel"`
 }
 
 type storedResources struct {
@@ -255,6 +257,7 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		RootDiskBytes: s.RootDiskBytes,
 		Disks:         disks,
 		Policy:        storedPolicy{Egress: egress, Ingress: ingress},
+		Kernel:        s.Kernel,
 	}, nil
 }
 
@@ -288,6 +291,7 @@ func (s storedSpec) load() (machine.Spec, error) {
 		RootDiskBytes: s.RootDiskBytes,
 		Disks:         disks,
 		Policy:        machine.NetworkPolicy{Egress: egress, Ingress: ingress},
+		Kernel:        s.Kernel,
 	}, nil
 }
 

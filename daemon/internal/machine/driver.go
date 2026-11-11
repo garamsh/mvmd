@@ -59,11 +59,10 @@ type DriverLimits struct {
 }
 
 // DriverSnapshot is what a Driver made of a paused Machine: the files it
-// wrote in the run directory and the digest of the guest kernel the snapshot
-// holds. It is the Driver's own and the inside does not read the files.
+// wrote in the run directory. It is the Driver's own and the inside does not
+// read the files.
 type DriverSnapshot struct {
-	Files        []string
-	KernelDigest string
+	Files []string
 }
 
 // BlockDevice is a raw disk file handed to a VMM.
@@ -105,7 +104,10 @@ type BootSpec struct {
 	// has none; it hot-plugs its disks.
 	RecordedDisks []BlockDevice
 	Network       NetworkDevice
-	Resources     Resources
+	// Kernel is the guest kernel of a boot; a restore carries none, since a
+	// restored guest is already running one (ADR 0045).
+	Kernel    KernelFile
+	Resources Resources
 	// Ceiling is the most the guest can have (ADR 0029). A figure left zero is
 	// the figure of Resources.
 	Ceiling Resources

@@ -40,8 +40,8 @@ func subject(t *testing.T) drivertest.Subject {
 		Driver: func(t *testing.T, dirs drivertest.RunDirs) machine.Driver {
 			d, err := cloudhypervisor.New(cloudhypervisor.Config{
 				Binary: input(t, "MVMD_CLOUD_HYPERVISOR"), BinarySHA256: input(t, "MVMD_CLOUD_HYPERVISOR_SHA256"),
-				Kernel: input(t, "MVMD_KERNEL"), KernelSHA256: input(t, "MVMD_KERNEL_SHA256"),
-				Initrd: input(t, "MVMD_INITRD"), InitrdSHA256: input(t, "MVMD_INITRD_SHA256"),
+				Kernels: []machine.KernelFile{{Path: input(t, "MVMD_KERNEL"), SHA256: input(t, "MVMD_KERNEL_SHA256")}},
+				Initrd:  input(t, "MVMD_INITRD"), InitrdSHA256: input(t, "MVMD_INITRD_SHA256"),
 				Dirs: dirs,
 			})
 			require.NoError(t, err)
@@ -54,7 +54,7 @@ func subject(t *testing.T) drivertest.Subject {
 		Start: func(t *testing.T, p machine.ProcessDescription, s drivertest.Streams) drivertest.Process {
 			return drivertest.StartInRoot(t, p, s)
 		},
-		KernelDigest: input(t, "MVMD_KERNEL_SHA256"),
+		Kernel: machine.KernelFile{Path: input(t, "MVMD_KERNEL"), SHA256: input(t, "MVMD_KERNEL_SHA256")},
 		// A snapshot is config.json, state.json and memory-ranges. The VMM opens
 		// the initrd its configuration names before it restores (ADR 0027), and
 		// the restore is its command line, so it loads before Restore is called.

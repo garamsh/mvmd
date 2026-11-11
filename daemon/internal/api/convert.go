@@ -65,6 +65,7 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		Image:         machine.ImageDigest(req.GetImageDigest()),
 		Resources:     resourcesOf(req.GetResources()),
 		Ceiling:       resourcesOf(req.GetResourceCeiling()),
+		Kernel:        req.GetKernel(),
 		RootDiskBytes: req.GetRootDiskBytes(),
 	}
 	for _, d := range req.GetDisks() {
@@ -105,6 +106,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		ResourceCeiling:   resourcesToWire(m.Ceiling),
 		RootDiskBytes:     m.RootDiskBytes,
 		KernelDigest:      m.KernelDigest,
+		Kernel:            m.Kernel,
 		NetworkPolicy: &v1alpha2.NetworkPolicy{
 			Egress:  rulesToWire(m.Policy.Egress),
 			Ingress: rulesToWire(m.Policy.Ingress),

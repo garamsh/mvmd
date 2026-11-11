@@ -52,6 +52,7 @@ func (s *service) runConverter(ctx context.Context, id machine.MachineID, user m
 		return 0, fmt.Errorf("name the converter's run directory: %w", err)
 	}
 	boot := machine.BootSpec{
+		Kernel:    s.settings.Kernel,
 		Devices:   []machine.BlockDevice{{Path: staging.Output}},
 		Resources: s.settings.Resources,
 		RunDir:    runDir,

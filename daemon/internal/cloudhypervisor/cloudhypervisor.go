@@ -39,8 +39,9 @@ type RunDirs interface {
 type Config struct {
 	Binary       string
 	BinarySHA256 string
-	Kernel       string
-	KernelSHA256 string
+	// Kernels are the guest kernels the node offers; a boot is given the one
+	// it uses in BootSpec.Kernel (ADR 0045). Each is verified at New.
+	Kernels      []machine.KernelFile
 	Initrd       string
 	InitrdSHA256 string
 	Dirs         RunDirs
@@ -51,12 +52,17 @@ var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // Validate refuses a configuration that names no absolute path or no SHA-256
 // digest where one is due. It reads no file.
 func (c Config) Validate() error {
-	for _, f := range []struct{ name, path string }{{"binary", c.Binary}, {"kernel", c.Kernel}, {"initrd", c.Initrd}} {
+	files := []struct{ name, path, sum string }{{"binary", c.Binary, c.BinarySHA256}, {"initrd", c.Initrd, c.InitrdSHA256}}
+	for _, k := range c.Kernels {
+		files = append(files, struct{ name, path, sum string }{"kernel", k.Path, k.SHA256})
+	}
+	if len(c.Kernels) == 0 {
+		return fmt.Errorf("cloud-hypervisor lists no kernel")
+	}
+	for _, f := range files {
 		if !filepath.IsAbs(f.path) {
 			return fmt.Errorf("cloud-hypervisor %s %q is not an absolute path", f.name, f.path)
 		}
-	}
-	for _, f := range []struct{ name, sum string }{{"binary", c.BinarySHA256}, {"kernel", c.KernelSHA256}, {"initrd", c.InitrdSHA256}} {
 		if !sha256Hex.MatchString(f.sum) {
 			return fmt.Errorf("cloud-hypervisor %s digest %q is not 64 lowercase hex digits", f.name, f.sum)
 		}

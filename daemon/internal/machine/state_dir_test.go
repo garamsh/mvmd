@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
 
 // Delete removes what the supervision keeps of the Machine on the host; the
@@ -65,7 +66,7 @@ func TestRestore_ASweepThatFailsIsReported(t *testing.T) {
 	e.sup.KeepState("orphan")
 	e.sup.FailAt("remove-state", errBoom)
 
-	err := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events).Restore(context.Background())
+	err := machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels())).Restore(context.Background())
 	require.ErrorIs(t, err, errBoom)
 	assert.Contains(t, err.Error(), `"orphan"`)
 }

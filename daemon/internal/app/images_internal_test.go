@@ -47,7 +47,7 @@ func TestConversionSupervision_ExpiresAtTheEndOfTheLimit(t *testing.T) {
 }
 
 func validConversion() ConversionConfig {
-	return ConversionConfig{Converter: "converter-1", VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m"}
+	return ConversionConfig{Kernel: "/opt/conversion-kernel", KernelSHA256: strings.Repeat("a", 64), Converter: "converter-1", VCPUs: 2, MemoryBytes: 512 << 20, OutputBytes: 1 << 30, NameSetBytes: 1 << 20, Limit: "10m"}
 }
 
 // The section reaches the use case's settings as written.
@@ -56,6 +56,7 @@ func TestConversionConfig_SettingsCarryTheSection(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "converter-1", settings.Converter)
+	assert.Equal(t, machine.KernelFile{Path: "/opt/conversion-kernel", SHA256: strings.Repeat("a", 64)}, settings.Kernel)
 	assert.Equal(t, machine.Resources{VCPUs: 2, MemoryBytes: 512 << 20}, settings.Resources)
 	assert.Equal(t, uint64(1<<30), settings.OutputBytes)
 	assert.Equal(t, uint64(1<<20), settings.NameSetBytes)
@@ -82,7 +83,9 @@ func TestDriverSelection_TheSectionBuildsTheSelectedDriver(t *testing.T) {
 	}
 	files := VMMConfig{}
 	files.Binary, files.BinarySHA256 = file("vmm", "a binary")
-	files.Kernel, files.KernelSHA256 = file("vmlinux", "a kernel")
+	kernel, kernelSum := file("vmlinux", "a kernel")
+	files.Kernels = map[string]KernelConfig{"stable": {Path: kernel, SHA256: kernelSum}}
+	files.DefaultKernel = "stable"
 	files.Initrd, files.InitrdSHA256 = file("initrd", "an initrd")
 
 	for _, name := range []string{DriverFirecracker, DriverCloudHypervisor} {
@@ -92,7 +95,7 @@ func TestDriverSelection_TheSectionBuildsTheSelectedDriver(t *testing.T) {
 	}
 
 	// The control: a file that is not the pinned one is refused by either.
-	files.KernelSHA256 = strings.Repeat("0", 64)
+	files.Kernels = map[string]KernelConfig{"stable": {Path: kernel, SHA256: strings.Repeat("0", 64)}}
 	for _, name := range []string{DriverFirecracker, DriverCloudHypervisor} {
 		_, err := files.driver(name, fencingmemory.NewSupervisors(nil))
 		assert.ErrorContains(t, err, "digest", name)

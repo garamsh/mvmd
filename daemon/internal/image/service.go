@@ -29,6 +29,8 @@ type Settings struct {
 	Platform Platform
 	// Converter names the converter, which each image records.
 	Converter string
+	// Kernel is the converter VM's kernel.
+	Kernel machine.KernelFile
 	// Resources are the converter VM's vCPUs and memory.
 	Resources machine.Resources
 	// OutputBytes is the size of the output file, the most an image can be.

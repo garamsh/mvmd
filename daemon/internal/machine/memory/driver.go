@@ -224,7 +224,7 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 	if p != nil {
 		return *p, nil
 	}
-	kernel := machine.File{Host: "/memory/kernel", In: machine.InKernel, ReadOnly: true, SHA256: KernelDigest}
+	kernel := machine.File{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256}
 	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: append([]machine.File{kernel}, machine.DeviceFiles(spec.Devices)...)}, nil
 }
 
@@ -386,9 +386,16 @@ func (d *Driver) Resize(_ context.Context, id machine.MachineID, target machine.
 	return nil
 }
 
-// KernelDigest is the digest of the guest kernel the Driver names in the boot
-// description of a start and reports in every snapshot.
+// KernelDigest is the digest of the one kernel Kernels offers.
 const KernelDigest = "sha256:memory-kernel"
+
+// Kernels is a node that offers one kernel, named "default", for the lifecycle
+// to run over this Driver.
+func Kernels() machine.Kernels {
+	return machine.Kernels{Default: "default", Offered: map[string]machine.KernelFile{
+		"default": {Path: "/memory/kernel", SHA256: KernelDigest},
+	}}
+}
 
 // Snapshot implements machine.Driver: two files in the Machine's run directory.
 func (d *Driver) Snapshot(_ context.Context, id machine.MachineID) (machine.DriverSnapshot, error) {
@@ -399,7 +406,7 @@ func (d *Driver) Snapshot(_ context.Context, id machine.MachineID) (machine.Driv
 	run := d.specs[id].RunDir
 	d.pausedAtSnapshot[id] = d.paused[id]
 	d.mu.Unlock()
-	return machine.DriverSnapshot{Files: []string{run + "/snapshot.mem", run + "/snapshot.state"}, KernelDigest: KernelDigest}, nil
+	return machine.DriverSnapshot{Files: []string{run + "/snapshot.mem", run + "/snapshot.state"}}, nil
 }
 
 // DescribeRestore implements machine.Driver.

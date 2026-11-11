@@ -43,10 +43,7 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 	if err != nil {
 		return machine.DriverSnapshot{}, err
 	}
-	return machine.DriverSnapshot{
-		Files:        []string{filepath.Join(dir, stateName), filepath.Join(dir, memoryName)},
-		KernelDigest: d.cfg.KernelSHA256,
-	}, nil
+	return machine.DriverSnapshot{Files: []string{filepath.Join(dir, stateName), filepath.Join(dir, memoryName)}}, nil
 }
 
 // DescribeRestore implements machine.Driver. The files are the two Snapshot
