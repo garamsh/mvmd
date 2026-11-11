@@ -47,13 +47,21 @@ func (r *Reader) Read() (nodecapacity.Capacity, error) {
 	if err := unix.Statfs(r.stateDir, &fs); err != nil {
 		return nodecapacity.Capacity{}, fmt.Errorf("read the space of %s: %w", r.stateDir, err)
 	}
-	unit := uint64(fs.Frsize)
+	total, available := space(fs)
 	return nodecapacity.Capacity{
 		CPUs:                uint32(set.Count()),
 		MemoryBytes:         mem,
-		StateTotalBytes:     fs.Blocks * unit,
-		StateAvailableBytes: fs.Bavail * unit,
+		StateTotalBytes:     total,
+		StateAvailableBytes: available,
 	}, nil
+}
+
+// space returns the size of a filesystem and the bytes an unprivileged process
+// can still use, both in bytes. The available figure is f_bavail and not
+// f_bfree, which also counts the blocks reserved for root (ADR 0039).
+func space(fs unix.Statfs_t) (total, available uint64) {
+	unit := uint64(fs.Frsize)
+	return fs.Blocks * unit, fs.Bavail * unit
 }
 
 // memTotal returns MemTotal of a /proc/meminfo in bytes; the file reports kB.
