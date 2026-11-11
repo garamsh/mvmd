@@ -3,8 +3,8 @@
 // of an exec, or as arguments of the image's entrypoint, it does one short thing: "echo WORDS..."
 // prints them, "exit N" ends with code N, "cat FILE" prints the file, "ls DIR" prints the names in
 // the directory, one to a line, "put FILE WORDS..." writes them to the start of the file and syncs it,
-// "head FILE N" prints its first N bytes, and "console WORDS..."
-// writes them to the guest's console.
+// "head FILE N" prints its first N bytes, "now" prints the guest's wall clock in nanoseconds since
+// the epoch, and "console WORDS..." writes them to the guest's console.
 package main
 
 import (
@@ -31,6 +31,8 @@ func command(name string, args []string) {
 	switch name {
 	case "echo":
 		fmt.Println(strings.Join(args, " "))
+	case "now":
+		fmt.Println(time.Now().UnixNano())
 	case "exit":
 		code, err := strconv.Atoi(args[0])
 		if err != nil {

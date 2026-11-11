@@ -8,12 +8,15 @@ package mvmd.guest.v1alpha1;
 // GuestService is the guest channel. The Guest Agent serves it over vsock.
 service GuestService {
   // Describe the Machine to the agent, which runs as the guest's init and
-  // waits for this call before it touches a disk. The call returns once the
+  // waits for this call before it touches a disk. Before any boot step the
+  // agent sets the wall clock to host_unix_nanos when that is positive, and
+  // leaves it as the kernel set it when it is 0. The call returns once the
   // entrypoint runs, or fails naming the boot step that failed; every other
   // call except Terminate, Health, Info, FindDisk, ReleaseDisk and
   // OnlineVcpus is refused until it has succeeded. A repeat with the same
-  // description succeeds and changes nothing; a repeat after a failure fails
-  // the same way.
+  // description succeeds and changes nothing, whatever time it carries, and
+  // does not set the clock again; a repeat after a failure fails the same
+  // way.
   rpc Boot(BootRequest) returns (BootResponse);
   // Replace the network configuration of a running Machine. The agent
   // applies it whole: what it applied before is removed. After a restore the
@@ -109,6 +112,11 @@ message BootRequest {
   // so its output, its signals and its end are read through the exec calls.
   RunConfig run = 3;
   NetworkConfig network = 4;
+  // The host's wall clock when the request was made, in nanoseconds since the
+  // Unix epoch. The agent sets the clock to it before the first boot step. 0
+  // leaves the clock alone; a negative value is refused as invalid. It is not
+  // part of the description a repeat is compared by.
+  int64 host_unix_nanos = 5;
 }
 
 message BootResponse {}
@@ -410,6 +418,9 @@ enum BootStep {
   BOOT_STEP_SWITCH_ROOT = 5;
   BOOT_STEP_NETWORK = 6;
   BOOT_STEP_ENTRYPOINT = 7;
+  // Setting the wall clock from the Boot request's host_unix_nanos. It is the
+  // first step the agent takes, though its number is the last assigned.
+  BOOT_STEP_CLOCK = 8;
 }
 
 // The detail of an OUT_OF_RANGE status from ReadExecOutput: the read starts
