@@ -34,6 +34,8 @@ type storedMachine struct {
 	FailureReason string         `json:"FailureReason"`
 	// BootMemoryBytes is zero in a record written before it existed.
 	BootMemoryBytes uint64 `json:"BootMemoryBytes"`
+	// KernelDigest is empty in a record written before it existed.
+	KernelDigest string `json:"KernelDigest"`
 }
 
 type storedSpec struct {
@@ -315,7 +317,7 @@ func storeMachine(m *machine.Machine) (*storedMachine, error) {
 		RootDisk: m.RootDisk, RootDiskUUID: m.RootDiskUUID,
 		User:          storedUser{UID: m.User.UID, GID: m.User.GID},
 		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers},
-		FailureReason: m.FailureReason, BootMemoryBytes: m.BootMemoryBytes,
+		FailureReason: m.FailureReason, BootMemoryBytes: m.BootMemoryBytes, KernelDigest: m.KernelDigest,
 	}, nil
 }
 
@@ -345,6 +347,7 @@ func (s *storedMachine) load() (*machine.Machine, error) {
 		User:          machine.User{UID: s.User.UID, GID: s.User.GID},
 		Network:       machine.NetworkIdentity{MAC: s.Network.MAC, Addresses: s.Network.Addresses, Gateways: s.Network.Gateways, Resolvers: s.Network.Resolvers},
 		FailureReason: s.FailureReason,
+		KernelDigest:  s.KernelDigest,
 	}, nil
 }
 

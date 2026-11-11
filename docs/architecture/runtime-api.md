@@ -35,7 +35,7 @@ Checked against garamsh/discussions#2 as read on 2026-11-08 (decision-change rep
 | Stopped | Not executing; disks retained. Reached by Stop, by a start that failed, and by the VMM's own end: the entrypoint's end, an agent failure or a guest panic, found while mvmd runs or at its start. |
 | Faulted | mvmd cannot establish the Machine's state, for example a stop that could not be confirmed. The only calls that apply are stop, delete, inspect and reads. |
 
-Inspect reports the state, the reason for the last failure if any, the Driver and its version, the Machine's disks, resources and resource ceiling as mvmd holds them, and its network addresses, one per family its node serves, and the network policy in effect.
+Inspect reports the state, the reason for the last failure if any, the Driver and its version, the Machine's disks, resources and resource ceiling as mvmd holds them, and its network addresses, one per family its node serves, and the network policy in effect, and the SHA-256 digest, in hex, of the kernel its running guest was booted with: the kernel pinned at its last start, or for a Machine restored from a snapshot the one that snapshot recorded. A Machine that has never booted reports none, and so does one whose record was written before the digest was kept, until its next boot. Restore does not compare the digest ([driver.md](./driver.md)).
 
 ## Operations
 
@@ -166,7 +166,7 @@ Create Machine and Restore each carry a `NetworkPolicy`, the Machine's for its l
 
 | Operation | Needs | On success | Repeat | After failure |
 |---|---|---|---|---|
-| List snapshots | Nothing | Every snapshot the node holds, ordered by identifier, each with its identifier, source Machine, image digest, Driver name and version, CPU model and root disk size | The node's snapshots at that time | Failed with no partial list; nothing changed |
+| List snapshots | Nothing | Every snapshot the node holds, ordered by identifier, each with its identifier, source Machine, image digest, Driver name and version, CPU model, root disk size and the digest of the guest kernel the snapshot's Machine was running | The node's snapshots at that time | Failed with no partial list; nothing changed |
 | Delete snapshot | A snapshot identifier; no Snapshot or Restore call is using the snapshot | The snapshot and its files are removed from the node | Already absent: success | The snapshot is unchanged or already removed, never half-listed; a repeat deletes it |
 
 - **A snapshot is a public resource, listed for reconciliation.** The list reports what the node holds, so a client that lost its own records can reconcile. There is no separate inspect call. A snapshot a Snapshot call is still writing is already listed ([ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md)).

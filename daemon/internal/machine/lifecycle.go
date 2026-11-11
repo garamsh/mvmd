@@ -203,7 +203,8 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		},
 		guestWhile: "booting",
 	}
-	if res := s.bringUp(ctx, plan); res.failure != nil {
+	res := s.bringUp(ctx, plan)
+	if res.failure != nil {
 		if !res.begun.vmm {
 			// No VMM process began, so the Machine keeps its state.
 			return fail(res.failure.Kind, "%s", res.reason())
@@ -214,6 +215,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	next := m.clone()
 	next.State = StateRunning
 	next.BootMemoryBytes = m.Resources.MemoryBytes
+	next.KernelDigest = res.kernelDigest
 	next.FailureReason = ""
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)

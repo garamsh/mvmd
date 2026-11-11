@@ -125,3 +125,25 @@ func TestStore_ARecordWrittenByTheEarlierFormatStillReads(t *testing.T) {
 		},
 	}, got[1].Execs)
 }
+
+// A record written before the kernel digest existed loads with none, and the
+// digest of a record written now is kept.
+func TestStore_ARecordWithoutAKernelDigestLoadsWithNone(t *testing.T) {
+	ctx := context.Background()
+	dir := writeLegacy(t, map[string]string{"m": legacyMachine}, nil)
+	db := open(t, dir)
+	defer db.Close()
+
+	got, err := db.Machines().Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Empty(t, got[0].Machine.KernelDigest, "none until its next boot")
+
+	m := *got[0].Machine
+	m.KernelDigest = "abc123"
+	got[0].Machine = &m
+	require.NoError(t, db.Machines().Save(ctx, got[0]))
+	again, err := db.Machines().Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", again[0].Machine.KernelDigest)
+}
