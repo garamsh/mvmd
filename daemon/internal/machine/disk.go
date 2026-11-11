@@ -3,6 +3,8 @@ package machine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -21,6 +23,42 @@ var ErrDiskInvalid = errors.New("not a disk identifier")
 // name before it asks the Disk port to publish the file, so no call removes the
 // disk between the two.
 func RootDiskID(id MachineID) DiskID { return DiskID(string(id) + "-root") }
+
+// maxNameBytes is the longest name one path component holds.
+const maxNameBytes = 255
+
+// TempDiskPrefix starts the name of a file the Disk adapter builds a disk in.
+// No disk identifier starts with it.
+const TempDiskPrefix = "tmp-"
+
+// ValidDiskID reports whether id can name a disk file of the node: it is not
+// empty, ".", ".." or a name starting with "tmp-", and has no "/".
+func ValidDiskID(id DiskID) bool {
+	s := string(id)
+	if s == "" || s == "." || s == ".." || strings.HasPrefix(s, TempDiskPrefix) {
+		return false
+	}
+	return !strings.Contains(s, "/")
+}
+
+// CheckMachineID returns nil when id can name what the node derives from a
+// Machine identifier: a directory entry, and the root disk "<id>-root" as a
+// disk identifier that fits one path component. Otherwise it returns the
+// reason.
+func CheckMachineID(id MachineID) error {
+	s := string(id)
+	switch {
+	case s == "" || s == "." || s == "..":
+		return fmt.Errorf("%q cannot name a directory entry", s)
+	case strings.ContainsAny(s, "/\x00"):
+		return fmt.Errorf("%q contains a / or a NUL", s)
+	case !ValidDiskID(RootDiskID(id)):
+		return fmt.Errorf("%q makes the root disk name %q, which is not a disk identifier", s, RootDiskID(id))
+	case len(RootDiskID(id)) > maxNameBytes:
+		return fmt.Errorf("the identifier is %d bytes and its root disk name would exceed %d", len(s), maxNameBytes)
+	}
+	return nil
+}
 
 // DiskEntry is a disk the node holds as the Disk adapter records it: the
 // request that made it, which a root disk has none of, and its size.
