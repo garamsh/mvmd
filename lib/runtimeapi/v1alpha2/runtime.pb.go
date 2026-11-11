@@ -3501,8 +3501,9 @@ type ExecRecord struct {
 	TermSignal int32 `protobuf:"varint,5,opt,name=term_signal,json=termSignal,proto3" json:"term_signal,omitempty"`
 	// When the command ended, by the guest's clock, not the node's: the Guest
 	// Agent's reading of CLOCK_REALTIME when it reaped the command. The node
-	// sets that clock at a restore. Set only when status
-	// is EXITED, and unset where the time is not known.
+	// sets that clock at Boot and at a restore, and between those it is the
+	// guest's own. Set only when status is EXITED, and unset where the time is
+	// not known.
 	EndedAt       *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -479,8 +479,9 @@ message ExecRecord {
   int32 term_signal = 5;
   // When the command ended, by the guest's clock, not the node's: the Guest
   // Agent's reading of CLOCK_REALTIME when it reaped the command. The node
-  // sets that clock at a restore. Set only when status
-  // is EXITED, and unset where the time is not known.
+  // sets that clock at Boot and at a restore, and between those it is the
+  // guest's own. Set only when status is EXITED, and unset where the time is
+  // not known.
   google.protobuf.Timestamp ended_at = 6;
 }
 
