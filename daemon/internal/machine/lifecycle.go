@@ -39,7 +39,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return fail(ErrInvalid, "kernel %q is not offered by the node", spec.Kernel)
 	}
 	held := spec
-	held.Kernel = name
+	held.Kernel = s.kernels.Default
 	held.Ceiling = spec.Ceiling.OrElse(spec.Resources)
 	if err := s.checkCeiling(held.Resources, held.Ceiling, spec.Ceiling != Resources{}); err != nil {
 		return err
