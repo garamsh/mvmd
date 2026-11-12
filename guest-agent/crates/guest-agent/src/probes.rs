@@ -325,7 +325,7 @@ pub(crate) fn start(specs: Vec<ProbeSpec>, context: Context) -> Arc<Probes> {
 
 /// Run one probe on its schedule until it is aborted.
 async fn run_probe(probes: Arc<Probes>, context: Arc<Context>, index: usize, spec: ProbeSpec) {
-    let mut ticks = tokio::time::interval_at(Instant::now() + spec.initial_delay, spec.period);
+    let mut ticks = tokio::time::interval_at(Instant::now(), spec.period);
     // A run that outlasts the period pushes the next one back; runs never overlap.
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
