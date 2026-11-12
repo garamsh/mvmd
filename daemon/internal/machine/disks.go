@@ -22,7 +22,43 @@ func invalidDisk(disk DiskID) error {
 	return fail(ErrInvalid, "%q is not a disk identifier: it must not be empty, ., .., start with %s, contain / or a NUL, or exceed %d bytes", disk, TempDiskPrefix, maxNameBytes)
 }
 
-func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64) error {
+// checkMountPath returns the reason a disk attachment's mount path is refused,
+// or nil: empty mounts nothing, and any other path is absolute and clean, not
+// the root and not under a directory the guest reserves (guest.md).
+func checkMountPath(p string) error {
+	switch {
+	case p == "":
+		return nil
+	case !absoluteClean(p):
+		return fail(ErrInvalid, "mount path %q is not absolute and clean", p)
+	case reservedRunPath(p):
+		return fail(ErrInvalid, "mount path %q is under a reserved directory", p)
+	}
+	return nil
+}
+
+// checkMountable returns an error when a mount path is asked for a disk the
+// node holds that has no filesystem to mount.
+func (s *service) checkMountable(ctx context.Context, a DiskAttachment) error {
+	if a.MountPath == "" {
+		return nil
+	}
+	e, err := s.disks.Get(ctx, a.Disk)
+	switch {
+	case errors.Is(err, ErrDiskAbsent):
+		return fail(ErrNotFound, "disk %q is not held by the node", a.Disk)
+	case err != nil:
+		return fail(ErrFailed, "read disk %q: %v", a.Disk, err)
+	case e.Filesystem == FilesystemNone:
+		return fail(ErrInvalid, "disk %q has no filesystem, so it cannot be mounted at %q", a.Disk, a.MountPath)
+	}
+	return nil
+}
+
+func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem) error {
+	if filesystem == "" {
+		filesystem = FilesystemExt4
+	}
 	switch {
 	case !ValidDiskID(disk):
 		return invalidDisk(disk)
@@ -30,18 +66,20 @@ func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID
 		return fail(ErrInvalid, "the request ID is empty")
 	case sizeBytes == 0:
 		return fail(ErrInvalid, "the disk size is zero")
+	case filesystem != FilesystemNone && filesystem != FilesystemExt4:
+		return fail(ErrInvalid, "filesystem %q is neither %q nor %q", filesystem, FilesystemNone, FilesystemExt4)
 	}
 	defer s.diskLocks.lock(disk, true)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
-	asked := DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes}
+	asked := DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: filesystem}
 	for attempt := 0; ; attempt++ {
 		switch have, err := s.disks.Get(ctx, disk); {
 		case err == nil:
 			if have == asked {
 				return nil
 			}
-			return fail(ErrConflict, "disk %q exists under another request ID or size", disk)
+			return fail(ErrConflict, "disk %q exists under another request ID, size or filesystem", disk)
 		case !errors.Is(err, ErrDiskAbsent):
 			return fail(ErrFailed, "look up disk %q: %v", disk, err)
 		}
@@ -107,7 +145,7 @@ func (s *service) ListDisks(ctx context.Context) ([]DiskInfo, error) {
 	defer s.mu.Unlock()
 	out := make([]DiskInfo, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Holder: s.held[e.ID]})
+		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Filesystem: e.Filesystem, Holder: s.held[e.ID]})
 	}
 	return out, nil
 }
@@ -148,6 +186,16 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	if err := s.requireNotFaulted(m, "attach"); err != nil {
 		return err
 	}
+	if err := checkMountPath(a.MountPath); err != nil {
+		return err
+	}
+	if a.MountPath != "" {
+		for _, other := range m.Disks {
+			if other.Disk != a.Disk && other.MountPath == a.MountPath {
+				return fail(ErrInvalid, "mount path %q is already the mount of disk %q", a.MountPath, other.Disk)
+			}
+		}
+	}
 	if have, attached := m.attachment(a.Disk); attached {
 		if have != a {
 			return fail(ErrConflict, "disk %q is attached to Machine %q with other parameters", a.Disk, id)
@@ -156,6 +204,9 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	}
 	path, err := s.locate(ctx, a.Disk)
 	if err != nil {
+		return err
+	}
+	if err := s.checkMountable(ctx, a); err != nil {
 		return err
 	}
 	if m.State == StatePaused {
@@ -188,7 +239,7 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 		return fail(ErrFailed, "record the holder of disk %q: %v", a.Disk, errors.Join(err, s.giveBack(ctx, a.Disk)))
 	}
 	if hot(m) {
-		return s.plug(ctx, rec, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, m)
+		return s.plug(ctx, rec, a, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, m)
 	}
 	return nil
 }
@@ -210,7 +261,7 @@ func (s *service) locate(ctx context.Context, disk DiskID) (string, error) {
 // guest find it. A step that fails is undone, and the record is set back to
 // without, the Machine as it was with no such disk, so the attach has not
 // happened.
-func (s *service) plug(ctx context.Context, rec *Record, dev BlockDevice, without Machine) error {
+func (s *service) plug(ctx context.Context, rec *Record, a DiskAttachment, dev BlockDevice, without Machine) error {
 	id, disk := rec.ID, dev.Disk
 	if err := s.driver.AttachDisk(ctx, id, dev); err != nil {
 		ctx, cancel := s.compensating(ctx)
@@ -223,7 +274,7 @@ func (s *service) plug(ctx context.Context, rec *Record, dev BlockDevice, withou
 	// The guest finds the device it is not told of (ADR 0022). A guest
 	// that cannot leaves the disk on the VMM and not in the guest, so it
 	// is taken off again and the attach has not happened.
-	if err := s.guest.FindDisk(ctx, id, disk); err != nil {
+	if err := s.guest.FindDisk(ctx, id, a); err != nil {
 		ctx, cancel := s.compensating(ctx)
 		defer cancel()
 		if derr := s.driver.DetachDisk(ctx, id, disk); derr != nil {
@@ -255,7 +306,7 @@ func (s *service) converge(ctx context.Context, rec *Record, a DiskAttachment) e
 	case DriveAtBoot:
 		return nil
 	case DriveHotPlugged:
-		if err := s.guest.FindDisk(ctx, m.ID, a.Disk); err != nil {
+		if err := s.guest.FindDisk(ctx, m.ID, a); err != nil {
 			return fail(ErrFailed, "the guest of Machine %q could not find disk %q, which the VMM has: %v", m.ID, a.Disk, err)
 		}
 		return nil
@@ -266,7 +317,7 @@ func (s *service) converge(ctx context.Context, rec *Record, a DiskAttachment) e
 	}
 	without := m.clone()
 	without.Disks = slices.DeleteFunc(without.Disks, func(have DiskAttachment) bool { return have.Disk == a.Disk })
-	return s.plug(ctx, rec, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, without)
+	return s.plug(ctx, rec, a, BlockDevice{Disk: a.Disk, Path: path, ReadOnly: a.ReadOnly}, without)
 }
 
 // diverged marks the Machine Faulted when the VMM and the guest disagree about
@@ -327,7 +378,8 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 			// more.
 			ctx, cancel := s.compensating(ctx)
 			defer cancel()
-			_ = s.guest.FindDisk(ctx, id, disk)
+			att, _ := m.attachment(disk)
+			_ = s.guest.FindDisk(ctx, id, att)
 			return fail(ErrFailed, "detach disk %q: %v", disk, err)
 		}
 	}

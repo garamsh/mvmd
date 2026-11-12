@@ -713,7 +713,7 @@ func TestDisks_SendTheDiskNamed(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
 	a := h.agentOf(t, "m")
-	require.NoError(t, h.guest.FindDisk(ctx, "m", "scratch"))
+	require.NoError(t, h.guest.FindDisk(ctx, "m", machine.DiskAttachment{Disk: "scratch"}))
 	require.NoError(t, h.guest.ReleaseDisk(ctx, "m", "scratch"))
 	assert.Equal(t, []string{"find:scratch", "release:scratch"}, a.disks)
 
@@ -765,7 +765,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		},
 		"CatchUp":     func(h *harness) error { return h.guest.CatchUp(ctx, "m", machine.CatchUp{}) },
 		"Terminate":   func(h *harness) error { return h.guest.Terminate(ctx, "m") },
-		"FindDisk":    func(h *harness) error { return h.guest.FindDisk(ctx, "m", "d") },
+		"FindDisk":    func(h *harness) error { return h.guest.FindDisk(ctx, "m", machine.DiskAttachment{Disk: "d"}) },
 		"ReleaseDisk": func(h *harness) error { return h.guest.ReleaseDisk(ctx, "m", "d") },
 		"OnlineVcpus": func(h *harness) error {
 			_, err := h.guest.OnlineVcpus(ctx, "m", 2)

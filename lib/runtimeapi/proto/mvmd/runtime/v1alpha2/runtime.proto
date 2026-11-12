@@ -173,6 +173,11 @@ message Resources {
 message DiskAttachment {
   string disk_id = 1;
   bool read_only = 2;
+  // Where the guest mounts the disk's filesystem before the entrypoint runs,
+  // read-only when read_only is set. Empty mounts nothing. The path is
+  // absolute and clean, not "/", and not under /proc, /sys, /dev or
+  // /run/mvmd, and the disk's filesystem is ext4, or the call is rejected.
+  string mount_path = 3;
 }
 
 message Driver {
@@ -351,12 +356,25 @@ message DeleteMachineRequest {
 
 message DeleteMachineResponse {}
 
+// Filesystem is what a disk's file holds when CreateDisk has made it.
+enum Filesystem {
+  // In a request, what CreateDisk made before the field existed: ext4. A Disk
+  // never reports it.
+  FILESYSTEM_UNSPECIFIED = 0;
+  // Unformatted: the guest finds a block device with nothing on it.
+  FILESYSTEM_NONE = 1;
+  // Formatted by the node with mkfs.ext4 before CreateDisk returns.
+  FILESYSTEM_EXT4 = 2;
+}
+
 message CreateDiskRequest {
   // The disk's identifier, chosen by the client.
   string disk_id = 1;
   string request_id = 2;
-  // The size of the sparse raw file, which the node formats ext4.
+  // The size of the sparse raw file.
   uint64 size_bytes = 3;
+  // A value other than the ones above is rejected.
+  Filesystem filesystem = 4;
 }
 
 message CreateDiskResponse {
@@ -369,6 +387,9 @@ message Disk {
   uint64 size_bytes = 2;
   // The Machine that holds the disk; empty when none does.
   string holder_machine_id = 3;
+  // What the disk's file holds. A disk made before the node recorded it, and
+  // a Machine's root disk, report ext4.
+  Filesystem filesystem = 4;
 }
 
 message ListDisksRequest {}
@@ -794,6 +815,8 @@ message SnapshotDisk {
   bool read_only = 2;
   // The size of the disk's file when the snapshot was taken.
   uint64 size_bytes = 3;
+  // Where the disk was mounted in the guest; a restore mounts it there again.
+  string mount_path = 4;
 }
 
 message ListSnapshotsRequest {}

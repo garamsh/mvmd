@@ -57,13 +57,13 @@ func TestCreateDisk_DiskIdentifierForm(t *testing.T) {
 	for _, tt := range badDiskIDs {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(machine.CapabilityDiskHotplug)
-			requireKind(t, e.svc.CreateDisk(ctx, tt.id, "req", 1<<20), machine.ErrInvalid)
+			requireKind(t, e.svc.CreateDisk(ctx, tt.id, "req", 1<<20, ""), machine.ErrInvalid)
 			requireUntouched(t, e, "get", "create")
 			_, held := e.disks.Holds(tt.id)
 			assert.False(t, held)
 
 			for _, ok := range goodDiskIDs {
-				require.NoError(t, e.svc.CreateDisk(ctx, ok, "req", 1<<20), "control %.20q", ok)
+				require.NoError(t, e.svc.CreateDisk(ctx, ok, "req", 1<<20, ""), "control %.20q", ok)
 			}
 		})
 	}
@@ -78,7 +78,7 @@ func TestDeleteDisk_DiskIdentifierForm(t *testing.T) {
 			requireUntouched(t, e, "remove")
 
 			for _, ok := range goodDiskIDs {
-				require.NoError(t, e.svc.CreateDisk(ctx, ok, "req", 1<<20))
+				require.NoError(t, e.svc.CreateDisk(ctx, ok, "req", 1<<20, ""))
 				require.NoError(t, e.svc.DeleteDisk(ctx, ok), "control %.20q", ok)
 				_, held := e.disks.Holds(ok)
 				assert.False(t, held)
@@ -160,7 +160,7 @@ func TestCreateDisk_RealAdapterRefusesAnIdentifierThatNamesNoFile(t *testing.T) 
 
 	for _, tt := range badDiskIDs {
 		t.Run(tt.name, func(t *testing.T) {
-			requireKind(t, svc.CreateDisk(ctx, tt.id, "req", 1<<20), machine.ErrInvalid)
+			requireKind(t, svc.CreateDisk(ctx, tt.id, "req", 1<<20, ""), machine.ErrInvalid)
 			requireKind(t, svc.DeleteDisk(ctx, tt.id), machine.ErrInvalid)
 
 			spec := baseSpec()

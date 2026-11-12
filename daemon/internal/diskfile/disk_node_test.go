@@ -37,7 +37,7 @@ func TestCreate_MakesAFormattedFileOfTheSizeAndKeepsTheRequest(t *testing.T) {
 
 	got, err := d.Get(ctx, "data")
 	require.NoError(t, err)
-	assert.Equal(t, machine.DiskEntry{ID: "data", Request: "req-1", SizeBytes: 8 << 20}, got)
+	assert.Equal(t, machine.DiskEntry{ID: "data", Request: "req-1", SizeBytes: 8 << 20, Filesystem: machine.FilesystemExt4}, got)
 }
 
 func TestCreate_NeverReplacesADiskThatHasTheIdentifier(t *testing.T) {
@@ -50,7 +50,7 @@ func TestCreate_NeverReplacesADiskThatHasTheIdentifier(t *testing.T) {
 	assert.ErrorIs(t, err, machine.ErrDiskExists)
 	got, err := d.Get(ctx, "data")
 	require.NoError(t, err)
-	assert.Equal(t, machine.DiskEntry{ID: "data", Request: "first", SizeBytes: 8 << 20}, got)
+	assert.Equal(t, machine.DiskEntry{ID: "data", Request: "first", SizeBytes: 8 << 20, Filesystem: machine.FilesystemExt4}, got)
 	names, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	assert.Len(t, names, 1, "the refused call left no file behind")
@@ -104,9 +104,9 @@ func TestList_ReportsRegularFilesByIdentifierAndNotTheOnesBeingBuilt(t *testing.
 
 	require.NoError(t, err)
 	require.Len(t, got, 3)
-	assert.Equal(t, machine.DiskEntry{ID: "a", Request: "r", SizeBytes: 1 << 20}, got[0])
-	assert.Equal(t, machine.DiskEntry{ID: "b", Request: "r", SizeBytes: 2 << 20}, got[1])
-	assert.Equal(t, machine.DiskEntry{ID: "m-root", SizeBytes: 4 << 20}, got[2], "a root disk has no request")
+	assert.Equal(t, machine.DiskEntry{ID: "a", Request: "r", SizeBytes: 1 << 20, Filesystem: machine.FilesystemExt4}, got[0])
+	assert.Equal(t, machine.DiskEntry{ID: "b", Request: "r", SizeBytes: 2 << 20, Filesystem: machine.FilesystemExt4}, got[1])
+	assert.Equal(t, machine.DiskEntry{ID: "m-root", SizeBytes: 4 << 20, Filesystem: machine.FilesystemExt4}, got[2], "a root disk has no request")
 }
 
 func TestRemove_RemovesACreatedDiskAndAnAbsentOneSucceeds(t *testing.T) {

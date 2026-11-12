@@ -20,7 +20,7 @@ func ro(disk machine.DiskID) machine.DiskAttachment {
 // blindGuest answers a find of a disk and records nothing of it.
 type blindGuest struct{ machine.Guest }
 
-func (blindGuest) FindDisk(context.Context, machine.MachineID, machine.DiskID) error { return nil }
+func (blindGuest) FindDisk(context.Context, machine.MachineID, machine.DiskAttachment) error { return nil }
 
 func attached(t *testing.T, e *env, id machine.MachineID) []machine.DiskAttachment {
 	t.Helper()

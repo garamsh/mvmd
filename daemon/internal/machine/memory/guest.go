@@ -42,6 +42,7 @@ type Guest struct {
 	refuse    error
 	terms     map[machine.MachineID]int
 	found     map[machine.MachineID]map[machine.DiskID]bool
+	finds     map[machine.MachineID][]machine.DiskAttachment
 	released  map[machine.MachineID]map[machine.DiskID]bool
 	held      map[machine.MachineID]map[machine.DiskID]bool
 	present   map[machine.MachineID]uint32
@@ -69,6 +70,7 @@ func NewGuest(retention int) *Guest {
 		refused:   make(map[machine.ExecID]string),
 		terms:     make(map[machine.MachineID]int),
 		found:     make(map[machine.MachineID]map[machine.DiskID]bool),
+		finds:     make(map[machine.MachineID][]machine.DiskAttachment),
 		released:  make(map[machine.MachineID]map[machine.DiskID]bool),
 		held:      make(map[machine.MachineID]map[machine.DiskID]bool),
 		present:   make(map[machine.MachineID]uint32),
@@ -546,7 +548,8 @@ func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
 
 // FindDisk implements machine.Guest: the guest finds the disk and records it,
 // whether it is new or one it released.
-func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
+func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, a machine.DiskAttachment) error {
+	disk := a.Disk
 	if err := g.enter("find-disk"); err != nil {
 		return err
 	}
@@ -559,6 +562,7 @@ func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine
 		g.found[id] = make(map[machine.DiskID]bool)
 	}
 	g.found[id][disk] = true
+	g.finds[id] = append(g.finds[id], a)
 	delete(g.released[id], disk)
 	return nil
 }
@@ -648,6 +652,14 @@ func (g *Guest) DiskFound(id machine.MachineID, disk machine.DiskID) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.found[id][disk]
+}
+
+// Finds returns every FindDisk the guest of the Machine took, in order, as the
+// attachment each carried.
+func (g *Guest) Finds(id machine.MachineID) []machine.DiskAttachment {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.finds[id])
 }
 
 // Terminated returns how many Terminate calls the guest of the Machine took.

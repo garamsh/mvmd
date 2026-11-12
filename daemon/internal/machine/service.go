@@ -38,9 +38,11 @@ type Service interface {
 	// List returns every Machine on the node, ordered by identifier.
 	List(ctx context.Context) ([]Machine, error)
 	// CreateDisk makes a disk of the size the node holds, at most once per
-	// request ID, so that a Machine can be attached it. The same identifier
-	// under another request ID or size is ErrConflict.
-	CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64) error
+	// request ID, so that a Machine can be attached it, formatted as the
+	// filesystem says; empty is ext4, and a value other than none and ext4 is
+	// ErrInvalid. The same identifier under another request ID, size or
+	// filesystem is ErrConflict.
+	CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem) error
 	// ListDisks returns every disk the node holds, root disks included, with
 	// the Machine that holds each, ordered by identifier.
 	ListDisks(ctx context.Context) ([]DiskInfo, error)

@@ -70,6 +70,9 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 			}
 			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "locate disk %q: %v", a.Disk, err))
 		}
+		if err := s.checkMountable(ctx, a); err != nil {
+			return err
+		}
 		disks = append(disks, a.Disk)
 	}
 	// The root disk's name is held with the attached disks, before its file is
@@ -140,6 +143,7 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 		return fail(ErrInvalid, "the root disk size is zero")
 	}
 	seen := make(map[DiskID]bool)
+	mounts := make(map[string]bool)
 	for _, a := range spec.Disks {
 		if !ValidDiskID(a.Disk) {
 			return invalidDisk(a.Disk)
@@ -148,6 +152,15 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 			return fail(ErrInvalid, "disk %q is listed twice", a.Disk)
 		}
 		seen[a.Disk] = true
+		if err := checkMountPath(a.MountPath); err != nil {
+			return err
+		}
+		if a.MountPath != "" {
+			if mounts[a.MountPath] {
+				return fail(ErrInvalid, "mount path %q is given twice", a.MountPath)
+			}
+			mounts[a.MountPath] = true
+		}
 	}
 	if err := spec.Policy.validate(); err != nil {
 		return fail(ErrInvalid, "network policy: %v", err)
@@ -332,7 +345,7 @@ func (s *service) plugAtStart(ctx context.Context, id MachineID, a DiskAttachmen
 	if err := s.driver.AttachDisk(ctx, id, devices[0]); err != nil {
 		return fmt.Errorf("attach disk %q: %w", a.Disk, err)
 	}
-	if err := s.guest.FindDisk(ctx, id, a.Disk); err != nil {
+	if err := s.guest.FindDisk(ctx, id, a); err != nil {
 		return fmt.Errorf("the guest could not find disk %q: %w", a.Disk, err)
 	}
 	return nil

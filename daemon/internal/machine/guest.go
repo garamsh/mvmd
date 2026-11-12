@@ -257,8 +257,10 @@ type Guest interface {
 	// just hot-plugged and to record it under the disk's ID (ADR 0022). It is
 	// served before the guest has booted. A failure means the guest did not
 	// find exactly one new device. Repeating it for a disk it holds is safe, and
-	// for a disk it released it rescans, as for a new one.
-	FindDisk(ctx context.Context, id MachineID, disk DiskID) error
+	// for a disk it released it rescans, as for a new one. A non-empty MountPath
+	// has the agent mount the disk there (ADR 0053); a repeat carries the same
+	// MountPath and ReadOnly.
+	FindDisk(ctx context.Context, id MachineID, a DiskAttachment) error
 	// OnlineVcpus asks the agent to bring online the vCPUs the Driver has just
 	// hot-plugged, up to vcpus, and returns how many are online and the memory
 	// the guest holds (ADR 0029). It onlines only a CPU that is present and

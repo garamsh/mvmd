@@ -283,7 +283,7 @@ func TestRestoreSnapshot_ARefusalAfterTheDisksWereClaimedReleasesThem(t *testing
 
 	t.Run("the name of the new root disk is held", func(t *testing.T) {
 		e := snapshottedWithDisks(t)
-		require.NoError(t, e.svc.CreateDisk(ctx, machine.RootDiskID("new"), "r-root", 1<<20))
+		require.NoError(t, e.svc.CreateDisk(ctx, machine.RootDiskID("new"), "r-root", 1<<20, ""))
 		e.created(t, "other")
 		require.NoError(t, e.svc.AttachDisk(ctx, "other", rw(machine.RootDiskID("new"))))
 
