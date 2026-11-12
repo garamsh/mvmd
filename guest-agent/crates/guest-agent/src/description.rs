@@ -7,6 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use crate::error::Error;
+use crate::system::DiskMount;
 use crate::user::UserSpec;
 use crate::uuid::Uuid;
 use crate::v1alpha1;
@@ -54,6 +55,35 @@ pub(crate) fn is_reserved(path: &str) -> bool {
     })
 }
 
+/// Why `path` cannot name a place in the booted root: it must be absolute and clean, not `/`, and
+/// not a reserved directory or under one.
+fn check_path(path: &str) -> Result<(), &'static str> {
+    let clean = path.strip_prefix('/').is_some_and(|rest| {
+        !path.contains('\0')
+            && rest
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != "..")
+    });
+    if !clean {
+        return Err("is not an absolute, clean path other than /");
+    }
+    if is_reserved(path) {
+        return Err("is in a directory the agent reserves");
+    }
+    Ok(())
+}
+
+impl DiskMount {
+    /// The mount a `FindDisk` asks for, or `None` when `path` is empty.
+    pub(crate) fn parse(path: String, read_only: bool) -> Result<Option<Self>, Error> {
+        if path.is_empty() {
+            return Ok(None);
+        }
+        check_path(&path).map_err(|why| Error::Invalid(format!("mount_path {path:?} {why}")))?;
+        Ok(Some(Self { path, read_only }))
+    }
+}
+
 /// A file placed over the booted root. Its content may be a secret, so neither `Debug` nor any
 /// error shows it.
 #[derive(Clone, PartialEq)]
@@ -86,18 +116,7 @@ impl BootFile {
     pub(crate) fn parse(file: v1alpha1::File) -> Result<Self, Error> {
         let path = file.path;
         let refuse = |why: &str| Error::Invalid(format!("file {path:?} {why}"));
-        let clean = path.strip_prefix('/').is_some_and(|rest| {
-            !path.contains('\0')
-                && rest
-                    .split('/')
-                    .all(|part| !part.is_empty() && part != "." && part != "..")
-        });
-        if !clean {
-            return Err(refuse("is not an absolute, clean path other than /"));
-        }
-        if is_reserved(&path) {
-            return Err(refuse("is in a directory the agent reserves"));
-        }
+        check_path(&path).map_err(refuse)?;
         if file.mode > 0o7777 {
             return Err(refuse("has a mode with bits beyond the permissions"));
         }

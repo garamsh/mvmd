@@ -15,19 +15,20 @@ use crate::description::{BootDescription, CatchUp, NetworkConfig, boot_time};
 use crate::error::{BootStep, Error, Expected, Unbooted};
 use crate::exec::Execs;
 use crate::files::{self, Locks, Reader, Upload};
-use crate::system::DiskError;
+use crate::system::{DiskError, DiskMount};
 use crate::user::UserSpec;
 use crate::v1alpha1::guest_service_server::GuestService;
 use crate::v1alpha1::{
     BootFailed, BootRequest, BootResponse, BootState, BootStep as ProtoStep, CatchUpRequest,
     CatchUpResponse, DiskInUse, EntryKind, ExecOutputGone, ExecRequest, ExecResponse, FileEntry,
-    FindDiskRequest, FindDiskResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
-    ListFilesRequest, ListFilesResponse, NotBooted, OnlineVcpusRequest, OnlineVcpusResponse,
-    PatchFileRequest, PatchFileResponse, ReadExecOutputRequest, ReadExecOutputResponse,
-    ReadFileRequest, ReadFileResponse, ReleaseDiskRequest, ReleaseDiskResponse, SearchFilesRequest,
-    SearchFilesResponse, SignalRequest, SignalResponse, TerminateRequest, TerminateResponse,
-    UpdateNetworkRequest, UpdateNetworkResponse, WriteFileRequest, WriteFileResponse,
-    WrongFileKind, read_exec_output_response, write_file_request,
+    FindDiskRequest, FindDiskResponse, GrowDiskRequest, GrowDiskResponse, HealthRequest,
+    HealthResponse, InfoRequest, InfoResponse, ListFilesRequest, ListFilesResponse, NotBooted,
+    OnlineVcpusRequest, OnlineVcpusResponse, PatchFileRequest, PatchFileResponse,
+    ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest, ReadFileResponse,
+    ReleaseDiskRequest, ReleaseDiskResponse, SearchFilesRequest, SearchFilesResponse,
+    SignalRequest, SignalResponse, TerminateRequest, TerminateResponse, UpdateNetworkRequest,
+    UpdateNetworkResponse, WriteFileRequest, WriteFileResponse, WrongFileKind,
+    read_exec_output_response, write_file_request,
 };
 
 /// The contract versions the agent serves.
@@ -69,6 +70,10 @@ fn disk_error(context: &str, error: DiskError) -> Error {
     match error {
         DiskError::InUse => Error::PreconditionFailed("the disk is in use".into()),
         DiskError::Unknown => Error::NotFound("the disk is not known to the guest".into()),
+        DiskError::MountBusy(path) => {
+            Error::PreconditionFailed(format!("the filesystem mounted at {path} is busy"))
+        }
+        DiskError::Conflict(reason) => Error::PreconditionFailed(reason),
         DiskError::Failed(source) => Error::Io {
             context: context.into(),
             source,
@@ -152,7 +157,7 @@ impl From<Error> for Status {
                     } as i32,
                 },
             ),
-            Error::DiskInUse { disk_id } => {
+            Error::DiskInUse { disk_id, .. } => {
                 with_detail(Status::failed_precondition(message), &DiskInUse { disk_id })
             }
             Error::DigestMismatch(_) => Status::data_loss(message),
@@ -168,6 +173,7 @@ impl From<Error> for Status {
                         BootStep::SwitchRoot => ProtoStep::SwitchRoot,
                         BootStep::Network => ProtoStep::Network,
                         BootStep::PlaceFiles => ProtoStep::PlaceFiles,
+                        BootStep::MountDisks => ProtoStep::MountDisks,
                         BootStep::ApplyUser => ProtoStep::ApplyUser,
                         BootStep::Entrypoint => ProtoStep::Entrypoint,
                     } as i32,
@@ -414,9 +420,11 @@ impl GuestService for Guest {
         request: Request<FindDiskRequest>,
     ) -> Result<Response<FindDiskResponse>, Status> {
         // Not gated on the boot: the calls act on the kernel's device tree.
-        let disk_id = named(request.into_inner().disk_id)?;
+        let request = request.into_inner();
+        let disk_id = named(request.disk_id)?;
+        let mount = DiskMount::parse(request.mount_path, request.read_only)?;
         let disks = self.boot.disks()?;
-        let device = tokio::task::spawn_blocking(move || disks.find(&disk_id))
+        let device = tokio::task::spawn_blocking(move || disks.find(&disk_id, mount.as_ref()))
             .await
             .map_err(|joined| Error::Io {
                 context: "find the disk".into(),
@@ -444,10 +452,33 @@ impl GuestService for Guest {
                 source: io::Error::other(joined),
             })?
             .map_err(|error| match error {
-                DiskError::InUse => Error::DiskInUse { disk_id },
+                DiskError::InUse => Error::DiskInUse {
+                    disk_id,
+                    mount: None,
+                },
+                DiskError::MountBusy(path) => Error::DiskInUse {
+                    disk_id,
+                    mount: Some(path),
+                },
                 other => disk_error("release the disk", other),
             })?;
         Ok(Response::new(ReleaseDiskResponse {}))
+    }
+
+    async fn grow_disk(
+        &self,
+        request: Request<GrowDiskRequest>,
+    ) -> Result<Response<GrowDiskResponse>, Status> {
+        let disk_id = named(request.into_inner().disk_id)?;
+        let disks = self.boot.disks()?;
+        let size_bytes = tokio::task::spawn_blocking(move || disks.grow(&disk_id))
+            .await
+            .map_err(|joined| Error::Io {
+                context: "grow the disk".into(),
+                source: io::Error::other(joined),
+            })?
+            .map_err(|error| disk_error("grow the disk", error))?;
+        Ok(Response::new(GrowDiskResponse { size_bytes }))
     }
 
     async fn online_vcpus(

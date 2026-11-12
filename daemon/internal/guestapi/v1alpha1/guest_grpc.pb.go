@@ -37,6 +37,7 @@ const (
 	GuestService_Terminate_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/Terminate"
 	GuestService_FindDisk_FullMethodName       = "/mvmd.guest.v1alpha1.GuestService/FindDisk"
 	GuestService_ReleaseDisk_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/ReleaseDisk"
+	GuestService_GrowDisk_FullMethodName       = "/mvmd.guest.v1alpha1.GuestService/GrowDisk"
 	GuestService_OnlineVcpus_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/OnlineVcpus"
 	GuestService_Health_FullMethodName         = "/mvmd.guest.v1alpha1.GuestService/Health"
 	GuestService_Info_FullMethodName           = "/mvmd.guest.v1alpha1.GuestService/Info"
@@ -53,7 +54,7 @@ type GuestServiceClient interface {
 	// agent sets the wall clock to host_unix_nanos when that is positive, and
 	// leaves it as the kernel set it when it is 0. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
-	// call except Terminate, Health, Info, FindDisk, ReleaseDisk and
+	// call except Terminate, Health, Info, FindDisk, ReleaseDisk, GrowDisk and
 	// OnlineVcpus is refused until it has succeeded. A repeat with the same
 	// description succeeds and changes nothing, whatever time it carries, and
 	// does not set the clock again; a repeat after a failure fails the same
@@ -105,18 +106,33 @@ type GuestServiceClient interface {
 	// disk_id the agent holds returns the record without rescanning, and for
 	// one it has released rescans as for a new one. No new device within the
 	// agent's bound, or more than one, fails the call and records nothing. The
-	// agent does nothing else with the device. It is served before Boot has
-	// succeeded, and the calls of one Machine are serialised.
+	// agent mounts the device only when mount_path is set. It is served
+	// before Boot has succeeded, and the calls of one Machine are serialised.
+	// With a mount_path the agent mounts the device's ext4 filesystem there, in
+	// the booted root: before Boot has succeeded the mount is made at the boot
+	// step that follows placing the files, and after it, before this call
+	// returns. A repeat for a disk_id the agent holds must carry the same
+	// mount_path and read_only, or it is FAILED_PRECONDITION; once the mount
+	// is made a repeat does not make it again.
 	FindDisk(ctx context.Context, in *FindDiskRequest, opts ...grpc.CallOption) (*FindDiskResponse, error)
 	// Release the device FindDisk recorded under disk_id so that mvmd can
 	// unplug it: the agent opens the block device exclusively, which the kernel
 	// refuses while the device or a partition of it is mounted or otherwise
 	// claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
 	// otherwise it removes the device from the PCI bus, still holding the
-	// device. The agent keeps the record as released, so a repeat after a
+	// device. A filesystem the agent mounted for the disk is unmounted first,
+	// and one that is busy fails the call the same way, the message naming the
+	// path. The agent keeps the record as released, so a repeat after a
 	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
 	// served before Boot has succeeded.
 	ReleaseDisk(ctx context.Context, in *ReleaseDiskRequest, opts ...grpc.CallOption) (*ReleaseDiskResponse, error)
+	// Read the size of a found disk again, after mvmd has grown its backing,
+	// and grow the ext4 filesystem the agent mounted for it online to fill the
+	// device (EXT4_IOC_RESIZE_FS). It returns the device's size in bytes. A
+	// disk with no mount only has its size read. A repeat grows nothing. A
+	// disk_id the agent never found, or has released, is NOT_FOUND. It is
+	// served before Boot has succeeded.
+	GrowDisk(ctx context.Context, in *GrowDiskRequest, opts ...grpc.CallOption) (*GrowDiskResponse, error)
 	// Bring vCPUs online up to a target count. The kernel does not bring a
 	// hot-added vCPU online, so the agent counts the online CPUs and, while
 	// fewer than the target are online, writes 1 to the online file of the
@@ -321,6 +337,16 @@ func (c *guestServiceClient) ReleaseDisk(ctx context.Context, in *ReleaseDiskReq
 	return out, nil
 }
 
+func (c *guestServiceClient) GrowDisk(ctx context.Context, in *GrowDiskRequest, opts ...grpc.CallOption) (*GrowDiskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GrowDiskResponse)
+	err := c.cc.Invoke(ctx, GuestService_GrowDisk_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *guestServiceClient) OnlineVcpus(ctx context.Context, in *OnlineVcpusRequest, opts ...grpc.CallOption) (*OnlineVcpusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OnlineVcpusResponse)
@@ -362,7 +388,7 @@ type GuestServiceServer interface {
 	// agent sets the wall clock to host_unix_nanos when that is positive, and
 	// leaves it as the kernel set it when it is 0. The call returns once the
 	// entrypoint runs, or fails naming the boot step that failed; every other
-	// call except Terminate, Health, Info, FindDisk, ReleaseDisk and
+	// call except Terminate, Health, Info, FindDisk, ReleaseDisk, GrowDisk and
 	// OnlineVcpus is refused until it has succeeded. A repeat with the same
 	// description succeeds and changes nothing, whatever time it carries, and
 	// does not set the clock again; a repeat after a failure fails the same
@@ -414,18 +440,33 @@ type GuestServiceServer interface {
 	// disk_id the agent holds returns the record without rescanning, and for
 	// one it has released rescans as for a new one. No new device within the
 	// agent's bound, or more than one, fails the call and records nothing. The
-	// agent does nothing else with the device. It is served before Boot has
-	// succeeded, and the calls of one Machine are serialised.
+	// agent mounts the device only when mount_path is set. It is served
+	// before Boot has succeeded, and the calls of one Machine are serialised.
+	// With a mount_path the agent mounts the device's ext4 filesystem there, in
+	// the booted root: before Boot has succeeded the mount is made at the boot
+	// step that follows placing the files, and after it, before this call
+	// returns. A repeat for a disk_id the agent holds must carry the same
+	// mount_path and read_only, or it is FAILED_PRECONDITION; once the mount
+	// is made a repeat does not make it again.
 	FindDisk(context.Context, *FindDiskRequest) (*FindDiskResponse, error)
 	// Release the device FindDisk recorded under disk_id so that mvmd can
 	// unplug it: the agent opens the block device exclusively, which the kernel
 	// refuses while the device or a partition of it is mounted or otherwise
 	// claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
 	// otherwise it removes the device from the PCI bus, still holding the
-	// device. The agent keeps the record as released, so a repeat after a
+	// device. A filesystem the agent mounted for the disk is unmounted first,
+	// and one that is busy fails the call the same way, the message naming the
+	// path. The agent keeps the record as released, so a repeat after a
 	// release succeeds. A disk_id the agent never found is NOT_FOUND. It is
 	// served before Boot has succeeded.
 	ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error)
+	// Read the size of a found disk again, after mvmd has grown its backing,
+	// and grow the ext4 filesystem the agent mounted for it online to fill the
+	// device (EXT4_IOC_RESIZE_FS). It returns the device's size in bytes. A
+	// disk with no mount only has its size read. A repeat grows nothing. A
+	// disk_id the agent never found, or has released, is NOT_FOUND. It is
+	// served before Boot has succeeded.
+	GrowDisk(context.Context, *GrowDiskRequest) (*GrowDiskResponse, error)
 	// Bring vCPUs online up to a target count. The kernel does not bring a
 	// hot-added vCPU online, so the agent counts the online CPUs and, while
 	// fewer than the target are online, writes 1 to the online file of the
@@ -492,6 +533,9 @@ func (UnimplementedGuestServiceServer) FindDisk(context.Context, *FindDiskReques
 }
 func (UnimplementedGuestServiceServer) ReleaseDisk(context.Context, *ReleaseDiskRequest) (*ReleaseDiskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseDisk not implemented")
+}
+func (UnimplementedGuestServiceServer) GrowDisk(context.Context, *GrowDiskRequest) (*GrowDiskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GrowDisk not implemented")
 }
 func (UnimplementedGuestServiceServer) OnlineVcpus(context.Context, *OnlineVcpusRequest) (*OnlineVcpusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OnlineVcpus not implemented")
@@ -736,6 +780,24 @@ func _GuestService_ReleaseDisk_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GuestService_GrowDisk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GrowDiskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GuestServiceServer).GrowDisk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GuestService_GrowDisk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GuestServiceServer).GrowDisk(ctx, req.(*GrowDiskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GuestService_OnlineVcpus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(OnlineVcpusRequest)
 	if err := dec(in); err != nil {
@@ -832,6 +894,10 @@ var GuestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseDisk",
 			Handler:    _GuestService_ReleaseDisk_Handler,
+		},
+		{
+			MethodName: "GrowDisk",
+			Handler:    _GuestService_GrowDisk_Handler,
 		},
 		{
 			MethodName: "OnlineVcpus",

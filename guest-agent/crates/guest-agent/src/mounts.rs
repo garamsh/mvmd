@@ -195,7 +195,7 @@ fn at<T>(path: &Path, result: io::Result<T>) -> io::Result<T> {
 }
 
 /// Create `dir` and the directories above it that are missing, each 0755 and root's.
-fn create_parents(dir: &Path) -> io::Result<()> {
+pub(crate) fn create_parents(dir: &Path) -> io::Result<()> {
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o755)
@@ -290,9 +290,10 @@ fn resolve_within(root: &Path, path: &str) -> io::Result<PathBuf> {
     Ok(root.join(resolved))
 }
 
-fn place_one(root: &Path, held: &Path, file: &BootFile) -> io::Result<()> {
-    // Resolved before anything is written: a refusal leaves nothing behind.
-    let target = resolve_within(root, &file.path)?;
+/// The place `path` names under `root`, with every link followed, refused when it resolves into a
+/// directory the agent reserves.
+pub(crate) fn resolve_target(root: &Path, path: &str) -> io::Result<PathBuf> {
+    let target = resolve_within(root, path)?;
     let inside = Path::new("/").join(target.strip_prefix(root).unwrap_or(&target));
     if inside.to_str().is_none_or(is_reserved) {
         return Err(io::Error::new(
@@ -300,6 +301,12 @@ fn place_one(root: &Path, held: &Path, file: &BootFile) -> io::Result<()> {
             "resolves into a directory the agent reserves",
         ));
     }
+    Ok(target)
+}
+
+fn place_one(root: &Path, held: &Path, file: &BootFile) -> io::Result<()> {
+    // Resolved before anything is written: a refusal leaves nothing behind.
+    let target = resolve_target(root, &file.path)?;
     let target = target.as_path();
     // Owner and mode are set before the content is written, so it is never more readable than
     // the file's own mode makes it.

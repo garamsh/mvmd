@@ -18,15 +18,15 @@ use std::time::{Duration, SystemTime};
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
     BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, DiskInUse,
-    ExecRecord, ExecRequest, ExecStatus, File as WireFile, FindDiskRequest, HealthRequest,
-    Ipv4Config, Ipv6Config, ListFilesRequest, NetworkConfig as WireNetworkConfig, NotBooted,
-    OnlineVcpusRequest, PatchFileRequest, ReadExecOutputRequest, ReadFileRequest,
+    ExecRecord, ExecRequest, ExecStatus, File as WireFile, FindDiskRequest, GrowDiskRequest,
+    HealthRequest, Ipv4Config, Ipv6Config, ListFilesRequest, NetworkConfig as WireNetworkConfig,
+    NotBooted, OnlineVcpusRequest, PatchFileRequest, ReadExecOutputRequest, ReadFileRequest,
     ReleaseDiskRequest, RunConfig, SearchFilesRequest, SignalRequest, TerminateRequest,
     UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
     write_file_request,
 };
 use guest_agent::{
-    Accounts, BootFile, BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy,
+    Accounts, BootFile, BootStep, Clock, Console, DiskDevice, DiskError, DiskMount, Disks, Entropy,
     Filesystem, GuestSize, Identity, KernelCommandLine, Mounts, Network, NetworkConfig, Power,
     Resources, System, Users, Uuid,
 };
@@ -311,13 +311,36 @@ impl Clock for TestClock {
     }
 }
 
-/// Disks that remember what was found, refuse to release one that is in use and log each call.
+/// Disks that remember what was found and mounted, refuse to release one that is in use or whose
+/// mount is busy, and log each call.
 struct TestDisks {
     log: Log,
     found: Mutex<std::collections::HashSet<String>>,
+    /// The mounts asked for and not made yet, by disk ID.
+    wanted: Mutex<Vec<(String, DiskMount)>>,
+    /// The mounts made, by disk ID.
+    mounted: Mutex<Vec<(String, DiskMount)>>,
+    /// Whether the boot has mounted the disks, from which `find` mounts at once.
+    mounting: AtomicBool,
     in_use: AtomicBool,
+    busy: AtomicBool,
     no_device: AtomicBool,
     fail_account: bool,
+    fail_mount: AtomicBool,
+}
+
+impl TestDisks {
+    fn mount(&self, disk_id: &str, mount: DiskMount) -> std::result::Result<(), DiskError> {
+        if self.fail_mount.load(Ordering::SeqCst) {
+            return Err(DiskError::Failed(io::Error::other("injected failure")));
+        }
+        self.log.push(format!(
+            "disk mount {disk_id} {} ro={}",
+            mount.path, mount.read_only
+        ));
+        lock(&self.mounted).push((disk_id.to_owned(), mount));
+        Ok(())
+    }
 }
 
 impl Disks for TestDisks {
@@ -329,12 +352,23 @@ impl Disks for TestDisks {
         Ok(())
     }
 
-    fn find(&self, disk_id: &str) -> std::result::Result<DiskDevice, DiskError> {
+    fn find(
+        &self,
+        disk_id: &str,
+        mount: Option<&DiskMount>,
+    ) -> std::result::Result<DiskDevice, DiskError> {
         self.log.push(format!("disk find {disk_id}"));
         if self.no_device.load(Ordering::SeqCst) {
             return Err(DiskError::Failed(io::Error::other("no new device")));
         }
-        lock(&self.found).insert(disk_id.to_owned());
+        let first = lock(&self.found).insert(disk_id.to_owned());
+        if let (true, Some(mount)) = (first, mount) {
+            if self.mounting.load(Ordering::SeqCst) {
+                self.mount(disk_id, mount.clone())?;
+            } else {
+                lock(&self.wanted).push((disk_id.to_owned(), mount.clone()));
+            }
+        }
         Ok(DiskDevice {
             name: "vdb".into(),
             size_bytes: 1 << 20,
@@ -342,16 +376,45 @@ impl Disks for TestDisks {
         })
     }
 
+    fn mount_recorded(&self) -> std::result::Result<(), DiskError> {
+        self.log.push("disk mount_recorded");
+        self.mounting.store(true, Ordering::SeqCst);
+        let wanted: Vec<_> = lock(&self.wanted).drain(..).collect();
+        for (disk_id, mount) in wanted {
+            self.mount(&disk_id, mount)?;
+        }
+        Ok(())
+    }
+
     fn release(&self, disk_id: &str) -> std::result::Result<(), DiskError> {
         self.log.push(format!("disk release {disk_id}"));
         if !lock(&self.found).contains(disk_id) {
             return Err(DiskError::Unknown);
+        }
+        let mount = lock(&self.mounted)
+            .iter()
+            .find(|(id, _)| id == disk_id)
+            .map(|(_, mount)| mount.path.clone());
+        if let Some(path) = mount {
+            if self.busy.load(Ordering::SeqCst) {
+                return Err(DiskError::MountBusy(path));
+            }
+            self.log.push(format!("disk unmount {disk_id} {path}"));
+            lock(&self.mounted).retain(|(id, _)| id != disk_id);
         }
         if self.in_use.load(Ordering::SeqCst) {
             return Err(DiskError::InUse);
         }
         lock(&self.found).remove(disk_id);
         Ok(())
+    }
+
+    fn grow(&self, disk_id: &str) -> std::result::Result<u64, DiskError> {
+        self.log.push(format!("disk grow {disk_id}"));
+        if !lock(&self.found).contains(disk_id) {
+            return Err(DiskError::Unknown);
+        }
+        Ok(2 << 20)
     }
 }
 
@@ -458,9 +521,14 @@ impl Agent {
         let disks = Arc::new(TestDisks {
             log: log.clone(),
             found: Mutex::default(),
+            wanted: Mutex::default(),
+            mounted: Mutex::default(),
+            mounting: AtomicBool::new(false),
             in_use: AtomicBool::new(false),
+            busy: AtomicBool::new(false),
             no_device: AtomicBool::new(false),
             fail_account: setup.fail_account,
+            fail_mount: AtomicBool::new(false),
         });
         let resources = Arc::new(TestResources {
             log: log.clone(),
@@ -688,6 +756,7 @@ async fn boot_takes_the_steps_in_order_and_runs_the_entrypoint_as_described() ->
             "overlay".to_owned(),
             "switch_root".to_owned(),
             "network".to_owned(),
+            "disk mount_recorded".to_owned(),
         ]
     );
     // The entrypoint ran after the network was applied (it finds the marker the network wrote),
@@ -1779,6 +1848,7 @@ async fn a_disk_is_found_and_released_before_the_guest_has_booted() -> Result {
         .client
         .find_disk(FindDiskRequest {
             disk_id: "data".into(),
+            ..Default::default()
         })
         .await?
         .into_inner();
@@ -1805,6 +1875,7 @@ async fn a_release_of_a_disk_in_use_is_refused_with_the_disk_named() -> Result {
         .client
         .find_disk(FindDiskRequest {
             disk_id: "data".into(),
+            ..Default::default()
         })
         .await?;
     agent.disks.in_use.store(true, Ordering::SeqCst);
@@ -1846,6 +1917,7 @@ async fn a_disk_the_agent_has_no_record_of_is_not_found_and_a_failed_find_is_not
         .client
         .find_disk(FindDiskRequest {
             disk_id: String::new(),
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1854,6 +1926,7 @@ async fn a_disk_the_agent_has_no_record_of_is_not_found_and_a_failed_find_is_not
         .client
         .find_disk(FindDiskRequest {
             disk_id: "data".into(),
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1957,7 +2030,10 @@ async fn disks_found_before_boot_stay_recorded_through_it_and_each_is_released_b
         bus.plug(name, address)?;
         let found = agent
             .client
-            .find_disk(FindDiskRequest { disk_id: id.into() })
+            .find_disk(FindDiskRequest {
+                disk_id: id.into(),
+                ..Default::default()
+            })
             .await?
             .into_inner();
         assert_eq!(found.device, name, "{id}");
@@ -1975,7 +2051,10 @@ async fn disks_found_before_boot_stay_recorded_through_it_and_each_is_released_b
     for (id, name, _) in wanted {
         let again = agent
             .client
-            .find_disk(FindDiskRequest { disk_id: id.into() })
+            .find_disk(FindDiskRequest {
+                disk_id: id.into(),
+                ..Default::default()
+            })
             .await?
             .into_inner();
         assert_eq!(again.device, name, "{id} after Boot");
@@ -2611,11 +2690,12 @@ async fn files_are_placed_after_the_network_and_before_the_user_and_the_entrypoi
         .skip_while(|entry| entry != "switch_root")
         .collect();
     assert_eq!(
-        steps[..5],
+        steps[..6],
         [
             "switch_root".to_owned(),
             "network".to_owned(),
             "place_files /etc/app/config,/var/secret".to_owned(),
+            "disk mount_recorded".to_owned(),
             "users accounts".to_owned(),
             "users run_as".to_owned(),
         ]
@@ -2851,5 +2931,221 @@ async fn a_refused_or_failed_file_is_named_by_its_path_and_never_by_its_content(
             .entries()
             .contains(&"place_files /etc/secret".to_owned())
     );
+    Ok(())
+}
+
+/// `FindDisk` naming a disk, the path to mount it at and whether the mount is read-only.
+fn find_at(disk_id: &str, mount_path: &str, read_only: bool) -> FindDiskRequest {
+    FindDiskRequest {
+        disk_id: disk_id.into(),
+        mount_path: mount_path.into(),
+        read_only,
+    }
+}
+
+#[tokio::test]
+async fn a_disk_found_after_the_boot_is_mounted_at_its_path_read_only_when_asked() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+
+    agent
+        .client
+        .find_disk(find_at("data", "/mnt/data", true))
+        .await?;
+    agent
+        .client
+        .find_disk(find_at("scratch", "/mnt/scratch", false))
+        .await?;
+    // The control: a disk found with no path is recorded and mounted nowhere.
+    agent.client.find_disk(find_at("bare", "", false)).await?;
+
+    assert_eq!(
+        *lock(&agent.disks.mounted),
+        [
+            (
+                "data".to_owned(),
+                DiskMount {
+                    path: "/mnt/data".into(),
+                    read_only: true
+                }
+            ),
+            (
+                "scratch".to_owned(),
+                DiskMount {
+                    path: "/mnt/scratch".into(),
+                    read_only: false
+                }
+            ),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_mount_path_the_rules_refuse_is_refused_before_the_disks_are_asked() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+
+    for path in [
+        "mnt/data",
+        "/",
+        "/mnt/../etc",
+        "/mnt//data",
+        "/mnt/data/",
+        "/proc/data",
+        "/sys",
+        "/dev/disk",
+        "/run/mvmd/data",
+    ] {
+        let refused = agent
+            .client
+            .find_disk(find_at("data", path, false))
+            .await
+            .unwrap_err();
+        assert_eq!(refused.code(), Code::InvalidArgument, "{path}");
+        assert!(refused.message().contains(path), "{path}: {refused:?}");
+    }
+    assert_eq!(agent.log.count("disk find"), 0);
+    assert!(lock(&agent.disks.mounted).is_empty());
+
+    // The control: a path the rules allow, with the same disk, is found and mounted.
+    agent
+        .client
+        .find_disk(find_at("data", "/mnt/data", false))
+        .await?;
+    assert_eq!(agent.log.count("disk find data"), 1);
+    assert_eq!(lock(&agent.disks.mounted).len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_disk_named_at_create_is_mounted_before_the_entrypoint_and_after_the_files() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    agent
+        .client
+        .find_disk(find_at("data", "/mnt/data", true))
+        .await?;
+    // Found before the boot, it is recorded and not mounted yet.
+    assert!(lock(&agent.disks.mounted).is_empty());
+
+    let mut request = files_request(&agent, vec![wire_file("/etc/a", b"one")]);
+    if let Some(run) = request.run.as_mut() {
+        run.user = "app".into();
+    }
+    agent.client.boot(request).await?;
+
+    let steps: Vec<String> = agent
+        .log
+        .entries()
+        .into_iter()
+        .skip_while(|entry| entry != "place_files /etc/a")
+        .collect();
+    assert_eq!(
+        steps[..4],
+        [
+            "place_files /etc/a".to_owned(),
+            "disk mount_recorded".to_owned(),
+            "disk mount data /mnt/data ro=true".to_owned(),
+            "users accounts".to_owned(),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_mount_of_a_disk_fails_the_boot_at_its_step_and_the_entrypoint_never_runs()
+-> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    agent
+        .client
+        .find_disk(find_at("data", "/mnt/data", false))
+        .await?;
+    agent.disks.fail_mount.store(true, Ordering::SeqCst);
+
+    let failure = agent
+        .client
+        .boot(user_request(&agent, "app"))
+        .await
+        .unwrap_err();
+
+    assert_eq!(failure.code(), Code::Internal);
+    let failed: BootFailed = details::detail(&failure).ok_or("no BootFailed detail")?;
+    assert_eq!(failed.step(), WireStep::MountDisks);
+    assert_eq!(agent.log.count("users"), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_release_unmounts_the_disk_first_and_a_busy_mount_fails_it_naming_the_path() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+    agent
+        .client
+        .find_disk(find_at("data", "/mnt/data", false))
+        .await?;
+    agent.disks.busy.store(true, Ordering::SeqCst);
+
+    let refusal = agent
+        .client
+        .release_disk(ReleaseDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(refusal.code(), Code::FailedPrecondition);
+    assert!(refusal.message().contains("/mnt/data"), "{refusal:?}");
+    let in_use: DiskInUse = details::detail(&refusal).ok_or("no DiskInUse detail")?;
+    assert_eq!(in_use.disk_id, "data");
+    assert_eq!(lock(&agent.disks.mounted).len(), 1);
+
+    // The control: once the mount is not busy, the same call unmounts it and releases the disk.
+    agent.disks.busy.store(false, Ordering::SeqCst);
+    agent
+        .client
+        .release_disk(ReleaseDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await?;
+    assert!(lock(&agent.disks.mounted).is_empty());
+    assert_eq!(agent.log.count("disk unmount data /mnt/data"), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_grow_answers_the_new_size_and_a_disk_never_found_is_not_found() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+    agent
+        .client
+        .find_disk(find_at("data", "/mnt/data", false))
+        .await?;
+
+    let grown = agent
+        .client
+        .grow_disk(GrowDiskRequest {
+            disk_id: "data".into(),
+        })
+        .await?
+        .into_inner();
+    let unknown = agent
+        .client
+        .grow_disk(GrowDiskRequest {
+            disk_id: "never".into(),
+        })
+        .await
+        .unwrap_err();
+    let unnamed = agent
+        .client
+        .grow_disk(GrowDiskRequest {
+            disk_id: String::new(),
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(grown.size_bytes, 2 << 20);
+    assert_eq!(unknown.code(), Code::NotFound);
+    assert_eq!(unnamed.code(), Code::InvalidArgument);
+    assert_eq!(agent.log.count("disk grow data"), 1);
     Ok(())
 }

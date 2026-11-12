@@ -44,7 +44,7 @@ pub use network::LinuxNetwork;
 pub use resources::LinuxResources;
 pub use restore::{LinuxClock, LinuxEntropy};
 pub use system::{
-    Clock, Console, DiskDevice, DiskError, Disks, Entropy, GuestSize, KernelCommandLine,
+    Clock, Console, DiskDevice, DiskError, DiskMount, Disks, Entropy, GuestSize, KernelCommandLine,
     LinuxConsole, LinuxPower, Mounts, Network, Power, Resources, System,
 };
 pub use user::{Accounts, Identity, LinuxUsers, Users};
