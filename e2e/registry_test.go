@@ -167,6 +167,11 @@ type descriptor struct {
 // OCI image manifest in the repository named by name, with each layer gzip-compressed, and
 // returns the reference to pull. The entrypoint is the image's.
 func (r *registry) publish(name string, entrypoint []string, layers ...[]byte) ref {
+	return r.publishAs(name, "", entrypoint, layers...)
+}
+
+// publishAs is publish for an image whose configuration names a user, in the OCI form.
+func (r *registry) publishAs(name, user string, entrypoint []string, layers ...[]byte) ref {
 	var manifestLayers []descriptor
 	var diffIDs []string
 	for _, tarball := range layers {
@@ -177,7 +182,7 @@ func (r *registry) publish(name string, entrypoint []string, layers ...[]byte) r
 	cfg, err := json.Marshal(map[string]any{
 		"architecture": goArch(),
 		"os":           "linux",
-		"config":       map[string]any{"Entrypoint": entrypoint},
+		"config":       map[string]any{"Entrypoint": entrypoint, "User": user},
 		"rootfs":       map[string]any{"type": "layers", "diff_ids": diffIDs},
 	})
 	if err != nil {

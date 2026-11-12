@@ -334,6 +334,8 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 			Argv:       boot.Run.Command,
 			Env:        boot.Run.Env,
 			WorkingDir: boot.Run.WorkingDir,
+			User:       boot.User,
+			Files:      runFiles(boot.Files),
 		},
 		Network: networkConfig(boot.Network),
 	}
@@ -352,6 +354,15 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 		_, err = c.Boot(ctx, req, grpc.WaitForReady(true))
 		return err
 	})
+}
+
+// runFiles is the files as the Boot call carries them.
+func runFiles(files []machine.PlacedFile) []*guestv1alpha1.File {
+	var out []*guestv1alpha1.File
+	for _, f := range files {
+		out = append(out, &guestv1alpha1.File{Path: f.Path, Content: f.Content, Mode: f.Mode, Uid: f.UID, Gid: f.GID})
+	}
+	return out
 }
 
 // hostUnixNanos is the clock's reading in nanoseconds since the Unix epoch, or

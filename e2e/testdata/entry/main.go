@@ -8,7 +8,9 @@
 // connection and prints connected, refused or timeout, and "listen PORT..." accepts TCP connections
 // on each port, prints "listening PORT" once each is bound, and stays running, "uname" prints the
 // release and the version of the kernel the guest booted, one to a line, and "ignore-term" ignores
-// SIGTERM, prints "ignoring SIGTERM" once it does, and stays running.
+// SIGTERM, prints "ignoring SIGTERM" once it does, and stays running, "probe NAME..." prints one line
+// with the user and group the program runs as, its supplementary groups, and each named environment
+// variable as NAME=value, and stays running, and "stat FILE" prints the file's mode, owner and group.
 package main
 
 import (
@@ -18,6 +20,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,6 +121,16 @@ func command(name string, args []string) {
 		signal.Ignore(syscall.SIGTERM)
 		fmt.Println("ignoring SIGTERM")
 		time.Sleep(time.Hour)
+	case "probe":
+		probe(args)
+	case "stat":
+		info, err := os.Stat(args[0])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		owner := info.Sys().(*syscall.Stat_t)
+		fmt.Printf("mode=%04o uid=%d gid=%d\n", info.Mode().Perm()|specialBits(info.Mode()), owner.Uid, owner.Gid)
 	case "dial":
 		dial(args[0])
 	case "listen":
@@ -126,6 +139,37 @@ func command(name string, args []string) {
 		fmt.Fprintln(os.Stderr, "unknown command", name)
 		os.Exit(2)
 	}
+}
+
+// specialBits is the setuid, setgid and sticky bits of a mode in the numbers of chmod.
+func specialBits(mode os.FileMode) os.FileMode {
+	var bits os.FileMode
+	if mode&os.ModeSetuid != 0 {
+		bits |= 0o4000
+	}
+	if mode&os.ModeSetgid != 0 {
+		bits |= 0o2000
+	}
+	if mode&os.ModeSticky != 0 {
+		bits |= 0o1000
+	}
+	return bits
+}
+
+// probe prints the program's identity and the named environment variables, and stays running.
+func probe(names []string) {
+	groups, err := os.Getgroups()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	sort.Ints(groups)
+	fields := []string{fmt.Sprintf("uid=%d", os.Getuid()), fmt.Sprintf("gid=%d", os.Getgid()), fmt.Sprintf("groups=%v", groups)}
+	for _, name := range names {
+		fields = append(fields, name+"="+os.Getenv(name))
+	}
+	fmt.Println(strings.Join(fields, " "))
+	time.Sleep(time.Hour)
 }
 
 // utsField is the text of a NUL-terminated field of the kernel's utsname.

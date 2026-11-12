@@ -52,11 +52,15 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	// Shared from Locate until the record is set, so RemoveImage cannot pass
 	// between the two.
 	defer s.imageLocks.lock(spec.Image, false)()
-	if _, err := s.images.Locate(ctx, spec.Image); err != nil {
+	located, err := s.images.Locate(ctx, spec.Image)
+	if err != nil {
 		if errors.Is(err, ErrImageAbsent) {
 			return fail(ErrNotFound, "image %s is not on the node", spec.Image)
 		}
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "locate image: %v", err))
+	}
+	if _, _, err := spec.runOn(spec.Image, located.Run); err != nil {
+		return err
 	}
 	var disks []DiskID
 	for _, a := range spec.Disks {
@@ -148,7 +152,7 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 	if err := spec.Policy.validate(); err != nil {
 		return fail(ErrInvalid, "network policy: %v", err)
 	}
-	return nil
+	return spec.validateRun()
 }
 
 // undoCreate releases what a failed Create made and returns the failure's
@@ -236,7 +240,11 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 					return err
 				}
 			}
-			description := GuestBoot{ImageUUID: image.UUID, RootDiskUUID: m.RootDiskUUID, Run: image.Run.Exec(), Network: m.Network.guestNetwork(), Clock: s.clock}
+			run, user, err := m.Spec.runOn(m.Image, image.Run)
+			if err != nil {
+				return err
+			}
+			description := GuestBoot{ImageUUID: image.UUID, RootDiskUUID: m.RootDiskUUID, Run: run, User: user, Files: m.Files, Network: m.Network.guestNetwork(), Clock: s.clock}
 			if err := s.guest.Boot(ctx, id, description); err != nil {
 				return fmt.Errorf("send the boot description to the guest: %w", err)
 			}
