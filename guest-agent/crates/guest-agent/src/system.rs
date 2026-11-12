@@ -91,12 +91,27 @@ pub struct DiskDevice {
     pub read_only: bool,
 }
 
+/// Where a disk's filesystem is mounted in the booted root, as `FindDisk` asks for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskMount {
+    /// The absolute, clean path.
+    pub path: String,
+    /// Whether the mount is read-only.
+    pub read_only: bool,
+}
+
 /// Why a disk call failed.
 #[derive(Debug, Error)]
 pub enum DiskError {
     /// The kernel has the device claimed: it is mounted, held or in use as swap.
     #[error("the disk is in use")]
     InUse,
+    /// The filesystem the agent mounted for the disk is busy, so it is not unmounted.
+    #[error("the filesystem mounted at {0} is busy")]
+    MountBusy(String),
+    /// The call conflicts with what the agent already holds, and nothing was changed.
+    #[error("{0}")]
+    Conflict(String),
     /// The agent never found the disk.
     #[error("the agent has no record of the disk")]
     Unknown,
@@ -113,14 +128,27 @@ pub trait Disks: Send + Sync {
     /// listing that failed, and the agent does not go on without it.
     fn account_for_boot(&self) -> io::Result<()>;
 
-    /// Rescan for the one block device not accounted for and record it as `disk_id`; a `disk_id`
-    /// the agent holds returns its record, and one it released is found by a rescan as a new
-    /// one is.
-    fn find(&self, disk_id: &str) -> Result<DiskDevice, DiskError>;
+    /// Rescan for the one block device not accounted for and record it as `disk_id`, with the
+    /// mount it is to have; a `disk_id` the agent holds returns its record, and one it released
+    /// is found by a rescan as a new one is. The mount is made by `mount_recorded` for a record
+    /// made before it, and by this call for one made after. A repeat that asks for another mount
+    /// than the record has is a `Conflict`, as is a second record for one path.
+    fn find(&self, disk_id: &str, mount: Option<&DiskMount>) -> Result<DiskDevice, DiskError>;
 
-    /// Remove the device recorded as `disk_id` unless it is in use, and keep the record as
-    /// released, so a repeat succeeds. A `disk_id` never found is `Unknown`.
+    /// Mount the filesystem of every record that has a mount and is not mounted, in the booted
+    /// root, and from then on mount at `find`. Called once, by the boot, after the files are
+    /// placed.
+    fn mount_recorded(&self) -> Result<(), DiskError>;
+
+    /// Unmount what the agent mounted for `disk_id`, then remove the device unless it is in use,
+    /// and keep the record as released, so a repeat succeeds. A `disk_id` never found is
+    /// `Unknown`; a busy mount is `MountBusy`.
     fn release(&self, disk_id: &str) -> Result<(), DiskError>;
+
+    /// Read the size of the device recorded as `disk_id` again, and grow the filesystem the agent
+    /// mounted for it to fill the device. Returns the size in bytes. A disk with no mount only has
+    /// its size read; a `disk_id` never found, or released, is `Unknown`.
+    fn grow(&self, disk_id: &str) -> Result<u64, DiskError>;
 }
 
 /// What the kernel reports of the guest's size.

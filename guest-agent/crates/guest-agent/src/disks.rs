@@ -1,30 +1,82 @@
 //! Hot-plugged disks on a Linux kernel: found by a PCI rescan, which a VMM that sends no hotplug
 //! notification leaves to the agent, as the one virtio block device the agent has not accounted
 //! for (ADR 0028), and released by removing the device from the PCI bus while holding an
-//! exclusive claim on its block device (ADR 0022).
+//! exclusive claim on its block device (ADR 0022). A disk named with a mount has its ext4
+//! filesystem mounted in the booted root, and grown online when the disk grows (ADR 0050).
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::system::{DiskDevice, DiskError, Disks};
+use nix::mount::{MsFlags, mount, umount};
+
+use crate::mounts::{create_parents, resolve_target};
+use crate::system::{DiskDevice, DiskError, DiskMount, Disks};
 
 /// How long a rescan or a removal is given to show in `/sys/class/block`.
 const WAIT: Duration = Duration::from_secs(5);
 /// How often the block devices are listed while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
-/// Where a recorded disk is: the PCI address that removes it and the name it is known by, and
-/// whether the agent has released it. A released record stays, so a repeated release succeeds.
+/// Where a recorded disk is: the PCI address that removes it and the name it is known by, whether
+/// the agent has released it, the mount it is to have and where that is made. A released record
+/// stays, so a repeated release succeeds.
 struct Record {
     address: String,
     name: String,
     released: bool,
+    mount: Option<DiskMount>,
+    /// Where the filesystem is mounted under the root, once the agent has mounted it.
+    mounted: Option<PathBuf>,
+}
+
+/// Mounts the ext4 filesystem of a device at a directory, read-only or not.
+type MountFs = fn(&Path, &Path, bool) -> io::Result<()>;
+
+/// Unmounts the filesystem mounted at a directory.
+type UnmountFs = fn(&Path) -> io::Result<()>;
+
+/// Grows the ext4 filesystem mounted at a directory to fill a device of this many bytes.
+type GrowFs = fn(&Path, u64) -> io::Result<()>;
+
+fn mount_ext4(device: &Path, target: &Path, read_only: bool) -> io::Result<()> {
+    let mut flags = MsFlags::MS_NODEV | MsFlags::MS_NOSUID;
+    if read_only {
+        flags |= MsFlags::MS_RDONLY;
+    }
+    mount(Some(device), target, Some("ext4"), flags, None::<&str>).map_err(io::Error::from)
+}
+
+fn unmount_fs(target: &Path) -> io::Result<()> {
+    umount(target).map_err(io::Error::from)
+}
+
+nix::ioctl_write_ptr!(ext4_resize_fs, b'f', 16, u64);
+
+/// Grows the filesystem with `EXT4_IOC_RESIZE_FS`, which takes the new size in blocks and does
+/// nothing when the filesystem already has it.
+#[expect(
+    unsafe_code,
+    reason = "EXT4_IOC_RESIZE_FS has no safe wrapper in a dependency"
+)]
+fn grow_ext4(target: &Path, device_bytes: u64) -> io::Result<()> {
+    let directory = File::open(target)?;
+    let block = u64::try_from(nix::sys::statfs::statfs(target)?.block_size())
+        .map_err(io::Error::other)?
+        .max(1);
+    let blocks = device_bytes / block;
+    // SAFETY: the descriptor is open for the call, and the pointer is to a `u64` that lives
+    // through it, which is what the request reads.
+    unsafe { ext4_resize_fs(directory.as_raw_fd(), &blocks) }
+        .map(|_| ())
+        .map_err(io::Error::from)
 }
 
 /// Claims a block device for the agent alone, or fails.
@@ -44,8 +96,16 @@ fn open_exclusive(device: &Path) -> io::Result<File> {
 pub struct LinuxDisks {
     sys: PathBuf,
     dev: PathBuf,
+    /// The booted root the mounts are made under: `/` for the agent, a directory for a test.
+    root: PathBuf,
     wait: Duration,
     claim: Claim,
+    mount: MountFs,
+    unmount: UnmountFs,
+    grow_fs: GrowFs,
+    /// Whether `mount_recorded` has been called, so a record is mounted as it is made. Read and
+    /// written with `records` held.
+    mounting: AtomicBool,
     /// The virtio block devices present when the agent started, by name with their PCI address,
     /// set once by `account_for_boot`.
     boot: OnceLock<HashMap<String, String>>,
@@ -67,11 +127,33 @@ impl LinuxDisks {
         Self {
             sys: sys.into(),
             dev: dev.into(),
+            root: PathBuf::from("/"),
             wait,
             claim: open_exclusive,
+            mount: mount_ext4,
+            unmount: unmount_fs,
+            grow_fs: grow_ext4,
+            mounting: AtomicBool::new(false),
             boot: OnceLock::new(),
             records: Mutex::default(),
         }
+    }
+
+    /// The same disks, mounted under `root` instead of `/`.
+    #[cfg(test)]
+    fn under(mut self, root: impl Into<PathBuf>) -> Self {
+        self.root = root.into();
+        self
+    }
+
+    /// The same disks, mounted, unmounted and grown through these, for a tree whose device nodes
+    /// are not block devices.
+    #[cfg(test)]
+    fn mounting_with(mut self, mount: MountFs, unmount: UnmountFs, grow_fs: GrowFs) -> Self {
+        self.mount = mount;
+        self.unmount = unmount;
+        self.grow_fs = grow_fs;
+        self
     }
 
     /// The same disks, claimed through `claim`, for a tree whose device nodes are not block
@@ -128,6 +210,36 @@ impl LinuxDisks {
         })
     }
 
+    /// Mount the record's filesystem at its path in the booted root, creating the directory,
+    /// unless it has no mount or is mounted already.
+    fn mount_one(&self, record: &mut Record) -> Result<(), DiskError> {
+        let Some(wanted) = &record.mount else {
+            return Ok(());
+        };
+        if record.mounted.is_some() {
+            return Ok(());
+        }
+        let at_path = |error: io::Error| {
+            DiskError::Failed(io::Error::new(
+                error.kind(),
+                format!("{}: {error}", wanted.path),
+            ))
+        };
+        let target = resolve_target(&self.root, &wanted.path).map_err(at_path)?;
+        create_parents(&target).map_err(at_path)?;
+        if !fs::metadata(&target).map_err(at_path)?.is_dir() {
+            return Err(at_path(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "is not a directory",
+            )));
+        }
+        // A device that cannot be written is mounted read-only whatever was asked for.
+        let read_only = wanted.read_only || self.describe(&record.name).map_err(at_path)?.read_only;
+        (self.mount)(&self.dev.join(&record.name), &target, read_only).map_err(at_path)?;
+        record.mounted = Some(target);
+        Ok(())
+    }
+
     fn wait_until(&self, done: impl Fn() -> bool) -> bool {
         let start = Instant::now();
         loop {
@@ -153,13 +265,33 @@ impl Disks for LinuxDisks {
         Ok(())
     }
 
-    fn find(&self, disk_id: &str) -> Result<DiskDevice, DiskError> {
+    fn find(&self, disk_id: &str, mount: Option<&DiskMount>) -> Result<DiskDevice, DiskError> {
         let mut records = self
             .records
             .lock()
             .map_err(|_| failed("the disk records are unusable"))?;
+        if let Some(wanted) = mount
+            && let Some((other, _)) = records.iter().find(|(id, record)| {
+                id.as_str() != disk_id
+                    && !record.released
+                    && record.mount.as_ref().is_some_and(|m| m.path == wanted.path)
+            })
+        {
+            return Err(DiskError::Conflict(format!(
+                "disk {other} is already to be mounted at {}",
+                wanted.path
+            )));
+        }
         // A released disk is found by a rescan, as a new one is.
-        if let Some(record) = records.get(disk_id).filter(|record| !record.released) {
+        if let Some(record) = records.get_mut(disk_id).filter(|record| !record.released) {
+            if record.mount.as_ref() != mount {
+                return Err(DiskError::Conflict(format!(
+                    "disk {disk_id} is held with another mount than the one asked for"
+                )));
+            }
+            if self.mounting.load(Ordering::SeqCst) {
+                self.mount_one(record)?;
+            }
             return self.describe(&record.name).map_err(DiskError::Failed);
         }
         fs::write(self.sys.join("bus/pci/rescan"), "1").map_err(DiskError::Failed)?;
@@ -189,15 +321,52 @@ impl Disks for LinuxDisks {
             return Err(failed("more than one unaccounted virtio block device"));
         };
         let device = self.describe(&name).map_err(DiskError::Failed)?;
-        records.insert(
-            disk_id.to_owned(),
-            Record {
-                address,
-                name,
-                released: false,
-            },
-        );
+        let record = records.entry(disk_id.to_owned()).insert_entry(Record {
+            address,
+            name,
+            released: false,
+            mount: mount.cloned(),
+            mounted: None,
+        });
+        if self.mounting.load(Ordering::SeqCst) {
+            self.mount_one(record.into_mut())?;
+        }
         Ok(device)
+    }
+
+    fn mount_recorded(&self) -> Result<(), DiskError> {
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|_| failed("the disk records are unusable"))?;
+        self.mounting.store(true, Ordering::SeqCst);
+        let mut ids: Vec<String> = records.keys().cloned().collect();
+        ids.sort();
+        for id in ids {
+            if let Some(record) = records.get_mut(&id).filter(|record| !record.released) {
+                self.mount_one(record)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn grow(&self, disk_id: &str) -> Result<u64, DiskError> {
+        let records = self
+            .records
+            .lock()
+            .map_err(|_| failed("the disk records are unusable"))?;
+        let record = records
+            .get(disk_id)
+            .filter(|record| !record.released)
+            .ok_or(DiskError::Unknown)?;
+        let size = self
+            .describe(&record.name)
+            .map_err(DiskError::Failed)?
+            .size_bytes;
+        if let Some(target) = &record.mounted {
+            (self.grow_fs)(target, size).map_err(DiskError::Failed)?;
+        }
+        Ok(size)
     }
 
     fn release(&self, disk_id: &str) -> Result<(), DiskError> {
@@ -208,6 +377,21 @@ impl Disks for LinuxDisks {
         let record = records.get_mut(disk_id).ok_or(DiskError::Unknown)?;
         if record.released {
             return Ok(());
+        }
+        if let Some(target) = &record.mounted {
+            (self.unmount)(target).map_err(|error| {
+                if error.raw_os_error() == Some(nix::libc::EBUSY) {
+                    DiskError::MountBusy(
+                        record
+                            .mount
+                            .as_ref()
+                            .map_or_else(String::new, |m| m.path.clone()),
+                    )
+                } else {
+                    DiskError::Failed(error)
+                }
+            })?;
+            record.mounted = None;
         }
         // The claim is held until the device is gone, so nothing can mount it between the check
         // and the removal.
@@ -236,7 +420,7 @@ impl Disks for LinuxDisks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{PermissionsExt, symlink};
     use std::sync::Arc;
 
     /// A fake `/sys` and `/dev` in a directory, with the root disk `vda` on the bus.
@@ -388,7 +572,7 @@ mod tests {
     fn found(tree: &Tree) -> io::Result<Arc<LinuxDisks>> {
         let disks = Arc::new(tree.disks());
         appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
-        ok(disks.find("data"))?;
+        ok(disks.find("data", None))?;
         Ok(disks)
     }
 
@@ -406,7 +590,7 @@ mod tests {
         let disks = tree.disks();
         appear_on_rescan(tree.sys(), "vdb", "0000:00:05.0");
 
-        let device = ok(disks.find("data"))?;
+        let device = ok(disks.find("data", None))?;
 
         assert_eq!(
             device,
@@ -427,7 +611,7 @@ mod tests {
         // A VMM that notifies the guest: the kernel has added the device on its own.
         tree.device("vdb", "0000:00:05.0", "254:16", true)?;
 
-        assert_eq!(ok(disks.find("data"))?.name, "vdb");
+        assert_eq!(ok(disks.find("data", None))?.name, "vdb");
         // The rescan is still asked for.
         assert_eq!(fs::read_to_string(tree.sys().join("bus/pci/rescan"))?, "1");
         Ok(())
@@ -440,7 +624,7 @@ mod tests {
         // It comes some time after the call began, whatever the rescan did.
         appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
 
-        assert_eq!(ok(disks.find("data"))?.name, "vdb");
+        assert_eq!(ok(disks.find("data", None))?.name, "vdb");
         Ok(())
     }
 
@@ -450,7 +634,7 @@ mod tests {
         let disks = found(&tree)?;
         appear_later(tree.sys(), vec![("vdc", "0000:00:06.0")]);
 
-        assert_eq!(ok(disks.find("more"))?.name, "vdc");
+        assert_eq!(ok(disks.find("more", None))?.name, "vdc");
         Ok(())
     }
 
@@ -459,12 +643,15 @@ mod tests {
         let tree = Tree::new()?;
         let disks = tree.disks();
 
-        assert!(matches!(disks.find("data"), Err(DiskError::Failed(_))));
+        assert!(matches!(
+            disks.find("data", None),
+            Err(DiskError::Failed(_))
+        ));
         assert!(matches!(disks.release("data"), Err(DiskError::Unknown)));
 
         // Control: the same disk ID is found once a device appears.
         appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
-        assert_eq!(ok(disks.find("data"))?.name, "vdb");
+        assert_eq!(ok(disks.find("data", None))?.name, "vdb");
         Ok(())
     }
 
@@ -477,13 +664,16 @@ mod tests {
             vec![("vdb", "0000:00:05.0"), ("vdc", "0000:00:06.0")],
         );
 
-        assert!(matches!(disks.find("data"), Err(DiskError::Failed(_))));
+        assert!(matches!(
+            disks.find("data", None),
+            Err(DiskError::Failed(_))
+        ));
         assert!(matches!(disks.release("data"), Err(DiskError::Unknown)));
 
         // Control: with the second device gone, one unaccounted device is left and the same call
         // finds it.
         fs::remove_file(tree.sys().join("class/block/vdc"))?;
-        assert_eq!(ok(disks.find("data"))?.name, "vdb");
+        assert_eq!(ok(disks.find("data", None))?.name, "vdb");
         Ok(())
     }
 
@@ -493,7 +683,7 @@ mod tests {
         let disks = found(&tree)?;
         fs::write(tree.sys().join("bus/pci/rescan"), "untouched")?;
 
-        let again = ok(disks.find("data"))?;
+        let again = ok(disks.find("data", None))?;
 
         assert_eq!(again.name, "vdb");
         assert_eq!(
@@ -516,7 +706,7 @@ mod tests {
         let mut names = Vec::new();
         for (id, name, address) in wanted {
             appear_later(tree.sys(), vec![(name, address)]);
-            names.push(ok(disks.find(id))?.name);
+            names.push(ok(disks.find(id, None))?.name);
         }
         let expected: Vec<_> = wanted
             .iter()
@@ -636,13 +826,259 @@ mod tests {
         fs::write(tree.sys().join("bus/pci/rescan"), "untouched")?;
         appear_later(tree.sys(), vec![("vdb", "0000:00:05.0")]);
 
-        let again = ok(disks.find("data"))?;
+        let again = ok(disks.find("data", None))?;
 
         assert_eq!(again.name, "vdb");
         assert_eq!(fs::read_to_string(tree.sys().join("bus/pci/rescan"))?, "1");
         // It is held again: a claim on it refuses, where a released record would not.
         tree.busy("vdb", true)?;
         assert!(matches!(disks.release("data"), Err(DiskError::InUse)));
+        Ok(())
+    }
+
+    /// The mounts of the tests that cannot mount: the mount is a marker file in the directory, and
+    /// a `busy` file there makes the unmount refuse, as an open file does.
+    fn fake_mount(_device: &Path, target: &Path, read_only: bool) -> io::Result<()> {
+        fs::write(target.join(".mounted"), if read_only { "ro" } else { "rw" })
+    }
+
+    fn fake_unmount(target: &Path) -> io::Result<()> {
+        if target.join("busy").exists() {
+            return Err(io::Error::from_raw_os_error(nix::libc::EBUSY));
+        }
+        fs::remove_file(target.join(".mounted"))
+    }
+
+    fn fake_grow(target: &Path, device_bytes: u64) -> io::Result<()> {
+        fs::write(target.join(".grown"), device_bytes.to_string())
+    }
+
+    /// A writable device appears a moment after the rescan was asked for.
+    fn appear_writable(sys: PathBuf, name: &'static str, address: &'static str) {
+        std::thread::spawn(move || {
+            sleep(Duration::from_millis(120));
+            let _ = device_in(&sys, name, address, "254:16", false);
+        });
+    }
+
+    fn mount_at(path: &str, read_only: bool) -> DiskMount {
+        DiskMount {
+            path: path.into(),
+            read_only,
+        }
+    }
+
+    /// A disk found with `mount` in a tree whose root is a directory of its own, and the root.
+    fn found_with(
+        tree: &Tree,
+        root: &Path,
+        mount: Option<&DiskMount>,
+    ) -> io::Result<Arc<LinuxDisks>> {
+        let disks = Arc::new(tree.disks().under(root).mounting_with(
+            fake_mount,
+            fake_unmount,
+            fake_grow,
+        ));
+        appear_writable(tree.sys(), "vdb", "0000:00:05.0");
+        ok(disks.find("data", mount))?;
+        Ok(disks)
+    }
+
+    #[test]
+    fn a_disk_found_before_the_mounts_is_mounted_at_its_path_when_they_are_made() -> io::Result<()>
+    {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = found_with(&tree, root.path(), Some(&mount_at("/mnt/data", true)))?;
+        let target = root.path().join("mnt/data");
+        assert!(
+            !target.exists(),
+            "nothing is mounted before the boot says so"
+        );
+
+        ok(disks.mount_recorded())?;
+
+        assert_eq!(fs::read_to_string(target.join(".mounted"))?, "ro");
+        let mode = fs::metadata(&target)?.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
+        Ok(())
+    }
+
+    #[test]
+    fn a_disk_found_with_no_path_is_mounted_nowhere_and_a_writable_one_is_mounted_writable()
+    -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = found_with(&tree, root.path(), None)?;
+        ok(disks.mount_recorded())?;
+        assert_eq!(fs::read_dir(root.path())?.count(), 0, "no path, no mount");
+
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        found_with(&tree, root.path(), Some(&mount_at("/mnt/data", false)))
+            .and_then(|disks| ok(disks.mount_recorded()))?;
+        assert_eq!(
+            fs::read_to_string(root.path().join("mnt/data/.mounted"))?,
+            "rw"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_device_that_cannot_be_written_is_mounted_read_only_whatever_was_asked() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = Arc::new(tree.disks().under(root.path()).mounting_with(
+            fake_mount,
+            fake_unmount,
+            fake_grow,
+        ));
+        let sys = tree.sys();
+        std::thread::spawn(move || {
+            sleep(Duration::from_millis(120));
+            let _ = device_in(&sys, "vdb", "0000:00:05.0", "254:16", true);
+        });
+        ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+
+        ok(disks.mount_recorded())?;
+
+        assert_eq!(
+            fs::read_to_string(root.path().join("mnt/data/.mounted"))?,
+            "ro"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn once_the_mounts_are_made_a_find_mounts_at_once_and_a_repeat_mounts_nothing_again()
+    -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = Arc::new(tree.disks().under(root.path()).mounting_with(
+            fake_mount,
+            fake_unmount,
+            fake_grow,
+        ));
+        ok(disks.mount_recorded())?;
+        appear_writable(tree.sys(), "vdb", "0000:00:05.0");
+
+        ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+        let target = root.path().join("mnt/data");
+        assert_eq!(fs::read_to_string(target.join(".mounted"))?, "rw");
+
+        // A mount made again would find the marker's write refused: here, by removing it first.
+        fs::remove_file(target.join(".mounted"))?;
+        ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+        ok(disks.mount_recorded())?;
+        assert!(!target.join(".mounted").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn a_second_disk_for_a_path_and_a_repeat_with_another_mount_are_conflicts() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = found_with(&tree, root.path(), Some(&mount_at("/mnt/data", false)))?;
+        appear_writable(tree.sys(), "vdc", "0000:00:06.0");
+
+        let same_path = disks.find("more", Some(&mount_at("/mnt/data", false)));
+        let other_mount = disks.find("data", Some(&mount_at("/mnt/other", false)));
+        let other_mode = disks.find("data", Some(&mount_at("/mnt/data", true)));
+        let none = disks.find("data", None);
+
+        for refused in [same_path, other_mount, other_mode, none] {
+            assert!(
+                matches!(refused, Err(DiskError::Conflict(_))),
+                "{refused:?}"
+            );
+        }
+        // The control: the same call again is a repeat, and so is another path for another disk.
+        ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+        ok(disks.find("more", Some(&mount_at("/mnt/more", false))))?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_path_that_resolves_into_a_reserved_directory_is_not_mounted() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        fs::create_dir_all(root.path().join("run/mvmd"))?;
+        symlink("/run/mvmd", root.path().join("mnt"))?;
+        let disks = found_with(&tree, root.path(), Some(&mount_at("/mnt/data", false)))?;
+
+        let refused = disks.mount_recorded();
+
+        assert!(matches!(refused, Err(DiskError::Failed(_))), "{refused:?}");
+        assert!(!root.path().join("run/mvmd/data").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn a_release_unmounts_first_and_a_busy_mount_fails_it_naming_the_path_and_removes_nothing()
+    -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = found_with(&tree, root.path(), Some(&mount_at("/mnt/data", false)))?;
+        ok(disks.mount_recorded())?;
+        let target = root.path().join("mnt/data");
+        fs::write(target.join("busy"), "")?;
+        let remove = tree.sys().join("bus/pci/devices/0000:00:05.0/remove");
+
+        let refused = disks.release("data");
+
+        assert!(
+            matches!(&refused, Err(DiskError::MountBusy(path)) if path == "/mnt/data"),
+            "{refused:?}"
+        );
+        assert!(target.join(".mounted").exists(), "still mounted");
+        assert_eq!(fs::read_to_string(&remove)?, "", "nothing was removed");
+
+        // The control: once nothing holds the mount, the same call unmounts it first.
+        fs::remove_file(target.join("busy"))?;
+        let watcher = unplug_on_remove(&tree, "0000:00:05.0", "vdb");
+        let result = disks.release("data");
+        watcher.join().map_err(|_| io::Error::other("watcher"))?;
+        assert!(result.is_ok(), "{result:?}");
+        assert!(!target.join(".mounted").exists(), "unmounted");
+        Ok(())
+    }
+
+    #[test]
+    fn a_grow_reads_the_size_again_and_grows_only_a_mounted_filesystem() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = found_with(&tree, root.path(), Some(&mount_at("/mnt/data", false)))?;
+        ok(disks.mount_recorded())?;
+        let size = tree
+            .sys()
+            .join("devices/pci0000:00/0000:00:05.0/virtio1/block/vdb/size");
+        let grown = root.path().join("mnt/data/.grown");
+
+        assert_eq!(ok(disks.grow("data"))?, 2048 * 512);
+        assert_eq!(fs::read_to_string(&grown)?, (2048 * 512).to_string());
+
+        fs::write(&size, "4096\n")?;
+        assert_eq!(ok(disks.grow("data"))?, 4096 * 512);
+        assert_eq!(fs::read_to_string(&grown)?, (4096 * 512).to_string());
+
+        // The control: a disk with no mount has its size read and no filesystem touched.
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let bare = found_with(&tree, root.path(), None)?;
+        assert_eq!(ok(bare.grow("data"))?, 2048 * 512);
+        assert_eq!(fs::read_dir(root.path())?.count(), 0);
+        assert!(matches!(bare.grow("never"), Err(DiskError::Unknown)));
+        Ok(())
+    }
+
+    #[test]
+    fn a_grow_of_a_released_disk_is_unknown() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = found_with(&tree, root.path(), None)?;
+        released(&tree, &disks)?;
+
+        assert!(matches!(disks.grow("data"), Err(DiskError::Unknown)));
         Ok(())
     }
 
@@ -800,7 +1236,7 @@ mod tests {
                 sleep(Duration::from_millis(120));
                 device_in(&sys, &new_name, new_address, "7:0", false)
             });
-            ok(disks.find("data"))?;
+            ok(disks.find("data", None))?;
             appear.join().map_err(|_| io::Error::other("appear"))??;
             let remove = tree.sys().join("bus/pci/devices/0000:00:05.0/remove");
 
@@ -842,6 +1278,182 @@ mod tests {
             // Control: once the claim is dropped, the same mount succeeds.
             drop(claim);
             let _mounted = disk.mount()?;
+            Ok(())
+        }
+
+        /// Whether an ext4 filesystem of its own is mounted at `path`: on a device other than the
+        /// directory that holds it, since the host's root may be ext4 too.
+        fn is_ext4(path: &Path) -> bool {
+            let own_device = || -> io::Result<bool> {
+                let parent = path.parent().ok_or_else(|| io::Error::other("no parent"))?;
+                Ok(fs::metadata(path)?.dev() != fs::metadata(parent)?.dev())
+            };
+            own_device().unwrap_or(false)
+                && nix::sys::statfs::statfs(path)
+                    .is_ok_and(|stat| stat.filesystem_type() == nix::sys::statfs::EXT4_SUPER_MAGIC)
+        }
+
+        /// The fake `/sys` entry of the device `name` at `address` says it has `sectors`.
+        fn set_sectors(tree: &Tree, name: &str, address: &str, sectors: u64) -> io::Result<()> {
+            let size = tree
+                .sys()
+                .join("devices/pci0000:00")
+                .join(address)
+                .join("virtio1/block")
+                .join(name)
+                .join("size");
+            fs::write(size, format!("{sectors}\n"))
+        }
+
+        /// A tree whose bus has the loop device of `disk` at `address`, and the disks over it, which
+        /// mount under `root` and claim the real device nodes.
+        fn disks_over(
+            tree: &Tree,
+            disk: &Loop,
+            address: &str,
+            root: &Path,
+        ) -> io::Result<LinuxDisks> {
+            let disks = LinuxDisks::at(tree.sys(), "/dev", Duration::from_millis(400)).under(root);
+            disks.account_for_boot()?;
+            device_in(&tree.sys(), &disk.name(), address, "7:0", false)?;
+            Ok(disks)
+        }
+
+        #[test]
+        fn a_disk_is_mounted_at_its_path_with_nodev_nosuid_and_read_only_when_asked()
+        -> io::Result<()> {
+            if !root_or_rerun(
+                "a_disk_is_mounted_at_its_path_with_nodev_nosuid_and_read_only_when_asked",
+            )? {
+                return Ok(());
+            }
+            let root = tempfile::tempdir()?;
+
+            // A read-only attachment.
+            let tree = Tree::new()?;
+            let disk = Loop::new()?;
+            let disks = disks_over(&tree, &disk, "0000:00:05.0", root.path())?;
+            ok(disks.find("ro", Some(&mount_at("/mnt/ro", true))))?;
+            ok(disks.mount_recorded())?;
+            let target = root.path().join("mnt/ro");
+            let _unmount = Mounted(target.clone());
+            assert!(is_ext4(&target), "ext4 is mounted at the path");
+            let flags = nix::sys::statvfs::statvfs(&target)?.flags();
+            for flag in [
+                nix::sys::statvfs::FsFlags::ST_RDONLY,
+                nix::sys::statvfs::FsFlags::ST_NODEV,
+                nix::sys::statvfs::FsFlags::ST_NOSUID,
+            ] {
+                assert!(flags.contains(flag), "{flag:?} in {flags:?}");
+            }
+            assert_eq!(fs::metadata(&target)?.permissions().mode() & 0o777, 0o755);
+            let refused = fs::write(target.join("file"), "x").expect_err("a read-only mount");
+            assert_eq!(refused.raw_os_error(), Some(nix::libc::EROFS), "{refused}");
+
+            // The control: a writable attachment of another disk is mounted writable, and keeps
+            // nodev and nosuid.
+            let other_tree = Tree::new()?;
+            let other = Loop::new()?;
+            let others = disks_over(&other_tree, &other, "0000:00:06.0", root.path())?;
+            ok(others.mount_recorded())?;
+            ok(others.find("rw", Some(&mount_at("/mnt/rw", false))))?;
+            let writable = root.path().join("mnt/rw");
+            let _unmount_rw = Mounted(writable.clone());
+            fs::write(writable.join("file"), "x")?;
+            let flags = nix::sys::statvfs::statvfs(&writable)?.flags();
+            assert!(!flags.contains(nix::sys::statvfs::FsFlags::ST_RDONLY));
+            assert!(flags.contains(nix::sys::statvfs::FsFlags::ST_NODEV));
+            assert!(flags.contains(nix::sys::statvfs::FsFlags::ST_NOSUID));
+            Ok(())
+        }
+
+        #[test]
+        fn a_grow_fills_the_resized_device_with_the_mounted_filesystem_online() -> io::Result<()> {
+            if !root_or_rerun("a_grow_fills_the_resized_device_with_the_mounted_filesystem_online")?
+            {
+                return Ok(());
+            }
+            let root = tempfile::tempdir()?;
+            let tree = Tree::new()?;
+            let disk = Loop::new()?;
+            let disks = disks_over(&tree, &disk, "0000:00:05.0", root.path())?;
+            ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+            ok(disks.mount_recorded())?;
+            let target = root.path().join("mnt/data");
+            let _unmount = Mounted(target.clone());
+            let blocks = || nix::sys::statvfs::statvfs(&target).map(|stat| stat.blocks());
+            let before = blocks()?;
+
+            // The host resizes the disk and the kernel sees it: the filesystem is as it was.
+            File::options()
+                .write(true)
+                .open(disk.dir.path().join("disk.img"))?
+                .set_len(64 << 20)?;
+            run(
+                "losetup",
+                &["--set-capacity", &disk.device.to_string_lossy()],
+            )?;
+            set_sectors(&tree, &disk.name(), "0000:00:05.0", (64 << 20) / 512)?;
+            assert_eq!(blocks()?, before, "a resized device alone grows nothing");
+
+            let size = ok(disks.grow("data"))?;
+
+            assert_eq!(size, 64 << 20);
+            let after = blocks()?;
+            assert!(
+                after >= before * 3,
+                "the filesystem went from {before} to {after} blocks, of a device four times its size"
+            );
+            // Growing again changes nothing.
+            ok(disks.grow("data"))?;
+            assert_eq!(blocks()?, after);
+            Ok(())
+        }
+
+        #[test]
+        fn a_release_unmounts_the_filesystem_and_a_busy_one_fails_it_naming_the_path()
+        -> io::Result<()> {
+            if !root_or_rerun(
+                "a_release_unmounts_the_filesystem_and_a_busy_one_fails_it_naming_the_path",
+            )? {
+                return Ok(());
+            }
+            let root = tempfile::tempdir()?;
+            let tree = Tree::new()?;
+            let disk = Loop::new()?;
+            let disks = disks_over(&tree, &disk, "0000:00:05.0", root.path())?;
+            ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+            ok(disks.mount_recorded())?;
+            let target = root.path().join("mnt/data");
+            let _unmount = Mounted(target.clone());
+            let open = File::create(target.join("held"))?;
+
+            let refused = disks.release("data");
+
+            assert!(
+                matches!(&refused, Err(DiskError::MountBusy(path)) if path == "/mnt/data"),
+                "{refused:?}"
+            );
+            assert!(is_ext4(&target), "a busy mount stays");
+
+            // The control: with the file closed, the same call unmounts and releases the disk.
+            drop(open);
+            let (sys, device, name) = (tree.sys(), disk.device.clone(), disk.name());
+            let unplug = std::thread::spawn(move || {
+                while fs::read_to_string(sys.join("bus/pci/devices/0000:00:05.0/remove"))
+                    .unwrap_or_default()
+                    != "1"
+                {
+                    sleep(Duration::from_millis(10));
+                }
+                let claimed = held(&device);
+                let _ = fs::remove_file(sys.join("class/block").join(name));
+                claimed
+            });
+            let result = disks.release("data");
+            unplug.join().map_err(|_| io::Error::other("unplug"))?;
+            assert!(result.is_ok(), "{result:?}");
+            assert!(!is_ext4(&target), "the filesystem is unmounted");
             Ok(())
         }
     }
