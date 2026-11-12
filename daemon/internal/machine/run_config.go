@@ -111,7 +111,7 @@ func (s Spec) runOn(image ImageDigest, run ImageRun) (ExecSpec, string, error) {
 	case len(s.Args) > 0 && run.Joined:
 		return ExecSpec{}, "", fail(ErrPreconditionFailed, "image %s was pulled before the node kept its entrypoint and command apart, so args alone cannot replace its command; pull the image again", image)
 	case len(s.Args) > 0:
-		cmd = s.Args
+		entrypoint, cmd = nil, s.Args
 	}
 	env := maps.Clone(run.Env)
 	if len(s.Env) > 0 && env == nil {
