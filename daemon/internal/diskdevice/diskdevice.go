@@ -1,6 +1,7 @@
-// Package diskdevice names the block device a VMM holds for a disk, and removes
-// the link a hot-plugged disk leaves in the run directory. Both VMM Drivers use
-// it, so they name a device and clear a link the same way.
+// Package diskdevice names the block device a VMM holds for a disk, links a
+// hot-plugged disk's file into the run directory, and removes that link. Both
+// VMM Drivers use it, so they name a device, make a link and clear it the same
+// way.
 package diskdevice
 
 import (
@@ -10,8 +11,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // Name names a block device to the VMM. A device that holds a disk is named by
@@ -36,4 +39,49 @@ func RemoveLink(link string) error {
 		return fmt.Errorf("remove %s: %w", link, err)
 	}
 	return nil
+}
+
+// Link hard links the file of a disk to attach into the Machine's run
+// directory under the disk's device name, the one place mvmd adds files to a
+// VMM that is running (ADR 0015), and returns the run directory. It refuses a
+// disk that names no disk and a file that is not an absolute path to a regular
+// file: a link made to a symbolic link would name a host path in the root.
+func Link(dirs vmmconfig.RunDirs, id machine.MachineID, dev machine.BlockDevice) (string, error) {
+	if dev.Disk == "" {
+		return "", errors.New("a disk to attach names no disk")
+	}
+	if !filepath.IsAbs(dev.Path) {
+		return "", fmt.Errorf("the disk file %q is not an absolute path", dev.Path)
+	}
+	info, err := os.Lstat(dev.Path)
+	if err != nil {
+		return "", fmt.Errorf("the disk file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("the disk file %s is not a regular file", dev.Path)
+	}
+	dir, err := dirs.RunDir(id)
+	if err != nil {
+		return "", err
+	}
+	link := filepath.Join(dir, Name(0, dev.Disk))
+	// What stands at the link is a leftover of an attach that failed, or
+	// something the VMM's user put there; neither is followed.
+	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("clear %s: %w", link, err)
+	}
+	if err := os.Link(dev.Path, link); err != nil {
+		return "", fmt.Errorf("link the disk into the run directory: %w", err)
+	}
+	return dir, nil
+}
+
+// RunFiles are the run files of the disks a restored snapshot recorded: each
+// under its device's name, where the snapshot recorded it (ADR 0042).
+func RunFiles(recorded []machine.BlockDevice) []machine.RunFile {
+	files := make([]machine.RunFile, 0, len(recorded))
+	for _, dev := range recorded {
+		files = append(files, machine.RunFile{Name: Name(0, dev.Disk), Path: dev.Path})
+	}
+	return files
 }

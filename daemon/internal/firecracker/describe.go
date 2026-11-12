@@ -7,7 +7,7 @@ import (
 	"runtime"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/daemon/internal/pinnedfile"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 const (
@@ -42,25 +42,6 @@ func bootArgs(goarch string) string {
 	return args + " mvmd.end=poweroff"
 }
 
-// verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It
-// is how a node fails at its start and not at its first boot; the check of
-// record is the supervisor's, on the file it presents to the VMM (ADR 0019).
-func verify(cfg Config) error {
-	files := []struct{ name, path, want string }{
-		{"binary", cfg.Binary, cfg.BinarySHA256},
-		{"initrd", cfg.Initrd, cfg.InitrdSHA256},
-	}
-	for _, k := range cfg.Kernels {
-		files = append(files, struct{ name, path, want string }{"kernel", k.Path, k.SHA256})
-	}
-	for _, f := range files {
-		if err := pinnedfile.Check("the firecracker "+f.name, f.path, f.want); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // Describe implements machine.Driver. It states the process and what it needs
 // open, with the digests of the pinned binary, kernel and initrd for the supervisor to
 // check; it reads neither file. It keeps nothing: Boot is given the boot
@@ -86,7 +67,7 @@ func (d *Driver) process(spec machine.BootSpec, files []machine.File) (machine.P
 	return machine.ProcessDescription{
 		Executable:       d.cfg.Binary,
 		ExecutableSHA256: d.cfg.BinarySHA256,
-		Args:             []string{"--api-sock", inRun(apiSocketName), "--enable-pci", "--log-path", inRun(logName)},
+		Args:             []string{"--api-sock", vmmconfig.InRun(vmmconfig.APISocket), "--enable-pci", "--log-path", vmmconfig.InRun(logName)},
 		BootFiles:        files,
 		ReadFiles:        cpuReadFiles(runtime.GOARCH),
 		DeviceNodes:      nodes,

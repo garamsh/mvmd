@@ -3,13 +3,11 @@ package firecracker
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // drive is the request that configures a block device, at a path in the VMM's
@@ -31,35 +29,13 @@ func drive(id, in string, readOnly bool) map[string]any {
 // the disk when it rescans its PCI bus (docs/device-hotplug.md), which is not
 // the Driver's to ask.
 func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machine.BlockDevice) error {
-	if dev.Disk == "" {
-		return errors.New("a disk to attach names no disk")
-	}
-	if !filepath.IsAbs(dev.Path) {
-		return fmt.Errorf("the disk file %q is not an absolute path", dev.Path)
-	}
-	info, err := os.Lstat(dev.Path)
-	if err != nil {
-		return fmt.Errorf("the disk file: %w", err)
-	}
-	// A link made to a symbolic link would name a host path in the root.
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("the disk file %s is not a regular file", dev.Path)
-	}
-	dir, err := d.cfg.Dirs.RunDir(id)
+	dir, err := diskdevice.Link(d.cfg.Dirs, id, dev)
 	if err != nil {
 		return err
 	}
 	name := diskdevice.Name(0, dev.Disk)
 	link := filepath.Join(dir, name)
-	// What stands at the link is a leftover of an attach that failed, or
-	// something the VMM's user put there; neither is followed.
-	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("clear %s: %w", link, err)
-	}
-	if err := os.Link(dev.Path, link); err != nil {
-		return fmt.Errorf("link the disk into the run directory: %w", err)
-	}
-	err = newClient(filepath.Join(dir, apiSocketName)).do(ctx, "PUT", "/drives/"+name, drive(name, inRun(name), dev.ReadOnly), nil)
+	err = newClient(filepath.Join(dir, vmmconfig.APISocket)).do(ctx, "PUT", "/drives/"+name, drive(name, vmmconfig.InRun(name), dev.ReadOnly), nil)
 	if err != nil {
 		return errors.Join(err, diskdevice.RemoveLink(link))
 	}
@@ -81,7 +57,7 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 		return err
 	}
 	name := diskdevice.Name(0, disk)
-	if err := newClient(filepath.Join(dir, apiSocketName)).do(ctx, "DELETE", "/drives/"+name, nil, nil); err != nil {
+	if err := newClient(filepath.Join(dir, vmmconfig.APISocket)).do(ctx, "DELETE", "/drives/"+name, nil, nil); err != nil {
 		return err
 	}
 	return diskdevice.RemoveLink(filepath.Join(dir, name))
@@ -112,7 +88,7 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 	for _, have := range config.Drives {
 		switch {
 		case have.ID != name:
-		case have.Path == inRun(name):
+		case have.Path == vmmconfig.InRun(name):
 			return machine.DriveHotPlugged, nil
 		default:
 			return machine.DriveAtBoot, nil

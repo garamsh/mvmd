@@ -157,8 +157,7 @@ func longTempDir(t *testing.T, prefix string) string {
 	return dir
 }
 
-func (n *node) apiSocket() string   { return filepath.Join(n.run, "api.sock") }
-func (n *node) vsockSocket() string { return filepath.Join(n.run, "vsock.sock") }
+func (n *node) apiSocket() string { return filepath.Join(n.run, "api.sock") }
 
 // spec is a Machine's boot description: its image, its root disk and a tap.
 func (n *node) spec() machine.BootSpec {

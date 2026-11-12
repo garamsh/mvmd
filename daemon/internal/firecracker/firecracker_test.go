@@ -1,7 +1,10 @@
 package firecracker_test
 
 import (
+	"context"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +14,8 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
+
+var _ machine.Driver = (*firecracker.Driver)(nil)
 
 func TestInfo_NamesFirecrackerAtItsVersionAndReportsTheConsoleSnapshotAndDiskHotplug(t *testing.T) {
 	info := newNode(t).driver.Info()
@@ -62,8 +67,33 @@ func TestNew_RefusesAConfigurationThatNamesNoPinnedInput(t *testing.T) {
 			_, err := firecracker.New(cfg)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
+			assert.Contains(t, err.Error(), "firecracker", "the error names the VMM")
 		})
 	}
+}
+
+// What the console, its log and the guest's ports are is guestaccess's, and
+// its tests hold them. This holds that the Driver is wired to it: the run
+// directories its configuration names.
+func TestConsoleLog_IsTheLogOfTheRunDirectoryTheConfigurationNames(t *testing.T) {
+	n := newNode(t)
+	require.NoError(t, os.WriteFile(filepath.Join(n.run, "vmm.log"), []byte("boot\n"), 0o600))
+	r, err := n.driver.ConsoleLog(context.Background(), "m1")
+	require.NoError(t, err)
+	defer r.Close()
+	b, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Equal(t, "boot\n", string(b))
+}
+
+func TestConfigValidate_RefusesAConfigurationThatNamesNoPinnedInputAndNamesTheVMM(t *testing.T) {
+	cfg := newNode(t).cfg
+	require.NoError(t, cfg.Validate(), "control: the node's own configuration is accepted")
+
+	cfg.Binary = "relative"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "firecracker binary")
 }
 
 func TestNew_RefusesAMissingBinary(t *testing.T) {

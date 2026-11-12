@@ -11,6 +11,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // The three files of a snapshot, named by the VMM: it writes them into the
@@ -45,7 +46,7 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 		}
 		files = append(files, path)
 	}
-	c := newClient(filepath.Join(dir, apiSocketName))
+	c := newClient(filepath.Join(dir, vmmconfig.APISocket))
 	if err := c.do(ctx, "PUT", "/vm.snapshot", map[string]string{"destination_url": "file://" + machine.InRunDir}, nil); err != nil {
 		return machine.DriverSnapshot{}, err
 	}
@@ -85,9 +86,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 		boot = append(boot, machine.File{Host: held[name], In: filepath.Join(machine.InSnapshotDir, name), ReadOnly: true})
 	}
 	p := d.process(spec, restoreArgs(spec), boot)
-	for _, dev := range spec.RecordedDisks {
-		p.RunFiles = append(p.RunFiles, machine.RunFile{Name: diskdevice.Name(0, dev.Disk), Path: dev.Path})
-	}
+	p.RunFiles = append(p.RunFiles, diskdevice.RunFiles(spec.RecordedDisks)...)
 	return p, nil
 }
 
@@ -111,8 +110,8 @@ func restoreArgs(spec machine.BootSpec) []string {
 		restore += fmt.Sprintf(",net_fds=[%s@[%d]]", netID, tapDescriptor)
 	}
 	return []string{
-		"--api-socket", "path=" + inRun(apiSocketName),
-		"--log-file", inRun(logName),
+		"--api-socket", "path=" + vmmconfig.InRun(vmmconfig.APISocket),
+		"--log-file", vmmconfig.InRun(logName),
 		"--event-monitor", fmt.Sprintf("fd=%d", eventDescriptor),
 		"--restore", restore,
 	}

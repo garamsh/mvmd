@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // ejectWait bounds how long DetachDisk waits for the guest to eject a device.
@@ -28,36 +27,14 @@ const ejectPoll = 50 * time.Millisecond
 // notification (docs/hotplug.md); what the guest does with that is the guest
 // agent's (ADR 0022).
 func (d *Driver) AttachDisk(ctx context.Context, id machine.MachineID, dev machine.BlockDevice) error {
-	if dev.Disk == "" {
-		return errors.New("a disk to attach names no disk")
-	}
-	if !filepath.IsAbs(dev.Path) {
-		return fmt.Errorf("the disk file %q is not an absolute path", dev.Path)
-	}
-	info, err := os.Lstat(dev.Path)
-	if err != nil {
-		return fmt.Errorf("the disk file: %w", err)
-	}
-	// A link made to a symbolic link would name a host path in the root.
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("the disk file %s is not a regular file", dev.Path)
-	}
-	dir, err := d.cfg.Dirs.RunDir(id)
+	dir, err := diskdevice.Link(d.cfg.Dirs, id, dev)
 	if err != nil {
 		return err
 	}
 	name := diskdevice.Name(0, dev.Disk)
 	link := filepath.Join(dir, name)
-	// What stands at the link is a leftover of an attach that failed, or
-	// something the VMM's user put there; neither is followed.
-	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("clear %s: %w", link, err)
-	}
-	if err := os.Link(dev.Path, link); err != nil {
-		return fmt.Errorf("link the disk into the run directory: %w", err)
-	}
-	body := map[string]any{"id": name, "path": inRun(name), "readonly": dev.ReadOnly, "image_type": "Raw"}
-	if err := newClient(filepath.Join(dir, apiSocketName)).do(ctx, "PUT", "/vm.add-disk", body, nil); err != nil {
+	body := map[string]any{"id": name, "path": vmmconfig.InRun(name), "readonly": dev.ReadOnly, "image_type": "Raw"}
+	if err := newClient(filepath.Join(dir, vmmconfig.APISocket)).do(ctx, "PUT", "/vm.add-disk", body, nil); err != nil {
 		return errors.Join(err, diskdevice.RemoveLink(link))
 	}
 	return nil
@@ -81,7 +58,7 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 		return err
 	}
 	name := diskdevice.Name(0, disk)
-	c := newClient(filepath.Join(dir, apiSocketName))
+	c := newClient(filepath.Join(dir, vmmconfig.APISocket))
 	info, err := c.info(ctx)
 	if err != nil {
 		return err
@@ -142,7 +119,7 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 	for _, have := range info.Config.Disks {
 		switch {
 		case have.ID != name:
-		case have.Path == inRun(name):
+		case have.Path == vmmconfig.InRun(name):
 			return machine.DriveHotPlugged, nil
 		default:
 			return machine.DriveAtBoot, nil
