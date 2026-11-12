@@ -118,7 +118,7 @@ func (s Spec) runOn(image ImageDigest, run ImageRun) (ExecSpec, string, error) {
 		env = make(map[string]string, len(s.Env))
 	}
 	for _, e := range s.Env {
-		env[e.Name] = e.Value
+		_ = e
 	}
 	user := s.User
 	if user == "" {
