@@ -71,7 +71,7 @@ fn grow_ext4(target: &Path, device_bytes: u64) -> io::Result<()> {
     let block = u64::try_from(nix::sys::statfs::statfs(target)?.block_size())
         .map_err(io::Error::other)?
         .max(1);
-    let blocks = device_bytes / block;
+    let blocks = (device_bytes / block).min(nix::sys::statfs::statfs(target)?.blocks());
     // SAFETY: the descriptor is open for the call, and the pointer is to a `u64` that lives
     // through it, which is what the request reads.
     unsafe { ext4_resize_fs(directory.as_raw_fd(), &blocks) }
