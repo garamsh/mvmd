@@ -18,6 +18,7 @@ mod resources;
 mod restore;
 mod service;
 mod system;
+mod user;
 mod uuid;
 
 use std::future::Future;
@@ -33,7 +34,7 @@ use tonic::transport::Server;
 use tonic::transport::server::Connected;
 
 pub use boot::ENTRYPOINT;
-pub use description::{Addressing, NetworkConfig};
+pub use description::{Addressing, BootFile, NetworkConfig};
 pub use disks::LinuxDisks;
 pub use end_method::{EndMethod, EndMethodCell, LinuxCommandLine};
 pub use error::{BootStep, Error};
@@ -46,6 +47,7 @@ pub use system::{
     Clock, Console, DiskDevice, DiskError, Disks, Entropy, GuestSize, KernelCommandLine,
     LinuxConsole, LinuxPower, Mounts, Network, Power, Resources, System,
 };
+pub use user::{Accounts, Identity, LinuxUsers, Users};
 pub use uuid::{Filesystem, Uuid};
 
 /// The generated contract: messages, the client and the server of `GuestService`.
@@ -91,7 +93,10 @@ where
     IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
     IO::ConnectInfo: Clone + Send + Sync + 'static,
 {
-    let execs = Arc::new(exec::Execs::new(config.exec_output_retention));
+    let execs = Arc::new(exec::Execs::new(
+        config.exec_output_retention,
+        Arc::new(LinuxUsers),
+    ));
     let boot = Arc::new(boot::Boot::disabled(execs.clone()));
     serve_with(incoming, execs, boot, None, shutdown).await
 }

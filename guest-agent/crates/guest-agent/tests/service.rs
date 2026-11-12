@@ -88,6 +88,7 @@ impl Harness {
                 argv: argv.iter().map(|a| (*a).to_owned()).collect(),
                 env,
                 working_dir: working_dir.into(),
+                ..ExecRequest::default()
             })
             .await?;
         Ok(response.into_inner().record.ok_or("no record")?)
@@ -553,6 +554,7 @@ async fn two_starts_of_one_id_at_once_run_the_command_once() -> Result {
         argv: vec![SH.into(), "-c".into(), script.clone()],
         env: HashMap::new(),
         working_dir: String::new(),
+        ..ExecRequest::default()
     };
     let (mut a, mut b) = (h.client.clone(), h.client.clone());
 

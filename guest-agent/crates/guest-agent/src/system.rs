@@ -8,8 +8,9 @@ use std::sync::Arc;
 use nix::sys::reboot::{RebootMode, reboot};
 use thiserror::Error;
 
-use crate::description::NetworkConfig;
+use crate::description::{BootFile, NetworkConfig};
 use crate::end_method::EndMethodCell;
+use crate::user::Users;
 use crate::uuid::{Filesystem, Uuid};
 
 /// The mounts of the boot. Where each filesystem is mounted is the implementation's.
@@ -32,6 +33,11 @@ pub trait Mounts: Send + Sync {
 
     /// Make the overlay the root of this process and of every command it starts.
     fn switch_root(&self) -> io::Result<()>;
+
+    /// Place `files` over the booted root: their content in a filesystem in memory that only the
+    /// agent mounts, each bound read-only onto its path, with the directories and the empty target
+    /// it needs created. Nothing is written to the root disk, and no error shows content.
+    fn place_files(&self, files: &[BootFile]) -> io::Result<()>;
 }
 
 /// The Machine's network, as the boot and a restore configure it.
@@ -162,6 +168,8 @@ pub struct System {
     pub resources: Arc<dyn Resources>,
     /// The kernel command line.
     pub command_line: Arc<dyn KernelCommandLine>,
+    /// The guest's accounts, and how a command takes on a user.
+    pub users: Arc<dyn Users>,
     /// The method that ends the Machine, set once the agent has read `command_line`.
     pub end_method: EndMethodCell,
 }

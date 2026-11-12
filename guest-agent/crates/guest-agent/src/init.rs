@@ -187,7 +187,10 @@ async fn serve_and_supervise<I, IO>(
         Err(error) => return console.line(&failure_line("watch for exited children", error)),
     };
 
-    let execs = Arc::new(Execs::new(config.exec_output_retention));
+    let execs = Arc::new(Execs::new(
+        config.exec_output_retention,
+        system.users.clone(),
+    ));
     let boot = Arc::new(Boot::pending(system.clone(), execs.clone()));
     let (stop, stopped) = oneshot::channel::<()>();
     let (call_sender, mut calls) = mpsc::channel::<Signal>(8);
