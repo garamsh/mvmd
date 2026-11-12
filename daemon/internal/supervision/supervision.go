@@ -30,6 +30,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 const (
@@ -186,6 +187,12 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 	if err := os.Chown(runDir, int(user.UID), int(user.GID)); err != nil {
 		return fmt.Errorf("give the run directory to the Machine's user: %w", err)
+	}
+	// The API socket of an earlier VMM outlives it in the run directory, and
+	// Firecracker refuses to bind a path that exists. No supervisor runs, so
+	// nothing serves it; it is removed without being followed.
+	if err := os.Remove(filepath.Join(runDir, vmmconfig.APISocket)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("clear the API socket of an earlier run: %w", err)
 	}
 	for _, f := range process.RunFiles {
 		if err := runlink.Make(runDir, f.Name, f.Path); err != nil {
