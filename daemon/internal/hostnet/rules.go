@@ -84,7 +84,7 @@ func (n *Network) addBase(c *nftables.Conn, t tables) {
 		Exprs: join(skuidIn(r.First, r.First+r.Count-1), verdict(expr.VerdictDrop)),
 	})
 	// An accept ends the chain, so a destination in a no-masquerade prefix
-	// reaches the masquerade rules below it with its source unchanged.
+	// skips the masquerade rules below it.
 	for _, p := range n.cfg.NoMasquerade {
 		c.AddRule(&nftables.Rule{
 			Table: t.inet, Chain: post,
