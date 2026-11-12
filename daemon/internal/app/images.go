@@ -127,7 +127,7 @@ func memoryImages(sub *Substitutes, uids *machine.UIDs, pullTimeout time.Duratio
 // Store, with the Driver and the supervision of conversions, and returns the
 // store the lifecycle locates images in. Each input is checked here, so a node
 // whose kernel is not the pinned one, whose store is on a filesystem without
-// fs-verity or whose credentials are readable by others does not start.
+// fs-verity or whose credentials are readable by others or whose CA file holds no certificate does not start.
 func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout time.Duration) (images, machine.ImageStore, error) {
 	settings, err := cfg.Conversion.settings()
 	if err != nil {
@@ -159,20 +159,19 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 	}
 	opts := ociregistry.Options{}
 	if r := cfg.Registry; r != nil {
-		creds, err := loadCredentials(r.CredentialsFile)
-		if err != nil {
+		if err := r.options(&opts); err != nil {
 			return images{}, nil, err
 		}
-		opts.Credentials = creds
 	}
 	service := image.NewService(ociregistry.New(opts), convertchannel.New(driver), store, uids, driver, conversions, settings, image.WithPullTimeout(pullTimeout))
 	return images{service: service, conversions: conversions, driver: driver}, store, nil
 }
 
-// loadCredentials reads the credentials file and returns the lookup the
-// Registry adapter calls. A file that others can read, or that does not parse,
-// is refused. No error names a username or a password.
-func loadCredentials(path string) (func(context.Context, string) (ociregistry.Credential, error), error) {
+// readCredentials reads the credentials file and returns what it maps. A file
+// that others can read, that does not parse, or that names a registry the
+// node reaches through a helper is refused. No error names a username or a
+// password.
+func readCredentials(path string, helpers map[string]string) (map[string]ociregistry.Credential, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("registry.credentials_file: %w", err)
@@ -199,12 +198,13 @@ func loadCredentials(path string) (func(context.Context, string) (ociregistry.Cr
 	}
 	creds := make(map[string]ociregistry.Credential, len(byRegistry))
 	for registry, c := range byRegistry {
+		if _, ok := helpers[registry]; ok {
+			return nil, fmt.Errorf("registry %q is named in both registry.credentials_file and registry.credential_helpers", registry)
+		}
 		if c.Username == "" || c.Password == "" {
 			return nil, fmt.Errorf("registry.credentials_file: the entry of %q has no username or no password", registry)
 		}
 		creds[registry] = ociregistry.Credential{Username: c.Username, Password: c.Password}
 	}
-	return func(_ context.Context, registry string) (ociregistry.Credential, error) {
-		return creds[registry], nil // an unlisted registry is anonymous
-	}, nil
+	return creds, nil
 }

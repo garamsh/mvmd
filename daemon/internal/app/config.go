@@ -237,15 +237,26 @@ func platform() image.Platform {
 	return image.Platform{OS: "linux", Architecture: runtime.GOARCH}
 }
 
-// RegistryConfig is how the node authenticates to registries.
+// RegistryConfig is how the node authenticates to registries and which CA it
+// trusts for their TLS. At least one key is set.
 type RegistryConfig struct {
 	// CredentialsFile is the absolute path of a JSON file mapping a registry,
 	// as a repository names it (host, and :port when it has one), to an
-	// object with "username" and "password". It is read once at start, and
+	// object with "username" and "password". It is read at each credential
+	// lookup of a pull, so a rewrite takes effect without a restart, and is
 	// refused when it is not a regular file closed to group and others. The
 	// secrets live there and in no other field, so the configuration can be
 	// shared and logged without them.
-	CredentialsFile string `json:"credentials_file"`
+	CredentialsFile string `json:"credentials_file,omitempty"`
+	// CredentialHelpers maps a registry, named as in CredentialsFile, to the
+	// name of a docker credential helper: a pull from that registry runs
+	// docker-credential-<name> get, found on mvmd's PATH, at each lookup. A
+	// registry named here and in CredentialsFile is refused.
+	CredentialHelpers map[string]string `json:"credential_helpers,omitempty"`
+	// CAFile is the absolute path of a PEM bundle added to the system roots
+	// for registry TLS. It is read at each pull, and refused at start when it
+	// is not a regular file or holds no certificate.
+	CAFile string `json:"ca_file,omitempty"`
 }
 
 // callTimeout returns the configured bound, or the default when none is set.
@@ -578,8 +589,10 @@ func (c Config) check() error {
 	if d := c.Disk; d != nil && !filepath.IsAbs(d.MKFS) {
 		return fmt.Errorf("disk.mkfs %q is not an absolute path", d.MKFS)
 	}
-	if r := c.Registry; r != nil && !filepath.IsAbs(r.CredentialsFile) {
-		return fmt.Errorf("registry.credentials_file %q is not an absolute path", r.CredentialsFile)
+	if r := c.Registry; r != nil {
+		if err := r.validate(); err != nil {
+			return err
+		}
 	}
 	if _, err := c.pullTimeout(); err != nil {
 		return err
