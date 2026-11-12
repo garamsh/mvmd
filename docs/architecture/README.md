@@ -80,5 +80,6 @@ Decisions:
 - [ADR 0047](./adr/0047-a-pull-reads-the-registry-credentials-and-ca-at-each-lookup-and-takes-a-credential-from-a-helper.md) — a pull reads the registry credentials and CA at each lookup, and takes a credential from a helper
 - [ADR 0048](./adr/0048-the-guest-agent-runs-the-entrypoint-as-a-named-user-and-places-files-from-the-boot-call-in-a-tmpfs-it-alone-mounts.md) — the guest agent runs the entrypoint as a named user and places files from the Boot call in a tmpfs it alone mounts
 - [ADR 0049](./adr/0049-traffic-to-a-configured-no-masquerade-prefix-keeps-the-machines-source-address-and-runtime-info-reports-the-machine-prefixes.md) — traffic to a configured no-masquerade prefix keeps the Machine's source address, and runtime info reports the Machine prefixes (it adds an exception to the masquerade of ADR 0011)
+- [ADR 0051](./adr/0051-create-machine-takes-a-command-args-env-user-and-files-which-the-machine-keeps-and-sends-at-every-boot.md) — Create Machine takes a command, args, env, user and files, which the Machine keeps and sends at every boot
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
