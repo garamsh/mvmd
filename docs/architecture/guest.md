@@ -26,7 +26,6 @@ Checked against garamsh/discussions#2 as read on 2026-11-08, §2 (discussioncomm
   | `INTERNAL` | `Boot`, and `UpdateNetwork` when its network step fails, a boot step that failed (a repeat of a failed `Boot` carries the same one) | `BootFailed` | `step` (the enum of the eight steps above) and `detail`, the step's failure text |
   | `INVALID_ARGUMENT` | a file call whose path names a file of the wrong kind: a directory or a device, FIFO or socket for read, write and patch, a non-directory for list and search | `WrongFileKind` | `path`, and `expected`, `FILE` or `DIRECTORY` |
   | `FAILED_PRECONDITION` | every call refused because `Boot` has not succeeded, `Exec` and the file calls included, and `UpdateNetwork` and `CatchUp` | `NotBooted` | `state`: `PENDING` when `Boot` was not called or its steps still run, `FAILED` when a step failed |
-
   | `FAILED_PRECONDITION` | `ReleaseDisk`, a device the kernel has claimed (mounted, held, swap) | `DiskInUse` | `disk_id`, the disk that was asked for |
 
   Any other status carries no detail: a request that is malformed, a path that does not exist, a patch that does not apply, the size limit's `OUT_OF_RANGE` and a signal to an ended command among them. Detail messages are additions to `v1alpha1`: a client that does not know one ignores it and has the code.
