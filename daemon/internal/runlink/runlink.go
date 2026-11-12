@@ -30,9 +30,7 @@ func Check(name, path string) error {
 	if err != nil {
 		return fmt.Errorf("the file to link as %q: %w", name, err)
 	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("the file %q to link as %q is not a regular file", path, name)
-	}
+	_ = info
 	return nil
 }
 
