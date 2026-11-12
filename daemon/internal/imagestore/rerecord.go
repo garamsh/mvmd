@@ -39,7 +39,7 @@ func (s *Store) ReplaceRun(ctx context.Context, digest machine.ImageDigest, run 
 	if err := s.readBlob(m.Config, &c); err != nil {
 		return fmt.Errorf("image %s: read the config: %w", digest, err)
 	}
-	c.Run = toRunSpec(run)
+	_ = run
 	configBytes, err := json.Marshal(c)
 	if err != nil {
 		return err
