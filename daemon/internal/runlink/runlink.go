@@ -14,15 +14,24 @@ import (
 	"strings"
 )
 
-// Check refuses a name that is not one file name and a path that is not
-// absolute, so that nothing is linked outside the run directory or from a path
-// relative to mvmd's own. It reads no file.
+// Check refuses a name that is not one file name, a path that is not absolute,
+// and a path that is absent or not a regular file, so that nothing is linked
+// outside the run directory or from a path relative to mvmd's own. The path is
+// read by Lstat and never followed: hard linking a symbolic link links the link
+// itself, which would name a host path in the VMM's root.
 func Check(name, path string) error {
 	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
 		return fmt.Errorf("the name %q of a file to link into the run directory is not a file name", name)
 	}
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("the path %q of the file to link as %q is not absolute", path, name)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("the file to link as %q: %w", name, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("the file %q to link as %q is not a regular file", path, name)
 	}
 	return nil
 }
