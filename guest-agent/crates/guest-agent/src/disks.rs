@@ -47,7 +47,7 @@ type UnmountFs = fn(&Path) -> io::Result<()>;
 type GrowFs = fn(&Path, u64) -> io::Result<()>;
 
 fn mount_ext4(device: &Path, target: &Path, read_only: bool) -> io::Result<()> {
-    let mut flags = MsFlags::MS_NODEV | MsFlags::MS_NOSUID;
+    let mut flags = MsFlags::empty();
     if read_only {
         flags |= MsFlags::MS_RDONLY;
     }
