@@ -199,10 +199,16 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	if err != nil {
 		return err
 	}
+	// The VMM cgroup is released on every path out that is not a start.
+	started := false
+	defer func() {
+		if !started {
+			a.removeVMMCgroup(id)
+		}
+	}()
 
 	logFile, err := os.OpenFile(statedir.SupervisorLog(dir), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		a.removeVMMCgroup(id)
 		return fmt.Errorf("open the supervisor log: %w", err)
 	}
 	defer logFile.Close()
@@ -222,7 +228,6 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		cmd.SysProcAttr.UseCgroupFD, cmd.SysProcAttr.CgroupFD = true, int(fd.Fd())
 	}
 	if err := cmd.Start(); err != nil {
-		a.removeVMMCgroup(id)
 		return fmt.Errorf("start the supervisor: %w", err)
 	}
 	exited := make(chan struct{})
@@ -235,15 +240,12 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		}
 		select {
 		case <-exited:
-			a.removeVMMCgroup(id)
 			return fmt.Errorf("the supervisor ended before it was ready: %s", logTail(dir))
 		case <-deadline:
 			_ = cmd.Process.Kill()
-			a.removeVMMCgroup(id)
 			return fmt.Errorf("the supervisor was not ready within %v: %s", startTimeout, logTail(dir))
 		case <-ctx.Done():
 			_ = cmd.Process.Kill()
-			a.removeVMMCgroup(id)
 			return ctx.Err()
 		case <-time.After(2 * time.Millisecond):
 		}
@@ -280,6 +282,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		}
 		return fmt.Errorf("start the process under its supervisor: %w", err)
 	}
+	started = true
 	return nil
 }
 
