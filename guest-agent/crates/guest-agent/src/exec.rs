@@ -3,6 +3,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::io;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
@@ -18,6 +19,7 @@ use tokio::sync::watch;
 
 use crate::error::Error;
 use crate::reap::zombie_children;
+use crate::user::{Identity, UserSpec, Users};
 use crate::v1alpha1::{ExecRecord, ExecRequest, ExecStatus, OutputChunk, OutputStream};
 
 /// How long the output pipes may stay open after the command exited. A background process the
@@ -34,6 +36,8 @@ pub(crate) struct Execs {
     table: Mutex<HashMap<String, Arc<Exec>>>,
     /// How many of the newest bytes of each command's output are kept.
     retention: u64,
+    /// The accounts a command's user is looked up in, and how a command takes one on.
+    users: Arc<dyn Users>,
 }
 
 /// One command: its record and the output it has produced so far.
@@ -86,15 +90,28 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Execs {
-    pub(crate) fn new(retention: u64) -> Self {
+    pub(crate) fn new(retention: u64, users: Arc<dyn Users>) -> Self {
         Self {
             table: Mutex::default(),
             retention,
+            users,
         }
     }
 
-    /// Start the command under its exec ID, or return the record of the earlier start.
-    pub(crate) fn start(&self, request: ExecRequest) -> Result<ExecRecord, Error> {
+    /// The identity `spec` names in the accounts of the root the agent runs in now. A name that
+    /// is not there is an `io::ErrorKind::NotFound` error.
+    pub(crate) fn identity(&self, spec: &UserSpec) -> io::Result<Identity> {
+        spec.resolve(&self.users.accounts()?)
+    }
+
+    /// Start the command under its exec ID, or return the record of the earlier start. With an
+    /// `identity` the command runs as it and gets its `HOME` unless the request sets one; with
+    /// none it runs as the agent does.
+    pub(crate) fn start(
+        &self,
+        request: ExecRequest,
+        identity: Option<&Identity>,
+    ) -> Result<ExecRecord, Error> {
         if request.exec_id.is_empty() {
             return Err(Error::Invalid("exec_id is empty".into()));
         }
@@ -119,6 +136,12 @@ impl Execs {
             .stderr(Stdio::piped());
         if !request.working_dir.is_empty() {
             command.current_dir(&request.working_dir);
+        }
+        if let Some(identity) = identity {
+            if let (Some(home), false) = (&identity.home, request.env.contains_key("HOME")) {
+                command.env("HOME", home);
+            }
+            self.users.run_as(command.as_std_mut(), identity);
         }
         match command.spawn() {
             Ok(mut child) => {

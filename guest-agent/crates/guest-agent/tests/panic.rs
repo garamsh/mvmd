@@ -3,11 +3,13 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use guest_agent::{
-    Clock, Console, DiskDevice, DiskError, Disks, EndMethod, Entropy, Filesystem, GuestSize,
-    KernelCommandLine, Mounts, Network, NetworkConfig, Power, Resources, System, Uuid,
+    Accounts, BootFile, Clock, Console, DiskDevice, DiskError, Disks, EndMethod, Entropy,
+    Filesystem, GuestSize, Identity, KernelCommandLine, Mounts, Network, NetworkConfig, Power,
+    Resources, System, Users, Uuid,
 };
 
 type Log = Arc<Mutex<Vec<String>>>;
@@ -64,6 +66,17 @@ impl Mounts for Unused {
     fn switch_root(&self) -> io::Result<()> {
         Ok(())
     }
+    fn place_files(&self, _: &[BootFile]) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Users for Unused {
+    fn accounts(&self) -> io::Result<Accounts> {
+        Ok(Accounts::default())
+    }
+
+    fn run_as(&self, _: &mut Command, _: &Identity) {}
 }
 
 impl Network for Unused {
@@ -125,6 +138,7 @@ fn system(log: &Log) -> System {
         disks: Arc::new(Unused),
         resources: Arc::new(Unused),
         command_line: Arc::new(Unused),
+        users: Arc::new(Unused),
         end_method: Arc::default(),
     }
 }
