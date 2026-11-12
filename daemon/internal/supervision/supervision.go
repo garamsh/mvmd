@@ -163,11 +163,6 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	if process.RunDir != runDir {
 		return fmt.Errorf("the run directory %q is not the Machine's %q", process.RunDir, runDir)
 	}
-	for _, f := range process.RunFiles {
-		if err := runlink.Check(f.Name, f.Path); err != nil {
-			return err
-		}
-	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create the state directory: %w", err)
 	}
