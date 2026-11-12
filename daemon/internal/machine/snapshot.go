@@ -226,7 +226,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	}
 	spec := Spec{
 		Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Kernel: kernel, Policy: policy.clone(),
-		Command: cloneNonEmpty(held.Spec.Command), Args: cloneNonEmpty(held.Spec.Args), Env: cloneNonEmpty(held.Spec.Env), User: held.Spec.User, Files: cloneFiles(held.Spec.Files),
+		Command: cloneNonEmpty(held.Spec.Command), Args: cloneNonEmpty(held.Spec.Args), Env: cloneNonEmpty(held.Spec.Env), User: held.Spec.User, Files: nil,
 	}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.
