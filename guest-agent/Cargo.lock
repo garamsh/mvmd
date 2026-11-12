@@ -530,6 +530,9 @@ dependencies = [
 [[package]]
 name = "initrd"
 version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "itertools"
@@ -661,6 +664,7 @@ name = "mkinitrd"
 version = "0.1.0"
 dependencies = [
  "initrd",
+ "thiserror",
 ]
 
 [[package]]

@@ -10,3 +10,4 @@ workspace = true
 
 [dependencies]
 initrd = { path = "../../../lib/initrd/crates/initrd" }
+thiserror = "2.0.21"
