@@ -425,7 +425,7 @@ const vmmPoll = 50 * time.Millisecond
 // the VMM until the deadline. Nothing here decides the outcome: the caller
 // ends the VMM either way.
 func (s *service) askGuest(ctx context.Context, id MachineID, grace time.Duration, paused bool) {
-	deadline := time.Now().Add(grace)
+	deadline := time.Now()
 	waitCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	if grace > 0 && !paused {
