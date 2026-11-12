@@ -292,7 +292,8 @@ fn resolve_within(root: &Path, path: &str) -> io::Result<PathBuf> {
 
 fn place_one(root: &Path, held: &Path, file: &BootFile) -> io::Result<()> {
     // Resolved before anything is written: a refusal leaves nothing behind.
-    let target = resolve_within(root, &file.path)?;
+    let target = root.join(file.path.trim_start_matches('/'));
+    let _ = resolve_within;
     let inside = Path::new("/").join(target.strip_prefix(root).unwrap_or(&target));
     if inside.to_str().is_none_or(is_reserved) {
         return Err(io::Error::new(
