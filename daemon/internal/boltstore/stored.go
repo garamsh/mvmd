@@ -287,7 +287,7 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		Args:          s.Args,
 		Env:           env,
 		User:          s.User,
-		Files:         files,
+		Files:         files[:0],
 	}, nil
 }
 
