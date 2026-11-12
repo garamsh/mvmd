@@ -158,6 +158,7 @@ func TestSnapshot_NoValueOrContentIsListedOrInAnError(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.NotContains(t, fmt.Sprintf("%+v", listed), marker)
+	assert.Empty(t, listed[0].Spec.Files[0].Content, "a byte slice prints as numbers, so the content is read as it is")
 	assert.Equal(t, "SECRET", listed[0].Spec.Env[0].Name, "control: the listing names the variable")
 	assert.Equal(t, "/etc/s", listed[0].Spec.Files[0].Path, "control: and the file")
 
