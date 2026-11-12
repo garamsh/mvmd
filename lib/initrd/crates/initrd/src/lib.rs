@@ -6,6 +6,9 @@ use thiserror::Error;
 /// The magic that opens every newc header.
 const MAGIC: &str = "070701";
 
+/// The name of the entry that ends every archive.
+const TRAILER: &str = "TRAILER!!!";
+
 /// The regular file type bits of a mode.
 const REGULAR_FILE: u32 = 0o100_000;
 
@@ -24,6 +27,9 @@ enum Refusal {
     /// The name starts with a slash: the kernel unpacks the archive under `/` itself.
     #[error("the name {name:?} starts with a slash")]
     LeadingSlash { name: String },
+    /// The name is the trailer's: the kernel stops reading there and ignores every file after it.
+    #[error("the name {name:?} is the archive trailer's")]
+    ReservedName { name: String },
     /// The name holds a NUL, which would end the name the header records.
     #[error("the name {name:?} contains a NUL")]
     NulInName { name: String },
@@ -38,8 +44,8 @@ enum Refusal {
 }
 
 /// The archive holding each `(name, content)` of `files`, in order, as an executable regular file.
-/// A name is not empty, has no leading slash (the kernel unpacks `init` as `/init`) and no NUL, and
-/// its length with a NUL and the content's length each fit 32 bits; any other file is refused.
+/// A name is not empty, has no leading slash (the kernel unpacks `init` as `/init`), no NUL and is
+/// not `TRAILER!!!`, and its length with a NUL and the content's length each fit 32 bits; any other file is refused.
 pub fn initrd(files: &[(&str, &[u8])]) -> Result<Vec<u8>, Error> {
     build(files).map_err(Error)
 }
@@ -52,7 +58,7 @@ fn build(files: &[(&str, &[u8])]) -> Result<Vec<u8>, Refusal> {
         entry(&mut archive, inode, name, REGULAR_FILE | 0o755, data)?;
     }
     // The trailer names no file: the kernel stops reading at it.
-    entry(&mut archive, 0, "TRAILER!!!", 0, &[])?;
+    entry(&mut archive, 0, TRAILER, 0, &[])?;
     Ok(archive)
 }
 
@@ -62,6 +68,10 @@ fn check_name(name: &str) -> Result<(), Refusal> {
         Err(Refusal::EmptyName)
     } else if name.starts_with('/') {
         Err(Refusal::LeadingSlash {
+            name: name.to_owned(),
+        })
+    } else if name == TRAILER {
+        Err(Refusal::ReservedName {
             name: name.to_owned(),
         })
     } else if name.contains('\0') {
@@ -155,13 +165,24 @@ mod tests {
         assert!(
             matches!(refusal(&[("in\0it", b"x")])?, Refusal::NulInName { name } if name == "in\0it")
         );
+        assert!(
+            matches!(refusal(&[("TRAILER!!!", b"x")])?, Refusal::ReservedName { name } if name == "TRAILER!!!")
+        );
         // A later file is refused as much as the first.
         assert!(matches!(
             refusal(&[("init", b"x"), ("/tool", b"y")])?,
             Refusal::LeadingSlash { .. }
         ));
-        // Controls: a slash inside a name and a leading dot are names the kernel unpacks.
-        assert!(build(&[("etc/init", b"x"), (".hidden", b"y")]).is_ok());
+        // Controls: a slash inside a name, a leading dot and near misses of the trailer's are names the kernel unpacks.
+        assert!(
+            build(&[
+                ("etc/init", b"x"),
+                (".hidden", b"y"),
+                ("TRAILER", b"z"),
+                ("trailer!!!", b"w"),
+            ])
+            .is_ok()
+        );
         Ok(())
     }
 
