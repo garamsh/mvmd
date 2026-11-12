@@ -2,13 +2,14 @@
 //! found by filesystem UUID, the overlay over them, and the switch to it as the root.
 
 use std::fs::{self, File};
-use std::io::{self, Read};
-use std::os::unix::fs::MetadataExt;
+use std::io::{self, Read, Write};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use nix::mount::{MsFlags, mount};
 use nix::unistd::{chdir, chroot, dup2_stderr, dup2_stdin, dup2_stdout};
 
+use crate::description::BootFile;
 use crate::system::Mounts;
 use crate::uuid::{Filesystem, SUPERBLOCK_PROBE_BYTES, Uuid};
 
@@ -17,6 +18,8 @@ const DISK: &str = "/mnt/disk";
 const ROOT: &str = "/mnt/root";
 const UPPER: &str = "/mnt/disk/upper";
 const WORK: &str = "/mnt/disk/work";
+/// The tmpfs that holds the content of the files, which only the agent mounts.
+const FILES: &str = "/run/mvmd/files";
 const OVERLAY_OPTIONS: &str = "lowerdir=/mnt/image,upperdir=/mnt/disk/upper,workdir=/mnt/disk/work";
 
 /// Mounts through the `mount` system call.
@@ -180,6 +183,98 @@ impl Mounts for LinuxMounts {
         chdir("/")?;
         Ok(())
     }
+
+    fn place_files(&self, files: &[BootFile]) -> io::Result<()> {
+        place_files_in(Path::new("/"), Path::new(FILES), files)
+    }
+}
+
+/// Name `path` in the error, as the only thing it says about a file: its content may be a secret.
+fn at<T>(path: &Path, result: io::Result<T>) -> io::Result<T> {
+    result.map_err(|error| io::Error::new(error.kind(), format!("{}: {error}", path.display())))
+}
+
+/// Create `dir` and the directories above it that are missing, each 0755 and root's.
+fn create_parents(dir: &Path) -> io::Result<()> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o755)
+        .create(dir)
+}
+
+/// Place `files` under `root`, holding their content in a tmpfs mounted at `store`, which only
+/// root can enter. Each file is written to the tmpfs, then bound read-only onto its path.
+///
+/// The file under `root` is created empty where missing, and an existing one is shadowed, never
+/// written. An error names the file's path and nothing of its content.
+fn place_files_in(root: &Path, store: &Path, files: &[BootFile]) -> io::Result<()> {
+    if let Some(parent) = store.parent() {
+        create_parents(parent)?;
+    }
+    fs::DirBuilder::new().mode(0o700).create(store)?;
+    mount(
+        Some("tmpfs"),
+        store,
+        Some("tmpfs"),
+        MsFlags::MS_NODEV,
+        Some("mode=0700"),
+    )
+    .map_err(io::Error::from)?;
+    for (index, file) in files.iter().enumerate() {
+        let target = root.join(file.path.trim_start_matches('/'));
+        at(
+            &target,
+            place_one(&store.join(index.to_string()), &target, file),
+        )?;
+    }
+    Ok(())
+}
+
+fn place_one(held: &Path, target: &Path, file: &BootFile) -> io::Result<()> {
+    // Owner and mode are set before the content is written, so it is never more readable than
+    // the file's own mode makes it.
+    let mut held_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(held)?;
+    // The owner first: changing it clears the set-user-ID bits the mode may carry.
+    std::os::unix::fs::fchown(&held_file, Some(file.uid), Some(file.gid))?;
+    held_file.set_permissions(fs::Permissions::from_mode(file.mode))?;
+    held_file.write_all(&file.content)?;
+    drop(held_file);
+
+    if let Some(parent) = target.parent() {
+        create_parents(parent)?;
+    }
+    match fs::symlink_metadata(target) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o644)
+                .open(target)?;
+        }
+        other => {
+            other?;
+        }
+    }
+    mount(
+        Some(held),
+        target,
+        None::<&str>,
+        MsFlags::MS_BIND,
+        None::<&str>,
+    )
+    .map_err(io::Error::from)?;
+    mount(
+        None::<&str>,
+        target,
+        None::<&str>,
+        MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
+        None::<&str>,
+    )
+    .map_err(io::Error::from)
 }
 
 #[cfg(test)]
@@ -213,5 +308,190 @@ mod tests {
 
         assert!(dir.path().join("kept").exists());
         Ok(())
+    }
+
+    /// Tests that mount, which only root may. A caller that is not root runs the test again
+    /// under passwordless sudo, which the GitHub-hosted runner provides, and where that is not
+    /// there the test fails: it does not skip.
+    mod real_files {
+        use super::*;
+        use nix::mount::{MntFlags, umount2};
+        use std::process::Command;
+
+        const SECRET: &[u8] = b"hunter2-the-secret";
+        const TMPFS_MAGIC: u64 = 0x0102_1994;
+
+        /// Whether the caller is root and so goes on. Otherwise it runs the test `name` alone
+        /// under sudo, requires that to have passed, and reports that the caller is done.
+        fn root_or_rerun(name: &str) -> io::Result<bool> {
+            // The owner of /proc/self is the user the process runs as.
+            if fs::metadata("/proc/self")?.uid() == 0 {
+                return Ok(true);
+            }
+            let path = module_path!().split_once("::").map_or("", |(_, rest)| rest);
+            let full = format!("{path}::{name}");
+            let out = Command::new("sudo")
+                .arg("-n")
+                .arg(std::env::current_exe()?)
+                .args(["--exact", &full, "--test-threads=1", "--nocapture"])
+                .output()?;
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(
+                out.status.success(),
+                "this test needs root or passwordless sudo, and this host gives neither, or the run as root failed: {text}"
+            );
+            assert!(
+                text.contains("1 passed"),
+                "the run under sudo did not run the test {full}: {text}"
+            );
+            Ok(false)
+        }
+
+        /// A directory standing for the booted root, and the tmpfs store beside it. Dropping it
+        /// unmounts what the test mounted, whatever the test did.
+        struct Place {
+            dir: tempfile::TempDir,
+        }
+
+        impl Place {
+            fn new() -> io::Result<Self> {
+                let dir = tempfile::tempdir()?;
+                fs::create_dir_all(dir.path().join("root/etc"))?;
+                fs::write(dir.path().join("root/etc/shadowed"), "image content")?;
+                Ok(Self { dir })
+            }
+
+            fn root(&self) -> PathBuf {
+                self.dir.path().join("root")
+            }
+
+            fn store(&self) -> PathBuf {
+                self.dir.path().join("run/mvmd/files")
+            }
+
+            fn place(&self, files: &[BootFile]) -> io::Result<()> {
+                place_files_in(&self.root(), &self.store(), files)
+            }
+        }
+
+        impl Drop for Place {
+            fn drop(&mut self) {
+                // Every mount under the directory, the deepest first, whatever it is on.
+                let mounts = fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+                let mut points: Vec<&str> = mounts
+                    .lines()
+                    .filter_map(|line| line.split(' ').nth(4))
+                    .filter(|point| Path::new(point).starts_with(self.dir.path()))
+                    .collect();
+                points.sort_by_key(|point| std::cmp::Reverse(point.len()));
+                for point in points {
+                    let _ = umount2(point, MntFlags::MNT_DETACH);
+                }
+            }
+        }
+
+        fn file(path: &str, content: &[u8], mode: u32) -> BootFile {
+            BootFile {
+                path: path.into(),
+                content: content.to_vec(),
+                mode,
+                uid: 1234,
+                gid: 4321,
+            }
+        }
+
+        /// Every file under `dir` that holds `needle`.
+        fn holding(dir: &Path, needle: &[u8]) -> io::Result<Vec<PathBuf>> {
+            let mut found = Vec::new();
+            for entry in fs::read_dir(dir)? {
+                let path = entry?.path();
+                if fs::symlink_metadata(&path)?.is_dir() {
+                    found.extend(holding(&path, needle)?);
+                } else if fs::read(&path)?.windows(needle.len()).any(|w| w == needle) {
+                    found.push(path);
+                }
+            }
+            Ok(found)
+        }
+
+        #[test]
+        fn a_file_is_a_read_only_tmpfs_bind_with_its_mode_and_owner_and_the_disk_keeps_none()
+        -> io::Result<()> {
+            if !root_or_rerun(
+                "a_file_is_a_read_only_tmpfs_bind_with_its_mode_and_owner_and_the_disk_keeps_none",
+            )? {
+                return Ok(());
+            }
+            let place = Place::new()?;
+            let root = place.root();
+
+            place.place(&[
+                file("/etc/new", SECRET, 0o640),
+                file("/deep/er/still", b"nested", 0o600),
+                file("/etc/shadowed", b"mvmd content", 0o644),
+            ])?;
+
+            // The file is the content, with the mode and the owner it was sent with.
+            let new = root.join("etc/new");
+            let meta = fs::metadata(&new)?;
+            assert_eq!(fs::read(&new)?, SECRET);
+            assert_eq!(meta.mode() & 0o7777, 0o640);
+            assert_eq!((meta.uid(), meta.gid()), (1234, 4321));
+            // It is on a tmpfs, and read-only.
+            let kind = nix::sys::statfs::statfs(&new)?.filesystem_type().0;
+            assert_eq!(u64::try_from(kind).ok(), Some(TMPFS_MAGIC));
+            let write = fs::OpenOptions::new().write(true).open(&new).unwrap_err();
+            assert_eq!(write.kind(), io::ErrorKind::ReadOnlyFilesystem);
+            // The directories made for a path are 0755 and root's.
+            let parent = fs::metadata(root.join("deep/er"))?;
+            assert_eq!(parent.mode() & 0o7777, 0o755);
+            assert_eq!(parent.uid(), 0);
+            // The store is closed to everyone but the agent.
+            let store = fs::metadata(place.store())?;
+            assert_eq!((store.mode() & 0o7777, store.uid()), (0o700, 0));
+            // An image file at the same path is shadowed, not overwritten.
+            assert_eq!(fs::read(root.join("etc/shadowed"))?, b"mvmd content");
+
+            // Unmounted, the root disk's side is what it was: nothing holds the content, the
+            // file the image had is intact, and the target of a path that had none is empty.
+            for mounted in ["etc/new", "deep/er/still", "etc/shadowed"] {
+                umount2(&root.join(mounted), MntFlags::MNT_DETACH)?;
+            }
+            assert_eq!(holding(&root, SECRET)?, Vec::<PathBuf>::new());
+            assert_eq!(holding(&root, b"nested")?, Vec::<PathBuf>::new());
+            assert_eq!(fs::read(root.join("etc/shadowed"))?, b"image content");
+            assert_eq!(fs::read(root.join("etc/new"))?, b"");
+            Ok(())
+        }
+
+        #[test]
+        fn a_file_that_cannot_be_placed_fails_naming_its_path_and_not_its_content() -> io::Result<()>
+        {
+            if !root_or_rerun(
+                "a_file_that_cannot_be_placed_fails_naming_its_path_and_not_its_content",
+            )? {
+                return Ok(());
+            }
+            let place = Place::new()?;
+
+            // The parent of the second file is a file of the image, so it cannot be made.
+            let error = place
+                .place(&[
+                    file("/etc/fine", b"fine", 0o600),
+                    file("/etc/shadowed/child", SECRET, 0o600),
+                ])
+                .unwrap_err();
+
+            let said = error.to_string();
+            assert!(said.contains("shadowed/child"), "{said}");
+            assert!(!said.contains("hunter2"), "{said}");
+            // The control: the file before it was placed, so the failure is the one asked for.
+            assert_eq!(fs::read(place.root().join("etc/fine"))?, b"fine");
+            Ok(())
+        }
     }
 }

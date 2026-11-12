@@ -52,6 +52,7 @@ fn main() {
         disks: Arc::new(guest_agent::LinuxDisks::default()),
         resources: Arc::new(guest_agent::LinuxResources::default()),
         command_line: Arc::new(guest_agent::LinuxCommandLine),
+        users: Arc::new(guest_agent::LinuxUsers),
         end_method: Arc::default(),
     };
     // A panic from here on ends the Machine, the runtime failing to build included.

@@ -131,6 +131,10 @@ pub enum BootStep {
     SwitchRoot,
     /// Configuring the interface, the routes and the resolvers.
     Network,
+    /// Placing the files over the booted root.
+    PlaceFiles,
+    /// Resolving the entrypoint's user in the booted root.
+    ApplyUser,
     /// Starting the entrypoint.
     Entrypoint,
 }
@@ -145,6 +149,8 @@ impl fmt::Display for BootStep {
             Self::Overlay => "overlay the root disk",
             Self::SwitchRoot => "switch root",
             Self::Network => "configure the network",
+            Self::PlaceFiles => "place the files",
+            Self::ApplyUser => "apply the user",
             Self::Entrypoint => "start the entrypoint",
         })
     }

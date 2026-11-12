@@ -305,15 +305,32 @@ impl Boot {
         let config = description.network.clone();
         blocking(BootStep::Network, move || network.apply(&config)).await?;
 
+        if !description.files.is_empty() {
+            let mounts = system.mounts.clone();
+            let files = description.files.clone();
+            blocking(BootStep::PlaceFiles, move || mounts.place_files(&files)).await?;
+        }
+
         let run = &description.run;
+        let identity = match run.user.clone() {
+            Some(spec) => {
+                let execs = self.execs.clone();
+                Some(blocking(BootStep::ApplyUser, move || execs.identity(&spec)).await?)
+            }
+            None => None,
+        };
         let record = self
             .execs
-            .start(ExecRequest {
-                exec_id: ENTRYPOINT.into(),
-                argv: run.argv.clone(),
-                env: run.env.clone(),
-                working_dir: run.working_dir.clone(),
-            })
+            .start(
+                ExecRequest {
+                    exec_id: ENTRYPOINT.into(),
+                    argv: run.argv.clone(),
+                    env: run.env.clone(),
+                    working_dir: run.working_dir.clone(),
+                    user: String::new(),
+                },
+                identity.as_ref(),
+            )
             .map_err(|failed| Failure::new(BootStep::Entrypoint, failed))?;
         if record.status() == ExecStatus::NotStarted {
             return Err(Failure::new(BootStep::Entrypoint, record.reason));

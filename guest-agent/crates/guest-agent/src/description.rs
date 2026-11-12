@@ -2,10 +2,12 @@
 //! types the rest of the boot trusts.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use crate::error::Error;
+use crate::user::UserSpec;
 use crate::uuid::Uuid;
 use crate::v1alpha1;
 
@@ -18,11 +20,13 @@ pub struct BootDescription {
     pub root_disk: Uuid,
     /// The entrypoint.
     pub run: RunConfig,
+    /// The files placed over the booted root, in the order sent.
+    pub files: Vec<BootFile>,
     /// The Machine's network.
     pub network: NetworkConfig,
 }
 
-/// The entrypoint's command line, environment and working directory.
+/// The entrypoint's command line, environment, working directory and user.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunConfig {
     /// The program and its arguments; never empty.
@@ -31,6 +35,105 @@ pub struct RunConfig {
     pub env: HashMap<String, String>,
     /// The working directory in the booted root; empty keeps `/`.
     pub working_dir: String,
+    /// The user the entrypoint runs as; `None` runs it as root.
+    pub user: Option<UserSpec>,
+}
+
+/// The most files a boot description places.
+pub const MAX_FILES: usize = 64;
+/// The most bytes of content all the files of a boot description hold together.
+pub const MAX_FILE_BYTES: usize = 1 << 20;
+/// The directories no file is placed in or under; the agent owns or the kernel fills them.
+const RESERVED: [&str; 4] = ["/proc", "/sys", "/dev", "/run/mvmd"];
+
+/// A file placed over the booted root. Its content may be a secret, so neither `Debug` nor any
+/// error shows it.
+#[derive(Clone, PartialEq)]
+pub struct BootFile {
+    /// The absolute, clean path in the booted root.
+    pub path: String,
+    /// The content.
+    pub content: Vec<u8>,
+    /// The permission bits.
+    pub mode: u32,
+    /// The owning user ID.
+    pub uid: u32,
+    /// The owning group ID.
+    pub gid: u32,
+}
+
+impl fmt::Debug for BootFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BootFile")
+            .field("path", &self.path)
+            .field("bytes", &self.content.len())
+            .field("mode", &self.mode)
+            .field("uid", &self.uid)
+            .field("gid", &self.gid)
+            .finish()
+    }
+}
+
+impl BootFile {
+    fn parse(file: v1alpha1::File) -> Result<Self, Error> {
+        let path = file.path;
+        let refuse = |why: &str| Error::Invalid(format!("file {path:?} {why}"));
+        let clean = path.strip_prefix('/').is_some_and(|rest| {
+            !path.contains('\0')
+                && rest
+                    .split('/')
+                    .all(|part| !part.is_empty() && part != "." && part != "..")
+        });
+        if !clean {
+            return Err(refuse("is not an absolute, clean path other than /"));
+        }
+        let reserved = RESERVED.iter().any(|dir| {
+            path.strip_prefix(dir)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        });
+        if reserved {
+            return Err(refuse("is in a directory the agent reserves"));
+        }
+        if file.mode > 0o7777 {
+            return Err(refuse("has a mode with bits beyond the permissions"));
+        }
+        Ok(Self {
+            path,
+            content: file.content,
+            mode: file.mode,
+            uid: file.uid,
+            gid: file.gid,
+        })
+    }
+}
+
+/// Parse `files`, refusing a set over the limits or placing one path twice.
+fn parse_files(files: Vec<v1alpha1::File>) -> Result<Vec<BootFile>, Error> {
+    if files.len() > MAX_FILES {
+        return Err(Error::Invalid(format!(
+            "run has {} files, more than {MAX_FILES}",
+            files.len()
+        )));
+    }
+    let bytes: usize = files.iter().map(|file| file.content.len()).sum();
+    if bytes > MAX_FILE_BYTES {
+        return Err(Error::Invalid(format!(
+            "the files hold {bytes} bytes, more than {MAX_FILE_BYTES}"
+        )));
+    }
+    let files = files
+        .into_iter()
+        .map(BootFile::parse)
+        .collect::<Result<Vec<_>, _>>()?;
+    for (index, file) in files.iter().enumerate() {
+        if files[..index].iter().any(|before| before.path == file.path) {
+            return Err(Error::Invalid(format!(
+                "file {:?} is sent twice",
+                file.path
+            )));
+        }
+    }
+    Ok(files)
 }
 
 /// What the agent configures on the Machine's interface. A family that is `None` is not served.
@@ -70,6 +173,8 @@ impl TryFrom<v1alpha1::BootRequest> for BootDescription {
                 "run.working_dir is not an absolute path".into(),
             ));
         }
+        let user = UserSpec::parse(&run.user)?;
+        let files = parse_files(run.files)?;
         Ok(Self {
             image: Uuid::parse(&request.image_uuid)?,
             root_disk: Uuid::parse(&request.root_disk_uuid)?,
@@ -77,7 +182,9 @@ impl TryFrom<v1alpha1::BootRequest> for BootDescription {
                 argv: run.argv,
                 env: run.env,
                 working_dir: run.working_dir,
+                user,
             },
+            files,
             network: request.network.unwrap_or_default().try_into()?,
         })
     }
@@ -249,6 +356,40 @@ mod tests {
             ))
             .is_ok()
         );
+    }
+
+    fn file(path: &str, content: &[u8]) -> v1alpha1::File {
+        v1alpha1::File {
+            path: path.into(),
+            content: content.to_vec(),
+            mode: 0o600,
+            uid: 0,
+            gid: 0,
+        }
+    }
+
+    #[test]
+    fn a_file_shows_its_path_and_size_in_debug_and_never_its_content() {
+        let parsed = BootFile::parse(file("/etc/secret", b"hunter2")).unwrap();
+
+        let shown = format!("{parsed:?} {:?}", vec![parsed.clone()]);
+
+        assert!(shown.contains("/etc/secret"), "{shown}");
+        assert!(shown.contains("bytes: 7"), "{shown}");
+        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(!shown.contains("104"), "no byte of the content: {shown}");
+    }
+
+    #[test]
+    fn a_file_error_names_the_path_and_not_the_content() {
+        for path in ["relative", "/", "/etc/../x", "/proc/x"] {
+            let error = BootFile::parse(file(path, b"hunter2")).unwrap_err();
+            let said = error.to_string();
+            assert!(said.contains(path), "{said}");
+            assert!(!said.contains("hunter2"), "{said}");
+        }
+        // The control: the same content at a good path is accepted.
+        assert!(BootFile::parse(file("/etc/ok", b"hunter2")).is_ok());
     }
 
     #[test]

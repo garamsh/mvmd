@@ -16,6 +16,7 @@ use crate::error::{BootStep, Error, Expected, Unbooted};
 use crate::exec::Execs;
 use crate::files::{self, Locks, Reader, Upload};
 use crate::system::DiskError;
+use crate::user::UserSpec;
 use crate::v1alpha1::guest_service_server::GuestService;
 use crate::v1alpha1::{
     BootFailed, BootRequest, BootResponse, BootState, BootStep as ProtoStep, CatchUpRequest,
@@ -166,6 +167,8 @@ impl From<Error> for Status {
                         BootStep::Overlay => ProtoStep::Overlay,
                         BootStep::SwitchRoot => ProtoStep::SwitchRoot,
                         BootStep::Network => ProtoStep::Network,
+                        BootStep::PlaceFiles => ProtoStep::PlaceFiles,
+                        BootStep::ApplyUser => ProtoStep::ApplyUser,
                         BootStep::Entrypoint => ProtoStep::Entrypoint,
                     } as i32,
                     detail,
@@ -212,7 +215,27 @@ impl GuestService for Guest {
 
     async fn exec(&self, request: Request<ExecRequest>) -> Result<Response<ExecResponse>, Status> {
         self.boot.ready()?;
-        let record = self.execs.start(request.into_inner())?;
+        let request = request.into_inner();
+        let identity = match UserSpec::parse(&request.user)? {
+            Some(spec) => {
+                let execs = self.execs.clone();
+                let resolved = tokio::task::spawn_blocking(move || execs.identity(&spec))
+                    .await
+                    .map_err(|joined| Error::Io {
+                        context: "resolve the user".into(),
+                        source: std::io::Error::other(joined),
+                    })?;
+                Some(resolved.map_err(|error| match error.kind() {
+                    std::io::ErrorKind::NotFound => Error::NotFound(error.to_string()),
+                    _ => Error::Io {
+                        context: "resolve the user".into(),
+                        source: error,
+                    },
+                })?)
+            }
+            None => None,
+        };
+        let record = self.execs.start(request, identity.as_ref())?;
         Ok(Response::new(ExecResponse {
             record: Some(record),
         }))

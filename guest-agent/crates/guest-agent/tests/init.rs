@@ -9,6 +9,7 @@ use std::fs;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -17,15 +18,17 @@ use std::time::{Duration, SystemTime};
 use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
     BootFailed, BootRequest, BootState, BootStep as WireStep, CatchUpRequest, DiskInUse,
-    ExecRecord, ExecRequest, ExecStatus, FindDiskRequest, HealthRequest, Ipv4Config, Ipv6Config,
-    ListFilesRequest, NetworkConfig as WireNetworkConfig, NotBooted, OnlineVcpusRequest,
-    PatchFileRequest, ReadExecOutputRequest, ReadFileRequest, ReleaseDiskRequest, RunConfig,
-    SearchFilesRequest, SignalRequest, TerminateRequest, UpdateNetworkRequest, WriteFileRequest,
-    WriteFileStart, read_exec_output_response, write_file_request,
+    ExecRecord, ExecRequest, ExecStatus, File as WireFile, FindDiskRequest, HealthRequest,
+    Ipv4Config, Ipv6Config, ListFilesRequest, NetworkConfig as WireNetworkConfig, NotBooted,
+    OnlineVcpusRequest, PatchFileRequest, ReadExecOutputRequest, ReadFileRequest,
+    ReleaseDiskRequest, RunConfig, SearchFilesRequest, SignalRequest, TerminateRequest,
+    UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
+    write_file_request,
 };
 use guest_agent::{
-    BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy, Filesystem, GuestSize,
-    KernelCommandLine, Mounts, Network, NetworkConfig, Power, Resources, System, Uuid,
+    Accounts, BootFile, BootStep, Clock, Console, DiskDevice, DiskError, Disks, Entropy,
+    Filesystem, GuestSize, Identity, KernelCommandLine, Mounts, Network, NetworkConfig, Power,
+    Resources, System, Users, Uuid,
 };
 use hyper_util::rt::TokioIo;
 use nix::sys::signal::Signal;
@@ -102,6 +105,8 @@ struct TestMounts {
     fail: Option<&'static str>,
     /// How long `overlay` takes, so two boots can overlap.
     overlay_takes: Duration,
+    /// The files `place_files` was given, in order.
+    placed: Mutex<Vec<BootFile>>,
 }
 
 impl TestMounts {
@@ -148,7 +153,42 @@ impl Mounts for TestMounts {
     fn switch_root(&self) -> io::Result<()> {
         self.step("switch_root", "")
     }
+
+    fn place_files(&self, files: &[BootFile]) -> io::Result<()> {
+        let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
+        self.step("place_files", &paths.join(","))?;
+        lock(&self.placed).extend_from_slice(files);
+        Ok(())
+    }
 }
+
+/// Users that read their accounts from the text given, and keep the identity each command was
+/// started with: the test cannot change its own user, so the identity is what it can see.
+struct TestUsers {
+    log: Log,
+    passwd: &'static str,
+    group: &'static str,
+    ran_as: Mutex<Vec<Identity>>,
+}
+
+impl Users for TestUsers {
+    fn accounts(&self) -> io::Result<Accounts> {
+        self.log.push("users accounts");
+        Ok(Accounts {
+            passwd: self.passwd.into(),
+            group: self.group.into(),
+        })
+    }
+
+    fn run_as(&self, _command: &mut Command, identity: &Identity) {
+        self.log.push("users run_as");
+        lock(&self.ran_as).push(identity.clone());
+    }
+}
+
+/// The accounts of the image the user tests boot.
+const PASSWD: &str = "root:x:0:0:root:/root:/bin/sh\napp:x:1000:2000:app:/home/app:/bin/sh\n";
+const GROUP: &str = "root:x:0:\nstaff:x:2000:app\nwheel:x:10:app\n";
 
 /// A network that records what it was given and, when it has a marker file, creates it.
 struct TestNetwork {
@@ -356,6 +396,9 @@ struct Setup {
     unreadable_command_line: bool,
     fail_account: bool,
     overlay_takes: Duration,
+    /// The image's `/etc/passwd` and `/etc/group`; empty when not set.
+    passwd: &'static str,
+    group: &'static str,
     listener_ends: bool,
     config: guest_agent::Config,
     /// Disks in place of the test ones.
@@ -373,6 +416,8 @@ struct Agent {
     clock: Arc<TestClock>,
     disks: Arc<TestDisks>,
     resources: Arc<TestResources>,
+    mounts: Arc<TestMounts>,
+    users: Arc<TestUsers>,
     /// Whether the agent has been asked to listen.
     listened: Arc<AtomicBool>,
     terminate: mpsc::Sender<Signal>,
@@ -421,12 +466,21 @@ impl Agent {
             log: log.clone(),
             failing: AtomicBool::new(false),
         });
+        let mounts = Arc::new(TestMounts {
+            log: log.clone(),
+            fail: setup.fail_mount,
+            overlay_takes: setup.overlay_takes,
+            placed: Mutex::default(),
+        });
+        let users = Arc::new(TestUsers {
+            log: log.clone(),
+            passwd: setup.passwd,
+            group: setup.group,
+            ran_as: Mutex::default(),
+        });
         let system = System {
-            mounts: Arc::new(TestMounts {
-                log: log.clone(),
-                fail: setup.fail_mount,
-                overlay_takes: setup.overlay_takes,
-            }),
+            mounts: mounts.clone(),
+            users: users.clone(),
             network: network.clone(),
             power: Arc::new(TestPower {
                 log: log.clone(),
@@ -478,6 +532,8 @@ impl Agent {
             clock,
             disks,
             resources,
+            mounts,
+            users,
             listened,
             terminate,
             powered_off,
@@ -495,6 +551,7 @@ impl Agent {
                 argv: vec![SH.into(), "-c".into(), script.into()],
                 env: HashMap::from([("GREETING".to_owned(), "hello".to_owned())]),
                 working_dir: self.dir.path().display().to_string(),
+                ..RunConfig::default()
             }),
             network: Some(network_config("10.1.2.3/32", "fd00::2/128")),
             host_unix_nanos: 0,
@@ -2287,5 +2344,509 @@ async fn processes_orphaned_onto_init_are_reaped_and_a_commands_own_status_is_ke
     assert_eq!(own.exit_code, 9);
     fs::write(&flag, "")?;
     agent.powered_off().await?;
+    Ok(())
+}
+
+/// The setup of an image with the accounts above.
+fn with_accounts() -> Setup {
+    Setup {
+        passwd: PASSWD,
+        group: GROUP,
+        ..Setup::default()
+    }
+}
+
+/// A boot request whose entrypoint runs as `user` and writes `$HOME` to `home` in the shared
+/// directory, then stays.
+fn user_request(agent: &Agent, user: &str) -> BootRequest {
+    let mut request = agent.boot_request(r#"echo "${HOME-unset}" > home; sleep 30"#);
+    if let Some(run) = request.run.as_mut() {
+        run.user = user.into();
+    }
+    request
+}
+
+fn identity(uid: u32, gid: u32, groups: &[u32], home: Option<&str>) -> Identity {
+    Identity {
+        uid,
+        gid,
+        groups: groups.to_vec(),
+        home: home.map(str::to_owned),
+    }
+}
+
+/// The `$HOME` the entrypoint wrote, once it has.
+async fn entrypoint_home(agent: &Agent) -> Result<String> {
+    let home = agent.dir.path().join("home");
+    eventually("the entrypoint to write HOME", || home.exists()).await?;
+    // The write may be seen before its newline; the entrypoint's `echo` is one write.
+    Ok(fs::read_to_string(home)?.trim_end().to_owned())
+}
+
+#[tokio::test]
+async fn a_named_user_runs_the_entrypoint_with_its_ids_groups_and_home() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    let request = user_request(&agent, "app");
+
+    agent.client.boot(request).await?;
+
+    // The primary group is the passwd one, and the supplementary groups are the ones that list
+    // the user, the primary group among them.
+    assert_eq!(
+        *lock(&agent.users.ran_as),
+        [identity(1000, 2000, &[2000, 10], Some("/home/app"))]
+    );
+    assert_eq!(entrypoint_home(&agent).await?, "/home/app");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_uid_with_a_gid_runs_as_exactly_those_and_takes_no_groups() -> Result {
+    for (user, expected, home) in [
+        (
+            "1000:3000",
+            identity(1000, 3000, &[], Some("/home/app")),
+            "/home/app",
+        ),
+        ("4242:7", identity(4242, 7, &[], None), "unset"),
+        (
+            "app:7",
+            identity(1000, 7, &[2000, 10], Some("/home/app")),
+            "/home/app",
+        ),
+        (
+            "1000:wheel",
+            identity(1000, 10, &[], Some("/home/app")),
+            "/home/app",
+        ),
+        // A uid with no passwd entry has group 0.
+        ("4242", identity(4242, 0, &[], None), "unset"),
+    ] {
+        let mut agent = Agent::start_with(with_accounts()).await?;
+        let request = user_request(&agent, user);
+
+        agent.client.boot(request).await?;
+
+        assert_eq!(*lock(&agent.users.ran_as), [expected], "{user}");
+        assert_eq!(entrypoint_home(&agent).await?, home, "{user}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_home_in_the_environment_is_kept() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    let mut request = user_request(&agent, "app");
+    if let Some(run) = request.run.as_mut() {
+        run.env.insert("HOME".into(), "/set/by/mvmd".into());
+    }
+
+    agent.client.boot(request).await?;
+
+    assert_eq!(entrypoint_home(&agent).await?, "/set/by/mvmd");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_empty_user_runs_the_entrypoint_as_root_and_looks_nothing_up() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    let request = user_request(&agent, "");
+
+    agent.client.boot(request).await?;
+
+    assert!(lock(&agent.users.ran_as).is_empty());
+    assert_eq!(agent.log.count("users"), 0);
+    // Nothing sets HOME for root: the description's environment is the whole environment.
+    assert_eq!(entrypoint_home(&agent).await?, "unset");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_name_that_does_not_resolve_fails_the_boot_at_apply_the_user() -> Result {
+    // The control: the same accounts resolve a name that is in them.
+    let mut control = Agent::start_with(with_accounts()).await?;
+    let request = user_request(&control, "app");
+    control.client.boot(request).await?;
+
+    for user in ["ghost", "app:ghost", "ghost:2000"] {
+        let mut agent = Agent::start_with(with_accounts()).await?;
+        let request = user_request(&agent, user);
+
+        let failure = agent.client.boot(request).await.unwrap_err();
+
+        assert_eq!(failure.code(), Code::Internal, "{user}");
+        let failed: BootFailed = details::detail(&failure).ok_or("no BootFailed detail")?;
+        assert_eq!(failed.step(), WireStep::ApplyUser, "{user}");
+        assert!(failed.detail.contains("ghost"), "{user}: {}", failed.detail);
+        assert!(
+            failure.message().contains("boot step apply the user"),
+            "{user}: {}",
+            failure.message()
+        );
+        // The entrypoint never started.
+        assert!(lock(&agent.users.ran_as).is_empty(), "{user}");
+        assert!(!agent.dir.path().join("home").exists(), "{user}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_user_that_is_not_in_the_form_is_refused_at_the_parse() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    for user in [":", "app:", ":2000", "a:b:c", "99999999999"] {
+        let request = user_request(&agent, user);
+
+        let refused = agent.client.boot(request).await.unwrap_err();
+
+        assert_eq!(refused.code(), Code::InvalidArgument, "{user}");
+    }
+    assert_eq!(agent.log.count("find"), 0);
+    // The control: the agent still waits, and a valid user boots it.
+    let request = user_request(&agent, "app:staff");
+    agent.client.boot(request).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_exec_with_a_user_runs_as_it_and_an_empty_one_runs_as_root() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    agent.boot("sleep 30").await?;
+    assert!(lock(&agent.users.ran_as).is_empty());
+
+    for (id, user) in [("named", "app"), ("numbers", "1000:3000")] {
+        let mut request = exec_request(id, "true");
+        request.user = user.into();
+        let record = agent.client.exec(request).await?.into_inner().record;
+        assert_eq!(record.ok_or("no record")?.status(), ExecStatus::Started);
+    }
+    let mut root = exec_request("root", "true");
+    root.user = String::new();
+    agent.client.exec(root).await?;
+
+    // The empty user added no identity; the other two added theirs, in order.
+    assert_eq!(
+        *lock(&agent.users.ran_as),
+        [
+            identity(1000, 2000, &[2000, 10], Some("/home/app")),
+            identity(1000, 3000, &[], Some("/home/app")),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_exec_with_a_name_that_does_not_resolve_is_not_found_and_does_not_start() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    agent.boot("sleep 30").await?;
+    let mut request = exec_request("ghosted", "true");
+    request.user = "ghost".into();
+
+    let refused = agent.client.exec(request.clone()).await.unwrap_err();
+
+    assert_eq!(refused.code(), Code::NotFound);
+    assert!(refused.message().contains("ghost"), "{}", refused.message());
+    // The exec ID was not taken: the same ID starts with a user that resolves.
+    request.user = "app".into();
+    let record = agent.client.exec(request).await?.into_inner().record;
+    assert_eq!(record.ok_or("no record")?.status(), ExecStatus::Started);
+    // A name that is not in the form is invalid, not missing.
+    let mut malformed = exec_request("malformed", "true");
+    malformed.user = "a:b:c".into();
+    let invalid = agent.client.exec(malformed).await.unwrap_err();
+    assert_eq!(invalid.code(), Code::InvalidArgument);
+    Ok(())
+}
+
+fn wire_file(path: &str, content: &[u8]) -> WireFile {
+    WireFile {
+        path: path.into(),
+        content: content.to_vec(),
+        mode: 0o640,
+        uid: 1000,
+        gid: 2000,
+    }
+}
+
+fn files_request(agent: &Agent, files: Vec<WireFile>) -> BootRequest {
+    let mut request = agent.boot_request("sleep 30");
+    if let Some(run) = request.run.as_mut() {
+        run.files = files;
+    }
+    request
+}
+
+fn placed(path: &str, content: &[u8]) -> BootFile {
+    BootFile {
+        path: path.into(),
+        content: content.to_vec(),
+        mode: 0o640,
+        uid: 1000,
+        gid: 2000,
+    }
+}
+
+#[tokio::test]
+async fn files_are_placed_after_the_network_and_before_the_user_and_the_entrypoint() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    let mut request = files_request(
+        &agent,
+        vec![
+            wire_file("/etc/app/config", b"one"),
+            wire_file("/var/secret", b"two"),
+        ],
+    );
+    if let Some(run) = request.run.as_mut() {
+        run.user = "app".into();
+    }
+
+    agent.client.boot(request).await?;
+
+    let steps: Vec<String> = agent
+        .log
+        .entries()
+        .into_iter()
+        .skip_while(|entry| entry != "switch_root")
+        .collect();
+    assert_eq!(
+        steps[..5],
+        [
+            "switch_root".to_owned(),
+            "network".to_owned(),
+            "place_files /etc/app/config,/var/secret".to_owned(),
+            "users accounts".to_owned(),
+            "users run_as".to_owned(),
+        ]
+    );
+    // The seam is handed each file whole, with its mode and owner, in the order sent.
+    assert_eq!(
+        *lock(&agent.mounts.placed),
+        [
+            placed("/etc/app/config", b"one"),
+            placed("/var/secret", b"two")
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_boot_with_no_files_places_none() -> Result {
+    let mut agent = Agent::start().await?;
+    agent.boot("sleep 30").await?;
+
+    assert_eq!(agent.log.count("place_files"), 0);
+    assert!(lock(&agent.mounts.placed).is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_repeated_boot_with_other_files_is_refused_and_with_the_same_files_places_nothing_again()
+-> Result {
+    let mut agent = Agent::start().await?;
+    let files = || vec![wire_file("/etc/a", b"one")];
+    agent.client.boot(files_request(&agent, files())).await?;
+    let steps = agent.log.entries();
+
+    agent.client.boot(files_request(&agent, files())).await?;
+    let other_content = agent
+        .client
+        .boot(files_request(&agent, vec![wire_file("/etc/a", b"two")]))
+        .await
+        .unwrap_err();
+    let other_mode = {
+        let mut file = wire_file("/etc/a", b"one");
+        file.mode = 0o600;
+        agent
+            .client
+            .boot(files_request(&agent, vec![file]))
+            .await
+            .unwrap_err()
+    };
+    let none = agent
+        .client
+        .boot(files_request(&agent, Vec::new()))
+        .await
+        .unwrap_err();
+
+    assert_eq!(agent.log.entries(), steps);
+    for refused in [other_content, other_mode, none] {
+        assert_eq!(refused.code(), Code::FailedPrecondition);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_place_the_files_step_is_named_and_the_entrypoint_never_runs() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        fail_mount: Some("place_files"),
+        ..with_accounts()
+    })
+    .await?;
+    let request = files_request(&agent, vec![wire_file("/etc/a", b"one")]);
+
+    let failure = agent.client.boot(request).await.unwrap_err();
+
+    assert_eq!(failure.code(), Code::Internal);
+    let failed: BootFailed = details::detail(&failure).ok_or("no BootFailed detail")?;
+    assert_eq!(failed.step(), WireStep::PlaceFiles);
+    assert_eq!(failed.detail, "injected failure");
+    assert_eq!(agent.log.count("users"), 0);
+    assert!(lock(&agent.mounts.placed).is_empty());
+    Ok(())
+}
+
+/// A description each of whose files sits on one limit's far side, with what is wrong with it.
+fn refused_file_sets() -> Vec<(&'static str, Vec<WireFile>)> {
+    let one = |path: &str| vec![wire_file(path, b"x")];
+    let many = |count: usize, size: usize| -> Vec<WireFile> {
+        (0..count)
+            .map(|index| wire_file(&format!("/data/{index}"), &vec![b'x'; size]))
+            .collect()
+    };
+    vec![
+        ("a relative path", one("etc/a")),
+        ("an empty path", one("")),
+        ("the root", one("/")),
+        ("a trailing slash", one("/etc/a/")),
+        ("an empty part", one("/etc//a")),
+        ("a dot part", one("/etc/./a")),
+        ("a dot-dot part", one("/etc/../a")),
+        ("a path under /proc", one("/proc/a")),
+        ("/proc itself", one("/proc")),
+        ("a path under /sys", one("/sys/kernel/a")),
+        ("a path under /dev", one("/dev/null")),
+        ("a path under /run/mvmd", one("/run/mvmd/files/0")),
+        ("/run/mvmd itself", one("/run/mvmd")),
+        (
+            "the same path twice",
+            vec![wire_file("/etc/a", b"x"), wire_file("/etc/a", b"y")],
+        ),
+        ("65 files", many(65, 1)),
+        // Together one byte over 1 MiB, each file within it.
+        ("more than 1 MiB", {
+            let mut files = many(64, 16384);
+            files[0].content.push(b'x');
+            files
+        }),
+    ]
+}
+
+#[tokio::test]
+async fn a_file_set_beyond_a_limit_is_refused_at_the_parse_and_one_within_boots() -> Result {
+    let mut agent = Agent::start().await?;
+    for (what, files) in refused_file_sets() {
+        let request = files_request(&agent, files);
+
+        let refused = agent.client.boot(request).await.unwrap_err();
+
+        assert_eq!(refused.code(), Code::InvalidArgument, "{what}");
+        // A description that does not parse is not a boot step that failed: nothing ran.
+        assert!(details::detail_types(&refused).is_empty(), "{what}");
+    }
+    assert_eq!(agent.log.count("find"), 0);
+    assert_eq!(agent.log.count("place_files"), 0);
+
+    // The control: on the near side of every limit the same agent boots: 64 files holding
+    // exactly 1 MiB, with paths that only look like the reserved directories.
+    let mut files: Vec<WireFile> = (0..64)
+        .map(|index| wire_file(&format!("/data/{index}"), &[b'x'; 16384]))
+        .collect();
+    files[0].path = "/procfs/a".into();
+    files[1].path = "/run/mvmdx/a".into();
+    files[2].path = "/devices/a".into();
+    files[3].path = "/sysroot/a".into();
+    let request = files_request(&agent, files);
+    agent.client.boot(request).await?;
+    assert_eq!(lock(&agent.mounts.placed).len(), 64);
+    Ok(())
+}
+
+/// What the status of a refused or failed boot says, in every place it says anything.
+fn everything_said(status: &tonic::Status, console: &[String]) -> Vec<u8> {
+    let mut said = status.message().as_bytes().to_vec();
+    said.extend_from_slice(status.details());
+    said.extend(console.iter().flat_map(|line| line.bytes()));
+    said
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+#[tokio::test]
+async fn a_refused_or_failed_file_is_named_by_its_path_and_never_by_its_content() -> Result {
+    const SECRET: &[u8] = b"hunter2-the-secret";
+    // Refused at the parse: for the path, for the mode, for the total size and for the count.
+    let mut bad_mode = wire_file("/etc/secret", SECRET);
+    bad_mode.mode = 0o20000;
+    let mut too_many: Vec<WireFile> = (0..65)
+        .map(|index| wire_file(&format!("/etc/{index}"), SECRET))
+        .collect();
+    too_many[7].path = "/etc/the-seventh".into();
+    let mut too_big = vec![wire_file("/etc/big", &vec![b'x'; 1 << 20])];
+    too_big.push(wire_file("/etc/secret", SECRET));
+    let refused_sets = [
+        ("a relative path", vec![wire_file("etc/secret", SECRET)]),
+        ("a reserved path", vec![wire_file("/proc/secret", SECRET)]),
+        ("a mode beyond the permissions", vec![bad_mode]),
+        (
+            "a repeated path",
+            vec![
+                wire_file("/etc/secret", SECRET),
+                wire_file("/etc/secret", SECRET),
+            ],
+        ),
+        ("too many files", too_many),
+        ("too many bytes", too_big),
+    ];
+    let mut agent = Agent::start().await?;
+    for (what, files) in refused_sets {
+        let request = files_request(&agent, files);
+
+        let refused = agent.client.boot(request).await.unwrap_err();
+
+        assert_eq!(refused.code(), Code::InvalidArgument, "{what}");
+        assert!(
+            !contains(&everything_said(&refused, &agent.console()), SECRET),
+            "{what} said the content"
+        );
+    }
+    // The control: a refusal for a path says the path, so the check above can fail.
+    let request = files_request(&agent, vec![wire_file("etc/secret", SECRET)]);
+    let refused = agent.client.boot(request).await.unwrap_err();
+    assert!(
+        refused.message().contains("etc/secret"),
+        "{}",
+        refused.message()
+    );
+
+    // Failed at its step, with the seam failing: the status, its details and the console.
+    let mut failing = Agent::start_with(Setup {
+        fail_mount: Some("place_files"),
+        ..Setup::default()
+    })
+    .await?;
+    let request = files_request(&failing, vec![wire_file("/etc/secret", SECRET)]);
+    let failure = failing.client.boot(request).await.unwrap_err();
+    assert_eq!(failure.code(), Code::Internal);
+    let said = everything_said(&failure, &failing.console());
+    assert!(!contains(&said, SECRET), "the failed step said the content");
+    // The control: what was said is the failure, so there was something to leak into.
+    assert!(contains(&said, b"place the files"));
+    // The content is what the seam was given; the log of the seam's calls names paths only.
+    assert!(
+        failing
+            .log
+            .entries()
+            .iter()
+            .all(|entry| !contains(entry.as_bytes(), SECRET))
+    );
+    assert!(
+        failing
+            .log
+            .entries()
+            .contains(&"place_files /etc/secret".to_owned())
+    );
     Ok(())
 }

@@ -130,6 +130,38 @@ message RunConfig {
   map<string, string> env = 2;
   // Working directory in the booted root; empty keeps "/".
   string working_dir = 3;
+  // The user the entrypoint runs as, in the OCI image-config form: "user",
+  // "uid", "user:group", "uid:gid", "user:gid" or "uid:group". Names resolve
+  // against the booted root's /etc/passwd and /etc/group, after the files
+  // below are placed. With no group the gid is the user's primary group, or 0
+  // for a uid with no passwd entry. A user name brings the supplementary
+  // groups /etc/group lists for it, a bare uid none. The agent calls
+  // setgroups, setgid and then setuid, and sets HOME from passwd when env has
+  // none. Empty runs as root (0:0) with nothing applied. A name that does not
+  // resolve fails the boot at BOOT_STEP_APPLY_USER.
+  string user = 4;
+  // Files placed in the booted root before the entrypoint runs, at step
+  // BOOT_STEP_PLACE_FILES. Their content is written to a tmpfs only the agent
+  // mounts, never to the root disk, and each file is bind-mounted read-only
+  // onto its path, shadowing what the image holds there. At most 64 files and
+  // 1 MiB of content in all.
+  repeated File files = 5;
+}
+
+// A file placed in the booted root.
+message File {
+  // Absolute and clean (no "." or ".." element, no empty element, no trailing
+  // slash), not "/", and not under /proc, /sys, /dev or /run/mvmd. Missing
+  // parent directories are created (0755, root), and an empty target file
+  // where none exists.
+  string path = 1;
+  // The content. It may be secret: the agent never writes it to a log, the
+  // console, an error message or a status detail.
+  bytes content = 2;
+  // The permission bits, at most 07777.
+  uint32 mode = 3;
+  uint32 uid = 4;
+  uint32 gid = 5;
 }
 
 // What the agent configures on the Machine's one network interface. A family
@@ -219,6 +251,10 @@ message ExecRequest {
   map<string, string> env = 3;
   // Working directory; empty keeps the agent's.
   string working_dir = 4;
+  // The user the command runs as, in the form and with the resolution of
+  // RunConfig.user. Empty runs as root. A name that does not resolve is
+  // NOT_FOUND and starts nothing.
+  string user = 5;
 }
 
 message ExecResponse {
@@ -426,6 +462,12 @@ enum BootStep {
   // Setting the wall clock from the Boot request's host_unix_nanos. It is the
   // first step the agent takes, though its number is the last assigned.
   BOOT_STEP_CLOCK = 8;
+  // Placing RunConfig.files, after the network and before the user is
+  // resolved, so a placed /etc/passwd or /etc/group is the one names resolve
+  // against.
+  BOOT_STEP_PLACE_FILES = 9;
+  // Resolving RunConfig.user in the booted root.
+  BOOT_STEP_APPLY_USER = 10;
 }
 
 // The detail of an OUT_OF_RANGE status from ReadExecOutput: the read starts
