@@ -439,7 +439,6 @@ func (s *service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 	// name and size, never a value or a content.
 	for i := range all {
 		all[i].Spec.Env = envNames(all[i].Spec.Env)
-		all[i].Spec.Files = withoutContent(all[i].Spec.Files)
 	}
 	return all, nil
 }
