@@ -15,7 +15,7 @@ use std::sync::{Mutex, OnceLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use nix::mount::{MsFlags, mount, umount};
+use nix::mount::{MntFlags, MsFlags, mount, umount2};
 
 use crate::mounts::{create_parents, resolve_target};
 use crate::system::{DiskDevice, DiskError, DiskMount, Disks};
@@ -55,7 +55,7 @@ fn mount_ext4(device: &Path, target: &Path, read_only: bool) -> io::Result<()> {
 }
 
 fn unmount_fs(target: &Path) -> io::Result<()> {
-    umount(target).map_err(io::Error::from)
+    umount2(target, MntFlags::MNT_DETACH).map_err(io::Error::from)
 }
 
 nix::ioctl_write_ptr!(ext4_resize_fs, b'f', 16, u64);
