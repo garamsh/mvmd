@@ -114,7 +114,7 @@ func TestListSnapshots_ReportsTheKernelDigest(t *testing.T) {
 
 func TestListSnapshots_ReportsTheDisksOfEverySnapshot(t *testing.T) {
 	m := &snapshotter{listed: []machine.Snapshot{
-		{ID: "with", Disks: []machine.SnapshotDisk{{Disk: "d1", SizeBytes: 4096}, {Disk: "d2", ReadOnly: true, SizeBytes: 8192}}},
+		{ID: "with", Disks: []machine.SnapshotDisk{{Disk: "d1", SizeBytes: 4096}, {Disk: "d2", ReadOnly: true, MountPath: "/data", SizeBytes: 8192}}},
 		{ID: "without"},
 	}}
 
@@ -129,5 +129,7 @@ func TestListSnapshots_ReportsTheDisksOfEverySnapshot(t *testing.T) {
 	assert.Equal(t, "d2", resp.Snapshots[0].Disks[1].DiskId)
 	assert.True(t, resp.Snapshots[0].Disks[1].ReadOnly)
 	assert.Equal(t, uint64(8192), resp.Snapshots[0].Disks[1].SizeBytes)
+	assert.Equal(t, "/data", resp.Snapshots[0].Disks[1].MountPath)
+	assert.Empty(t, resp.Snapshots[0].Disks[0].MountPath)
 	assert.Empty(t, resp.Snapshots[1].Disks, "control: a snapshot with none lists none")
 }

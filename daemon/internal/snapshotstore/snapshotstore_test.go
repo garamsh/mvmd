@@ -99,7 +99,7 @@ func snapshot(id string) machine.Snapshot {
 		Compat:       machine.SnapshotCompat{Driver: "firecracker", Version: "1.17.0", CPUModel: "model-x", KernelDigest: "sha256:kernel", KernelName: "next"},
 		Disks: []machine.SnapshotDisk{
 			{Disk: "data", SizeBytes: 1 << 20, ModTime: time.Unix(1700000000, 123456789)},
-			{Disk: "tools", ReadOnly: true, SizeBytes: 2 << 20, ModTime: time.Unix(1700000100, 5)},
+			{Disk: "tools", ReadOnly: true, MountPath: "/tools", SizeBytes: 2 << 20, ModTime: time.Unix(1700000100, 5)},
 		},
 	}
 }
