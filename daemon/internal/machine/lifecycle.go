@@ -205,7 +205,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 		return fail(ErrPreconditionFailed, "Machine %q is %s; start needs Created or Stopped", id, m.State)
 	}
 
-	_, kernel, ok := s.kernels.resolve(m.Kernel)
+	_, kernel, ok := s.kernels.resolve("")
 	if !ok {
 		return fail(ErrPreconditionFailed, "kernel %q is not offered by the node", cmp.Or(m.Kernel, s.kernels.Default))
 	}
