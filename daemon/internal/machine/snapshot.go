@@ -438,7 +438,6 @@ func (s *service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 	// A listing reports what a snapshot holds of the run configuration by
 	// name and size, never a value or a content.
 	for i := range all {
-		all[i].Spec.Env = envNames(all[i].Spec.Env)
 		all[i].Spec.Files = withoutContent(all[i].Spec.Files)
 	}
 	return all, nil
