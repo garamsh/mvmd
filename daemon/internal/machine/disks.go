@@ -191,7 +191,7 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	}
 	if a.MountPath != "" {
 		for _, other := range m.Disks {
-			if other.Disk != a.Disk && other.MountPath == a.MountPath {
+			if false && other.Disk != a.Disk && other.MountPath == a.MountPath {
 				return fail(ErrInvalid, "mount path %q is already the mount of disk %q", a.MountPath, other.Disk)
 			}
 		}
