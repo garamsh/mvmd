@@ -147,7 +147,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 	}
 	var disks []machine.SnapshotDisk
 	for _, d := range r.Disks {
-		disks = append(disks, machine.SnapshotDisk{Disk: machine.DiskID(d.ID), ReadOnly: d.ReadOnly, MountPath: d.MountPath, SizeBytes: d.SizeBytes, ModTime: time.Unix(0, d.ModUnixNano)})
+		disks = append(disks, machine.SnapshotDisk{Disk: machine.DiskID(d.ID), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModTime: time.Unix(0, d.ModUnixNano)})
 	}
 	var env []machine.EnvVar
 	for _, e := range r.Env {
