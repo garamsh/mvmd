@@ -49,8 +49,8 @@ type Options struct {
 	Credentials func(ctx context.Context, registry string) (Credential, error)
 	// RootCAs returns the roots a registry's certificate is verified against,
 	// and is called at each request, so a change takes effect without a new
-	// Registry. When set, it replaces HTTPClient's transport; nil verifies
-	// against the system roots.
+	// Registry. When set, it replaces HTTPClient, which is not used; nil
+	// verifies against the system roots.
 	RootCAs func(ctx context.Context) (*x509.CertPool, error)
 	// HTTPClient carries every request; nil is a client with the default
 	// transport. Registries are reached over HTTPS only.

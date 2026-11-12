@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"net"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // rootsTransport sends each request over a transport that verifies against the
@@ -34,8 +36,16 @@ func (t *rootsTransport) transport(pool *x509.CertPool) *http.Transport {
 		if t.next != nil {
 			t.next.CloseIdleConnections()
 		}
-		next := http.DefaultTransport.(*http.Transport).Clone()
-		next.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		next := &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: time.Second,
+			TLSClientConfig:       &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+		}
 		t.pool, t.next = pool, next
 	}
 	return t.next

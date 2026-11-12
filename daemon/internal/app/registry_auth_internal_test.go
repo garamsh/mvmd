@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,12 +25,29 @@ const authRepo = "library/app"
 
 // authRegistry is a TLS registry that serves one manifest to the identity
 // accepts says, and asks for basic credentials of any other; a nil accepts
-// serves anonymously. A test that needs the registry's host in the identity
-// sets accepts after construction.
+// serves anonymously. A test that needs the registry's host in the identity, or
+// a registry that stops accepting a credential it accepted, calls accept after
+// construction.
 type authRegistry struct {
-	srv     *httptest.Server
-	ref     image.Reference
+	srv *httptest.Server
+	ref image.Reference
+
+	mu      sync.Mutex
 	accepts func(user, password string) bool
+}
+
+// accept replaces the identity the registry serves; nil serves anonymously.
+func (r *authRegistry) accept(accepts func(user, password string) bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accepts = accepts
+}
+
+func (r *authRegistry) allows(req *http.Request) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, p, ok := req.BasicAuth()
+	return r.accepts == nil || (ok && r.accepts(u, p))
 }
 
 func newAuthRegistry(t *testing.T, accepts func(user, password string) bool) *authRegistry {
@@ -39,7 +57,7 @@ func newAuthRegistry(t *testing.T, accepts func(user, password string) bool) *au
 	d := "sha256:" + hex.EncodeToString(sum(string(body)))
 	r := &authRegistry{accepts: accepts}
 	r.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if u, p, ok := req.BasicAuth(); r.accepts != nil && (!ok || !r.accepts(u, p)) {
+		if !r.allows(req) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="fake"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -84,24 +102,52 @@ func writeCredentials(t *testing.T, path, content string) {
 	require.NoError(t, os.Chmod(path, 0o600))
 }
 
+// newRegistry builds one Registry as the node builds it, and returns the pull
+// through it.
+func newRegistry(t *testing.T, cfg RegistryConfig, ref image.Reference) func() error {
+	t.Helper()
+	var opts ociregistry.Options
+	require.NoError(t, cfg.options(&opts))
+	registry := ociregistry.New(opts)
+	return func() error {
+		_, err := registry.Manifest(context.Background(), ref, platformAMD64)
+		return err
+	}
+}
+
+func acceptsPassword(password string) func(u, p string) bool {
+	return func(u, p string) bool { return u == "node" && p == password }
+}
+
 // A pull after the credentials file is rewritten uses the new credential, with
 // the same Registry and no restart.
 func TestRegistryAuth_ARewrittenCredentialsFileRenewsTheNextPull(t *testing.T) {
 	const first, second = "first-password", "second-password"
-	reg := newAuthRegistry(t, func(u, p string) bool { return u == "node" && p == second })
+	reg := newAuthRegistry(t, acceptsPassword(second))
 	file := filepath.Join(t.TempDir(), "registry.json")
 	writeCredentials(t, file, fmt.Sprintf(`{%q:{"username":"node","password":%q}}`, reg.host(), first))
-	var opts ociregistry.Options
-	require.NoError(t, RegistryConfig{CredentialsFile: file, CAFile: reg.caFile(t)}.options(&opts))
-	registry := ociregistry.New(opts)
-	manifest := func() error {
-		_, err := registry.Manifest(context.Background(), reg.ref, platformAMD64)
-		return err
-	}
+	manifest := newRegistry(t, RegistryConfig{CredentialsFile: file, CAFile: reg.caFile(t)}, reg.ref)
 
 	err := manifest()
 	require.Error(t, err, "control: the first credential is refused as unauthorized")
 	assert.NotContains(t, err.Error(), first)
+
+	writeCredentials(t, file, fmt.Sprintf(`{%q:{"username":"node","password":%q}}`, reg.host(), second))
+	require.NoError(t, manifest())
+}
+
+// A credential from the file that worked and then expired is replaced by the
+// file's new one on the next pull, with the same Registry.
+func TestRegistryAuth_ACredentialsFileCredentialThatExpiredIsRenewed(t *testing.T) {
+	const first, second = "first-password", "second-password"
+	reg := newAuthRegistry(t, acceptsPassword(first))
+	file := filepath.Join(t.TempDir(), "registry.json")
+	writeCredentials(t, file, fmt.Sprintf(`{%q:{"username":"node","password":%q}}`, reg.host(), first))
+	manifest := newRegistry(t, RegistryConfig{CredentialsFile: file, CAFile: reg.caFile(t)}, reg.ref)
+	require.NoError(t, manifest(), "control: the first credential is accepted")
+
+	reg.accept(acceptsPassword(second))
+	require.Error(t, manifest(), "control: the registry no longer accepts the first credential, and the file still holds it")
 
 	writeCredentials(t, file, fmt.Sprintf(`{%q:{"username":"node","password":%q}}`, reg.host(), second))
 	require.NoError(t, manifest())
@@ -135,11 +181,13 @@ func TestRegistryAuth_ACAFileWithoutACertificateIsRefusedAtStart(t *testing.T) {
 	assert.NoError(t, RegistryConfig{CAFile: reg.caFile(t)}.options(&opts), "control: a bundle with a certificate starts")
 }
 
-// helperDir puts fake docker-credential-fake and docker-credential-env on PATH.
-// The first answers with a password derived from the server URL it reads, or
-// writes a marker to both outputs and fails while MVMD_TEST_HELPER_FAIL is
-// set. The second answers with the variable MVMD_TEST_HELPER_ENV as the
-// username.
+// helperDir puts fake docker-credential-fake, docker-credential-env and
+// docker-credential-file on PATH. The first answers with a password derived
+// from the server URL it reads, or writes a marker to both outputs and fails
+// while MVMD_TEST_HELPER_FAIL is set. The second answers with the variable
+// MVMD_TEST_HELPER_ENV as the username. The third answers with the first line
+// of the file MVMD_TEST_HELPER_SECRET_FILE names as the secret, so a test
+// changes its answer by rewriting the file.
 func helperDir(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
@@ -151,6 +199,11 @@ printf '{"ServerURL":"%s","Username":"node","Secret":"pw-for-%s"}' "$host" "$hos
 `,
 		"docker-credential-env": `#!/bin/sh
 printf '{"ServerURL":"x","Username":"%s","Secret":"s"}' "$MVMD_TEST_HELPER_ENV"
+`,
+		"docker-credential-file": `#!/bin/sh
+read -r host
+read -r secret < "$MVMD_TEST_HELPER_SECRET_FILE"
+printf '{"ServerURL":"%s","Username":"node","Secret":"%s"}' "$host" "$secret"
 `,
 	}
 	for name, script := range scripts {
@@ -164,11 +217,30 @@ printf '{"ServerURL":"x","Username":"%s","Secret":"s"}' "$MVMD_TEST_HELPER_ENV"
 func TestRegistryAuth_AHelperIsRunAndItsAnswerIsUsed(t *testing.T) {
 	helperDir(t)
 	reg := newAuthRegistry(t, nil)
-	reg.accepts = func(u, p string) bool { return u == "node" && p == "pw-for-"+reg.host() }
+	reg.accept(func(u, p string) bool { return u == "node" && p == "pw-for-"+reg.host() })
 	ca := reg.caFile(t)
 
 	require.Error(t, pull(t, RegistryConfig{CAFile: ca}, reg.ref), "control: without the helper the registry refuses")
 	require.NoError(t, pull(t, RegistryConfig{CAFile: ca, CredentialHelpers: map[string]string{reg.host(): "fake"}}, reg.ref))
+}
+
+// A helper's credential that worked and then expired is replaced by the
+// helper's new answer on the next pull, with the same Registry.
+func TestRegistryAuth_AHelperCredentialThatExpiredIsRenewed(t *testing.T) {
+	const first, second = "first-secret", "second-secret"
+	helperDir(t)
+	answer := filepath.Join(t.TempDir(), "answer")
+	require.NoError(t, os.WriteFile(answer, []byte(first+"\n"), 0o600))
+	t.Setenv("MVMD_TEST_HELPER_SECRET_FILE", answer)
+	reg := newAuthRegistry(t, acceptsPassword(first))
+	manifest := newRegistry(t, RegistryConfig{CAFile: reg.caFile(t), CredentialHelpers: map[string]string{reg.host(): "file"}}, reg.ref)
+	require.NoError(t, manifest(), "control: the helper's first answer is accepted")
+
+	reg.accept(acceptsPassword(second))
+	require.Error(t, manifest(), "control: the registry no longer accepts the first answer, and the helper still gives it")
+
+	require.NoError(t, os.WriteFile(answer, []byte(second+"\n"), 0o600))
+	require.NoError(t, manifest())
 }
 
 // A helper that exits non-zero fails the pull, and the error names the helper
@@ -176,7 +248,7 @@ func TestRegistryAuth_AHelperIsRunAndItsAnswerIsUsed(t *testing.T) {
 func TestRegistryAuth_AFailingHelperFailsThePullWithoutItsOutput(t *testing.T) {
 	helperDir(t)
 	reg := newAuthRegistry(t, nil)
-	reg.accepts = func(u, p string) bool { return u == "node" && p == "pw-for-"+reg.host() }
+	reg.accept(func(u, p string) bool { return u == "node" && p == "pw-for-"+reg.host() })
 	cfg := RegistryConfig{CAFile: reg.caFile(t), CredentialHelpers: map[string]string{reg.host(): "fake"}}
 	require.NoError(t, pull(t, cfg, reg.ref), "control: the same helper succeeds")
 
