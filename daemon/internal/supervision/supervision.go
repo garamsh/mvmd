@@ -25,6 +25,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/runlink"
 	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 	pb "github.com/garamsh/mvmd/daemon/internal/supervisorapi/v1alpha1"
@@ -162,8 +163,10 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	if process.RunDir != runDir {
 		return fmt.Errorf("the run directory %q is not the Machine's %q", process.RunDir, runDir)
 	}
-	if err := checkRunFiles(process.RunFiles); err != nil {
-		return err
+	for _, f := range process.RunFiles {
+		if err := runlink.Check(f.Name, f.Path); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create the state directory: %w", err)
@@ -185,14 +188,8 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		return fmt.Errorf("give the run directory to the Machine's user: %w", err)
 	}
 	for _, f := range process.RunFiles {
-		link := filepath.Join(runDir, f.Name)
-		// The run directory outlives its VMM, so a name may hold a leftover; it
-		// is replaced without being followed, as an attach does.
-		if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("clear %q in the run directory: %w", f.Name, err)
-		}
-		if err := os.Link(f.Path, link); err != nil {
-			return fmt.Errorf("link %q into the run directory: %w", f.Name, err)
+		if err := runlink.Make(runDir, f.Name, f.Path); err != nil {
+			return err
 		}
 	}
 	vmmCgroup, err := a.createVMMCgroup(id)
@@ -283,21 +280,6 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		return fmt.Errorf("start the process under its supervisor: %w", err)
 	}
 	started = true
-	return nil
-}
-
-// checkRunFiles refuses a name that is not one file name and a path that is
-// not absolute, so that nothing is linked outside the run directory or from a
-// path relative to mvmd's own.
-func checkRunFiles(files []machine.RunFile) error {
-	for _, f := range files {
-		if f.Name == "" || f.Name == "." || f.Name == ".." || strings.Contains(f.Name, "/") {
-			return fmt.Errorf("the run file name %q is not a file name", f.Name)
-		}
-		if !filepath.IsAbs(f.Path) {
-			return fmt.Errorf("the path %q of run file %q is not absolute", f.Path, f.Name)
-		}
-	}
 	return nil
 }
 

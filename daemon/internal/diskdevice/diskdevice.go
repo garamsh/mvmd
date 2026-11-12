@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/runlink"
 	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
@@ -50,8 +50,9 @@ func Link(dirs vmmconfig.RunDirs, id machine.MachineID, dev machine.BlockDevice)
 	if dev.Disk == "" {
 		return "", errors.New("a disk to attach names no disk")
 	}
-	if !filepath.IsAbs(dev.Path) {
-		return "", fmt.Errorf("the disk file %q is not an absolute path", dev.Path)
+	name := Name(0, dev.Disk)
+	if err := runlink.Check(name, dev.Path); err != nil {
+		return "", err
 	}
 	info, err := os.Lstat(dev.Path)
 	if err != nil {
@@ -64,14 +65,8 @@ func Link(dirs vmmconfig.RunDirs, id machine.MachineID, dev machine.BlockDevice)
 	if err != nil {
 		return "", err
 	}
-	link := filepath.Join(dir, Name(0, dev.Disk))
-	// What stands at the link is a leftover of an attach that failed, or
-	// something the VMM's user put there; neither is followed.
-	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("clear %s: %w", link, err)
-	}
-	if err := os.Link(dev.Path, link); err != nil {
-		return "", fmt.Errorf("link the disk into the run directory: %w", err)
+	if err := runlink.Make(dir, name, dev.Path); err != nil {
+		return "", err
 	}
 	return dir, nil
 }
