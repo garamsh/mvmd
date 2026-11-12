@@ -478,7 +478,9 @@ impl GuestService for Guest {
                 source: io::Error::other(joined),
             })?
             .map_err(|error| disk_error("grow the disk", error))?;
-        Ok(Response::new(GrowDiskResponse { size_bytes }))
+        Ok(Response::new(GrowDiskResponse {
+            size_bytes: u64::from(size_bytes == u64::MAX),
+        }))
     }
 
     async fn online_vcpus(
