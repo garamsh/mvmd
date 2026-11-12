@@ -370,3 +370,31 @@ func TestCgroup_TheSupervisorStartsOutsideMvmdsCgroup(t *testing.T) {
 	assert.Contains(t, got, "mvmd-test-")
 	assert.NotEqual(t, strings.TrimSpace(string(own)), got)
 }
+
+// A Start that fails after the VMM cgroup is made removes it, whichever step
+// fails; the control is a supervisor binary that cannot be executed, a path
+// whose release was already stated at its return.
+func TestStart_AFailedStartRemovesTheVMMCgroup(t *testing.T) {
+	for name, c := range map[string]struct {
+		id     string
+		change func(*supervision.Config)
+		reason string
+	}{
+		"the supervisor cgroup cannot be opened": {"nocgroup", func(cfg *supervision.Config) {
+			cfg.Cgroup = filepath.Join(shortDir(t), "absent")
+		}, "open the supervisor cgroup"},
+		"control: the supervisor cannot be executed": {"nobinary", func(cfg *supervision.Config) {
+			cfg.Binary = filepath.Join(shortDir(t), "absent")
+		}, "start the supervisor"},
+	} {
+		cfg := adapterConfig(shortDir(t))
+		c.change(&cfg)
+		a, err := supervision.New(cfg)
+		require.NoError(t, err, name)
+
+		err = a.Start(ctx, machine.MachineID(c.id), vmmProcess(runDir(cfg.Dir, c.id)), vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour)))
+		require.Error(t, err, name)
+		require.Contains(t, err.Error(), c.reason, "%s: setup: the Start failed at the step the case names, after the VMM cgroup was made", name)
+		assert.NoDirExists(t, filepath.Join(vmmCgroup, c.id), "%s: the VMM cgroup is removed", name)
+	}
+}
