@@ -81,7 +81,7 @@ type recordDisk struct {
 func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 	var disks []recordDisk
 	for _, d := range s.Disks {
-		disks = append(disks, recordDisk{ID: string(d.Disk), ReadOnly: d.ReadOnly, MountPath: d.MountPath, SizeBytes: d.SizeBytes, ModUnixNano: d.ModTime.UnixNano()})
+		disks = append(disks, recordDisk{ID: string(d.Disk), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModUnixNano: d.ModTime.UnixNano()})
 	}
 	var env []recordEnv
 	for _, e := range s.Spec.Env {
