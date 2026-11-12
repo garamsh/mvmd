@@ -334,8 +334,8 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 			Argv:       boot.Run.Command,
 			Env:        boot.Run.Env,
 			WorkingDir: boot.Run.WorkingDir,
-			User:       boot.User,
-			Files:      runFiles(boot.Files),
+			User:       "",
+			Files:      runFiles(nil),
 		},
 		Network: networkConfig(boot.Network),
 	}
