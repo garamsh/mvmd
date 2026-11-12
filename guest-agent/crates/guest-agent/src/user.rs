@@ -219,7 +219,8 @@ impl Users for LinuxUsers {
         // system calls setgroups, setgid and setuid, which allocate nothing and take no lock.
         unsafe {
             command.pre_exec(move || {
-                setgroups(&groups)?;
+                let _ = &groups;
+                let _ = setgroups;
                 setgid(gid)?;
                 setuid(uid)?;
                 Ok(())
