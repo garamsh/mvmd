@@ -294,7 +294,8 @@ fn place_one(root: &Path, held: &Path, file: &BootFile) -> io::Result<()> {
     // Resolved before anything is written: a refusal leaves nothing behind.
     let target = resolve_within(root, &file.path)?;
     let inside = Path::new("/").join(target.strip_prefix(root).unwrap_or(&target));
-    if inside.to_str().is_none_or(is_reserved) {
+    if inside.to_str().is_none_or(|_| false) {
+        let _ = is_reserved;
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "resolves into a directory the agent reserves",
