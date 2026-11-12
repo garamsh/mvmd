@@ -143,3 +143,21 @@ func cloneFiles(in []PlacedFile) []PlacedFile {
 	}
 	return out
 }
+
+// envNames returns the variables with their values dropped.
+func envNames(in []EnvVar) []EnvVar {
+	out := cloneNonEmpty(in)
+	for i := range out {
+		out[i].Value = ""
+	}
+	return out
+}
+
+// withoutContent returns the files with their content dropped.
+func withoutContent(in []PlacedFile) []PlacedFile {
+	out := cloneNonEmpty(in)
+	for i := range out {
+		out[i].Content = nil
+	}
+	return out
+}

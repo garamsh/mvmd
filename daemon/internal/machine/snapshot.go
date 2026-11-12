@@ -104,7 +104,10 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	if err != nil {
 		return err
 	}
-	spec := SnapshotSpec{Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes}
+	spec := SnapshotSpec{
+		Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes,
+		Command: cloneNonEmpty(m.Command), Args: cloneNonEmpty(m.Args), Env: cloneNonEmpty(m.Env), User: m.Spec.User, Files: cloneFiles(m.Files),
+	}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
 		Compat:    SnapshotCompat{Driver: info.Name, Version: info.Version, CPUModel: info.CPUModel, KernelDigest: m.KernelDigest, KernelName: m.Kernel},
@@ -221,7 +224,10 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("allocate network: %v", err))
 		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
 	}
-	spec := Spec{Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Kernel: kernel, Policy: policy.clone()}
+	spec := Spec{
+		Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Kernel: kernel, Policy: policy.clone(),
+		Command: cloneNonEmpty(held.Spec.Command), Args: cloneNonEmpty(held.Spec.Args), Env: cloneNonEmpty(held.Spec.Env), User: held.Spec.User, Files: cloneFiles(held.Spec.Files),
+	}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.
 	if taken, holder, ok := s.claim(id, RootDiskID(id)); !ok {
@@ -428,6 +434,12 @@ func (s *service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 	all, err := s.snapshots.List(ctx)
 	if err != nil {
 		return nil, fail(ErrFailed, "list the snapshots: %v", err)
+	}
+	// A listing reports what a snapshot holds of the run configuration by
+	// name and size, never a value or a content.
+	for i := range all {
+		all[i].Spec.Env = envNames(all[i].Spec.Env)
+		all[i].Spec.Files = withoutContent(all[i].Spec.Files)
 	}
 	return all, nil
 }

@@ -71,6 +71,9 @@ func (f fixture) files(t *testing.T, tag string) machine.SnapshotFiles {
 	return files
 }
 
+// runMarker stands for a secret in the run configuration of a snapshot.
+const runMarker = "MARKER-VALUE-4f9c1e"
+
 // snapshot is a record with every field set.
 func snapshot(id string) machine.Snapshot {
 	return machine.Snapshot{
@@ -84,6 +87,11 @@ func snapshot(id string) machine.Snapshot {
 			// Differs from the resources, so a reading that defaulted it would show.
 			BootMemoryBytes: 256 << 20,
 			RootDiskBytes:   diskSize,
+			Command:         []string{"/bin/app", "--serve"},
+			Args:            []string{"-v"},
+			Env:             []machine.EnvVar{{Name: "TOKEN", Value: runMarker}, {Name: "MODE", Value: "x"}},
+			User:            "7:8",
+			Files:           []machine.PlacedFile{{Path: "/etc/token", Content: []byte(runMarker), Mode: 0o640, UID: 7, GID: 8}},
 		},
 		RootDiskUUID: "uuid-of-" + id,
 		CreatedAt:    time.Unix(1700000200, 987654321),
@@ -534,4 +542,40 @@ func TestGet_ARecordWithoutAKernelNameReadsBackWithNone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.Compat.KernelName)
 	assert.Equal(t, "sha256:kernel", got.Compat.KernelDigest)
+}
+
+// A record written before the run configuration was kept reads back with none
+// of it, and the record of a snapshot written now keeps all five fields in the
+// owner-only file and nowhere else.
+func TestGet_ARecordWithoutARunConfigurationReadsBackWithNone(t *testing.T) {
+	f := newFixture(t)
+	s := f.open(t)
+	require.NoError(t, s.Put(ctx, snapshot("a"), f.files(t, "a")))
+	got, files, err := s.Get(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, snapshot("a").Spec, got.Spec, "control: a record written now keeps them")
+
+	dir := filepath.Dir(files.RootDisk)
+	path := filepath.Join(dir, "record.json")
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the record is the daemon's alone")
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal([]byte(read(t, path)), &fields))
+	for _, key := range []string{"command", "args", "env", "run_user", "files"} {
+		require.Contains(t, fields, key)
+		delete(fields, key)
+	}
+	legacy, err := json.Marshal(fields)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, legacy, 0o600))
+
+	got, _, err = f.open(t).Get(ctx, "a")
+	require.NoError(t, err)
+	assert.Empty(t, got.Spec.Command)
+	assert.Empty(t, got.Spec.Args)
+	assert.Empty(t, got.Spec.Env)
+	assert.Empty(t, got.Spec.User)
+	assert.Empty(t, got.Spec.Files)
+	assert.Equal(t, "sha256:kernel", got.Compat.KernelDigest, "the rest of the record reads as before")
 }
