@@ -5,9 +5,7 @@
 package runlink
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,9 +30,6 @@ func Check(name, path string) error {
 // replaced without being followed. The caller has made Check of the pair.
 func Make(runDir, name, path string) error {
 	link := filepath.Join(runDir, name)
-	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("clear %q in the run directory: %w", name, err)
-	}
 	if err := os.Link(path, link); err != nil {
 		return fmt.Errorf("link %q into the run directory: %w", name, err)
 	}
