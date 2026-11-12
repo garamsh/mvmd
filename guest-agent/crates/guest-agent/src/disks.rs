@@ -234,7 +234,7 @@ impl LinuxDisks {
             )));
         }
         // A device that cannot be written is mounted read-only whatever was asked for.
-        let read_only = wanted.read_only || self.describe(&record.name).map_err(at_path)?.read_only;
+        let read_only = wanted.read_only;
         (self.mount)(&self.dev.join(&record.name), &target, read_only).map_err(at_path)?;
         record.mounted = Some(target);
         Ok(())
