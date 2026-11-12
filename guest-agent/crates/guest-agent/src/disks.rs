@@ -357,7 +357,6 @@ impl Disks for LinuxDisks {
             .map_err(|_| failed("the disk records are unusable"))?;
         let record = records
             .get(disk_id)
-            .filter(|record| !record.released)
             .ok_or(DiskError::Unknown)?;
         let size = self
             .describe(&record.name)
