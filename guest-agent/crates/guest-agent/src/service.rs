@@ -27,8 +27,8 @@ use crate::v1alpha1::{
     ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest, ReadFileResponse,
     ReleaseDiskRequest, ReleaseDiskResponse, SearchFilesRequest, SearchFilesResponse,
     SignalRequest, SignalResponse, TerminateRequest, TerminateResponse, UpdateNetworkRequest,
-    UpdateNetworkResponse, WriteFileRequest, WriteFileResponse, WrongFileKind,
-    read_exec_output_response, write_file_request,
+    UpdateNetworkResponse, WatchProbesRequest, WatchProbesResponse, WriteFileRequest,
+    WriteFileResponse, WrongFileKind, read_exec_output_response, write_file_request,
 };
 
 /// The contract versions the agent serves.
@@ -294,6 +294,28 @@ impl GuestService for Guest {
         let request = request.into_inner();
         self.execs.signal(&request.exec_id, request.signal)?;
         Ok(Response::new(SignalResponse {}))
+    }
+
+    type WatchProbesStream = ReceiverStream<Result<WatchProbesResponse, Status>>;
+
+    async fn watch_probes(
+        &self,
+        _request: Request<WatchProbesRequest>,
+    ) -> Result<Response<Self::WatchProbesStream>, Status> {
+        let mut watch = self.boot.probes()?.watch();
+        let (tx, rx) = mpsc::channel(STREAM_DEPTH);
+        tokio::spawn(async move {
+            while let Some(result) = watch.next().await {
+                let message = WatchProbesResponse {
+                    result: Some(result),
+                };
+                if tx.send(Ok(message)).await.is_err() {
+                    // The client went away; it opens the stream again for the current results.
+                    return;
+                }
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     type ReadFileStream = ReceiverStream<Result<ReadFileResponse, Status>>;
