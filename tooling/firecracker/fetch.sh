@@ -8,10 +8,13 @@
 # Moved by: the PM, who reviews these pins monthly against both projects' releases and security
 # advisories, and at once when an advisory names a pinned version (driver.md). No bot proposes it.
 #
-# Usage: fetch.sh <output-dir>
+# Usage: fetch.sh [--firecracker-only] <output-dir>
 # <output-dir> keeps the downloads in dl/ and receives firecracker, vmlinux and inputs.env, which names both with the digests
 # pinned here and not the ones read back from the files, so a test that checks a file against
 # them checks it against the pin. Files already there that match their pins are not fetched again.
+# --firecracker-only fetches and verifies the Firecracker binary alone: nothing is requested from the
+# Kata Containers release (its tarball is about 1 GB), no vmlinux is written, and inputs.env names
+# only MVMD_FIRECRACKER and MVMD_FIRECRACKER_SHA256.
 set -euo pipefail
 
 # Firecracker v1.17.0. The tarball digest is the one the GitHub release lists for the asset; the
@@ -33,8 +36,13 @@ KATA_TAR_SHA256_aarch64=2c5bf7cde334ad5307d482f45cceda496f91c9b6b96f5278c47f4f4e
 KATA_KERNEL_SHA256_aarch64=dece388830720fe8bddb41552fff5f486240aeece5acc0aebc1812761e3e3f66
 KATA_KERNEL_PATH=./opt/kata/share/kata-containers/vmlinux-6.18.56-208
 
+with_kernel=1
+if [ "${1:-}" = --firecracker-only ]; then
+  with_kernel=0
+  shift
+fi
 if [ "$#" -ne 1 ]; then
-  echo "usage: $0 <output-dir>" >&2
+  echo "usage: $0 [--firecracker-only] <output-dir>" >&2
   exit 2
 fi
 mkdir -p "$1"
@@ -98,22 +106,26 @@ else
   echo "fetch.sh: fetched Firecracker $FIRECRACKER_VERSION, SHA-256 $fc_bin_sha256"
 fi
 
-kernel_sha256=$(pin KATA_KERNEL_SHA256)
-if digest_is "$out/vmlinux" "$kernel_sha256"; then
-  echo "fetch.sh: $out/vmlinux is the pinned kernel"
-else
-  tar_name=kata-static-4.3.1-$kata_arch.tar.zst
-  download "$KATA_URL_BASE/$tar_name" "$(pin KATA_TAR_SHA256)"
-  mkdir "$work/kata"
-  zstd --decompress --stdout "$downloaded" | tar -x -C "$work/kata" "$KATA_KERNEL_PATH"
-  verified "$work/kata/$KATA_KERNEL_PATH" "$kernel_sha256"
-  install -m 0644 "$work/kata/$KATA_KERNEL_PATH" "$out/vmlinux"
-  echo "fetch.sh: fetched the Kata Containers 4.3.1 kernel, SHA-256 $kernel_sha256"
+if [ "$with_kernel" = 1 ]; then
+  kernel_sha256=$(pin KATA_KERNEL_SHA256)
+  if digest_is "$out/vmlinux" "$kernel_sha256"; then
+    echo "fetch.sh: $out/vmlinux is the pinned kernel"
+  else
+    tar_name=kata-static-4.3.1-$kata_arch.tar.zst
+    download "$KATA_URL_BASE/$tar_name" "$(pin KATA_TAR_SHA256)"
+    mkdir "$work/kata"
+    zstd --decompress --stdout "$downloaded" | tar -x -C "$work/kata" "$KATA_KERNEL_PATH"
+    verified "$work/kata/$KATA_KERNEL_PATH" "$kernel_sha256"
+    install -m 0644 "$work/kata/$KATA_KERNEL_PATH" "$out/vmlinux"
+    echo "fetch.sh: fetched the Kata Containers 4.3.1 kernel, SHA-256 $kernel_sha256"
+  fi
 fi
 
-cat >"$out/inputs.env" <<EOF
-MVMD_FIRECRACKER=$out/firecracker
-MVMD_FIRECRACKER_SHA256=$fc_bin_sha256
-MVMD_KERNEL=$out/vmlinux
-MVMD_KERNEL_SHA256=$kernel_sha256
-EOF
+{
+  echo "MVMD_FIRECRACKER=$out/firecracker"
+  echo "MVMD_FIRECRACKER_SHA256=$fc_bin_sha256"
+  if [ "$with_kernel" = 1 ]; then
+    echo "MVMD_KERNEL=$out/vmlinux"
+    echo "MVMD_KERNEL_SHA256=$kernel_sha256"
+  fi
+} >"$out/inputs.env"
