@@ -922,8 +922,8 @@ type HttpGetProbe struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 1 to 65535.
 	Port uint32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
-	// The request target: it begins with '/' and holds no space or control
-	// character, at most 2048 bytes.
+	// The request target: it begins with '/' and holds no space, control or
+	// non-ASCII character, at most 2048 bytes.
 	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
 	// Empty or "http", the only scheme spoken.
 	Scheme        string `protobuf:"bytes,3,opt,name=scheme,proto3" json:"scheme,omitempty"`
