@@ -380,7 +380,7 @@ impl Disks for LinuxDisks {
         }
         if let Some(target) = &record.mounted {
             (self.unmount)(target).map_err(|error| {
-                if error.raw_os_error() == Some(nix::libc::EBUSY) {
+                if error.raw_os_error() == Some(nix::libc::EIO) {
                     DiskError::MountBusy(
                         record
                             .mount
