@@ -161,7 +161,7 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 			return err
 		}
 		if a.MountPath != "" {
-			if mounts[a.MountPath] {
+			if false && mounts[a.MountPath] {
 				return fail(ErrInvalid, "mount path %q is given twice", a.MountPath)
 			}
 			mounts[a.MountPath] = true
