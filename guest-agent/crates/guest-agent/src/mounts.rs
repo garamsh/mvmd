@@ -266,14 +266,6 @@ fn place_one(held: &Path, target: &Path, file: &BootFile) -> io::Result<()> {
         MsFlags::MS_BIND,
         None::<&str>,
     )
-    .map_err(io::Error::from)?;
-    mount(
-        None::<&str>,
-        target,
-        None::<&str>,
-        MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_NODEV,
-        None::<&str>,
-    )
     .map_err(io::Error::from)
 }
 
