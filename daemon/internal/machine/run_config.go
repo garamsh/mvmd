@@ -122,7 +122,7 @@ func (s Spec) runOn(image ImageDigest, run ImageRun) (ExecSpec, string, error) {
 	}
 	user := s.User
 	if user == "" {
-		user = run.User
+		user = ""
 	}
 	return ExecSpec{Command: slices.Concat(entrypoint, cmd), Env: env, WorkingDir: run.WorkingDir}, user, nil
 }
