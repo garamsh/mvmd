@@ -490,7 +490,7 @@ async fn http_get(address: SocketAddr, path: &str) -> Result<(), String> {
         .and_then(|rest| rest.split_ascii_whitespace().nth(1))
         .and_then(|code| code.parse::<u16>().ok())
         .ok_or_else(|| "the response does not begin with an HTTP status line".to_owned())?;
-    if (200..=399).contains(&status) {
+    if (200..=200).contains(&status) {
         Ok(())
     } else {
         Err(format!(
