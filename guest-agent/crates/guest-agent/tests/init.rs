@@ -28,7 +28,9 @@ use guest_agent::{
     KernelCommandLine, Mounts, Network, NetworkConfig, Power, Resources, System, Uuid,
 };
 use hyper_util::rt::TokioIo;
-use nix::sys::signal::Signal;
+use nix::sys::signal::{Signal, kill};
+use nix::sys::wait::waitpid;
+use nix::unistd::Pid;
 use prost_types::Timestamp;
 use tempfile::TempDir;
 use tokio::net::{UnixListener, UnixStream};
@@ -1562,6 +1564,36 @@ async fn an_entrypoint_killed_by_a_signal_is_reported_with_the_signal() -> Resul
     assert!(
         before <= at && at <= after,
         "{at:?} is outside {before:?}..{after:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_entrypoint_the_agent_lost_is_reported_as_ended_with_the_reason() -> Result {
+    let mut agent = Agent::start().await?;
+    let pid_file = agent.dir.path().join("entrypoint-pid");
+    agent
+        .boot(&format!("echo $$ > {}; exec sleep 30", pid_file.display()))
+        .await?;
+    eventually("the entrypoint's process ID", || {
+        fs::read_to_string(&pid_file).is_ok_and(|text| text.ends_with('\n'))
+    })
+    .await?;
+    let pid = Pid::from_raw(fs::read_to_string(&pid_file)?.trim().parse()?);
+
+    // Another waiter takes the entrypoint's status, so the agent's own wait fails.
+    let thief = std::thread::spawn(move || waitpid(pid, None));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    kill(pid, Signal::SIGKILL)?;
+    thief.join().map_err(|_| "the waiting thread panicked")??;
+    agent.powered_off().await?;
+
+    let console = agent.console();
+    assert_eq!(console.len(), 1, "{console:?}");
+    assert!(
+        console[0]
+            .starts_with("mvmd-guest-agent: entrypoint ended reason=the agent lost the command: "),
+        "{console:?}"
     );
     Ok(())
 }
