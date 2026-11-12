@@ -294,3 +294,37 @@ fn describe(ended: &Ended) -> String {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_entrypoint_cut_short_is_described_as_ended_with_its_reason() {
+        let record = ExecRecord {
+            status: ExecStatus::CutShort.into(),
+            reason: "the agent lost the command: no child".into(),
+            ..ExecRecord::default()
+        };
+
+        assert_eq!(
+            describe(&Ended::Entrypoint(record)),
+            "mvmd-guest-agent: entrypoint ended reason=the agent lost the command: no child"
+        );
+    }
+
+    #[test]
+    fn an_entrypoint_not_started_is_described_by_its_own_line() {
+        // The control: a record that is not cut short does not take the fallback line.
+        let record = ExecRecord {
+            status: ExecStatus::NotStarted.into(),
+            reason: "no such file".into(),
+            ..ExecRecord::default()
+        };
+
+        assert_eq!(
+            describe(&Ended::Entrypoint(record)),
+            "mvmd-guest-agent: entrypoint not started reason=no such file"
+        );
+    }
+}

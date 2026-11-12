@@ -155,13 +155,14 @@ struct TestNetwork {
     log: Log,
     applied: Mutex<Vec<NetworkConfig>>,
     marker: PathBuf,
-    fail: bool,
+    /// Every call fails while this is set.
+    failing: AtomicBool,
 }
 
 impl Network for TestNetwork {
     fn apply(&self, config: &NetworkConfig) -> io::Result<()> {
         self.log.push("network");
-        if self.fail {
+        if self.failing.load(Ordering::SeqCst) {
             return Err(io::Error::other("injected failure"));
         }
         lock(&self.applied).push(config.clone());
@@ -252,15 +253,19 @@ impl Entropy for TestEntropy {
     }
 }
 
-/// A clock that keeps what it is set to.
+/// A clock that keeps what it is set to and fails while `failing` is set.
 struct TestClock {
     log: Log,
     set: Mutex<Vec<i64>>,
+    failing: AtomicBool,
 }
 
 impl Clock for TestClock {
     fn set_realtime(&self, unix_nanos: i64) -> io::Result<()> {
         self.log.push("clock");
+        if self.failing.load(Ordering::SeqCst) {
+            return Err(io::Error::other("injected failure"));
+        }
         lock(&self.set).push(unix_nanos);
         Ok(())
     }
@@ -342,6 +347,7 @@ impl Console for TestConsole {
 struct Setup {
     fail_mount: Option<&'static str>,
     fail_network: bool,
+    fail_clock: bool,
     fail_power: bool,
     fail_restart: bool,
     /// The kernel command line; the power-off's when none.
@@ -390,7 +396,7 @@ impl Agent {
             log: log.clone(),
             applied: Mutex::default(),
             marker: dir.path().join("network-applied"),
-            fail: setup.fail_network,
+            failing: AtomicBool::new(setup.fail_network),
         });
         let (done, powered_off) = oneshot::channel();
         let (hold, held) = std::sync::mpsc::channel();
@@ -402,6 +408,7 @@ impl Agent {
         let clock = Arc::new(TestClock {
             log: log.clone(),
             set: Mutex::default(),
+            failing: AtomicBool::new(setup.fail_clock),
         });
         let disks = Arc::new(TestDisks {
             log: log.clone(),
@@ -1000,6 +1007,73 @@ async fn a_step_that_fails_is_named_stops_the_catch_up_and_a_repeat_does_it_all_
 }
 
 #[tokio::test]
+async fn a_catch_up_step_after_the_first_that_fails_is_named_stops_the_rest_and_a_repeat_does_it_all_again()
+-> Result {
+    // The step that fails, the text naming it, and what must not have run after it.
+    for (failing, named, never_ran) in [
+        ("clock", "set the wall clock", &["network"][..]),
+        ("network", "configure the network", &[][..]),
+    ] {
+        let mut agent = Agent::start().await?;
+        agent.boot("sleep 30").await?;
+        let after_boot = agent.log.entries().len();
+        if failing == "clock" {
+            agent.clock.failing.store(true, Ordering::SeqCst);
+        } else {
+            agent.network.failing.store(true, Ordering::SeqCst);
+        }
+
+        let failed = agent
+            .client
+            .catch_up(catch_up_request("restore-1"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(failed.code(), Code::Internal, "{failing}");
+        assert!(
+            failed.message().contains(named),
+            "{failing}: {}",
+            failed.message()
+        );
+        assert!(
+            failed.message().contains("injected failure"),
+            "{failing}: {}",
+            failed.message()
+        );
+        // The steps before it ran, once each, in order; none after it did.
+        let steps: Vec<String> = agent.log.entries().split_off(after_boot);
+        let expected: &[&str] = if failing == "clock" {
+            &["entropy", "clock"]
+        } else {
+            &["entropy", "clock", "network"]
+        };
+        assert_eq!(steps, expected, "{failing}");
+        for later in never_ran {
+            assert_eq!(
+                agent.log.count(later),
+                1,
+                "{failing} ran {later} after failing"
+            );
+        }
+        // The failed ID was recorded nowhere: the repeat does every step again.
+        agent.clock.failing.store(false, Ordering::SeqCst);
+        agent.network.failing.store(false, Ordering::SeqCst);
+        agent.client.catch_up(catch_up_request("restore-1")).await?;
+        let steps: Vec<String> = agent.log.entries().split_off(after_boot + steps.len());
+        assert_eq!(steps, ["entropy", "clock", "network"], "{failing}");
+        assert_eq!(lock(&agent.entropy.mixed).len(), 2, "{failing}");
+        // The clock was set by the failed call as well when only the network failed.
+        let clock_sets = if failing == "clock" { 1 } else { 2 };
+        assert_eq!(lock(&agent.clock.set).len(), clock_sets, "{failing}");
+        assert_eq!(lock(&agent.network.applied).len(), 2, "{failing}");
+        // Now recorded: a third call with the same ID does nothing.
+        agent.client.catch_up(catch_up_request("restore-1")).await?;
+        assert_eq!(lock(&agent.entropy.mixed).len(), 2, "{failing}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn an_update_without_a_network_is_refused_and_changes_nothing() -> Result {
     let mut agent = Agent::start().await?;
     agent.boot("sleep 30").await?;
@@ -1251,6 +1325,52 @@ async fn a_boot_with_a_time_sets_the_clock_once_before_the_first_boot_step() -> 
         .position(|e| e.starts_with("find "))
         .ok_or("no boot step")?;
     assert!(clock < first_step, "{entries:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_boot_whose_clock_step_fails_is_named_and_stops_before_every_other_step() -> Result {
+    let mut agent = Agent::start_with(Setup {
+        fail_clock: true,
+        ..Setup::default()
+    })
+    .await?;
+    let mut request = agent.boot_request("sleep 30");
+    request.host_unix_nanos = 1_700_000_000_123_456_789;
+
+    let failure = agent.client.boot(request).await.unwrap_err();
+
+    assert_eq!(failure.code(), Code::Internal);
+    let failed: BootFailed = details::detail(&failure).ok_or("no BootFailed detail")?;
+    assert_eq!(failed.step(), WireStep::Clock);
+    assert_eq!(failed.detail, "injected failure");
+    assert_eq!(
+        agent.console(),
+        ["mvmd-guest-agent: boot failed step=set the wall clock detail=injected failure"]
+    );
+    assert_eq!(agent.log.count("clock"), 1);
+    for later in [
+        "find",
+        "mount_image",
+        "mount_root_disk",
+        "overlay",
+        "switch_root",
+        "network",
+    ] {
+        assert_eq!(
+            agent.log.count(later),
+            0,
+            "{later} ran after the clock failed"
+        );
+    }
+    // The control: the same agent with no time never touches the clock, and boots.
+    let mut untimed = Agent::start_with(Setup {
+        fail_clock: true,
+        ..Setup::default()
+    })
+    .await?;
+    untimed.boot("sleep 30").await?;
+    assert_eq!(untimed.log.count("find"), 2);
     Ok(())
 }
 

@@ -477,6 +477,29 @@ async fn exec_refuses_a_request_that_names_no_command_or_no_id() -> Result {
 }
 
 #[tokio::test]
+async fn ended_at_is_the_reap_and_not_the_end_of_the_drain_of_pipes_the_command_outlived() -> Result
+{
+    let mut h = Harness::start().await?;
+    // The shell exits at once; the background sleep holds the output pipes for the drain grace.
+    let before = SystemTime::now();
+    h.exec("e1", &[SH, "-c", "sleep 3 & echo started"]).await?;
+    let (_, record) = h.output("e1", 0).await?;
+    let after = SystemTime::now();
+
+    assert_eq!(record.status(), ExecStatus::Exited);
+    let ended = SystemTime::try_from(record.ended_at.ok_or("an exited record has no ended_at")?)?;
+    assert!(before <= ended, "ended_at {ended:?} is before the start");
+    // The record became final a drain grace (one second) after the reap, so a time stamped when
+    // the output drained would be that far from the reap.
+    let drain = after.duration_since(ended)?;
+    assert!(
+        drain >= std::time::Duration::from_millis(500),
+        "ended_at {ended:?} is only {drain:?} before the record was final at {after:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_signal_after_the_command_was_reaped_does_not_reach_a_process_id() -> Result {
     let mut h = Harness::start().await?;
     // The shell exits at once; the background sleep holds the output pipes for the drain grace.
