@@ -10,7 +10,10 @@
 // release and the version of the kernel the guest booted, one to a line, and "ignore-term" ignores
 // SIGTERM, prints "ignoring SIGTERM" once it does, and stays running, "probe NAME..." prints one line
 // with the user and group the program runs as, its supplementary groups, and each named environment
-// variable as NAME=value, and stays running, and "stat FILE" prints the file's mode, owner and group.
+// variable as NAME=value, and stays running, "stat FILE" prints the file's mode, owner and group, and
+// "mount-check PATH" prints one line saying whether PATH is a mount, whether it holds an ext4
+// filesystem and whether a file written there reads back, and stays running, as "mount-check-once
+// PATH" does not.
 package main
 
 import (
@@ -123,6 +126,11 @@ func command(name string, args []string) {
 		time.Sleep(time.Hour)
 	case "probe":
 		probe(args)
+	case "mount-check":
+		mountCheck(args[0])
+		time.Sleep(time.Hour)
+	case "mount-check-once":
+		mountCheck(args[0])
 	case "stat":
 		info, err := os.Stat(args[0])
 		if err != nil {
@@ -170,6 +178,28 @@ func probe(names []string) {
 	}
 	fmt.Println(strings.Join(fields, " "))
 	time.Sleep(time.Hour)
+}
+
+// mountCheck prints whether path is a mount (its device is not its parent's), whether the
+// filesystem under it is ext4 (the statfs magic 0xEF53), and whether a file written there and
+// synced reads back. Each is false when it cannot be shown, and none needs /proc.
+func mountCheck(path string) {
+	var self, parent syscall.Stat_t
+	mounted := syscall.Stat(path, &self) == nil && syscall.Stat(path+"/..", &parent) == nil && self.Dev != parent.Dev
+	var fs syscall.Statfs_t
+	ext4 := syscall.Statfs(path, &fs) == nil && uint32(fs.Type) == 0xEF53
+	writable := false
+	const want = "written-by-the-workload"
+	name := path + "/mount-check"
+	if err := os.WriteFile(name, []byte(want), 0o600); err == nil {
+		if file, err := os.Open(name); err == nil {
+			_ = file.Sync()
+			file.Close()
+		}
+		got, err := os.ReadFile(name)
+		writable = err == nil && string(got) == want
+	}
+	fmt.Printf("path=%s mounted=%t ext4=%t writable=%t\n", path, mounted, ext4, writable)
 }
 
 // utsField is the text of a NUL-terminated field of the kernel's utsname.
