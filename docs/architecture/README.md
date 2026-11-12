@@ -83,5 +83,6 @@ Decisions:
 - [ADR 0050](./adr/0050-the-guest-agent-mounts-an-attached-disks-ext4-at-a-path-and-grows-it-online.md) — the guest agent mounts an attached disk's ext4 at a path and grows it online
 - [ADR 0051](./adr/0051-create-machine-takes-a-command-args-env-user-and-files-which-the-machine-keeps-and-sends-at-every-boot.md) — Create Machine takes a command, args, env, user and files, which the Machine keeps and sends at every boot
 - [ADR 0053](./adr/0053-create-disk-takes-a-filesystem-and-an-attachment-takes-a-mount-path-the-guest-agent-is-asked-to-mount.md) — Create disk takes a filesystem and an attachment takes a mount path the guest agent is asked to mount
+- [ADR 0054](./adr/0054-the-guest-agent-runs-the-workloads-probes-and-streams-their-results-and-acts-on-none.md) — The run configuration lists the workload's probes (exec, tcp, http_get); the agent runs them and streams their results with `WatchProbes`, and acts on none.
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
