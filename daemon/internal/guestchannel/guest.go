@@ -585,7 +585,7 @@ func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
 // not returned: the daemon records no guest device name.
 func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, a machine.DiskAttachment) error {
 	return g.run(ctx, id, opDisk, func(c guestv1alpha1.GuestServiceClient) error {
-		_, err := c.FindDisk(ctx, &guestv1alpha1.FindDiskRequest{DiskId: string(a.Disk), MountPath: a.MountPath, ReadOnly: a.ReadOnly})
+		_, err := c.FindDisk(ctx, &guestv1alpha1.FindDiskRequest{DiskId: string(a.Disk), ReadOnly: a.ReadOnly})
 		return err
 	})
 }
