@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package mvmd.guest.v1alpha1;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 // GuestService is the guest channel. The Guest Agent serves it over vsock.
@@ -40,6 +41,17 @@ service GuestService {
       returns (stream ReadExecOutputResponse);
   // Deliver a signal to a running command.
   rpc Signal(SignalRequest) returns (SignalResponse);
+
+  // Follow the results of the probes RunConfig.probes describes. On open the
+  // stream sends the current result of every probe, one message each in the
+  // order of the description, and then one message for each probe's change of
+  // status. It ends after the entrypoint ends, once every result is sent; a
+  // call after that sends the current results and ends. A client too slow to
+  // keep up is sent the current result of every probe again in place of the
+  // changes it missed. The agent acts on no result. It is refused until Boot
+  // has succeeded, and a description with no probes sends nothing before the
+  // stream ends.
+  rpc WatchProbes(WatchProbesRequest) returns (stream WatchProbesResponse);
 
   // Read a file as a stream of chunks.
   rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
@@ -162,6 +174,101 @@ message RunConfig {
   // onto its path, shadowing what the image holds there. At most 64 files and
   // 1 MiB of content in all.
   repeated File files = 5;
+  // Probes of the workload, run by the agent from the entrypoint's start. At
+  // most 8, with names that are not repeated. They are part of the
+  // description a repeat of Boot is compared by, with the defaults applied.
+  repeated Probe probes = 6;
+}
+
+// A check of the workload the agent runs on a schedule. The first run is
+// initial_delay after the entrypoint starts, and each next one a period after
+// the one before it started, until the entrypoint ends; runs of one probe do
+// not overlap. A run succeeds or fails, and a run that is not over within
+// timeout fails.
+message Probe {
+  // Names the probe in results. Not empty, at most 63 bytes of letters,
+  // digits, '-', '_' and '.', and not repeated among the probes of a
+  // description.
+  string name = 1;
+  oneof kind {
+    ExecProbe exec = 2;
+    TcpProbe tcp = 3;
+    HttpGetProbe http_get = 4;
+  }
+  // Time from the entrypoint's start to the first run. Unset is 0.
+  google.protobuf.Duration initial_delay = 5;
+  // Time between the starts of runs. Unset is 10 s; at least 1 ms.
+  google.protobuf.Duration period = 6;
+  // How long one run may take. Unset is 1 s; at least 1 ms.
+  google.protobuf.Duration timeout = 7;
+  // Consecutive successes that make a probe PASSING. 0 is 1.
+  uint32 success_threshold = 8;
+  // Consecutive failures that make a probe FAILING. 0 is 3.
+  uint32 failure_threshold = 9;
+}
+
+// A command run in the booted root, as the run configuration's user, with its
+// environment and working directory. It succeeds on exit code 0. It runs
+// outside the exec table: it has no exec ID and its output is not retained
+// beyond the first 1 KiB, which the result carries.
+message ExecProbe {
+  // The program and its arguments; the first element is the program.
+  repeated string argv = 1;
+}
+
+// A connection to the guest's loopback address accepted: 127.0.0.1, or ::1
+// when the Boot request's network configures IPv6 and no IPv4.
+message TcpProbe {
+  // 1 to 65535.
+  uint32 port = 1;
+}
+
+// A GET to the guest's loopback address, chosen as TcpProbe chooses it, that
+// is answered with a status from 200 to 399. A redirect is not followed.
+message HttpGetProbe {
+  // 1 to 65535.
+  uint32 port = 1;
+  // The request target: it begins with '/' and holds no space, control or
+  // non-ASCII character, at most 2048 bytes.
+  string path = 2;
+  // Empty or "http", the only scheme spoken.
+  string scheme = 3;
+}
+
+enum ProbeStatus {
+  PROBE_STATUS_UNSPECIFIED = 0;
+  // The probe has not yet met a threshold.
+  PROBE_STATUS_UNKNOWN = 1;
+  // success_threshold consecutive runs succeeded, and no failure_threshold
+  // consecutive runs have failed since.
+  PROBE_STATUS_PASSING = 2;
+  // failure_threshold consecutive runs failed, and no success_threshold
+  // consecutive runs have succeeded since.
+  PROBE_STATUS_FAILING = 3;
+}
+
+message ProbeResult {
+  // The probe's name.
+  string name = 1;
+  ProbeStatus status = 2;
+  // The guest's CLOCK_REALTIME when status last changed; unset while UNKNOWN.
+  google.protobuf.Timestamp changed_at = 3;
+  // The runs in a row that succeeded, and the runs in a row that failed; one
+  // of them is 0.
+  uint32 consecutive_successes = 4;
+  uint32 consecutive_failures = 5;
+  // Why the most recent failed run failed, as text for people; empty when no
+  // run has failed. It never holds output of the workload.
+  string last_failure = 6;
+  // The first 1 KiB of the output (standard output and standard error, in the
+  // order read) of an ExecProbe's most recent run; empty for the other kinds.
+  bytes last_output = 7;
+}
+
+message WatchProbesRequest {}
+
+message WatchProbesResponse {
+  ProbeResult result = 1;
 }
 
 // A file placed in the booted root.

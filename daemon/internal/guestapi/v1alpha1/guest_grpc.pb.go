@@ -29,6 +29,7 @@ const (
 	GuestService_Exec_FullMethodName           = "/mvmd.guest.v1alpha1.GuestService/Exec"
 	GuestService_ReadExecOutput_FullMethodName = "/mvmd.guest.v1alpha1.GuestService/ReadExecOutput"
 	GuestService_Signal_FullMethodName         = "/mvmd.guest.v1alpha1.GuestService/Signal"
+	GuestService_WatchProbes_FullMethodName    = "/mvmd.guest.v1alpha1.GuestService/WatchProbes"
 	GuestService_ReadFile_FullMethodName       = "/mvmd.guest.v1alpha1.GuestService/ReadFile"
 	GuestService_WriteFile_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/WriteFile"
 	GuestService_PatchFile_FullMethodName      = "/mvmd.guest.v1alpha1.GuestService/PatchFile"
@@ -78,6 +79,16 @@ type GuestServiceClient interface {
 	ReadExecOutput(ctx context.Context, in *ReadExecOutputRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadExecOutputResponse], error)
 	// Deliver a signal to a running command.
 	Signal(ctx context.Context, in *SignalRequest, opts ...grpc.CallOption) (*SignalResponse, error)
+	// Follow the results of the probes RunConfig.probes describes. On open the
+	// stream sends the current result of every probe, one message each in the
+	// order of the description, and then one message for each probe's change of
+	// status. It ends after the entrypoint ends, once every result is sent; a
+	// call after that sends the current results and ends. A client too slow to
+	// keep up is sent the current result of every probe again in place of the
+	// changes it missed. The agent acts on no result. It is refused until Boot
+	// has succeeded, and a description with no probes sends nothing before the
+	// stream ends.
+	WatchProbes(ctx context.Context, in *WatchProbesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchProbesResponse], error)
 	// Read a file as a stream of chunks.
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadFileResponse], error)
 	// Write a file atomically: whole old or whole new content. The stream is
@@ -227,9 +238,28 @@ func (c *guestServiceClient) Signal(ctx context.Context, in *SignalRequest, opts
 	return out, nil
 }
 
+func (c *guestServiceClient) WatchProbes(ctx context.Context, in *WatchProbesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchProbesResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[1], GuestService_WatchProbes_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchProbesRequest, WatchProbesResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type GuestService_WatchProbesClient = grpc.ServerStreamingClient[WatchProbesResponse]
+
 func (c *guestServiceClient) ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadFileResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[1], GuestService_ReadFile_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[2], GuestService_ReadFile_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +278,7 @@ type GuestService_ReadFileClient = grpc.ServerStreamingClient[ReadFileResponse]
 
 func (c *guestServiceClient) WriteFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteFileRequest, WriteFileResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[2], GuestService_WriteFile_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[3], GuestService_WriteFile_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +301,7 @@ func (c *guestServiceClient) PatchFile(ctx context.Context, in *PatchFileRequest
 
 func (c *guestServiceClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListFilesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[3], GuestService_ListFiles_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[4], GuestService_ListFiles_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +320,7 @@ type GuestService_ListFilesClient = grpc.ServerStreamingClient[ListFilesResponse
 
 func (c *guestServiceClient) SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SearchFilesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[4], GuestService_SearchFiles_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &GuestService_ServiceDesc.Streams[5], GuestService_SearchFiles_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -412,6 +442,16 @@ type GuestServiceServer interface {
 	ReadExecOutput(*ReadExecOutputRequest, grpc.ServerStreamingServer[ReadExecOutputResponse]) error
 	// Deliver a signal to a running command.
 	Signal(context.Context, *SignalRequest) (*SignalResponse, error)
+	// Follow the results of the probes RunConfig.probes describes. On open the
+	// stream sends the current result of every probe, one message each in the
+	// order of the description, and then one message for each probe's change of
+	// status. It ends after the entrypoint ends, once every result is sent; a
+	// call after that sends the current results and ends. A client too slow to
+	// keep up is sent the current result of every probe again in place of the
+	// changes it missed. The agent acts on no result. It is refused until Boot
+	// has succeeded, and a description with no probes sends nothing before the
+	// stream ends.
+	WatchProbes(*WatchProbesRequest, grpc.ServerStreamingServer[WatchProbesResponse]) error
 	// Read a file as a stream of chunks.
 	ReadFile(*ReadFileRequest, grpc.ServerStreamingServer[ReadFileResponse]) error
 	// Write a file atomically: whole old or whole new content. The stream is
@@ -509,6 +549,9 @@ func (UnimplementedGuestServiceServer) ReadExecOutput(*ReadExecOutputRequest, gr
 }
 func (UnimplementedGuestServiceServer) Signal(context.Context, *SignalRequest) (*SignalResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Signal not implemented")
+}
+func (UnimplementedGuestServiceServer) WatchProbes(*WatchProbesRequest, grpc.ServerStreamingServer[WatchProbesResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchProbes not implemented")
 }
 func (UnimplementedGuestServiceServer) ReadFile(*ReadFileRequest, grpc.ServerStreamingServer[ReadFileResponse]) error {
 	return status.Error(codes.Unimplemented, "method ReadFile not implemented")
@@ -667,6 +710,17 @@ func _GuestService_Signal_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _GuestService_WatchProbes_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchProbesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(GuestServiceServer).WatchProbes(m, &grpc.GenericServerStream[WatchProbesRequest, WatchProbesResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type GuestService_WatchProbesServer = grpc.ServerStreamingServer[WatchProbesResponse]
 
 func _GuestService_ReadFile_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(ReadFileRequest)
@@ -916,6 +970,11 @@ var GuestService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ReadExecOutput",
 			Handler:       _GuestService_ReadExecOutput_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "WatchProbes",
+			Handler:       _GuestService_WatchProbes_Handler,
 			ServerStreams: true,
 		},
 		{
