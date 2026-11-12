@@ -312,7 +312,7 @@ impl Boot {
         }
 
         let disks = system.disks.clone();
-        blocking(BootStep::MountDisks, move || {
+        blocking(BootStep::PlaceFiles, move || {
             disks.mount_recorded().map_err(io::Error::other)
         })
         .await?;
