@@ -191,7 +191,12 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	// The sockets of an earlier VMM outlive it in the run directory, and
 	// Firecracker refuses to bind a path that exists. No supervisor runs, so
 	// nothing serves them; each is removed without being followed.
-	for _, name := range []string{vmmconfig.APISocket, vmmconfig.VsockSocket} {
+	left, _ := os.ReadDir(runDir)
+	names := []string{vmmconfig.APISocket, vmmconfig.VsockSocket}
+	for _, e := range left {
+		names = append(names, e.Name())
+	}
+	for _, name := range names {
 		if err := os.Remove(filepath.Join(runDir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("clear %q of an earlier run: %w", name, err)
 		}
