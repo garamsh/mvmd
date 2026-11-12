@@ -516,7 +516,7 @@ async fn exec_run(argv: &[String], context: &Context) -> Outcome {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        .kill_on_drop(false);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => return Outcome::failed(format!("cannot start {program}: {error}")),
