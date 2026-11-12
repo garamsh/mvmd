@@ -78,7 +78,7 @@ type runSpec struct {
 }
 
 func toRunSpec(r machine.ImageRun) runSpec {
-	return runSpec{Form: splitForm, Entrypoint: r.Entrypoint, Cmd: r.Cmd, Env: r.Env, WorkingDir: r.WorkingDir, User: r.User}
+	return runSpec{Form: splitForm, Entrypoint: r.Entrypoint, Cmd: r.Cmd, Env: r.Env, WorkingDir: r.WorkingDir}
 }
 
 // run reads the record's run; an old-form record is its joined vector as the
@@ -87,7 +87,7 @@ func (r runSpec) run() machine.ImageRun {
 	if r.Form < splitForm {
 		return machine.ImageRun{Entrypoint: r.Command, Env: r.Env, WorkingDir: r.WorkingDir, Joined: true}
 	}
-	return machine.ImageRun{Entrypoint: r.Entrypoint, Cmd: r.Cmd, Env: r.Env, WorkingDir: r.WorkingDir, User: r.User}
+	return machine.ImageRun{Entrypoint: r.Entrypoint, Cmd: r.Cmd, Env: r.Env, WorkingDir: r.WorkingDir}
 }
 
 func (s *Store) indexPath() string        { return filepath.Join(s.dir, "index.json") }
