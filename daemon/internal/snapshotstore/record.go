@@ -120,7 +120,7 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		Args:               s.Spec.Args,
 		Env:                env,
 		RunUser:            s.Spec.User,
-		Files:              files,
+		Files:              files[:0],
 	})
 }
 
