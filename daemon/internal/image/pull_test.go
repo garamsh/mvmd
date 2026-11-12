@@ -23,11 +23,13 @@ func TestPull_PublishesTheConvertedImage(t *testing.T) {
 	r.requireListed(t, ref)
 	located, err := r.store.Locate(context.Background(), ref.Digest)
 	require.NoError(t, err)
-	assert.Equal(t, machine.ExecSpec{
-		Command:    []string{"/bin/app", "--serve", "one"},
+	assert.Equal(t, machine.ImageRun{
+		Entrypoint: []string{"/bin/app"},
+		Cmd:        []string{"--serve", "one"},
 		Env:        map[string]string{"A": "1", "B": "x=y"},
 		WorkingDir: "/srv",
-	}, located.Run, "the entrypoint and command are one argument vector")
+		User:       "app:grp",
+	}, located.Run, "the entrypoint, the command and the user are kept apart")
 
 	record, ok := r.store.RecordOf(ref.Digest)
 	require.True(t, ok)
@@ -37,6 +39,45 @@ func TestPull_PublishesTheConvertedImage(t *testing.T) {
 	assert.NotEmpty(t, record.Verity, "the digest Seal measured reaches the record")
 	assert.Zero(t, r.store.Staging(), "the staging area is removed after the publish")
 	assert.Zero(t, r.uids.Held())
+}
+
+// The control of the test above: a config that sets none of the three records
+// none of them.
+func TestPull_RecordsNoEntrypointCommandOrUserForAConfigThatSetsNone(t *testing.T) {
+	r := newRig(t)
+	ref := r.registry.Add("registry.example/app", memory.Image{
+		Platform: platform,
+		Layers:   []memory.Layer{{MediaType: layerTar, Content: []byte("bare layer")}},
+	})
+
+	require.NoError(t, r.pull(ref))
+
+	located, err := r.store.Locate(context.Background(), ref.Digest)
+	require.NoError(t, err)
+	assert.Equal(t, machine.ImageRun{}, located.Run)
+}
+
+func TestPull_RewritesARecordInTheOldForm(t *testing.T) {
+	r := newRig(t)
+	ref := r.add("one")
+	require.NoError(t, r.pull(ref))
+	r.store.AsOldForm(ref.Digest)
+	old, err := r.store.Locate(context.Background(), ref.Digest)
+	require.NoError(t, err)
+	require.True(t, old.Run.Joined, "the setup: the record is in the old form")
+	require.Empty(t, old.Run.Cmd, "the setup: the old form holds one vector")
+	stages := r.calls("stage")
+
+	require.NoError(t, r.pull(ref))
+
+	assert.Greater(t, r.calls("stage"), stages, "the pull ran and did not answer present")
+	located, err := r.store.Locate(context.Background(), ref.Digest)
+	require.NoError(t, err)
+	assert.False(t, located.Run.Joined)
+	assert.Equal(t, []string{"/bin/app"}, located.Run.Entrypoint)
+	assert.Equal(t, []string{"--serve", "one"}, located.Run.Cmd)
+	assert.Equal(t, "app:grp", located.Run.User)
+	assert.Equal(t, []machine.ImageDigest{ref.Digest}, r.store.Listed())
 }
 
 func TestPull_HandsTheConverterTheVerifiedLayersInOrder(t *testing.T) {

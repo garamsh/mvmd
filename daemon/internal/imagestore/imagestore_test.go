@@ -3,6 +3,9 @@ package imagestore_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -48,6 +51,11 @@ func content(tag string) []byte {
 // record.
 func stageAndSeal(t *testing.T, s *imagestore.Store, digest machine.ImageDigest, data []byte) (image.Staging, image.Record) {
 	t.Helper()
+	return stageAndSealRun(t, s, digest, data, machine.ImageRun{Entrypoint: []string{"/bin/app"}, Cmd: []string{"--serve"}, Env: map[string]string{"A": "b"}, WorkingDir: "/srv", User: "app:grp"})
+}
+
+func stageAndSealRun(t *testing.T, s *imagestore.Store, digest machine.ImageDigest, data []byte, run machine.ImageRun) (image.Staging, image.Record) {
+	t.Helper()
 	staging, err := s.Stage(ctx, digest, uint64(len(data))+8192)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(staging.Output, data, 0o600))
@@ -55,7 +63,7 @@ func stageAndSeal(t *testing.T, s *imagestore.Store, digest machine.ImageDigest,
 	require.NoError(t, err)
 	record := image.Record{
 		Image:        digest,
-		Run:          machine.ExecSpec{Command: []string{"/bin/app", "--serve"}, Env: map[string]string{"A": "b"}, WorkingDir: "/srv"},
+		Run:          run,
 		Architecture: "amd64",
 		Converter:    "converter-1",
 		UUID:         "uuid-of-" + string(digest)[7:15],
@@ -411,4 +419,78 @@ func TestStore_StageCreatesTheOutputSparseAtTheSize(t *testing.T) {
 	info, err := os.Stat(staging.Output)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1<<30), info.Size())
+}
+
+// A record written before the entrypoint, the command and the user were kept
+// apart reads as its joined vector in the entrypoint, with the marker.
+func TestStore_LocatesARecordInTheOldFormMarked(t *testing.T) {
+	s, dir := newStore(t)
+	pull(t, s, imageA, content("a"))
+	fresh, err := s.Locate(ctx, imageA)
+	require.NoError(t, err)
+	require.False(t, fresh.Run.Joined, "the setup: a new record is not marked")
+	rewriteRunAsOldForm(t, dir, imageA)
+
+	old, err := s.Locate(ctx, imageA)
+	require.NoError(t, err)
+
+	assert.Equal(t, machine.ImageRun{Entrypoint: []string{"/bin/app", "--serve"}, Env: map[string]string{"A": "b"}, WorkingDir: "/srv", Joined: true}, old.Run)
+}
+
+// A pull of the digest replaces the old-form record with a new one.
+func TestStore_PublishReplacesARecordInTheOldForm(t *testing.T) {
+	s, dir := newStore(t)
+	pull(t, s, imageA, content("a"))
+	rewriteRunAsOldForm(t, dir, imageA)
+
+	record := pull(t, s, imageA, content("a"))
+
+	located, err := s.Locate(ctx, imageA)
+	require.NoError(t, err)
+	assert.Equal(t, record.Run, located.Run)
+	assert.False(t, located.Run.Joined)
+}
+
+// rewriteRunAsOldForm replaces the image's config blob with one whose run is in
+// the old form, and re-points the manifest and the index at it.
+func rewriteRunAsOldForm(t *testing.T, dir string, digest machine.ImageDigest) {
+	t.Helper()
+	blobs := filepath.Join(dir, "blobs", "sha256")
+	readJSON := func(path string) map[string]any {
+		b, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(b, &m))
+		return m
+	}
+	put := func(m map[string]any) (string, int) {
+		b, err := json.Marshal(m)
+		require.NoError(t, err)
+		sum := sha256.Sum256(b)
+		h := hex.EncodeToString(sum[:])
+		require.NoError(t, os.WriteFile(filepath.Join(blobs, h), b, 0o644))
+		return "sha256:" + h, len(b)
+	}
+	index := readJSON(filepath.Join(dir, "index.json"))
+	var entry map[string]any
+	for _, e := range index["manifests"].([]any) {
+		cand := e.(map[string]any)
+		if cand["annotations"].(map[string]any)["io.mvmd.image.digest"] == string(digest) {
+			entry = cand
+		}
+	}
+	require.NotNil(t, entry, "the setup: the index lists the image")
+
+	manifest := readJSON(filepath.Join(blobs, strings.TrimPrefix(entry["digest"].(string), "sha256:")))
+	cfgDesc := manifest["config"].(map[string]any)
+	cfg := readJSON(filepath.Join(blobs, strings.TrimPrefix(cfgDesc["digest"].(string), "sha256:")))
+	run := cfg["run"].(map[string]any)
+	joined := append(run["entrypoint"].([]any), run["cmd"].([]any)...)
+	cfg["run"] = map[string]any{"command": joined, "env": run["env"], "workingDir": run["workingDir"]}
+
+	cfgDesc["digest"], cfgDesc["size"] = put(cfg)
+	entry["digest"], entry["size"] = put(manifest)
+	b, err := json.Marshal(index)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.json"), b, 0o644))
 }

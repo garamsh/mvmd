@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,11 +82,15 @@ func (s *service) run(ctx context.Context, cancel context.CancelFunc, ref Refere
 // staging area.
 func (s *service) pull(ctx context.Context, ref Reference) error {
 	// Step 2.
-	if _, err := s.store.Locate(ctx, ref.Digest); err == nil {
+	located, err := s.store.Locate(ctx, ref.Digest)
+	switch {
+	case err == nil && !located.Run.Joined:
 		return nil
-	} else if !errors.Is(err, machine.ErrImageAbsent) {
+	case err != nil && !errors.Is(err, machine.ErrImageAbsent):
 		return failed("look for the image in the cache", err)
 	}
+	// An absent image is pulled, and so is one whose record is in the old
+	// form, which the publish replaces.
 	staging, err := s.store.Stage(ctx, ref.Digest, s.settings.OutputBytes)
 	if err != nil {
 		return failed("create the staging area", err)
@@ -193,18 +198,22 @@ func (s *service) fetchLayer(ctx context.Context, ref Reference, staging Staging
 	return s.store.PutLayer(ctx, staging, index, content)
 }
 
-// runSpec is what the guest runs: the entrypoint and the command as one
-// argument vector, and the environment as a map.
-func runSpec(c Config) (machine.ExecSpec, error) {
-	spec := machine.ExecSpec{WorkingDir: c.WorkingDir}
-	spec.Command = append(append(spec.Command, c.Entrypoint...), c.Cmd...)
+// runSpec is the config's run part: the entrypoint, the command and the user
+// apart, and the environment as a map.
+func runSpec(c Config) (machine.ImageRun, error) {
+	spec := machine.ImageRun{
+		Entrypoint: slices.Clone(c.Entrypoint),
+		Cmd:        slices.Clone(c.Cmd),
+		WorkingDir: c.WorkingDir,
+		User:       c.User,
+	}
 	if len(c.Env) > 0 {
 		spec.Env = make(map[string]string, len(c.Env))
 	}
 	for _, entry := range c.Env {
 		name, value, ok := strings.Cut(entry, "=")
 		if !ok || name == "" {
-			return machine.ExecSpec{}, fmt.Errorf("environment entry %q is not NAME=value", entry)
+			return machine.ImageRun{}, fmt.Errorf("environment entry %q is not NAME=value", entry)
 		}
 		spec.Env[name] = value
 	}

@@ -30,8 +30,8 @@ func NewImageStore() *ImageStore {
 func (s *ImageStore) Provide(image machine.ImageDigest) {
 	s.ProvideWith(image, machine.LocatedImage{
 		UUID: "erofs-uuid-of-" + string(image),
-		Run: machine.ExecSpec{
-			Command:    []string{"/bin/run", string(image)},
+		Run: machine.ImageRun{
+			Entrypoint: []string{"/bin/run", string(image)},
 			Env:        map[string]string{"IMAGE": string(image)},
 			WorkingDir: "/srv",
 		},
@@ -67,7 +67,8 @@ func (s *ImageStore) Locate(_ context.Context, image machine.ImageDigest) (machi
 		return machine.LocatedImage{}, machine.ErrImageAbsent
 	}
 	// A copy, so a caller cannot change what the store holds.
-	located.Run.Command = slices.Clone(located.Run.Command)
+	located.Run.Entrypoint = slices.Clone(located.Run.Entrypoint)
+	located.Run.Cmd = slices.Clone(located.Run.Cmd)
 	located.Run.Env = maps.Clone(located.Run.Env)
 	return located, nil
 }

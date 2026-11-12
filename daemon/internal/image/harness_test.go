@@ -89,6 +89,7 @@ func (r *rig) add(tag string) image.Reference {
 			Cmd:        []string{"--serve", tag},
 			Env:        []string{"A=1", "B=x=y"},
 			WorkingDir: "/srv",
+			User:       "app:grp",
 		},
 		Layers: []memory.Layer{
 			{MediaType: layerTar, Content: []byte("base layer of " + tag)},

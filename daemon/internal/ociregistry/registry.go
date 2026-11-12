@@ -145,13 +145,14 @@ func (r *Registry) Config(ctx context.Context, ref image.Reference, config image
 			Cmd        []string
 			Env        []string
 			WorkingDir string
+			User       string
 		}
 	}
 	if err := json.Unmarshal(content, &decoded); err != nil {
 		return image.Config{}, fmt.Errorf("decode the config %s: %v", config.Digest, err)
 	}
 	c := decoded.Config
-	return image.Config{Entrypoint: c.Entrypoint, Cmd: c.Cmd, Env: c.Env, WorkingDir: c.WorkingDir}, nil
+	return image.Config{Entrypoint: c.Entrypoint, Cmd: c.Cmd, Env: c.Env, WorkingDir: c.WorkingDir, User: c.User}, nil
 }
 
 // Layer implements image.Registry.
