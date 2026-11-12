@@ -32,7 +32,7 @@ func (s *Server) ListDisks(ctx context.Context, _ *v1alpha2.ListDisksRequest) (*
 	}
 	resp := &v1alpha2.ListDisksResponse{}
 	for _, d := range all {
-		resp.Disks = append(resp.Disks, &v1alpha2.Disk{Id: string(d.ID), SizeBytes: d.SizeBytes, Filesystem: filesystemWire(d.Filesystem), HolderMachineId: string(d.Holder)})
+		resp.Disks = append(resp.Disks, &v1alpha2.Disk{Id: string(d.ID), SizeBytes: d.SizeBytes, HolderMachineId: string(d.Holder)})
 	}
 	return resp, nil
 }
