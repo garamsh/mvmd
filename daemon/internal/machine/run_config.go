@@ -60,7 +60,7 @@ func (s Spec) validateRun() error {
 		case strings.Contains(e.Name, "="):
 			return fail(ErrInvalid, "env: name %q contains \"=\"", e.Name)
 		case names[e.Name]:
-			return fail(ErrInvalid, "env: name %q is given twice", e.Name)
+			return fail(ErrInvalid, "env: name %q is given twice (value %q)", e.Name, e.Value)
 		}
 		names[e.Name] = true
 	}
