@@ -1,6 +1,7 @@
 package supervision_test
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // hostFile writes a file the VMM's user can read, on the file system the
@@ -153,4 +155,32 @@ func TestStart_AFailedRunFileLinkFailsTheStart(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run, "first"), "control: the entry before the failure was linked")
 	assert.NoFileExists(t, filepath.Join(run, "report.json"), "the VMM did not start")
 	assert.Empty(t, processes("--machine m "), "no supervisor is left")
+}
+
+// The API and vsock sockets an earlier VMM left in the run directory are gone
+// when the next VMM starts, since Firecracker fails to bind a path that
+// exists. The control is another file of the run directory, which stays.
+func TestStart_TheSocketsAnEarlierRunLeftAreRemoved(t *testing.T) {
+	n := newNode(t)
+	run := runDir(n.dir, "m")
+	require.NoError(t, os.MkdirAll(run, 0o700))
+	socks := []string{filepath.Join(run, vmmconfig.APISocket), filepath.Join(run, vmmconfig.VsockSocket)}
+	for _, sock := range socks {
+		l, err := net.Listen("unix", sock)
+		require.NoError(t, err)
+		l.(*net.UnixListener).SetUnlinkOnClose(false)
+		require.NoError(t, l.Close())
+		require.FileExists(t, sock, "setup: the closed listener left its socket file")
+	}
+	other := filepath.Join(run, "other")
+	require.NoError(t, os.WriteFile(other, []byte("kept"), 0o600))
+
+	n.started(t, "m", vmmUser, nil, nil)
+
+	for _, sock := range socks {
+		assert.NoFileExists(t, sock, "the earlier run's socket is removed")
+	}
+	kept, err := os.ReadFile(other)
+	require.NoError(t, err)
+	assert.Equal(t, "kept", string(kept), "control: another file of the run directory is untouched")
 }
