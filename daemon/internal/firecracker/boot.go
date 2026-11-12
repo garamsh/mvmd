@@ -11,6 +11,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // Boot implements machine.Driver: it configures the started VMM from the boot
@@ -39,7 +40,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 		}})
 	}
 	steps = append(steps,
-		put{"/vsock", map[string]any{"guest_cid": guestCID, "uds_path": inRun(vsockSocketName)}},
+		put{"/vsock", map[string]any{"guest_cid": vmmconfig.GuestCID, "uds_path": vmmconfig.InRun(vmmconfig.VsockSocket)}},
 		put{"/actions", map[string]any{"action_type": "InstanceStart"}},
 	)
 	for _, s := range steps {
@@ -53,7 +54,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 // started waits for the VMM's API socket to accept a connection and refuses a
 // VMM that is not the release this Driver is written against.
 func (d *Driver) started(ctx context.Context, id machine.MachineID) (*client, error) {
-	sock, err := d.socket(id, apiSocketName)
+	sock, err := vmmconfig.RunPath(d.cfg.Dirs, id, vmmconfig.APISocket)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,7 @@ func (d *Driver) Shutdown(ctx context.Context, id machine.MachineID, grace time.
 	if d.goarch != "amd64" {
 		return fmt.Errorf("%w: Firecracker v1.17.0 sends Ctrl-Alt-Del on x86_64 only", machine.ErrUnsupported)
 	}
-	sock, err := d.socket(id, apiSocketName)
+	sock, err := vmmconfig.RunPath(d.cfg.Dirs, id, vmmconfig.APISocket)
 	if err != nil {
 		return err
 	}

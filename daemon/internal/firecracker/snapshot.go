@@ -7,6 +7,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 const (
@@ -34,11 +35,11 @@ func (d *Driver) Snapshot(ctx context.Context, id machine.MachineID) (machine.Dr
 	if err != nil {
 		return machine.DriverSnapshot{}, err
 	}
-	c := newClient(filepath.Join(dir, apiSocketName))
+	c := newClient(filepath.Join(dir, vmmconfig.APISocket))
 	err = c.do(ctx, "PUT", "/snapshot/create", map[string]any{
 		"snapshot_type": "Full",
-		"snapshot_path": inRun(stateName),
-		"mem_file_path": inRun(memoryName),
+		"snapshot_path": vmmconfig.InRun(stateName),
+		"mem_file_path": vmmconfig.InRun(memoryName),
 	}, nil)
 	if err != nil {
 		return machine.DriverSnapshot{}, err
@@ -77,9 +78,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 	if err != nil {
 		return machine.ProcessDescription{}, err
 	}
-	for _, dev := range spec.RecordedDisks {
-		p.RunFiles = append(p.RunFiles, machine.RunFile{Name: diskdevice.Name(0, dev.Disk), Path: dev.Path})
-	}
+	p.RunFiles = append(p.RunFiles, diskdevice.RunFiles(spec.RecordedDisks)...)
 	return p, nil
 }
 

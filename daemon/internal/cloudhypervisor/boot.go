@@ -11,6 +11,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // Boot implements machine.Driver. The process Describe states was started with
@@ -27,7 +28,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, _ machine.BootS
 // refuses a VMM that is not the release this Driver is written against, and
 // waits for the VM to be Running.
 func (d *Driver) awaitRunning(ctx context.Context, id machine.MachineID) error {
-	sock, err := d.socket(id, apiSocketName)
+	sock, err := vmmconfig.RunPath(d.cfg.Dirs, id, vmmconfig.APISocket)
 	if err != nil {
 		return err
 	}
@@ -105,7 +106,7 @@ func (d *Driver) put(ctx context.Context, id machine.MachineID, path string) err
 // to go away. A guest that does nothing with it never answers, so the wait runs
 // its whole grace.
 func (d *Driver) Shutdown(ctx context.Context, id machine.MachineID, grace time.Duration) error {
-	sock, err := d.socket(id, apiSocketName)
+	sock, err := vmmconfig.RunPath(d.cfg.Dirs, id, vmmconfig.APISocket)
 	if err != nil {
 		return err
 	}

@@ -8,7 +8,7 @@ import (
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
-	"github.com/garamsh/mvmd/daemon/internal/pinnedfile"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 const (
@@ -55,25 +55,6 @@ func cmdline(goarch string) string {
 		return "console=ttyAMA0 reboot=k panic=1 mvmd.end=poweroff"
 	}
 	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable mvmd.end=poweroff"
-}
-
-// verify refuses a binary, a kernel or an initrd that is not the one the node pinned. It
-// is how a node fails at its start and not at its first boot; the check of
-// record is the supervisor's, on the file it presents to the VMM (ADR 0019).
-func verify(cfg Config) error {
-	files := []struct{ name, path, want string }{
-		{"binary", cfg.Binary, cfg.BinarySHA256},
-		{"initrd", cfg.Initrd, cfg.InitrdSHA256},
-	}
-	for _, k := range cfg.Kernels {
-		files = append(files, struct{ name, path, want string }{"kernel", k.Path, k.SHA256})
-	}
-	for _, f := range files {
-		if err := pinnedfile.Check("the cloud-hypervisor "+f.name, f.path, f.want); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // Describe implements machine.Driver. It states the process, whose arguments
@@ -125,8 +106,8 @@ func (d *Driver) process(spec machine.BootSpec, args []string, boot []machine.Fi
 // supervisor passes as a descriptor: the API takes it by name only.
 func args(spec machine.BootSpec, goarch string) []string {
 	a := []string{
-		"--api-socket", "path=" + inRun(apiSocketName),
-		"--log-file", inRun(logName),
+		"--api-socket", "path=" + vmmconfig.InRun(vmmconfig.APISocket),
+		"--log-file", vmmconfig.InRun(logName),
 		"--kernel", machine.InKernel,
 		"--initramfs", machine.InInitrd,
 		"--cmdline", cmdline(goarch),
@@ -135,7 +116,7 @@ func args(spec machine.BootSpec, goarch string) []string {
 		"--serial", "tty",
 		"--console", "off",
 		"--event-monitor", fmt.Sprintf("fd=%d", eventDescriptor),
-		"--vsock", fmt.Sprintf("cid=%d,socket=%s", guestCID, inRun(vsockSocketName)),
+		"--vsock", fmt.Sprintf("cid=%d,socket=%s", vmmconfig.GuestCID, vmmconfig.InRun(vmmconfig.VsockSocket)),
 		"--disk",
 	}
 	for i, dev := range spec.Devices {

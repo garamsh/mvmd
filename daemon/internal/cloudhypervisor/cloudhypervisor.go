@@ -6,33 +6,24 @@ package cloudhypervisor
 
 import (
 	"fmt"
-	"path/filepath"
-	"regexp"
 	"runtime"
 
+	"github.com/garamsh/mvmd/daemon/internal/guestaccess"
 	"github.com/garamsh/mvmd/daemon/internal/hostcpu"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 // Version is the one Cloud Hypervisor release this Driver is written against.
 // Boot refuses a VMM that reports another.
 const Version = "54.0"
 
-const (
-	apiSocketName   = "api.sock"
-	vsockSocketName = "vsock.sock"
-	// logName is Cloud Hypervisor's own log in the run directory, which keeps
-	// the supervisor's capture of its output (vmm.log) to the guest's console.
-	logName = "cloud-hypervisor.log"
-	// guestCID is the guest's vsock address; it is the same for every Machine
-	// since a vsock device is private to its VMM.
-	guestCID = 3
-)
+// logName is Cloud Hypervisor's own log in the run directory, which keeps
+// the supervisor's capture of its output (vmm.log) to the guest's console.
+const logName = "cloud-hypervisor.log"
 
 // RunDirs names a Machine's run directory, where the API and vsock sockets are.
-type RunDirs interface {
-	RunDir(id machine.MachineID) (string, error)
-}
+type RunDirs = vmmconfig.RunDirs
 
 // Config is what the node says about Cloud Hypervisor and the guest it boots
 // (ADR 0010, ADR 0015). The digests are SHA-256, in hex.
@@ -47,31 +38,17 @@ type Config struct {
 	Dirs         RunDirs
 }
 
-var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+func (c Config) files() vmmconfig.Files {
+	return vmmconfig.Files{Binary: c.Binary, BinarySHA256: c.BinarySHA256, Kernels: c.Kernels, Initrd: c.Initrd, InitrdSHA256: c.InitrdSHA256}
+}
 
 // Validate refuses a configuration that names no absolute path or no SHA-256
 // digest where one is due. It reads no file.
-func (c Config) Validate() error {
-	files := []struct{ name, path, sum string }{{"binary", c.Binary, c.BinarySHA256}, {"initrd", c.Initrd, c.InitrdSHA256}}
-	for _, k := range c.Kernels {
-		files = append(files, struct{ name, path, sum string }{"kernel", k.Path, k.SHA256})
-	}
-	if len(c.Kernels) == 0 {
-		return fmt.Errorf("cloud-hypervisor lists no kernel")
-	}
-	for _, f := range files {
-		if !filepath.IsAbs(f.path) {
-			return fmt.Errorf("cloud-hypervisor %s %q is not an absolute path", f.name, f.path)
-		}
-		if !sha256Hex.MatchString(f.sum) {
-			return fmt.Errorf("cloud-hypervisor %s digest %q is not 64 lowercase hex digits", f.name, f.sum)
-		}
-	}
-	return nil
-}
+func (c Config) Validate() error { return vmmconfig.Validate("cloud-hypervisor", c.files()) }
 
 // Driver implements machine.Driver for Cloud Hypervisor.
 type Driver struct {
+	guestaccess.Access
 	cfg      Config
 	cpuModel string
 	// goarch is the architecture the VMM runs on; what a resize needs depends on it.
@@ -81,20 +58,14 @@ type Driver struct {
 // New returns the Driver. It refuses a binary, a kernel or an initrd whose digest is not
 // the configured one, so a node fails at start and not at its first boot.
 func New(cfg Config) (*Driver, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	if cfg.Dirs == nil {
-		return nil, fmt.Errorf("cloud-hypervisor needs the run directories of Machines")
-	}
-	if err := verify(cfg); err != nil {
+	if err := vmmconfig.Check("cloud-hypervisor", cfg.files(), cfg.Dirs); err != nil {
 		return nil, err
 	}
 	model, err := hostcpu.Model()
 	if err != nil {
 		return nil, err
 	}
-	return &Driver{cfg: cfg, cpuModel: model, goarch: runtime.GOARCH}, nil
+	return &Driver{Access: guestaccess.Access{Dirs: cfg.Dirs}, cfg: cfg, cpuModel: model, goarch: runtime.GOARCH}, nil
 }
 
 // Info implements machine.Driver. The optional capabilities reported are the
@@ -112,21 +83,8 @@ func (d *Driver) Info() machine.DriverInfo {
 // Observe implements machine.Driver. It raises no event; see docs/architecture/driver.md.
 func (d *Driver) Observe(func(machine.DriverEvent)) {}
 
-// inRun is the path of a file of the run directory in the VMM's root, which is
-// what the VMM is told; mvmd itself reaches the file at the run directory's
-// host path.
-func inRun(name string) string { return filepath.Join(machine.InRunDir, name) }
-
-func (d *Driver) socket(id machine.MachineID, name string) (string, error) {
-	dir, err := d.cfg.Dirs.RunDir(id)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, name), nil
-}
-
 func (d *Driver) api(id machine.MachineID) (*client, error) {
-	sock, err := d.socket(id, apiSocketName)
+	sock, err := vmmconfig.RunPath(d.cfg.Dirs, id, vmmconfig.APISocket)
 	if err != nil {
 		return nil, err
 	}
