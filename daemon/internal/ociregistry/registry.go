@@ -6,6 +6,7 @@ package ociregistry
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +47,11 @@ type Options struct {
 	// anonymously. It is the only way a credential reaches the adapter, which
 	// reads no file and no environment variable.
 	Credentials func(ctx context.Context, registry string) (Credential, error)
+	// RootCAs returns the roots a registry's certificate is verified against,
+	// and is called at each request, so a change takes effect without a new
+	// Registry. When set, it replaces HTTPClient, which is not used; nil
+	// verifies against the system roots.
+	RootCAs func(ctx context.Context) (*x509.CertPool, error)
 	// HTTPClient carries every request; nil is a client with the default
 	// transport. Registries are reached over HTTPS only.
 	HTTPClient *http.Client
@@ -58,8 +64,12 @@ type Registry struct {
 
 // New returns a Registry.
 func New(opts Options) *Registry {
+	httpClient := opts.HTTPClient
+	if opts.RootCAs != nil {
+		httpClient = &http.Client{Transport: &rootsTransport{roots: opts.RootCAs}}
+	}
 	client := &auth.Client{
-		Client: opts.HTTPClient,
+		Client: httpClient,
 		Header: http.Header{"User-Agent": {"mvmd"}},
 		Cache:  auth.NewCache(),
 	}

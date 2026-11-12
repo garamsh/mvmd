@@ -3,6 +3,7 @@ package ociregistry_test
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -443,4 +444,21 @@ func TestManifest_CancelledContextStopsTheCall(t *testing.T) {
 	cancel()
 	_, err = r.Manifest(ctx, f.reference(d), amd64)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestRegistry_RootsAreReadAtEachRequest(t *testing.T) {
+	f := newFakeRegistry(t)
+	d, _ := f.imageOf(`{}`, []byte("x"))
+	trusted := x509.NewCertPool()
+	trusted.AddCert(f.srv.Certificate())
+	roots := x509.NewCertPool()
+	r := ociregistry.New(ociregistry.Options{RootCAs: func(context.Context) (*x509.CertPool, error) { return roots, nil }})
+
+	_, err := r.Manifest(context.Background(), f.reference(d), amd64)
+	require.Error(t, err, "control: a registry whose certificate no root vouches for is refused")
+	assert.Contains(t, err.Error(), "certificate")
+
+	roots = trusted
+	_, err = r.Manifest(context.Background(), f.reference(d), amd64)
+	require.NoError(t, err, "the same Registry trusts the root once it is returned")
 }
