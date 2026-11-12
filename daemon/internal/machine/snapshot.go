@@ -132,7 +132,7 @@ func (s *service) describeDisks(ctx context.Context, attached []DiskAttachment) 
 		if err != nil {
 			return nil, locateFailure(err, ErrDiskAbsent, "disk %q", a.Disk)
 		}
-		disks = append(disks, SnapshotDisk{Disk: a.Disk, ReadOnly: a.ReadOnly, MountPath: a.MountPath, SizeBytes: file.SizeBytes, ModTime: file.ModTime})
+		disks = append(disks, SnapshotDisk{Disk: a.Disk, ReadOnly: a.ReadOnly, SizeBytes: file.SizeBytes, ModTime: file.ModTime})
 	}
 	return disks, nil
 }
