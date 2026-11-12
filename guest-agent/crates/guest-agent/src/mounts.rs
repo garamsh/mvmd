@@ -202,6 +202,21 @@ pub(crate) fn create_parents(dir: &Path) -> io::Result<()> {
         .create(dir)
 }
 
+/// Create the directory the store is mounted on, root's and 0700. An earlier boot of this root
+/// disk left it, so one that exists is taken when it is a directory and no link.
+fn create_store(store: &Path) -> io::Result<()> {
+    match fs::DirBuilder::new().mode(0o700).create(store) {
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            if fs::symlink_metadata(store)?.is_dir() {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        }
+        other => other,
+    }
+}
+
 /// Place `files` under `root`, holding their content in a tmpfs mounted at `store`, which only
 /// root can enter. Each file is written to the tmpfs, then bound read-only onto its path.
 ///
@@ -211,7 +226,7 @@ fn place_files_in(root: &Path, store: &Path, files: &[BootFile]) -> io::Result<(
     if let Some(parent) = store.parent() {
         create_parents(parent)?;
     }
-    fs::DirBuilder::new().mode(0o700).create(store)?;
+    create_store(store)?;
     mount(
         Some("tmpfs"),
         store,
@@ -380,6 +395,34 @@ mod tests {
     }
 
     #[test]
+    fn the_store_directory_an_earlier_boot_left_is_taken_and_a_file_or_link_is_not()
+    -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let store = dir.path().join("run/mvmd/files");
+        create_parents(store.parent().unwrap())?;
+
+        create_store(&store)?;
+        // The second boot of the root disk finds it there.
+        create_store(&store)?;
+        assert_eq!(fs::metadata(&store)?.mode() & 0o7777, 0o700);
+
+        // The control: what is no directory is refused, so the one taken above was checked.
+        let file = dir.path().join("run/mvmd/file");
+        fs::write(&file, "x")?;
+        assert_eq!(
+            create_store(&file).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        let link = dir.path().join("run/mvmd/link");
+        std::os::unix::fs::symlink(&store, &link)?;
+        assert_eq!(
+            create_store(&link).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        Ok(())
+    }
+
+    #[test]
     fn delete_within_leaves_what_is_on_another_device() -> io::Result<()> {
         let dir = tempfile::tempdir()?;
         fs::write(dir.path().join("kept"), "x")?;
@@ -467,9 +510,10 @@ mod tests {
             }
         }
 
-        impl Drop for Place {
-            fn drop(&mut self) {
-                // Every mount under the directory, the deepest first, whatever it is on.
+        impl Place {
+            /// Every mount under the directory, the deepest first, whatever it is on, as a
+            /// Machine's stop leaves none of what its boot mounted.
+            fn unmount_all(&self) {
                 let mounts = fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
                 let mut points: Vec<&str> = mounts
                     .lines()
@@ -480,6 +524,19 @@ mod tests {
                 for point in points {
                     let _ = umount2(point, MntFlags::MNT_DETACH);
                 }
+            }
+
+            /// What a stop and the next boot leave: no mount, the root disk's directories, and
+            /// the store at the path the first boot used.
+            fn reboot(&self) {
+                self.unmount_all();
+                self.calls.set(0);
+            }
+        }
+
+        impl Drop for Place {
+            fn drop(&mut self) {
+                self.unmount_all();
             }
         }
 
@@ -554,6 +611,39 @@ mod tests {
             assert_eq!(holding(&root, b"nested")?, Vec::<PathBuf>::new());
             assert_eq!(fs::read(root.join("etc/shadowed"))?, b"image content");
             assert_eq!(fs::read(root.join("etc/new"))?, b"");
+            Ok(())
+        }
+
+        #[test]
+        fn the_files_are_placed_again_at_the_next_boot_of_the_same_root_disk() -> io::Result<()> {
+            if !root_or_rerun("the_files_are_placed_again_at_the_next_boot_of_the_same_root_disk")?
+            {
+                return Ok(());
+            }
+            let place = Place::new()?;
+            let files = [
+                file("/etc/new", SECRET, 0o640),
+                file("/etc/shadowed", b"mvmd content", 0o644),
+            ];
+            place.place(&files)?;
+            assert_eq!(fs::read(place.root().join("etc/new"))?, SECRET);
+
+            place.reboot();
+            // The setup reached the state asked for: the first boot's leavings are on the disk.
+            assert!(fs::symlink_metadata(place.store().join("0"))?.is_dir());
+            assert_eq!(fs::read(place.root().join("etc/new"))?, b"");
+            place.place(&files)?;
+
+            for (path, content, mode) in [
+                ("etc/new", SECRET, 0o640),
+                ("etc/shadowed", b"mvmd content".as_slice(), 0o644),
+            ] {
+                let target = place.root().join(path);
+                let meta = fs::metadata(&target)?;
+                assert_eq!(fs::read(&target)?, content);
+                assert_eq!(meta.mode() & 0o7777, mode);
+                assert_eq!((meta.uid(), meta.gid()), (1234, 4321));
+            }
             Ok(())
         }
 
