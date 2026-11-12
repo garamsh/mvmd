@@ -208,6 +208,41 @@ message Machine {
   // The digest of the image the Machine was created or restored from, in the
   // form ImageRef.digest has, reported in every state.
   string image_digest = 13;
+  // The names of the environment variables the request set, in the order sent,
+  // never their values.
+  repeated string env_names = 14;
+  // The files the request placed, without their content.
+  repeated FileInfo files = 15;
+}
+
+// An environment variable of the entrypoint. The value may be secret: mvmd
+// never logs it, puts it in an error or returns it.
+message EnvVar {
+  string name = 1;
+  string value = 2;
+}
+
+// A file placed in the guest before the entrypoint runs.
+message File {
+  // Absolute and clean (no "." or ".." element, no empty element, no trailing
+  // slash), not "/", and not under /proc, /sys, /dev or /run/mvmd.
+  string path = 1;
+  // The content. It may be secret: mvmd never logs it, puts it in an error or
+  // returns it.
+  bytes content = 2;
+  // The permission bits, at most 07777.
+  uint32 mode = 3;
+  uint32 uid = 4;
+  uint32 gid = 5;
+}
+
+// What a Machine reports of a file it places: everything but the content.
+message FileInfo {
+  string path = 1;
+  uint32 mode = 2;
+  uint32 uid = 3;
+  uint32 gid = 4;
+  uint64 size_bytes = 5;
 }
 
 message CreateMachineRequest {
@@ -227,6 +262,27 @@ message CreateMachineRequest {
   // Empty is the node's default; the name is recorded at Create. A name the
   // node does not offer is REJECTED.
   string kernel = 9;
+  // Optional. Replaces the image's entrypoint; the image's command is dropped
+  // unless args is set, as Kubernetes does. Empty keeps the image's.
+  repeated string command = 10;
+  // Optional. Replaces the image's command and keeps its entrypoint, unless
+  // command is set. Empty keeps the image's. An image pulled before the node
+  // kept its entrypoint and command apart has no command to replace: args
+  // alone on it is PRECONDITION_FAILED, naming the image; pull it again.
+  repeated string args = 11;
+  // Optional. Applied over the image's environment by name. An empty name, a
+  // name containing "=" and a name given twice are REJECTED.
+  repeated EnvVar env = 12;
+  // Optional. The user the entrypoint runs as, in the OCI image-config form
+  // ("user", "uid", "user:group", "uid:gid"). Empty is the image's config User,
+  // and root where the image sets none. A name that does not resolve in the
+  // guest fails the Machine's start.
+  string user = 13;
+  // Optional. Files placed before the entrypoint runs, at every start of the
+  // Machine. At most 64 files and 1 MiB of content in all, no path twice, and
+  // a mode of at most 07777; a request outside that is REJECTED, naming the
+  // field and the path.
+  repeated File files = 14;
 }
 
 message CreateMachineResponse {

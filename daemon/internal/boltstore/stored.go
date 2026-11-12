@@ -50,6 +50,27 @@ type storedSpec struct {
 	Policy        storedPolicy       `json:"Policy"`
 	// Kernel is empty in a record written before kernels had names.
 	Kernel string `json:"Kernel"`
+	// The run configuration is absent in a record written before it existed,
+	// which boots with the image's own. Env values and file content may be
+	// secret: they are held here, in the database file only the daemon reads.
+	Command []string     `json:"Command,omitempty"`
+	Args    []string     `json:"Args,omitempty"`
+	Env     []storedEnv  `json:"Env,omitempty"`
+	User    string       `json:"RunUser,omitempty"`
+	Files   []storedFile `json:"Files,omitempty"`
+}
+
+type storedEnv struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+type storedFile struct {
+	Path    string `json:"Path"`
+	Content []byte `json:"Content"`
+	Mode    uint32 `json:"Mode"`
+	UID     uint32 `json:"UID"`
+	GID     uint32 `json:"GID"`
 }
 
 type storedResources struct {
@@ -242,6 +263,10 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 	disks, _ := mapSlice(s.Disks, infallible(func(a machine.DiskAttachment) storedAttachment {
 		return storedAttachment{Disk: a.Disk, ReadOnly: a.ReadOnly}
 	}))
+	env, _ := mapSlice(s.Env, infallible(func(e machine.EnvVar) storedEnv { return storedEnv{Name: e.Name, Value: e.Value} }))
+	files, _ := mapSlice(s.Files, infallible(func(f machine.PlacedFile) storedFile {
+		return storedFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID}
+	}))
 	egress, err := mapSlice(s.Policy.Egress, storeRule)
 	if err != nil {
 		return storedSpec{}, err
@@ -258,6 +283,11 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		Disks:         disks,
 		Policy:        storedPolicy{Egress: egress, Ingress: ingress},
 		Kernel:        s.Kernel,
+		Command:       s.Command,
+		Args:          s.Args,
+		Env:           env,
+		User:          s.User,
+		Files:         files,
 	}, nil
 }
 
@@ -276,6 +306,10 @@ func (s storedSpec) load() (machine.Spec, error) {
 	disks, _ := mapSlice(s.Disks, infallible(func(a storedAttachment) machine.DiskAttachment {
 		return machine.DiskAttachment{Disk: a.Disk, ReadOnly: a.ReadOnly}
 	}))
+	env, _ := mapSlice(s.Env, infallible(func(e storedEnv) machine.EnvVar { return machine.EnvVar{Name: e.Name, Value: e.Value} }))
+	files, _ := mapSlice(s.Files, infallible(func(f storedFile) machine.PlacedFile {
+		return machine.PlacedFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID}
+	}))
 	egress, err := mapSlice(s.Policy.Egress, loadRule)
 	if err != nil {
 		return machine.Spec{}, err
@@ -292,6 +326,11 @@ func (s storedSpec) load() (machine.Spec, error) {
 		Disks:         disks,
 		Policy:        machine.NetworkPolicy{Egress: egress, Ingress: ingress},
 		Kernel:        s.Kernel,
+		Command:       s.Command,
+		Args:          s.Args,
+		Env:           env,
+		User:          s.User,
+		Files:         files,
 	}, nil
 }
 

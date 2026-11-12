@@ -78,6 +78,15 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		Ceiling:       resourcesOf(req.GetResourceCeiling()),
 		Kernel:        req.GetKernel(),
 		RootDiskBytes: req.GetRootDiskBytes(),
+		Command:       req.GetCommand(),
+		Args:          req.GetArgs(),
+		User:          req.GetUser(),
+	}
+	for _, e := range req.GetEnv() {
+		spec.Env = append(spec.Env, machine.EnvVar{Name: e.GetName(), Value: e.GetValue()})
+	}
+	for _, f := range req.GetFiles() {
+		spec.Files = append(spec.Files, machine.PlacedFile{Path: f.GetPath(), Content: f.GetContent(), Mode: f.GetMode(), UID: f.GetUid(), GID: f.GetGid()})
 	}
 	for _, d := range req.GetDisks() {
 		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly()})
@@ -126,6 +135,13 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 	}
 	for _, d := range m.Disks {
 		out.Disks = append(out.Disks, &v1alpha2.DiskAttachment{DiskId: string(d.Disk), ReadOnly: d.ReadOnly})
+	}
+	for _, e := range m.Env {
+		out.EnvNames = append(out.EnvNames, e.Name)
+	}
+	for _, f := range m.Files {
+		info := f.Info()
+		out.Files = append(out.Files, &v1alpha2.FileInfo{Path: info.Path, Mode: info.Mode, Uid: info.UID, Gid: info.GID, SizeBytes: info.SizeBytes})
 	}
 	for _, a := range m.Network.Addresses {
 		out.Addresses = append(out.Addresses, a.String())

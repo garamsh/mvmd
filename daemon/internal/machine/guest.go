@@ -181,7 +181,12 @@ type GuestBoot struct {
 	ImageUUID    string
 	RootDiskUUID string
 	Run          ExecSpec
-	Network      GuestNetwork
+	// User is the user the entrypoint runs as, in the OCI form; empty is root.
+	User string
+	// Files are placed in the guest before the entrypoint runs. Their content
+	// may be secret.
+	Files   []PlacedFile
+	Network GuestNetwork
 	// Clock is the host's wall clock. The Guest reads it as it sends the
 	// request, after the agent answers and not before, because the agent
 	// listens some time after the VMM starts, and the guest sets its clock to

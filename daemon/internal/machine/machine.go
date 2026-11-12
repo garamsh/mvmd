@@ -149,6 +149,16 @@ type Spec struct {
 	RootDiskBytes uint64
 	Disks         []DiskAttachment
 	Policy        NetworkPolicy
+	// Command and Args replace the image's entrypoint and command, Env is
+	// applied over the image's environment, User replaces the image's user and
+	// Files are placed in the guest. Each is empty for a request that set none,
+	// and the Machine boots with the image's own. Env values and file content
+	// may be secret (ADR 0051).
+	Command []string
+	Args    []string
+	Env     []EnvVar
+	User    string
+	Files   []PlacedFile
 }
 
 // Machine is a Machine as Inspect reports it.
@@ -250,6 +260,10 @@ func (m Machine) clone() Machine {
 func (s Spec) clone() Spec {
 	s.Disks = slices.Clone(s.Disks)
 	s.Policy = s.Policy.clone()
+	s.Command = cloneNonEmpty(s.Command)
+	s.Args = cloneNonEmpty(s.Args)
+	s.Env = cloneNonEmpty(s.Env)
+	s.Files = cloneFiles(s.Files)
 	return s
 }
 
