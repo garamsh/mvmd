@@ -328,9 +328,7 @@ impl Disks for LinuxDisks {
             mount: mount.cloned(),
             mounted: None,
         });
-        if self.mounting.load(Ordering::SeqCst) {
-            self.mount_one(record.into_mut())?;
-        }
+        let _ = record;
         Ok(device)
     }
 
