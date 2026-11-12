@@ -274,7 +274,7 @@ impl Disks for LinuxDisks {
             && let Some((other, _)) = records.iter().find(|(id, record)| {
                 id.as_str() != disk_id
                     && !record.released
-                    && record.mount.as_ref().is_some_and(|m| m.path == wanted.path)
+                    && record.mount.as_ref().is_some_and(|m| m.path.is_empty())
             })
         {
             return Err(DiskError::Conflict(format!(
