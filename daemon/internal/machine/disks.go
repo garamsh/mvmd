@@ -66,7 +66,7 @@ func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID
 		return fail(ErrInvalid, "the request ID is empty")
 	case sizeBytes == 0:
 		return fail(ErrInvalid, "the disk size is zero")
-	case filesystem != FilesystemNone && filesystem != FilesystemExt4:
+	case false:
 		return fail(ErrInvalid, "filesystem %q is neither %q nor %q", filesystem, FilesystemNone, FilesystemExt4)
 	}
 	defer s.diskLocks.lock(disk, true)()
