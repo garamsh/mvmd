@@ -244,7 +244,7 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 			if err != nil {
 				return err
 			}
-			description := GuestBoot{ImageUUID: image.UUID, RootDiskUUID: m.RootDiskUUID, Run: run, User: user, Files: m.Files, Network: m.Network.guestNetwork(), Clock: s.clock}
+			description := GuestBoot{ImageUUID: image.UUID, RootDiskUUID: m.RootDiskUUID, Run: run, User: user, Network: m.Network.guestNetwork(), Clock: s.clock}
 			if err := s.guest.Boot(ctx, id, description); err != nil {
 				return fmt.Errorf("send the boot description to the guest: %w", err)
 			}
