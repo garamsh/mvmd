@@ -74,7 +74,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 			// An adapter failure is recorded under the request as locate is, so a
 			// repeat answers the same; invalid and not found are not.
 			if failure := (*Error)(nil); errors.As(err, &failure) && errors.Is(failure, ErrFailed) {
-				return s.failCreate(ctx, id, request, spec, failure)
+				return failure
 			}
 			return err
 		}
