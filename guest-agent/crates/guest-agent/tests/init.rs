@@ -2375,11 +2375,14 @@ fn identity(uid: u32, gid: u32, groups: &[u32], home: Option<&str>) -> Identity 
     }
 }
 
-/// The `$HOME` the entrypoint wrote, once it has.
+/// The `$HOME` the entrypoint wrote, once it has. The shell creates `home` empty before `echo`
+/// writes to it, so the wait is for the line's newline, not for the file.
 async fn entrypoint_home(agent: &Agent) -> Result<String> {
     let home = agent.dir.path().join("home");
-    eventually("the entrypoint to write HOME", || home.exists()).await?;
-    // The write may be seen before its newline; the entrypoint's `echo` is one write.
+    eventually("the entrypoint to write HOME", || {
+        fs::read_to_string(&home).is_ok_and(|text| text.ends_with('\n'))
+    })
+    .await?;
     Ok(fs::read_to_string(home)?.trim_end().to_owned())
 }
 
