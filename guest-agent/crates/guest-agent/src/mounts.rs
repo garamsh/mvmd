@@ -207,11 +207,8 @@ pub(crate) fn create_parents(dir: &Path) -> io::Result<()> {
 fn create_store(store: &Path) -> io::Result<()> {
     match fs::DirBuilder::new().mode(0o700).create(store) {
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            if fs::symlink_metadata(store)?.is_dir() {
-                Ok(())
-            } else {
-                Err(error)
-            }
+            let _ = error;
+            Ok(())
         }
         other => other,
     }
