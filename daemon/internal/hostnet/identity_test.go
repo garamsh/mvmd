@@ -58,6 +58,21 @@ func TestConfig_RefusesWhatNoNodeCanServe(t *testing.T) {
 		}, false},
 		{"an IPv6 link-local prefix", func(c *Config) { c.IPv6Prefix = netip.MustParsePrefix("fe80::/64") }, false},
 		{"an IPv6 multicast prefix", func(c *Config) { c.IPv6Prefix = netip.MustParsePrefix("ff02::/64") }, false},
+		{"a no-masquerade prefix in each served family", func(c *Config) {
+			c.NoMasquerade = []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("2001:db8::/32")}
+		}, true},
+		{"an invalid no-masquerade prefix", func(c *Config) { c.NoMasquerade = []netip.Prefix{{}} }, false},
+		{"an IPv4 no-masquerade prefix on an IPv6-only node", func(c *Config) {
+			c.IPv4Prefix, c.IPv4Gateway = netip.Prefix{}, netip.Addr{}
+			c.NoMasquerade = []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}
+		}, false},
+		{"an IPv6 no-masquerade prefix on an IPv4-only node", func(c *Config) {
+			c.IPv6Prefix = netip.Prefix{}
+			c.NoMasquerade = []netip.Prefix{netip.MustParsePrefix("2001:db8::/32")}
+		}, false},
+		{"an IPv4-mapped no-masquerade prefix", func(c *Config) {
+			c.NoMasquerade = []netip.Prefix{netip.MustParsePrefix("::ffff:192.0.2.0/120")}
+		}, false},
 		{"an invalid resolver", func(c *Config) { c.Resolvers = []netip.Addr{{}} }, false},
 		{"a VMM range that includes root", func(c *Config) { c.VMMUIDRange = machine.UIDRange{First: 0, Count: 10} }, false},
 	}

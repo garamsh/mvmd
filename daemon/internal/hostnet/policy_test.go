@@ -52,6 +52,38 @@ func TestPolicy_EgressPassesWhatARuleAllowsAndDropsTheRest(t *testing.T) {
 	})
 }
 
+func TestPolicy_ADestinationInsideANoMasqueradePrefixKeepsTheMachinesSource(t *testing.T) {
+	inNamespace(t, func(t *testing.T) {
+		cfg := dualStack()
+		cfg.NoMasquerade = []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("2001:db8:1::/64")}
+		l := newLab(t, cfg)
+		g := l.start("m", machine.NetworkPolicy{Egress: []machine.NetworkRule{
+			allow("192.0.2.0/24", machine.ProtocolUDP, 5000),
+			allow("198.51.100.0/24", machine.ProtocolUDP, 5000),
+			allow("2001:db8:1::/64", machine.ProtocolUDP, 5000),
+			allow("2001:db8:2::/64", machine.ProtocolUDP, 5000),
+		}})
+		sourceOf := func(dst netip.Addr, frame []byte) netip.Addr {
+			l.outside.drain()
+			g.port.send(frame)
+			var got netip.Addr
+			require.True(t, l.outside.receives(func(s seen) bool {
+				if s.proto == 17 && s.dst == dst && s.dport == 5000 {
+					got = s.src
+					return true
+				}
+				return false
+			}))
+			return got
+		}
+		require.NotEqual(t, hostUp4, g.ip4, "setup: the Machine's address is not the node's")
+		assert.Equal(t, g.ip4, sourceOf(outside4, g.to4(outside4, 5000)), "IPv4 inside the prefix keeps the Machine's address")
+		assert.Equal(t, hostUp4, sourceOf(other4, g.to4(other4, 5000)), "control: IPv4 outside it is masqueraded")
+		assert.Equal(t, g.ip6, sourceOf(outside6, g.to6(outside6, 5000)), "IPv6 inside the prefix keeps the Machine's address")
+		assert.Equal(t, hostUp6, sourceOf(other6, g.to6(other6, 5000)), "control: IPv6 outside it is masqueraded")
+	})
+}
+
 func TestPolicy_IngressPassesWhatARuleAllowsAndDropsTheRest(t *testing.T) {
 	inNamespace(t, func(t *testing.T) {
 		l := newLab(t, dualStack())

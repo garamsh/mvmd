@@ -79,5 +79,6 @@ Decisions:
 - [ADR 0046](./adr/0046-a-bound-the-node-is-configured-with-is-reported-and-refused-as-precondition-failed-while-measured-capacity-stays-the-clients.md) — a bound the node is configured with is reported and refused as precondition failed, while measured capacity stays the client's (it extends ADR 0039)
 - [ADR 0047](./adr/0047-a-pull-reads-the-registry-credentials-and-ca-at-each-lookup-and-takes-a-credential-from-a-helper.md) — a pull reads the registry credentials and CA at each lookup, and takes a credential from a helper
 - [ADR 0048](./adr/0048-the-guest-agent-runs-the-entrypoint-as-a-named-user-and-places-files-from-the-boot-call-in-a-tmpfs-it-alone-mounts.md) — the guest agent runs the entrypoint as a named user and places files from the Boot call in a tmpfs it alone mounts
+- [ADR 0049](./adr/0049-traffic-to-a-configured-no-masquerade-prefix-keeps-the-machines-source-address-and-runtime-info-reports-the-machine-prefixes.md) — traffic to a configured no-masquerade prefix keeps the Machine's source address, and runtime info reports the Machine prefixes (it adds an exception to the masquerade of ADR 0011)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
