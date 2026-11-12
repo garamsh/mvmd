@@ -62,18 +62,32 @@ type config struct {
 	Kernel       []string `json:"requiredKernelConditions"`
 }
 
+// splitForm is the Form of a run written with the entrypoint, the command and
+// the user apart. A run without it is the old form: one joined vector in
+// Command.
+const splitForm = 2
+
 type runSpec struct {
+	Form       int               `json:"form,omitempty"`
 	Command    []string          `json:"command,omitempty"`
+	Entrypoint []string          `json:"entrypoint,omitempty"`
+	Cmd        []string          `json:"cmd,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
 	WorkingDir string            `json:"workingDir,omitempty"`
+	User       string            `json:"user,omitempty"`
 }
 
-func toRunSpec(s machine.ExecSpec) runSpec {
-	return runSpec{Command: s.Command, Env: s.Env, WorkingDir: s.WorkingDir}
+func toRunSpec(r machine.ImageRun) runSpec {
+	return runSpec{Form: splitForm, Entrypoint: r.Entrypoint, Cmd: r.Cmd, Env: r.Env, WorkingDir: r.WorkingDir, User: r.User}
 }
 
-func (r runSpec) exec() machine.ExecSpec {
-	return machine.ExecSpec{Command: r.Command, Env: r.Env, WorkingDir: r.WorkingDir}
+// run reads the record's run; an old-form record is its joined vector as the
+// entrypoint, marked.
+func (r runSpec) run() machine.ImageRun {
+	if r.Form < splitForm {
+		return machine.ImageRun{Entrypoint: r.Command, Env: r.Env, WorkingDir: r.WorkingDir, Joined: true}
+	}
+	return machine.ImageRun{Entrypoint: r.Entrypoint, Cmd: r.Cmd, Env: r.Env, WorkingDir: r.WorkingDir, User: r.User}
 }
 
 func (s *Store) indexPath() string        { return filepath.Join(s.dir, "index.json") }

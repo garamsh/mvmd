@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -19,9 +20,34 @@ type LocatedImage struct {
 	// UUID is the UUID the image's filesystem carries, by which the guest
 	// finds the device (ADR 0010).
 	UUID string
-	// Run is what the guest runs: the image's entrypoint and command as one
-	// argument vector, its environment and its working directory.
-	Run ExecSpec
+	// Run is what the image's config says to run, its entrypoint and command
+	// kept apart.
+	Run ImageRun
+}
+
+// ImageRun is the run part of an image's config.
+type ImageRun struct {
+	Entrypoint []string
+	Cmd        []string
+	Env        map[string]string
+	WorkingDir string
+	// User is the config's User, in the OCI form; empty when the config sets
+	// none.
+	User string
+	// Joined marks a record written before the three were kept apart: it holds
+	// the one argument vector, in Entrypoint, and no Cmd or User. Pulling the
+	// image again rewrites the record.
+	Joined bool
+}
+
+// Exec returns what the guest runs with the image's own configuration: the
+// entrypoint and the command as one argument vector.
+func (r ImageRun) Exec() ExecSpec {
+	return ExecSpec{
+		Command:    append(slices.Clone(r.Entrypoint), r.Cmd...),
+		Env:        r.Env,
+		WorkingDir: r.WorkingDir,
+	}
 }
 
 // ImageInfo is what the node holds of an image, for a client to decide whether

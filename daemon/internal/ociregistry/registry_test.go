@@ -26,10 +26,23 @@ import (
 
 var amd64 = image.Platform{OS: "linux", Architecture: "amd64"}
 
+func TestRegistry_ConfigWithoutAUserHasNone(t *testing.T) {
+	f := newFakeRegistry(t)
+	digest, _ := f.imageOf(`{"config":{"Cmd":["-v"]}}`, []byte("layer"))
+	r := f.registry(nil)
+	ref := f.reference(digest)
+	m, err := r.Manifest(context.Background(), ref, amd64)
+	require.NoError(t, err)
+
+	c, err := r.Config(context.Background(), ref, m.Config)
+	require.NoError(t, err)
+	assert.Equal(t, image.Config{Cmd: []string{"-v"}}, c)
+}
+
 func TestRegistry_ImageIsFetchedByDigest(t *testing.T) {
 	f := newFakeRegistry(t)
 	layerA, layerB := []byte("layer a"), []byte("layer b, longer")
-	digest, _ := f.imageOf(`{"config":{"Entrypoint":["/app"],"Cmd":["-v"],"Env":["A=1"],"WorkingDir":"/srv"}}`, layerA, layerB)
+	digest, _ := f.imageOf(`{"config":{"Entrypoint":["/app"],"Cmd":["-v"],"Env":["A=1"],"WorkingDir":"/srv","User":"app:grp"}}`, layerA, layerB)
 	r := f.registry(nil)
 	ref := f.reference(digest)
 
@@ -41,7 +54,7 @@ func TestRegistry_ImageIsFetchedByDigest(t *testing.T) {
 
 	c, err := r.Config(context.Background(), ref, m.Config)
 	require.NoError(t, err)
-	assert.Equal(t, image.Config{Entrypoint: []string{"/app"}, Cmd: []string{"-v"}, Env: []string{"A=1"}, WorkingDir: "/srv"}, c)
+	assert.Equal(t, image.Config{Entrypoint: []string{"/app"}, Cmd: []string{"-v"}, Env: []string{"A=1"}, WorkingDir: "/srv", User: "app:grp"}, c)
 
 	rc, err := r.Layer(context.Background(), ref, m.Layers[1])
 	require.NoError(t, err)

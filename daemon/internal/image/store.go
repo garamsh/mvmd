@@ -41,6 +41,12 @@ type Store interface {
 	// is visible: the swap of the index can have happened before a later
 	// step, the sync that makes it durable, failed. Locate says which.
 	Publish(ctx context.Context, staging Staging) error
+	// ReplaceRun replaces the run part of the config of a listed image, in one
+	// swap of the index. The image's EROFS, filesystem UUID and fs-verity
+	// digest stay as they are. It returns machine.ErrImageAbsent for an image
+	// not listed. As with Publish, an error does not say whether the swap
+	// happened; Locate says which.
+	ReplaceRun(ctx context.Context, image machine.ImageDigest, run machine.ImageRun) error
 	// Discard removes the staging area. What Publish moved is left.
 	Discard(ctx context.Context, staging Staging) error
 	// Sweep removes every staging area and every blob no listed image

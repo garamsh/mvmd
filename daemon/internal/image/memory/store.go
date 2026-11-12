@@ -73,7 +73,8 @@ func (s *Store) Locate(_ context.Context, digest machine.ImageDigest) (machine.L
 		return machine.LocatedImage{}, machine.ErrImageAbsent
 	}
 	run := rec.Run
-	run.Command = slices.Clone(run.Command)
+	run.Entrypoint = slices.Clone(run.Entrypoint)
+	run.Cmd = slices.Clone(run.Cmd)
 	run.Env = maps.Clone(run.Env)
 	return machine.LocatedImage{Path: "/images/" + string(digest) + ".erofs", UUID: rec.UUID, Run: run}, nil
 }
@@ -309,6 +310,25 @@ func (s *Store) Publish(_ context.Context, staging image.Staging) error {
 	return s.Enter("publish-sync")
 }
 
+// ReplaceRun implements image.Store. Its steps are "replace-run" and
+// "replace-run-sync"; the second fails after the record was replaced, as the
+// final sync of the adapter can. The EROFS, UUID and verity are kept.
+func (s *Store) ReplaceRun(_ context.Context, digest machine.ImageDigest, run machine.ImageRun) error {
+	if err := s.Enter("replace-run"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	rec, ok := s.listed[digest]
+	if !ok {
+		s.mu.Unlock()
+		return machine.ErrImageAbsent
+	}
+	rec.Run = run
+	s.listed[digest] = rec
+	s.mu.Unlock()
+	return s.Enter("replace-run-sync")
+}
+
 // Discard implements image.Store.
 func (s *Store) Discard(ctx context.Context, staging image.Staging) error {
 	if err := s.Enter("discard"); err != nil {
@@ -405,6 +425,16 @@ func (s *Store) RecordOf(digest machine.ImageDigest) (image.Record, bool) {
 	defer s.mu.Unlock()
 	rec, ok := s.listed[digest]
 	return rec, ok
+}
+
+// AsOldForm rewrites the listed image's record to the form written before the
+// entrypoint, the command and the user were kept apart: one joined vector.
+func (s *Store) AsOldForm(digest machine.ImageDigest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec := s.listed[digest]
+	rec.Run = machine.ImageRun{Entrypoint: rec.Run.Exec().Command, Env: rec.Run.Env, WorkingDir: rec.Run.WorkingDir, Joined: true}
+	s.listed[digest] = rec
 }
 
 // Leave makes the store hold what a pull that crashed leaves: a staging area

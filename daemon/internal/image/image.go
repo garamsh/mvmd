@@ -43,6 +43,8 @@ type Config struct {
 	Cmd        []string
 	Env        []string
 	WorkingDir string
+	// User is the config's User, in the OCI form, or empty.
+	User string
 }
 
 // Staging is one pull's working area in the Image Store, which the cache's
@@ -58,7 +60,7 @@ type Staging struct {
 // pulled by, what it runs, and what the pull made of it.
 type Record struct {
 	Image        machine.ImageDigest
-	Run          machine.ExecSpec
+	Run          machine.ImageRun
 	Architecture string
 	// Converter names the converter the image came from.
 	Converter string
