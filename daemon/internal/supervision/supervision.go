@@ -188,11 +188,13 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	if err := os.Chown(runDir, int(user.UID), int(user.GID)); err != nil {
 		return fmt.Errorf("give the run directory to the Machine's user: %w", err)
 	}
-	// The API socket of an earlier VMM outlives it in the run directory, and
+	// The sockets of an earlier VMM outlive it in the run directory, and
 	// Firecracker refuses to bind a path that exists. No supervisor runs, so
-	// nothing serves it; it is removed without being followed.
-	if err := os.Remove(filepath.Join(runDir, vmmconfig.APISocket)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("clear the API socket of an earlier run: %w", err)
+	// nothing serves them; each is removed without being followed.
+	for _, name := range []string{vmmconfig.APISocket, vmmconfig.VsockSocket} {
+		if err := os.Remove(filepath.Join(runDir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("clear %q of an earlier run: %w", name, err)
+		}
 	}
 	for _, f := range process.RunFiles {
 		if err := runlink.Make(runDir, f.Name, f.Path); err != nil {

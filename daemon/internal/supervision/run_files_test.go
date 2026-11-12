@@ -157,25 +157,29 @@ func TestStart_AFailedRunFileLinkFailsTheStart(t *testing.T) {
 	assert.Empty(t, processes("--machine m "), "no supervisor is left")
 }
 
-// The API socket an earlier VMM left in the run directory is gone when the
-// next VMM starts, since Firecracker fails to bind a path that exists. The
-// control is another file of the run directory, which stays.
-func TestStart_AnAPISocketAnEarlierRunLeftIsRemoved(t *testing.T) {
+// The API and vsock sockets an earlier VMM left in the run directory are gone
+// when the next VMM starts, since Firecracker fails to bind a path that
+// exists. The control is another file of the run directory, which stays.
+func TestStart_TheSocketsAnEarlierRunLeftAreRemoved(t *testing.T) {
 	n := newNode(t)
 	run := runDir(n.dir, "m")
 	require.NoError(t, os.MkdirAll(run, 0o700))
-	sock := filepath.Join(run, vmmconfig.APISocket)
-	l, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-	l.(*net.UnixListener).SetUnlinkOnClose(false)
-	require.NoError(t, l.Close())
-	require.FileExists(t, sock, "setup: the closed listener left its socket file")
+	socks := []string{filepath.Join(run, vmmconfig.APISocket), filepath.Join(run, vmmconfig.VsockSocket)}
+	for _, sock := range socks {
+		l, err := net.Listen("unix", sock)
+		require.NoError(t, err)
+		l.(*net.UnixListener).SetUnlinkOnClose(false)
+		require.NoError(t, l.Close())
+		require.FileExists(t, sock, "setup: the closed listener left its socket file")
+	}
 	other := filepath.Join(run, "other")
 	require.NoError(t, os.WriteFile(other, []byte("kept"), 0o600))
 
 	n.started(t, "m", vmmUser, nil, nil)
 
-	assert.NoFileExists(t, sock, "the earlier run's API socket is removed")
+	for _, sock := range socks {
+		assert.NoFileExists(t, sock, "the earlier run's socket is removed")
+	}
 	kept, err := os.ReadFile(other)
 	require.NoError(t, err)
 	assert.Equal(t, "kept", string(kept), "control: another file of the run directory is untouched")
