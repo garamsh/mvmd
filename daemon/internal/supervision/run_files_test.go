@@ -81,6 +81,37 @@ func TestStart_RefusesARunFileThatIsNotALinkOfOneName(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run, "ok"))
 }
 
+// A run file that is absent, a symbolic link (also one to a regular file) or a
+// directory is refused before anything is created; the control is a regular
+// file, which starts.
+func TestStart_RefusesARunFileThatIsNotARegularFile(t *testing.T) {
+	src := hostFile(t, "disk")
+	link := filepath.Join(shortDir(t), "link")
+	require.NoError(t, os.Symlink(src, link))
+	for name, path := range map[string]string{
+		"absent":                            filepath.Join(shortDir(t), "absent"),
+		"a symbolic link to a regular file": link,
+		"a directory":                       shortDir(t),
+	} {
+		n := newNode(t)
+		proc := vmmProcess(runDir(n.dir, "m"))
+		proc.RunFiles = []machine.RunFile{{Name: "linked", Path: path}}
+
+		err := n.a.Start(ctx, "m", proc, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour)))
+		require.Error(t, err, name)
+		assert.NoDirExists(t, filepath.Join(n.dir, "m"), "%s: nothing was created", name)
+		assert.Empty(t, processes("--machine m "), "%s: no supervisor was started", name)
+	}
+
+	// Control: the regular file starts and is linked.
+	n := newNode(t)
+	run := runDir(n.dir, "m")
+	proc := vmmProcess(run)
+	proc.RunFiles = []machine.RunFile{{Name: "linked", Path: src}}
+	require.NoError(t, n.a.Start(ctx, "m", proc, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour))))
+	assert.FileExists(t, filepath.Join(run, "linked"))
+}
+
 // A leftover at a run file's name, as an earlier run of the Machine leaves, is
 // replaced by the link to the source; the control is the leftover's own inode,
 // read before the Start, which is not the source's.
@@ -110,15 +141,16 @@ func TestStart_AFailedRunFileLinkFailsTheStart(t *testing.T) {
 	n := newNode(t)
 	src := hostFile(t, "disk")
 	run := runDir(n.dir, "m")
-	missing := filepath.Join(shortDir(t), "absent")
+	// A non-empty directory at the second name cannot be cleared, so the link
+	// fails after the first entry was linked.
+	require.NoError(t, os.MkdirAll(filepath.Join(run, "second", "inner"), 0o700))
 	proc := describe(probeBin, "report", run)
-	proc.RunFiles = []machine.RunFile{{Name: "first", Path: src}, {Name: "second", Path: missing}}
+	proc.RunFiles = []machine.RunFile{{Name: "first", Path: src}, {Name: "second", Path: src}}
 
 	err := n.a.Start(ctx, "m", proc, vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour)))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "second")
 	assert.FileExists(t, filepath.Join(run, "first"), "control: the entry before the failure was linked")
-	assert.NoFileExists(t, filepath.Join(run, "second"))
 	assert.NoFileExists(t, filepath.Join(run, "report.json"), "the VMM did not start")
 	assert.Empty(t, processes("--machine m "), "no supervisor is left")
 }

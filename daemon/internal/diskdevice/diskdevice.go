@@ -44,8 +44,7 @@ func RemoveLink(link string) error {
 // Link hard links the file of a disk to attach into the Machine's run
 // directory under the disk's device name, the one place mvmd adds files to a
 // VMM that is running (ADR 0015), and returns the run directory. It refuses a
-// disk that names no disk and a file that is not an absolute path to a regular
-// file: a link made to a symbolic link would name a host path in the root.
+// disk that names no disk and a file runlink refuses.
 func Link(dirs vmmconfig.RunDirs, id machine.MachineID, dev machine.BlockDevice) (string, error) {
 	if dev.Disk == "" {
 		return "", errors.New("a disk to attach names no disk")
@@ -53,13 +52,6 @@ func Link(dirs vmmconfig.RunDirs, id machine.MachineID, dev machine.BlockDevice)
 	name := Name(0, dev.Disk)
 	if err := runlink.Check(name, dev.Path); err != nil {
 		return "", err
-	}
-	info, err := os.Lstat(dev.Path)
-	if err != nil {
-		return "", fmt.Errorf("the disk file: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("the disk file %s is not a regular file", dev.Path)
 	}
 	dir, err := dirs.RunDir(id)
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/runlink"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
 )
 
@@ -168,12 +169,11 @@ func StartInRoot(t *testing.T, p machine.ProcessDescription, s Streams) Process 
 // it starts the VMM (ADR 0042).
 func linkRunFiles(p machine.ProcessDescription) error {
 	for _, f := range p.RunFiles {
-		link := filepath.Join(p.RunDir, f.Name)
-		if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove %s: %w", link, err)
+		if err := runlink.Check(f.Name, f.Path); err != nil {
+			return err
 		}
-		if err := os.Link(f.Path, link); err != nil {
-			return fmt.Errorf("link run file %s: %w", f.Name, err)
+		if err := runlink.Make(p.RunDir, f.Name, f.Path); err != nil {
+			return err
 		}
 	}
 	return nil

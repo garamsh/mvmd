@@ -21,6 +21,7 @@ func inode(t *testing.T, path string) uint64 {
 
 func TestCheck_RefusesANameThatIsNotOneFileNameAndAPathThatIsNotAbsolute(t *testing.T) {
 	abs := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(abs, []byte("data"), 0o600))
 	tests := []struct {
 		label, name, path, want string
 	}{
@@ -38,6 +39,27 @@ func TestCheck_RefusesANameThatIsNotOneFileNameAndAPathThatIsNotAbsolute(t *test
 		assert.Contains(t, err.Error(), tt.want, tt.label)
 	}
 	assert.NoError(t, runlink.Check("ok", abs), "control: one file name and an absolute path")
+}
+
+func TestCheck_RefusesAPathThatIsAbsentOrNotARegularFile(t *testing.T) {
+	root := t.TempDir()
+	regular := filepath.Join(root, "regular")
+	require.NoError(t, os.WriteFile(regular, []byte("data"), 0o600))
+	symlink := filepath.Join(root, "symlink")
+	require.NoError(t, os.Symlink(regular, symlink))
+	tests := []struct {
+		label, path, want string
+	}{
+		{"absent", filepath.Join(root, "absent"), "no such file"},
+		{"a symbolic link to a regular file", symlink, "not a regular file"},
+		{"a directory", root, "not a regular file"},
+	}
+	for _, tt := range tests {
+		err := runlink.Check("ok", tt.path)
+		require.Error(t, err, tt.label)
+		assert.Contains(t, err.Error(), tt.want, tt.label)
+	}
+	assert.NoError(t, runlink.Check("ok", regular), "control: a regular file")
 }
 
 func TestMake_HardLinksTheFileUnderTheName(t *testing.T) {
