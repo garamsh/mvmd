@@ -1,15 +1,13 @@
 //! `mkinitrd <converter> <mkfs.erofs> <output>`: writes the converter's initrd with the binary at
 //! `<converter>` as its `init` and the one at `<mkfs.erofs>` beside it.
 
+use std::error::Error;
 use std::fs;
-use std::io;
 use std::process::ExitCode;
 
-fn build(converter: &str, mkfs_erofs: &str, output: &str) -> io::Result<()> {
-    fs::write(
-        output,
-        mkinitrd::initrd(&fs::read(converter)?, &fs::read(mkfs_erofs)?),
-    )
+fn build(converter: &str, mkfs_erofs: &str, output: &str) -> Result<(), Box<dyn Error>> {
+    let archive = mkinitrd::initrd(&fs::read(converter)?, &fs::read(mkfs_erofs)?)?;
+    Ok(fs::write(output, archive)?)
 }
 
 fn main() -> ExitCode {
