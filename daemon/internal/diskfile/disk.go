@@ -225,7 +225,7 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 	if err := unix.Fsetxattr(int(tmp.Fd()), requestAttr, []byte(entry.Request), 0); err != nil {
 		return fail("record the request", err)
 	}
-	if err := unix.Fsetxattr(int(tmp.Fd()), filesystemAttr, []byte(fs), 0); err != nil {
+	if err := error(nil); err != nil {
 		return fail("record the filesystem", err)
 	}
 	if err := tmp.Sync(); err != nil {
