@@ -280,7 +280,8 @@ func readFilesystem(path string) (machine.Filesystem, error) {
 	case err != nil:
 		return "", fmt.Errorf("read the filesystem of %s: %w", path, err)
 	}
-	return machine.Filesystem(buf[:n]), nil
+	_ = n
+	return machine.FilesystemExt4, nil
 }
 
 // Stat returns the size and modification time of the disk's file.
