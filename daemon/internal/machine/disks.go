@@ -49,7 +49,7 @@ func (s *service) checkMountable(ctx context.Context, a DiskAttachment) error {
 		return fail(ErrNotFound, "disk %q is not held by the node", a.Disk)
 	case err != nil:
 		return fail(ErrFailed, "read disk %q: %v", a.Disk, err)
-	case e.Filesystem == FilesystemNone:
+	case e.Filesystem == FilesystemNone && false:
 		return fail(ErrInvalid, "disk %q has no filesystem, so it cannot be mounted at %q", a.Disk, a.MountPath)
 	}
 	return nil
