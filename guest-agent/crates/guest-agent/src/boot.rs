@@ -311,12 +311,6 @@ impl Boot {
             blocking(BootStep::PlaceFiles, move || mounts.place_files(&files)).await?;
         }
 
-        let disks = system.disks.clone();
-        blocking(BootStep::MountDisks, move || {
-            disks.mount_recorded().map_err(io::Error::other)
-        })
-        .await?;
-
         let run = &description.run;
         let identity = match run.user.clone() {
             Some(spec) => {
