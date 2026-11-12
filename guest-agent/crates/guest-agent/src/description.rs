@@ -7,6 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use crate::error::Error;
+use crate::probes::{ProbeSpec, parse_probes};
 use crate::system::DiskMount;
 use crate::user::UserSpec;
 use crate::uuid::Uuid;
@@ -38,6 +39,8 @@ pub struct RunConfig {
     pub working_dir: String,
     /// The user the entrypoint runs as; `None` runs it as root.
     pub user: Option<UserSpec>,
+    /// The probes run from the entrypoint's start, in the order sent.
+    pub probes: Vec<ProbeSpec>,
 }
 
 /// The most files a boot description places.
@@ -198,6 +201,7 @@ impl TryFrom<v1alpha1::BootRequest> for BootDescription {
         }
         let user = UserSpec::parse(&run.user)?;
         let files = parse_files(run.files)?;
+        let probes = parse_probes(run.probes)?;
         Ok(Self {
             image: Uuid::parse(&request.image_uuid)?,
             root_disk: Uuid::parse(&request.root_disk_uuid)?,
@@ -206,6 +210,7 @@ impl TryFrom<v1alpha1::BootRequest> for BootDescription {
                 env: run.env,
                 working_dir: run.working_dir,
                 user,
+                probes,
             },
             files,
             network: request.network.unwrap_or_default().try_into()?,

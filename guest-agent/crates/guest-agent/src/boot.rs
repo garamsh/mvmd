@@ -2,13 +2,14 @@
 //! the rest of the service reads to know whether the guest is ready.
 
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use tokio::sync::watch;
 
 use crate::description::{BootDescription, CatchUp, NetworkConfig};
 use crate::error::{BootStep, Error, Unbooted};
 use crate::exec::Execs;
+use crate::probes::{self, Probes};
 use crate::system::{Disks, Resources, System};
 use crate::uuid::Filesystem;
 use crate::v1alpha1::{ExecRequest, ExecStatus};
@@ -73,6 +74,8 @@ pub(crate) struct Boot {
     /// The restore ID of the last catch-up that succeeded. It is held while a catch-up runs, so
     /// two calls with one ID do the work once.
     last_restore: tokio::sync::Mutex<Option<String>>,
+    /// The workload's probes, set by the boot step that starts the entrypoint.
+    probes: OnceLock<Arc<Probes>>,
 }
 
 impl Boot {
@@ -83,6 +86,7 @@ impl Boot {
             system: Some(system),
             execs,
             last_restore: tokio::sync::Mutex::new(None),
+            probes: OnceLock::new(),
         }
     }
 
@@ -93,7 +97,18 @@ impl Boot {
             system: None,
             execs,
             last_restore: tokio::sync::Mutex::new(None),
+            probes: OnceLock::new(),
         }
+    }
+
+    /// The probes of the booted guest. An agent that does not boot the guest runs none.
+    pub(crate) fn probes(&self) -> Result<Arc<Probes>, Error> {
+        self.ready()?;
+        self.probes.get().cloned().ok_or_else(|| {
+            Error::PreconditionFailed(
+                "this agent does not boot the guest and runs no probes".into(),
+            )
+        })
     }
 
     /// Whether the calls that act on the guest may be served.
@@ -341,6 +356,18 @@ impl Boot {
         if record.status() == ExecStatus::NotStarted {
             return Err(Failure::new(BootStep::Entrypoint, record.reason));
         }
+        let probes = probes::start(
+            run.probes.clone(),
+            probes::Context {
+                host: probes::loopback(&description.network),
+                execs: self.execs.clone(),
+                env: run.env.clone(),
+                working_dir: run.working_dir.clone(),
+                identity,
+            },
+        );
+        // Only the one boot that claimed the phase gets here, so the cell is empty.
+        let _ = self.probes.set(probes);
         Ok(())
     }
 }

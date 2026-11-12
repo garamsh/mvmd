@@ -22,8 +22,8 @@ use guest_agent::v1alpha1::{
     HealthRequest, Ipv4Config, Ipv6Config, ListFilesRequest, NetworkConfig as WireNetworkConfig,
     NotBooted, OnlineVcpusRequest, PatchFileRequest, ReadExecOutputRequest, ReadFileRequest,
     ReleaseDiskRequest, RunConfig, SearchFilesRequest, SignalRequest, TerminateRequest,
-    UpdateNetworkRequest, WriteFileRequest, WriteFileStart, read_exec_output_response,
-    write_file_request,
+    UpdateNetworkRequest, WatchProbesRequest, WatchProbesResponse, WriteFileRequest,
+    WriteFileStart, read_exec_output_response, write_file_request,
 };
 use guest_agent::{
     Accounts, BootFile, BootStep, Clock, Console, DiskDevice, DiskError, DiskMount, Disks, Entropy,
@@ -1349,12 +1349,16 @@ async fn gated_calls(client: &mut GuestServiceClient<Channel>) -> Vec<(&'static 
                 .await
                 .map(|_| ()),
         ),
+        (
+            "watch_probes",
+            client.watch_probes(WatchProbesRequest {}).await.map(|_| ()),
+        ),
     ]
 }
 
 /// Asserts that every gated call was refused as not booted, in `state`.
 fn assert_refused_as_not_booted(calls: Vec<(&'static str, Refusal)>, state: BootState) -> Result {
-    assert_eq!(calls.len(), 6);
+    assert_eq!(calls.len(), 7);
     for (call, result) in calls {
         let refusal = result.err().ok_or_else(|| format!("{call}: was served"))?;
         assert_eq!(refusal.code(), Code::FailedPrecondition, "{call}");
@@ -3148,4 +3152,571 @@ async fn a_grow_answers_the_new_size_and_a_disk_never_found_is_not_found() -> Re
     assert_eq!(unnamed.code(), Code::InvalidArgument);
     assert_eq!(agent.log.count("disk grow data"), 1);
     Ok(())
+}
+
+/// The probes the workload is run with: each kind, the schedule, and the stream of results.
+mod probe_tests {
+    use std::sync::atomic::AtomicU16;
+    use std::time::Instant;
+
+    use guest_agent::v1alpha1::{
+        ExecProbe, HttpGetProbe, Probe, ProbeResult, ProbeStatus, TcpProbe, probe,
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    /// An agent that keeps serving for a minute after the entrypoint ends, so that a stream
+    /// ends only because the probes did, not because the server shut down.
+    async fn start_patient() -> Result<Agent> {
+        Agent::start_with(Setup {
+            config: guest_agent::Config {
+                shutdown_grace: Duration::from_secs(60),
+                ..guest_agent::Config::default()
+            },
+            ..Setup::default()
+        })
+        .await
+    }
+
+    fn ms(millis: i64) -> Option<prost_types::Duration> {
+        Some(prost_types::Duration {
+            seconds: millis / 1000,
+            nanos: i32::try_from(millis % 1000).unwrap_or(0) * 1_000_000,
+        })
+    }
+
+    /// A probe that runs every 50 ms and turns on one run, whatever its kind. Its first run is
+    /// 300 ms after the entrypoint starts, which leaves time to open a watch while the probe is
+    /// still unknown.
+    fn probe(name: &str, kind: probe::Kind) -> Probe {
+        Probe {
+            name: name.into(),
+            kind: Some(kind),
+            initial_delay: ms(300),
+            period: ms(50),
+            timeout: ms(2000),
+            success_threshold: 1,
+            failure_threshold: 1,
+        }
+    }
+
+    fn sh_probe(name: &str, script: &str) -> Probe {
+        probe(
+            name,
+            probe::Kind::Exec(ExecProbe {
+                argv: vec![SH.into(), "-c".into(), script.into()],
+            }),
+        )
+    }
+
+    fn tcp_probe(name: &str, port: u16) -> Probe {
+        probe(
+            name,
+            probe::Kind::Tcp(TcpProbe {
+                port: u32::from(port),
+            }),
+        )
+    }
+
+    fn http_probe(name: &str, port: u16, path: &str) -> Probe {
+        probe(
+            name,
+            probe::Kind::HttpGet(HttpGetProbe {
+                port: u32::from(port),
+                path: path.into(),
+                scheme: String::new(),
+            }),
+        )
+    }
+
+    async fn boot_with(agent: &mut Agent, script: &str, probes: Vec<Probe>) -> Result {
+        let mut request = agent.boot_request(script);
+        request.run.as_mut().ok_or("no run")?.probes = probes;
+        agent.client.boot(request).await?;
+        Ok(())
+    }
+
+    async fn watch(agent: &mut Agent) -> Result<Streaming<WatchProbesResponse>> {
+        Ok(agent
+            .client
+            .watch_probes(WatchProbesRequest {})
+            .await?
+            .into_inner())
+    }
+
+    async fn next(stream: &mut Streaming<WatchProbesResponse>) -> Result<ProbeResult> {
+        let message = within(stream.message()).await??.ok_or("the stream ended")?;
+        Ok(message.result.ok_or("the message has no result")?)
+    }
+
+    /// Asserts that the stream is open and sends nothing for a while.
+    async fn quiet(stream: &mut Streaming<WatchProbesResponse>) -> Result {
+        match tokio::time::timeout(Duration::from_millis(400), stream.message()).await {
+            Err(_) => Ok(()),
+            Ok(message) => Err(format!("the stream sent or ended: {message:?}").into()),
+        }
+    }
+
+    /// Asserts that the stream ends without another message.
+    async fn ended(stream: &mut Streaming<WatchProbesResponse>) -> Result {
+        match within(stream.message()).await?? {
+            None => Ok(()),
+            Some(message) => Err(format!("the stream sent {message:?} instead of ending").into()),
+        }
+    }
+
+    fn at(result: &ProbeResult) -> Result<SystemTime> {
+        Ok(SystemTime::try_from(
+            result.changed_at.ok_or("the result has no changed_at")?,
+        )?)
+    }
+
+    /// The code of the refusal a boot came to.
+    fn refusal_code(outcome: Result) -> Result<Code> {
+        let error = outcome.err().ok_or("the boot was accepted")?;
+        Ok(error
+            .downcast_ref::<tonic::Status>()
+            .ok_or("the boot failed, but not with a status")?
+            .code())
+    }
+
+    /// A server of HTTP on a loopback port, answering every request with `status`.
+    struct Http {
+        port: u16,
+        status: Arc<AtomicU16>,
+        requests: Arc<Mutex<Vec<String>>>,
+    }
+
+    async fn http_server(status: u16) -> Result<Http> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let server = Http {
+            port: listener.local_addr()?.port(),
+            status: Arc::new(AtomicU16::new(status)),
+            requests: Arc::default(),
+        };
+        let (status, requests) = (server.status.clone(), server.requests.clone());
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let (status, requests) = (status.clone(), requests.clone());
+                tokio::spawn(async move {
+                    let mut request = [0_u8; 1024];
+                    let Ok(read) = stream.read(&mut request).await else {
+                        return;
+                    };
+                    let text = String::from_utf8_lossy(&request[..read]).into_owned();
+                    lock(&requests).push(text);
+                    let status = status.load(Ordering::SeqCst);
+                    let response = format!(
+                        "HTTP/1.1 {status} Reason\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+        Ok(server)
+    }
+
+    #[tokio::test]
+    async fn a_tcp_probe_is_unknown_then_passes_while_a_listener_accepts_and_fails_when_it_goes()
+    -> Result {
+        let mut agent = Agent::start().await?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let before = SystemTime::now();
+        boot_with(&mut agent, "sleep 30", vec![tcp_probe("db", port)]).await?;
+        let mut stream = watch(&mut agent).await?;
+
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        let passing = next(&mut stream).await?;
+        let after_pass = SystemTime::now();
+        drop(listener);
+        let failing = next(&mut stream).await?;
+        let after_fail = SystemTime::now();
+
+        assert_eq!(passing.name, "db");
+        assert_eq!(passing.status(), ProbeStatus::Passing);
+        assert!(before <= at(&passing)? && at(&passing)? <= after_pass);
+        assert_eq!(failing.status(), ProbeStatus::Failing);
+        assert!(after_pass <= at(&failing)? && at(&failing)? <= after_fail);
+        assert!(failing.last_failure.contains("cannot connect"));
+        assert_eq!(failing.consecutive_successes, 0);
+        // The agent acts on no result: the entrypoint runs on and the Machine stays up.
+        assert!(!agent.is_powered_off());
+        let record = agent
+            .client
+            .exec(exec_request(guest_agent::ENTRYPOINT, "true"))
+            .await?
+            .into_inner()
+            .record
+            .ok_or("no record")?;
+        assert_eq!(record.status(), ExecStatus::Started);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_stream_opens_with_unknown_and_no_time_and_the_first_run_waits_the_initial_delay()
+    -> Result {
+        let mut agent = Agent::start().await?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let mut probe = tcp_probe("late", listener.local_addr()?.port());
+        probe.initial_delay = ms(600);
+        let before = SystemTime::now();
+        boot_with(&mut agent, "sleep 30", vec![probe]).await?;
+        let mut stream = watch(&mut agent).await?;
+
+        let unknown = next(&mut stream).await?;
+        let passing = next(&mut stream).await?;
+
+        assert_eq!(unknown.status(), ProbeStatus::Unknown);
+        assert!(unknown.changed_at.is_none());
+        assert_eq!(
+            (unknown.consecutive_successes, unknown.consecutive_failures),
+            (0, 0)
+        );
+        assert_eq!(passing.status(), ProbeStatus::Passing);
+        assert!(
+            at(&passing)? >= before + Duration::from_millis(600),
+            "the first run came {:?} after the boot began",
+            at(&passing)?.duration_since(before)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_http_probe_passes_on_a_status_from_200_to_399_and_fails_on_the_rest() -> Result {
+        let mut agent = Agent::start().await?;
+        let server = http_server(200).await?;
+        boot_with(
+            &mut agent,
+            "sleep 30",
+            vec![http_probe("web", server.port, "/healthz?full=1")],
+        )
+        .await?;
+        let mut stream = watch(&mut agent).await?;
+
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        // 200 and 399 are the ends of success; 199 and 400 the first outside it.
+        let mut seen = vec![];
+        for status in [200, 503, 399, 400, 302, 199] {
+            server.status.store(status, Ordering::SeqCst);
+            let result = next(&mut stream).await?;
+            if result.status() == ProbeStatus::Failing {
+                assert!(
+                    result.last_failure.contains(&status.to_string()),
+                    "{}",
+                    result.last_failure
+                );
+            }
+            seen.push(result.status());
+        }
+
+        assert_eq!(
+            seen,
+            [
+                ProbeStatus::Passing,
+                ProbeStatus::Failing,
+                ProbeStatus::Passing,
+                ProbeStatus::Failing,
+                ProbeStatus::Passing,
+                ProbeStatus::Failing
+            ]
+        );
+        let requests = lock(&server.requests).clone();
+        let first = requests.first().ok_or("the server saw no request")?;
+        assert!(
+            first.starts_with("GET /healthz?full=1 HTTP/1.1\r\n"),
+            "{first}"
+        );
+        assert!(first.contains("Host: 127.0.0.1:"), "{first}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_exec_probe_passes_on_exit_0_and_fails_otherwise_and_keeps_the_start_of_its_output()
+    -> Result {
+        let mut agent = Agent::start().await?;
+        let flag = agent.dir.path().join("ready");
+        let script = format!(
+            "echo out-$GREETING; head -c 3000 /dev/zero | tr '\\0' x; test -e {}",
+            flag.display()
+        );
+        boot_with(&mut agent, "sleep 30", vec![sh_probe("cmd", &script)]).await?;
+        let mut stream = watch(&mut agent).await?;
+
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        let failing = next(&mut stream).await?;
+        fs::write(&flag, "")?;
+        let passing = next(&mut stream).await?;
+
+        assert_eq!(failing.status(), ProbeStatus::Failing);
+        assert_eq!(failing.last_failure, "exited with code 1");
+        assert_eq!(passing.status(), ProbeStatus::Passing);
+        // Only the first 1 KiB of the output is kept, from its start; the message of a failure
+        // holds none of it.
+        assert_eq!(passing.last_output.len(), 1024);
+        assert!(passing.last_output.starts_with(b"out-hello\nxxx"));
+        assert!(!failing.last_failure.contains("out-"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_exec_probe_runs_with_the_run_configs_environment_and_working_directory() -> Result {
+        let mut agent = Agent::start().await?;
+        fs::write(agent.dir.path().join("here"), "")?;
+        // The environment is the run config's alone: GREETING is set and HOME is not.
+        let script = r#"test -e here && test "$GREETING" = hello && test -z "${HOME+x}""#;
+        boot_with(&mut agent, "sleep 30", vec![sh_probe("env", script)]).await?;
+        let mut stream = watch(&mut agent).await?;
+
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        let result = next(&mut stream).await?;
+
+        assert_eq!(
+            result.status(),
+            ProbeStatus::Passing,
+            "{}",
+            result.last_failure
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_thresholds_are_consecutive_runs() -> Result {
+        let mut agent = Agent::start().await?;
+        let flag = agent.dir.path().join("ready");
+        let mut probe = sh_probe("t", &format!("test -e {}", flag.display()));
+        probe.success_threshold = 3;
+        probe.failure_threshold = 2;
+        probe.initial_delay = ms(600);
+        boot_with(&mut agent, "sleep 30", vec![probe]).await?;
+        let mut stream = watch(&mut agent).await?;
+        let opened = next(&mut stream).await?;
+        assert_eq!(opened.status(), ProbeStatus::Unknown);
+        assert_eq!(opened.consecutive_failures, 0);
+
+        // A probe turns at its threshold and not before, so the message after the opening one
+        // is the passing one, at exactly three successes.
+        fs::write(&flag, "")?;
+        let passing = next(&mut stream).await?;
+        fs::remove_file(&flag)?;
+        let failing = next(&mut stream).await?;
+
+        assert_eq!(passing.status(), ProbeStatus::Passing);
+        assert_eq!(passing.consecutive_successes, 3);
+        assert_eq!(passing.consecutive_failures, 0);
+        assert_eq!(failing.status(), ProbeStatus::Failing);
+        assert_eq!(failing.consecutive_failures, 2);
+        assert_eq!(failing.consecutive_successes, 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_probe_that_hangs_fails_at_its_timeout_and_its_command_is_killed() -> Result {
+        let mut agent = Agent::start().await?;
+        let pid_file = agent.dir.path().join("pid");
+        let mut exec = sh_probe(
+            "slow",
+            &format!("echo $$ > {}; sleep 60", pid_file.display()),
+        );
+        exec.timeout = ms(300);
+        // A server that accepts and never answers.
+        let silent = TcpListener::bind("127.0.0.1:0").await?;
+        let mut web = http_probe("mute", silent.local_addr()?.port(), "/");
+        web.timeout = ms(300);
+        let held = tokio::spawn(async move {
+            let mut streams = vec![];
+            while let Ok((stream, _)) = silent.accept().await {
+                streams.push(stream);
+            }
+        });
+        let before = Instant::now();
+        boot_with(&mut agent, "sleep 30", vec![exec, web]).await?;
+        let mut stream = watch(&mut agent).await?;
+
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        let first = next(&mut stream).await?;
+        let second = next(&mut stream).await?;
+
+        let mut names = vec![first.name.clone(), second.name.clone()];
+        names.sort();
+        assert_eq!(names, ["mute", "slow"]);
+        for result in [&first, &second] {
+            assert_eq!(result.status(), ProbeStatus::Failing, "{}", result.name);
+            assert!(
+                result.last_failure.starts_with("did not finish within"),
+                "{}: {}",
+                result.name,
+                result.last_failure
+            );
+        }
+        assert!(before.elapsed() >= Duration::from_millis(300));
+        let pid: u32 = fs::read_to_string(&pid_file)?.trim().parse()?;
+        eventually("the probe's command to be killed", || {
+            !Path::new(&format!("/proc/{pid}")).exists()
+        })
+        .await?;
+        held.abort();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_watch_opened_later_starts_with_the_current_result_of_every_probe_in_order() -> Result
+    {
+        let mut agent = Agent::start().await?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let up = tcp_probe("zz-up", listener.local_addr()?.port());
+        let down = sh_probe("aa-down", "exit 3");
+        boot_with(&mut agent, "sleep 30", vec![up, down]).await?;
+        let mut first = watch(&mut agent).await?;
+        let mut turned = HashMap::new();
+        while turned.len() < 2 {
+            let result = next(&mut first).await?;
+            if result.status() != ProbeStatus::Unknown {
+                turned.insert(result.name.clone(), result);
+            }
+        }
+
+        let mut second = watch(&mut agent).await?;
+        let (one, two) = (next(&mut second).await?, next(&mut second).await?);
+
+        // The description's order, not the names'.
+        assert_eq!((one.name.as_str(), two.name.as_str()), ("zz-up", "aa-down"));
+        assert_eq!(one.status(), ProbeStatus::Passing);
+        assert_eq!(two.status(), ProbeStatus::Failing);
+        assert_eq!(one.changed_at, turned["zz-up"].changed_at);
+        assert_eq!(two.changed_at, turned["aa-down"].changed_at);
+        // Nothing more arrives while nothing changes.
+        quiet(&mut second).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_stream_ends_after_the_entrypoint_ends() -> Result {
+        let mut agent = start_patient().await?;
+        let flag = agent.dir.path().join("exit-now");
+        let script = format!("while [ ! -e {} ]; do sleep 0.05; done", flag.display());
+        boot_with(&mut agent, &script, vec![sh_probe("ok", "true")]).await?;
+        let mut stream = watch(&mut agent).await?;
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Passing);
+        // The control: with the entrypoint running the stream stays open.
+        quiet(&mut stream).await?;
+
+        fs::write(&flag, "")?;
+        ended(&mut stream).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn no_probes_send_nothing_and_the_stream_ends_with_the_entrypoint() -> Result {
+        let mut agent = start_patient().await?;
+        let flag = agent.dir.path().join("exit-now");
+        let script = format!("while [ ! -e {} ]; do sleep 0.05; done", flag.display());
+        boot_with(&mut agent, &script, vec![]).await?;
+        let mut stream = watch(&mut agent).await?;
+
+        quiet(&mut stream).await?;
+        fs::write(&flag, "")?;
+        ended(&mut stream).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_probe_stops_running_once_the_entrypoint_ended() -> Result {
+        let mut agent = start_patient().await?;
+        let flag = agent.dir.path().join("exit-now");
+        let counter = agent.dir.path().join("runs");
+        let script = format!("while [ ! -e {} ]; do sleep 0.05; done", flag.display());
+        let probe = sh_probe("count", &format!("echo >> {}", counter.display()));
+        boot_with(&mut agent, &script, vec![probe]).await?;
+        let mut stream = watch(&mut agent).await?;
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Unknown);
+        assert_eq!(next(&mut stream).await?.status(), ProbeStatus::Passing);
+
+        fs::write(&flag, "")?;
+        ended(&mut stream).await?;
+        let runs = fs::read_to_string(&counter)?.lines().count();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+
+        assert_eq!(fs::read_to_string(&counter)?.lines().count(), runs);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_repeated_boot_with_other_probes_is_refused_and_with_the_same_ones_accepted() -> Result
+    {
+        let mut agent = Agent::start().await?;
+        let mut first = tcp_probe("db", 5432);
+        first.period = None;
+        boot_with(&mut agent, "sleep 30", vec![first.clone()]).await?;
+        let steps = agent.log.entries();
+
+        // The same probes, one of them with a default written out.
+        let mut explicit = first.clone();
+        explicit.period = ms(10_000);
+        boot_with(&mut agent, "sleep 30", vec![first.clone()]).await?;
+        boot_with(&mut agent, "sleep 30", vec![explicit]).await?;
+        let mut other_port = first.clone();
+        other_port.kind = Some(probe::Kind::Tcp(TcpProbe { port: 5433 }));
+        let mut other_name = first.clone();
+        other_name.name = "cache".into();
+        let mut other_period = first.clone();
+        other_period.period = ms(60);
+        let mut other_threshold = first.clone();
+        other_threshold.failure_threshold = 2;
+
+        for (what, probes) in [
+            ("port", vec![other_port]),
+            ("name", vec![other_name]),
+            ("period", vec![other_period]),
+            ("threshold", vec![other_threshold]),
+            ("none", vec![]),
+            ("more", vec![first.clone(), tcp_probe("extra", 1)]),
+        ] {
+            let outcome = boot_with(&mut agent, "sleep 30", probes).await;
+            assert_eq!(refusal_code(outcome)?, Code::FailedPrecondition, "{what}");
+        }
+        assert_eq!(agent.log.entries(), steps);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn probes_that_cannot_run_refuse_the_boot_and_the_agent_still_waits() -> Result {
+        let mut agent = Agent::start().await?;
+        let nine: Vec<Probe> = (0..9).map(|n| tcp_probe(&format!("p{n}"), 80)).collect();
+        let mut bad_scheme = http_probe("a", 80, "/");
+        bad_scheme.kind = Some(probe::Kind::HttpGet(HttpGetProbe {
+            port: 80,
+            path: "/".into(),
+            scheme: "https".into(),
+        }));
+        let kindless = Probe {
+            name: "a".into(),
+            ..Probe::default()
+        };
+        let refused = [
+            (
+                "duplicate name",
+                vec![tcp_probe("a", 80), tcp_probe("a", 81)],
+            ),
+            ("more than 8", nine),
+            ("scheme", vec![bad_scheme]),
+            ("path", vec![http_probe("a", 80, "no-slash")]),
+            ("port", vec![tcp_probe("a", 0)]),
+            ("name", vec![tcp_probe("bad name", 80)]),
+            ("kind", vec![kindless]),
+        ];
+
+        for (what, probes) in refused {
+            let outcome = boot_with(&mut agent, "sleep 30", probes).await;
+            assert_eq!(refusal_code(outcome)?, Code::InvalidArgument, "{what}");
+        }
+        // Nothing booted, and the agent still takes a valid description.
+        assert_eq!(agent.log.count("find"), 0);
+        boot_with(&mut agent, "sleep 30", vec![tcp_probe("a", 80)]).await?;
+        Ok(())
+    }
 }

@@ -82,7 +82,7 @@ pub(crate) struct Follower {
     done: bool,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // A poisoned lock means a task panicked inside a state update; the program ends then.
     mutex
         .lock()
@@ -102,6 +102,31 @@ impl Execs {
     /// is not there is an `io::ErrorKind::NotFound` error.
     pub(crate) fn identity(&self, spec: &UserSpec) -> io::Result<Identity> {
         spec.resolve(&self.users.accounts()?)
+    }
+
+    /// A command for `program` with exactly `env`, in `working_dir` when that is not empty. With
+    /// an `identity` it runs as it and gets its `HOME` unless `env` sets one; with none it runs
+    /// as the agent does. The caller sets the standard streams.
+    pub(crate) fn command(
+        &self,
+        program: &str,
+        args: &[String],
+        env: &HashMap<String, String>,
+        working_dir: &str,
+        identity: Option<&Identity>,
+    ) -> Command {
+        let mut command = Command::new(program);
+        command.args(args).env_clear().envs(env);
+        if !working_dir.is_empty() {
+            command.current_dir(working_dir);
+        }
+        if let Some(identity) = identity {
+            if let (Some(home), false) = (&identity.home, env.contains_key("HOME")) {
+                command.env("HOME", home);
+            }
+            self.users.run_as(command.as_std_mut(), identity);
+        }
+        command
     }
 
     /// Start the command under its exec ID, or return the record of the earlier start. With an
@@ -126,23 +151,11 @@ impl Execs {
             Entry::Vacant(slot) => slot.insert(Arc::new(Exec::new(&request.exec_id))).clone(),
         };
 
-        let mut command = Command::new(program);
+        let mut command = self.command(program, args, &request.env, &request.working_dir, identity);
         command
-            .args(args)
-            .env_clear()
-            .envs(&request.env)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if !request.working_dir.is_empty() {
-            command.current_dir(&request.working_dir);
-        }
-        if let Some(identity) = identity {
-            if let (Some(home), false) = (&identity.home, request.env.contains_key("HOME")) {
-                command.env("HOME", home);
-            }
-            self.users.run_as(command.as_std_mut(), identity);
-        }
         match command.spawn() {
             Ok(mut child) => {
                 let streams = (child.stdout.take(), child.stderr.take());
