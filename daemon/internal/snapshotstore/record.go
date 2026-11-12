@@ -173,7 +173,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 			RootDiskBytes:   r.RootDiskBytes,
 			Command:         r.Command,
 			Args:            r.Args,
-			Env:             env,
+			Env:             env[:0],
 			User:            r.RunUser,
 			Files:           files,
 		},
