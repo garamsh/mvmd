@@ -437,18 +437,31 @@ func TestStore_LocatesARecordInTheOldFormMarked(t *testing.T) {
 	assert.Equal(t, machine.ImageRun{Entrypoint: []string{"/bin/app", "--serve"}, Env: map[string]string{"A": "b"}, WorkingDir: "/srv", Joined: true}, old.Run)
 }
 
-// A pull of the digest replaces the old-form record with a new one.
-func TestStore_PublishReplacesARecordInTheOldForm(t *testing.T) {
+// ReplaceRun gives an old-form record the split run and keeps the image's
+// file, UUID and verity.
+func TestStore_ReplaceRunKeepsTheImageAndReplacesTheOldFormRecord(t *testing.T) {
 	s, dir := newStore(t)
-	pull(t, s, imageA, content("a"))
-	rewriteRunAsOldForm(t, dir, imageA)
-
 	record := pull(t, s, imageA, content("a"))
+	rewriteRunAsOldForm(t, dir, imageA)
+	old, err := s.Locate(ctx, imageA)
+	require.NoError(t, err)
+	require.True(t, old.Run.Joined, "the setup: the record is in the old form")
+	onDisk, err := os.ReadFile(old.Path)
+	require.NoError(t, err)
+
+	require.NoError(t, s.ReplaceRun(ctx, imageA, record.Run))
 
 	located, err := s.Locate(ctx, imageA)
-	require.NoError(t, err)
+	require.NoError(t, err, "the file still passes the fs-verity check Locate makes")
 	assert.Equal(t, record.Run, located.Run)
-	assert.False(t, located.Run.Joined)
+	assert.Equal(t, old.Path, located.Path)
+	assert.Equal(t, old.UUID, located.UUID)
+	again, err := os.ReadFile(located.Path)
+	require.NoError(t, err)
+	assert.Equal(t, onDisk, again)
+
+	// The control: an image the cache does not list is absent.
+	assert.ErrorIs(t, s.ReplaceRun(ctx, imageB, record.Run), machine.ErrImageAbsent)
 }
 
 // rewriteRunAsOldForm replaces the image's config blob with one whose run is in

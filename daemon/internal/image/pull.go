@@ -84,13 +84,13 @@ func (s *service) pull(ctx context.Context, ref Reference) error {
 	// Step 2.
 	located, err := s.store.Locate(ctx, ref.Digest)
 	switch {
-	case err == nil && !located.Run.Joined:
+	case err == nil && located.Run.Joined:
+		return s.replaceRun(ctx, ref)
+	case err == nil:
 		return nil
-	case err != nil && !errors.Is(err, machine.ErrImageAbsent):
+	case !errors.Is(err, machine.ErrImageAbsent):
 		return failed("look for the image in the cache", err)
 	}
-	// An absent image is pulled, and so is one whose record is in the old
-	// form, which the publish replaces.
 	staging, err := s.store.Stage(ctx, ref.Digest, s.settings.OutputBytes)
 	if err != nil {
 		return failed("create the staging area", err)
@@ -108,6 +108,35 @@ func (s *service) pull(ctx context.Context, ref Reference) error {
 	ctx, cancel := compensating(ctx)
 	defer cancel()
 	_ = s.store.Discard(ctx, staging)
+	return nil
+}
+
+// replaceRun rewrites the run part of a listed record that is in the old
+// form from the image's config. The EROFS is not converted again: a Machine or
+// a snapshot may hold the one listed.
+func (s *service) replaceRun(ctx context.Context, ref Reference) error {
+	manifest, err := s.registry.Manifest(ctx, ref, s.settings.Platform)
+	if err != nil {
+		return failed("fetch the manifest", err)
+	}
+	config, err := s.registry.Config(ctx, ref, manifest.Config)
+	if err != nil {
+		return failed("fetch the config", err)
+	}
+	run, err := runSpec(config)
+	if err != nil {
+		return failed("read the run configuration", err)
+	}
+	s.publish.Lock()
+	defer s.publish.Unlock()
+	if err := s.store.ReplaceRun(ctx, ref.Digest, run); err != nil {
+		// The swap can have happened before the step that failed; Locate
+		// says whether the record is no longer in the old form.
+		if located, lerr := s.store.Locate(ctx, ref.Digest); lerr == nil && !located.Run.Joined {
+			return nil
+		}
+		return failed("replace the image's run configuration", err)
+	}
 	return nil
 }
 
@@ -159,7 +188,7 @@ func (s *service) build(ctx context.Context, ref Reference, staging Staging) *ma
 	if err := s.store.Publish(ctx, staging); err != nil {
 		// Publish can fail after the swap that lists the image. A pull that
 		// failed leaves nothing visible, so Locate decides.
-		if _, lerr := s.store.Locate(ctx, ref.Digest); lerr == nil {
+		if located, lerr := s.store.Locate(ctx, ref.Digest); lerr == nil && !located.Run.Joined {
 			return nil
 		} else if !errors.Is(lerr, machine.ErrImageAbsent) {
 			return failed("publish the image", errors.Join(err, fmt.Errorf("locate the image after the failure: %w", lerr)))

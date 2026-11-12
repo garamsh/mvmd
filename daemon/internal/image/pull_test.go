@@ -2,6 +2,7 @@ package image_test
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -57,7 +58,7 @@ func TestPull_RecordsNoEntrypointCommandOrUserForAConfigThatSetsNone(t *testing.
 	assert.Equal(t, machine.ImageRun{}, located.Run)
 }
 
-func TestPull_RewritesARecordInTheOldForm(t *testing.T) {
+func TestPull_RewritesOnlyTheRunOfARecordInTheOldForm(t *testing.T) {
 	r := newRig(t)
 	ref := r.add("one")
 	require.NoError(t, r.pull(ref))
@@ -66,18 +67,68 @@ func TestPull_RewritesARecordInTheOldForm(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, old.Run.Joined, "the setup: the record is in the old form")
 	require.Empty(t, old.Run.Cmd, "the setup: the old form holds one vector")
-	stages := r.calls("stage")
+	recordBefore, _ := r.store.RecordOf(ref.Digest)
+	steps := []string{"stage", "layer", "put-layer", "boot", "convert", "seal", "record", "publish"}
+	before := map[string]int{}
+	for _, step := range steps {
+		before[step] = r.calls(step)
+		require.NotZero(t, before[step], "step %s ran in the first pull", step)
+	}
 
 	require.NoError(t, r.pull(ref))
 
-	assert.Greater(t, r.calls("stage"), stages, "the pull ran and did not answer present")
 	located, err := r.store.Locate(context.Background(), ref.Digest)
 	require.NoError(t, err)
 	assert.False(t, located.Run.Joined)
 	assert.Equal(t, []string{"/bin/app"}, located.Run.Entrypoint)
 	assert.Equal(t, []string{"--serve", "one"}, located.Run.Cmd)
 	assert.Equal(t, "app:grp", located.Run.User)
-	assert.Equal(t, []machine.ImageDigest{ref.Digest}, r.store.Listed())
+	assert.Equal(t, old.Path, located.Path, "the EROFS is the one listed before")
+	assert.Equal(t, old.UUID, located.UUID)
+	recordAfter, _ := r.store.RecordOf(ref.Digest)
+	assert.Equal(t, recordBefore.Verity, recordAfter.Verity)
+	for _, step := range steps {
+		assert.Equal(t, before[step], r.calls(step), "step %s ran again: the image was converted anew", step)
+	}
+	assert.Equal(t, 1, r.calls("replace-run"))
+
+	// The control: an image the node does not hold is converted.
+	require.NoError(t, r.pull(r.add("two")))
+	assert.Greater(t, r.calls("convert"), before["convert"])
+}
+
+func TestPull_AFailedReplaceOfTheRunLeavesTheRecordInTheOldFormAndFails(t *testing.T) {
+	r := newRig(t)
+	ref := r.add("one")
+	require.NoError(t, r.pull(ref))
+	r.store.AsOldForm(ref.Digest)
+
+	r.failAt("replace-run", errors.New("disk full"))
+	require.Error(t, r.pull(ref), "the record is still in the old form, so the pull did not succeed")
+	located, err := r.store.Locate(context.Background(), ref.Digest)
+	require.NoError(t, err)
+	assert.True(t, located.Run.Joined)
+
+	// The control: the same pull succeeds once the step does.
+	r.heal("replace-run")
+	require.NoError(t, r.pull(ref))
+	located, err = r.store.Locate(context.Background(), ref.Digest)
+	require.NoError(t, err)
+	assert.False(t, located.Run.Joined)
+}
+
+func TestPull_ASyncThatFailsAfterTheRunWasReplacedIsASuccess(t *testing.T) {
+	r := newRig(t)
+	ref := r.add("one")
+	require.NoError(t, r.pull(ref))
+	r.store.AsOldForm(ref.Digest)
+
+	r.failAt("replace-run-sync", errors.New("sync failed"))
+
+	require.NoError(t, r.pull(ref), "the record is replaced, which Locate shows")
+	located, err := r.store.Locate(context.Background(), ref.Digest)
+	require.NoError(t, err)
+	assert.False(t, located.Run.Joined)
 }
 
 func TestPull_HandsTheConverterTheVerifiedLayersInOrder(t *testing.T) {
