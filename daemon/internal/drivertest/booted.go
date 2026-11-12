@@ -3,6 +3,7 @@ package drivertest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"testing"
@@ -79,9 +80,15 @@ func ABootedGuestAnswersThroughGuestConnAndItsStateChangesTakeEffect(t *testing.
 		30*time.Second, 200*time.Millisecond, "the guest did not answer after Resume")
 
 	// Stop: Shutdown asks, and what the guest's kernel does with it is the
-	// kernel's. The VMM is ended either way, as the supervisor ends it.
-	if err := d.Shutdown(ctx, "m1", 2*time.Second); err != nil {
-		t.Logf("the guest did not stop gracefully: %v", err)
+	// kernel's. The pinned kernel builds no input device to take the request,
+	// so Shutdown waits out its grace and reports that the guest did not stop,
+	// where a Driver that cannot send the request at all refuses it. The VMM is
+	// ended either way, as the supervisor ends it.
+	const grace = 2 * time.Second
+	asked := time.Now()
+	if err := d.Shutdown(ctx, "m1", grace); !errors.Is(err, machine.ErrUnsupported) {
+		require.ErrorIs(t, err, context.DeadlineExceeded, "Shutdown on a kernel that cannot take the request reports the guest did not stop")
+		assert.GreaterOrEqual(t, time.Since(asked), grace, "Shutdown waited out the grace before it reported")
 	}
 	require.NoError(t, proc.Kill())
 	select {

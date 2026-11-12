@@ -3,10 +3,12 @@ package drivertest_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,6 +46,17 @@ func (s stub) Snapshot(ctx context.Context, id machine.MachineID) (machine.Drive
 		return s.Driver.Snapshot(ctx, id)
 	}
 	return machine.DriverSnapshot{}, s.snapshotRefusal
+}
+
+// Shutdown is what a guest whose kernel cannot take the request does to it: the grace runs out
+// and the Driver reports that the guest did not stop.
+func (stub) Shutdown(ctx context.Context, _ machine.MachineID, grace time.Duration) error {
+	select {
+	case <-time.After(grace):
+		return fmt.Errorf("the guest did not stop within %s: %w", grace, context.DeadlineExceeded)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (stub) DescribeRestore(context.Context, machine.MachineID, machine.BootSpec, []string) (machine.ProcessDescription, error) {
