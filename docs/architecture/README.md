@@ -78,5 +78,6 @@ Decisions:
 - [ADR 0045](./adr/0045-a-node-offers-named-kernels-a-machine-records-the-name-it-is-created-with-and-a-restore-matches-the-recorded-digest.md) — a node offers named kernels, a Machine records the name it is created with, and a restore matches the recorded digest (it replaces ADR 0010's one kernel per node with a named set)
 - [ADR 0046](./adr/0046-a-bound-the-node-is-configured-with-is-reported-and-refused-as-precondition-failed-while-measured-capacity-stays-the-clients.md) — a bound the node is configured with is reported and refused as precondition failed, while measured capacity stays the client's (it extends ADR 0039)
 - [ADR 0047](./adr/0047-a-pull-reads-the-registry-credentials-and-ca-at-each-lookup-and-takes-a-credential-from-a-helper.md) — a pull reads the registry credentials and CA at each lookup, and takes a credential from a helper
+- [ADR 0049](./adr/0049-traffic-to-a-configured-no-masquerade-prefix-keeps-the-machines-source-address-and-runtime-info-reports-the-machine-prefixes.md) — traffic to a configured no-masquerade prefix keeps the Machine's source address, and runtime info reports the Machine prefixes (it adds an exception to the masquerade of ADR 0011)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

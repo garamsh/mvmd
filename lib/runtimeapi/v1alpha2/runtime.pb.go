@@ -2975,9 +2975,13 @@ type GetRuntimeInfoResponse struct {
 	Drivers     []*DriverInfo `protobuf:"bytes,2,rep,name=drivers,proto3" json:"drivers,omitempty"`
 	Capacity    *NodeCapacity `protobuf:"bytes,3,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	// The kernels the node offers, ordered by name; exactly one is the default.
-	Kernels       []*NodeKernel `protobuf:"bytes,4,rep,name=kernels,proto3" json:"kernels,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Kernels []*NodeKernel `protobuf:"bytes,4,rep,name=kernels,proto3" json:"kernels,omitempty"`
+	// The prefixes the node assigns Machine addresses from, one for each IP
+	// family the node's network configuration names, in CIDR form with the host
+	// bits clear, IPv4 first. Empty when the node has no network configuration.
+	MachinePrefixes []string `protobuf:"bytes,5,rep,name=machine_prefixes,json=machinePrefixes,proto3" json:"machine_prefixes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetRuntimeInfoResponse) Reset() {
@@ -3034,6 +3038,13 @@ func (x *GetRuntimeInfoResponse) GetCapacity() *NodeCapacity {
 func (x *GetRuntimeInfoResponse) GetKernels() []*NodeKernel {
 	if x != nil {
 		return x.Kernels
+	}
+	return nil
+}
+
+func (x *GetRuntimeInfoResponse) GetMachinePrefixes() []string {
+	if x != nil {
+		return x.MachinePrefixes
 	}
 	return nil
 }
@@ -5981,12 +5992,13 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06digest\x18\x02 \x01(\tR\x06digest\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x03 \x01(\bR\tisDefault\"\xf6\x01\n" +
+	"is_default\x18\x03 \x01(\bR\tisDefault\"\xa1\x02\n" +
 	"\x16GetRuntimeInfoResponse\x12!\n" +
 	"\fapi_versions\x18\x01 \x03(\tR\vapiVersions\x12;\n" +
 	"\adrivers\x18\x02 \x03(\v2!.mvmd.runtime.v1alpha2.DriverInfoR\adrivers\x12?\n" +
 	"\bcapacity\x18\x03 \x01(\v2#.mvmd.runtime.v1alpha2.NodeCapacityR\bcapacity\x12;\n" +
-	"\akernels\x18\x04 \x03(\v2!.mvmd.runtime.v1alpha2.NodeKernelR\akernels\"6\n" +
+	"\akernels\x18\x04 \x03(\v2!.mvmd.runtime.v1alpha2.NodeKernelR\akernels\x12)\n" +
+	"\x10machine_prefixes\x18\x05 \x03(\tR\x0fmachinePrefixes\"6\n" +
 	"\x15InspectMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\"R\n" +

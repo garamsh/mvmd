@@ -81,3 +81,19 @@ func TestRuntimeInfo_TheMachineLimitIsBoundedByTheAddressesOfTheNetwork(t *testi
 		require.NoError(t, err, "the control: a freed address is accepted")
 	})
 }
+
+// The wired node reports the prefixes of its network section, and a node with
+// none reports none.
+func TestRuntimeInfo_ReportsTheMachinePrefixesOfTheWiredNode(t *testing.T) {
+	prefixesOf := func(n *node) []string {
+		info, err := n.client.GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+		require.NoError(t, err)
+		return info.GetMachinePrefixes()
+	}
+	assert.Empty(t, prefixesOf(start(t, testConfig(t))), "no network section")
+
+	nstest.Run(t, func(t *testing.T) {
+		n := start(t, networkConfigured(t))
+		assert.Equal(t, []string{"10.78.0.0/24", "fd78::/64"}, prefixesOf(n))
+	})
+}

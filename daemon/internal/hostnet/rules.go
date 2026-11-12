@@ -83,6 +83,14 @@ func (n *Network) addBase(c *nftables.Conn, t tables) {
 		Table: t.inet, Chain: output,
 		Exprs: join(skuidIn(r.First, r.First+r.Count-1), verdict(expr.VerdictDrop)),
 	})
+	// An accept ends the chain, so a destination in a no-masquerade prefix
+	// reaches the masquerade rules below it with its source unchanged.
+	for _, p := range n.cfg.NoMasquerade {
+		c.AddRule(&nftables.Rule{
+			Table: t.inet, Chain: post,
+			Exprs: join(nfprotoIs(familyOf(p.Addr())), addrIn(p, true), verdict(expr.VerdictAccept)),
+		})
+	}
 	for _, p := range []netip.Prefix{n.cfg.IPv4Prefix, n.cfg.IPv6Prefix} {
 		if !p.IsValid() {
 			continue

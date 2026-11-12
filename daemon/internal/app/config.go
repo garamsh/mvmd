@@ -441,6 +441,9 @@ type NetworkConfig struct {
 	IPv6Prefix string `json:"ipv6_prefix"`
 	// Resolvers are the addresses the guest is told to resolve names with.
 	Resolvers []string `json:"resolvers"`
+	// NoMasquerade are CIDRs, in the families the node serves, that traffic
+	// from a Machine reaches with the Machine's own source address (ADR 0049).
+	NoMasquerade []string `json:"no_masquerade"`
 }
 
 // toHostnet parses the node's network into the adapter's configuration.
@@ -468,6 +471,13 @@ func (c NetworkConfig) toHostnet(uids VMMUIDRangeConfig) (hostnet.Config, error)
 			return out, fmt.Errorf("network.resolvers: %w", err)
 		}
 		out.Resolvers = append(out.Resolvers, a)
+	}
+	for _, s := range c.NoMasquerade {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return out, fmt.Errorf("network.no_masquerade: %w", err)
+		}
+		out.NoMasquerade = append(out.NoMasquerade, p)
 	}
 	return out, out.Validate()
 }

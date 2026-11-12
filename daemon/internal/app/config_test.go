@@ -58,6 +58,7 @@ func TestConfig_Parses(t *testing.T) {
 		`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1","ipv6_prefix":"fd77::/64","resolvers":["10.77.0.2"]}`,
 		`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1"}`,
 		`{"ipv6_prefix":"fd77::/64"}`,
+		`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1","ipv6_prefix":"fd77::/64","no_masquerade":["10.78.0.0/16","fd78::/48"]}`,
 	} {
 		withNetwork, err := app.ParseConfig([]byte(networkConfig(section)))
 		require.NoError(t, err, section)
@@ -114,6 +115,9 @@ func TestConfig_Refuses(t *testing.T) {
 		{"a gateway outside the prefix", networkConfig(`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"192.0.2.1"}`), "not inside"},
 		{"an IPv6 prefix that does not parse", networkConfig(`{"ipv6_prefix":"fd77::"}`), "network.ipv6_prefix"},
 		{"a resolver that does not parse", networkConfig(`{"ipv6_prefix":"fd77::/64","resolvers":["dns"]}`), "network.resolvers"},
+		{"a no-masquerade entry that does not parse", networkConfig(`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1","no_masquerade":["10.78.0.0"]}`), `network.no_masquerade: netip.ParsePrefix("10.78.0.0")`},
+		{"a no-masquerade entry of a family the node does not serve", networkConfig(`{"ipv4_prefix":"10.77.0.0/24","ipv4_gateway":"10.77.0.1","no_masquerade":["fd78::/64"]}`), "no-masquerade prefix fd78::/64"},
+		{"a no-masquerade IPv4 entry on an IPv6-only node", networkConfig(`{"ipv6_prefix":"fd77::/64","no_masquerade":["10.78.0.0/16"]}`), "no-masquerade prefix 10.78.0.0/16"},
 		{"a boot timeout that is not a duration", bootTimeoutConfig("soon"), "boot_timeout"},
 		{"a boot timeout without a unit", bootTimeoutConfig("90"), "boot_timeout"},
 		{"a boot timeout of zero", bootTimeoutConfig("0s"), "boot_timeout"},

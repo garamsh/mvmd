@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 
 	"google.golang.org/grpc"
 
@@ -35,6 +36,7 @@ type Server struct {
 	capacity nodecapacity.Reader
 	events   events.Service
 	kernels  machine.Kernels
+	prefixes []netip.Prefix
 	// stopping ends the event streams when Stop is called: a stream has no
 	// end of its own, and a graceful stop of the gRPC server waits for it.
 	stopping context.Context
@@ -60,6 +62,13 @@ type Option func(*Server)
 // it the node lists none.
 func WithKernels(k machine.Kernels) Option {
 	return func(s *Server) { s.kernels = k }
+}
+
+// WithMachinePrefixes sets the prefixes runtime info reports as the ones the
+// node assigns Machine addresses from (ADR 0049). Without it the node lists
+// none.
+func WithMachinePrefixes(p ...netip.Prefix) Option {
+	return func(s *Server) { s.prefixes = p }
 }
 
 // Stop ends every event stream, so the gRPC server can stop gracefully.
@@ -159,6 +168,9 @@ func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest
 			StateTotalBytes: have.StateTotalBytes, StateAvailableBytes: have.StateAvailableBytes,
 			MachineLimit: have.MachineLimit, Machines: have.Machines,
 		},
+	}
+	for _, p := range s.prefixes {
+		resp.MachinePrefixes = append(resp.MachinePrefixes, p.Masked().String())
 	}
 	for _, name := range s.kernels.Names() {
 		resp.Kernels = append(resp.Kernels, &v1alpha2.NodeKernel{Name: name, Digest: s.kernels.Offered[name].SHA256, IsDefault: name == s.kernels.Default})

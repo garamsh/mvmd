@@ -426,6 +426,10 @@ message GetRuntimeInfoResponse {
   NodeCapacity capacity = 3;
   // The kernels the node offers, ordered by name; exactly one is the default.
   repeated NodeKernel kernels = 4;
+  // The prefixes the node assigns Machine addresses from, one for each IP
+  // family the node's network configuration names, in CIDR form with the host
+  // bits clear, IPv4 first. Empty when the node has no network configuration.
+  repeated string machine_prefixes = 5;
 }
 
 message InspectMachineRequest {

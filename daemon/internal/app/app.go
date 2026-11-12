@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -130,6 +131,7 @@ func New(cfg Config) (*App, error) {
 	}
 	var network machine.Network = sub.Network
 	machineLimit := cfg.VMMUIDRange.Count
+	var prefixes []netip.Prefix
 	if n := cfg.Network; n != nil {
 		hc, err := n.toHostnet(cfg.VMMUIDRange)
 		if err == nil {
@@ -138,6 +140,11 @@ func New(cfg Config) (*App, error) {
 		if err == nil {
 			network, err = hostnet.New(hc)
 			machineLimit = min(machineLimit, hc.MachineAddresses())
+			for _, p := range []netip.Prefix{hc.IPv4Prefix, hc.IPv6Prefix} {
+				if p.IsValid() {
+					prefixes = append(prefixes, p)
+				}
+			}
 		}
 		if err != nil {
 			_ = db.Close()
@@ -223,7 +230,7 @@ func New(cfg Config) (*App, error) {
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels)),
+		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithMachinePrefixes(prefixes...)),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil
