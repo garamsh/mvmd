@@ -76,7 +76,7 @@ func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID
 	for attempt := 0; ; attempt++ {
 		switch have, err := s.disks.Get(ctx, disk); {
 		case err == nil:
-			if have == asked {
+			if have.ID == asked.ID && have.Request == asked.Request && have.SizeBytes == asked.SizeBytes {
 				return nil
 			}
 			return fail(ErrConflict, "disk %q exists under another request ID, size or filesystem", disk)
