@@ -205,16 +205,7 @@ pub(crate) fn create_parents(dir: &Path) -> io::Result<()> {
 /// Create the directory the store is mounted on, root's and 0700. An earlier boot of this root
 /// disk left it, so one that exists is taken when it is a directory and no link.
 fn create_store(store: &Path) -> io::Result<()> {
-    match fs::DirBuilder::new().mode(0o700).create(store) {
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            if fs::symlink_metadata(store)?.is_dir() {
-                Ok(())
-            } else {
-                Err(error)
-            }
-        }
-        other => other,
-    }
+    fs::DirBuilder::new().mode(0o700).create(store)
 }
 
 /// Place `files` under `root`, holding their content in a tmpfs mounted at `store`, which only
