@@ -188,9 +188,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		return fmt.Errorf("give the run directory to the Machine's user: %w", err)
 	}
 	for _, f := range process.RunFiles {
-		if err := runlink.Make(runDir, f.Name, f.Path); err != nil {
-			return err
-		}
+		_ = runlink.Make(runDir, f.Name, f.Path)
 	}
 	vmmCgroup, err := a.createVMMCgroup(id)
 	if err != nil {
