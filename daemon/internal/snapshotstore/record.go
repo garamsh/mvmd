@@ -44,6 +44,28 @@ type record struct {
 	// CreatedUnixNano is when the snapshot was stored, in nanoseconds since the
 	// Unix epoch. It is absent from a record written before it was recorded.
 	CreatedUnixNano int64 `json:"created_unix_nano,omitempty"`
+	// The run configuration is absent from a record written before it was
+	// recorded, and the restored Machine then boots with the image's own. Env
+	// values and file content may be secret: they are held in this file, which
+	// only the daemon reads.
+	Command []string     `json:"command,omitempty"`
+	Args    []string     `json:"args,omitempty"`
+	Env     []recordEnv  `json:"env,omitempty"`
+	RunUser string       `json:"run_user,omitempty"`
+	Files   []recordFile `json:"files,omitempty"`
+}
+
+type recordEnv struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type recordFile struct {
+	Path    string `json:"path"`
+	Content []byte `json:"content,omitempty"`
+	Mode    uint32 `json:"mode"`
+	UID     uint32 `json:"uid"`
+	GID     uint32 `json:"gid"`
 }
 
 // recordDisk is an attached disk and what its file showed at capture; the
@@ -59,6 +81,14 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 	var disks []recordDisk
 	for _, d := range s.Disks {
 		disks = append(disks, recordDisk{ID: string(d.Disk), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModUnixNano: d.ModTime.UnixNano()})
+	}
+	var env []recordEnv
+	for _, e := range s.Spec.Env {
+		env = append(env, recordEnv{Name: e.Name, Value: e.Value})
+	}
+	var files []recordFile
+	for _, f := range s.Spec.Files {
+		files = append(files, recordFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID})
 	}
 	var created int64
 	if !s.CreatedAt.IsZero() {
@@ -86,6 +116,11 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		State:              state,
 		Disks:              disks,
 		CreatedUnixNano:    created,
+		Command:            s.Spec.Command,
+		Args:               s.Spec.Args,
+		Env:                env,
+		RunUser:            s.Spec.User,
+		Files:              files,
 	})
 }
 
@@ -113,6 +148,14 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 	for _, d := range r.Disks {
 		disks = append(disks, machine.SnapshotDisk{Disk: machine.DiskID(d.ID), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModTime: time.Unix(0, d.ModUnixNano)})
 	}
+	var env []machine.EnvVar
+	for _, e := range r.Env {
+		env = append(env, machine.EnvVar{Name: e.Name, Value: e.Value})
+	}
+	var files []machine.PlacedFile
+	for _, f := range r.Files {
+		files = append(files, machine.PlacedFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID})
+	}
 	var created time.Time
 	if r.CreatedUnixNano != 0 {
 		created = time.Unix(0, r.CreatedUnixNano)
@@ -128,6 +171,11 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 			Ceiling:         ceiling,
 			BootMemoryBytes: r.BootMemoryBytes,
 			RootDiskBytes:   r.RootDiskBytes,
+			Command:         r.Command,
+			Args:            r.Args,
+			Env:             env,
+			User:            r.RunUser,
+			Files:           files,
 		},
 		RootDiskUUID: r.RootDiskUUID,
 		MAC:          r.MAC,

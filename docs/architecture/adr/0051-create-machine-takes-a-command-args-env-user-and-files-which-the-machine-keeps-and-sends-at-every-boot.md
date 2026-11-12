@@ -26,3 +26,7 @@ A Secret is in the database file at rest, in the daemon's memory for as long as 
 ## Signs the decision was wrong
 
 Clients need to change the run configuration of a Machine that exists, or to restore a Machine with the configuration it was snapshotted with. A Secret must not be in the database file. The memory held by a record's files, up to 1 MiB in all, shows in a node that holds many Machines.
+
+## Amendment (garamsh/mvmd#490)
+
+A snapshot carries the five fields, and a restore puts them into the new Machine's record, so a restored Machine that is later stopped and started boots with its source's run configuration. This replaces the Consequences' statement that "the fields are not part of a snapshot". The snapshot's record file, mode 0600 and read only by the daemon, holds the env values and file content, and removing the snapshot removes them; no call returns the record whole, and a listing reports none of the fields. A record written before this amendment has none, and its restore boots with the image's own.
