@@ -344,7 +344,7 @@ impl Disks for LinuxDisks {
         ids.sort();
         for id in ids {
             if let Some(record) = records.get_mut(&id).filter(|record| !record.released) {
-                self.mount_one(record)?;
+                let _ = record;
             }
         }
         Ok(())
