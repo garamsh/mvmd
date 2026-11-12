@@ -57,8 +57,8 @@ func requireDone(t *testing.T, done <-chan error) error {
 func TestImageStore_ReturnsTheUUIDAndTheRunConfiguration(t *testing.T) {
 	e := newEnv()
 	const uuid = "5b9e0b0e-4e3b-4a52-8d0e-2f6a8e1c9a11"
-	want := func() machine.ExecSpec {
-		return machine.ExecSpec{Command: []string{"/bin/sh", "-c", "serve"}, Env: map[string]string{"A": "1"}, WorkingDir: "/app"}
+	want := func() machine.ImageRun {
+		return machine.ImageRun{Entrypoint: []string{"/bin/sh"}, Cmd: []string{"-c", "serve"}, Env: map[string]string{"A": "1"}, WorkingDir: "/app", User: "app"}
 	}
 	e.images.ProvideWith("sha256:other", machine.LocatedImage{UUID: uuid, Run: want()})
 
@@ -68,7 +68,8 @@ func TestImageStore_ReturnsTheUUIDAndTheRunConfiguration(t *testing.T) {
 	assert.Equal(t, want(), got.Run)
 	assert.Equal(t, "/images/sha256:other.erofs", got.Path)
 
-	got.Run.Command[0] = "changed"
+	got.Run.Entrypoint[0] = "changed"
+	got.Run.Cmd[0] = "changed"
 	got.Run.Env["A"] = "changed"
 	again, err := e.images.Locate(context.Background(), "sha256:other")
 	require.NoError(t, err)
@@ -83,8 +84,8 @@ func TestImageStore_ReturnsTheUUIDAndTheRunConfiguration(t *testing.T) {
 func TestStart_SendsTheGuestItsBootDescription(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv()
-	e.images.ProvideWith("sha256:one", machine.LocatedImage{UUID: "uuid-one", Run: machine.ExecSpec{Command: []string{"/one"}, WorkingDir: "/1"}})
-	e.images.ProvideWith("sha256:two", machine.LocatedImage{UUID: "uuid-two", Run: machine.ExecSpec{Command: []string{"/two", "arg"}, Env: map[string]string{"K": "V"}}})
+	e.images.ProvideWith("sha256:one", machine.LocatedImage{UUID: "uuid-one", Run: machine.ImageRun{Entrypoint: []string{"/one"}, WorkingDir: "/1"}})
+	e.images.ProvideWith("sha256:two", machine.LocatedImage{UUID: "uuid-two", Run: machine.ImageRun{Entrypoint: []string{"/two"}, Cmd: []string{"arg"}, Env: map[string]string{"K": "V"}}})
 	for id, digest := range map[machine.MachineID]machine.ImageDigest{"a": "sha256:one", "b": "sha256:two"} {
 		spec := baseSpec()
 		spec.Image = digest

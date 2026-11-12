@@ -33,6 +33,9 @@ type Config struct {
 	// VMMUIDRange is the node's range of VMM users, whose own sockets may send
 	// no IP traffic (ADR 0015).
 	VMMUIDRange machine.UIDRange
+	// NoMasquerade are destination prefixes, each in a family the node serves,
+	// that a Machine's traffic reaches with its own source address (ADR 0049).
+	NoMasquerade []netip.Prefix
 }
 
 // Network implements machine.Network on the host it runs on.
@@ -87,6 +90,17 @@ func (c Config) Validate() error {
 	for _, r := range c.Resolvers {
 		if !r.IsValid() {
 			return errors.New("a resolver address is invalid")
+		}
+	}
+	for _, p := range c.NoMasquerade {
+		a := p.Addr()
+		switch {
+		case !p.IsValid():
+			return errors.New("a no-masquerade prefix is invalid")
+		case a.Is4() && !v4:
+			return fmt.Errorf("no-masquerade prefix %s is IPv4 and the node does not serve IPv4", p)
+		case a.Is6() && (!v6 || a.Is4In6()):
+			return fmt.Errorf("no-masquerade prefix %s is IPv6 and the node does not serve IPv6", p)
 		}
 	}
 	return c.VMMUIDRange.Validate()

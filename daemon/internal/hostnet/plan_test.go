@@ -290,3 +290,23 @@ func TestAddBase_AddsTheTablesTheBaseChainsAndTheRulesNoMachineOwns(t *testing.T
 		})
 	}
 }
+
+func TestAddBase_AddsOneAcceptBeforeTheMasqueradeForEachNoMasqueradePrefix(t *testing.T) {
+	cfg := Config{
+		IPv4Prefix: netip.MustParsePrefix("10.77.0.0/24"), IPv4Gateway: netip.MustParseAddr("10.77.0.1"), IPv6Prefix: netip.MustParsePrefix("fd77::/64"),
+		VMMUIDRange:  machine.UIDRange{First: 4000, Count: 1000},
+		NoMasquerade: []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("2001:db8:1::/64")},
+	}
+	n, err := New(cfg)
+	require.NoError(t, err)
+	rules := rulesIn(sent(t, func(c *nftables.Conn) { n.addBase(c, newTables()) }), inet, "postrouting")
+	require.Len(t, rules, 4, "an accept for each prefix, then the masquerade of each family")
+	for i, p := range cfg.NoMasquerade {
+		assert.True(t, bytes.Contains(rules[i].raw, p.Addr().AsSlice()), "rule %d names %s", i, p)
+	}
+	for _, r := range rules[2:] {
+		for _, p := range cfg.NoMasquerade {
+			assert.False(t, bytes.Contains(r.raw, p.Addr().AsSlice()), "control: a masquerade rule does not name %s", p)
+		}
+	}
+}

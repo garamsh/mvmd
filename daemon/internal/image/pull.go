@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,9 +82,13 @@ func (s *service) run(ctx context.Context, cancel context.CancelFunc, ref Refere
 // staging area.
 func (s *service) pull(ctx context.Context, ref Reference) error {
 	// Step 2.
-	if _, err := s.store.Locate(ctx, ref.Digest); err == nil {
+	located, err := s.store.Locate(ctx, ref.Digest)
+	switch {
+	case err == nil && located.Run.Joined:
+		return s.replaceRun(ctx, ref)
+	case err == nil:
 		return nil
-	} else if !errors.Is(err, machine.ErrImageAbsent) {
+	case !errors.Is(err, machine.ErrImageAbsent):
 		return failed("look for the image in the cache", err)
 	}
 	staging, err := s.store.Stage(ctx, ref.Digest, s.settings.OutputBytes)
@@ -103,6 +108,35 @@ func (s *service) pull(ctx context.Context, ref Reference) error {
 	ctx, cancel := compensating(ctx)
 	defer cancel()
 	_ = s.store.Discard(ctx, staging)
+	return nil
+}
+
+// replaceRun rewrites the run part of a listed record that is in the old
+// form from the image's config. The EROFS is not converted again: a Machine or
+// a snapshot may hold the one listed.
+func (s *service) replaceRun(ctx context.Context, ref Reference) error {
+	manifest, err := s.registry.Manifest(ctx, ref, s.settings.Platform)
+	if err != nil {
+		return failed("fetch the manifest", err)
+	}
+	config, err := s.registry.Config(ctx, ref, manifest.Config)
+	if err != nil {
+		return failed("fetch the config", err)
+	}
+	run, err := runSpec(config)
+	if err != nil {
+		return failed("read the run configuration", err)
+	}
+	s.publish.Lock()
+	defer s.publish.Unlock()
+	if err := s.store.ReplaceRun(ctx, ref.Digest, run); err != nil {
+		// The swap can have happened before the step that failed; Locate
+		// says whether the record is no longer in the old form.
+		if located, lerr := s.store.Locate(ctx, ref.Digest); lerr == nil && !located.Run.Joined {
+			return nil
+		}
+		return failed("replace the image's run configuration", err)
+	}
 	return nil
 }
 
@@ -154,7 +188,7 @@ func (s *service) build(ctx context.Context, ref Reference, staging Staging) *ma
 	if err := s.store.Publish(ctx, staging); err != nil {
 		// Publish can fail after the swap that lists the image. A pull that
 		// failed leaves nothing visible, so Locate decides.
-		if _, lerr := s.store.Locate(ctx, ref.Digest); lerr == nil {
+		if located, lerr := s.store.Locate(ctx, ref.Digest); lerr == nil && !located.Run.Joined {
 			return nil
 		} else if !errors.Is(lerr, machine.ErrImageAbsent) {
 			return failed("publish the image", errors.Join(err, fmt.Errorf("locate the image after the failure: %w", lerr)))
@@ -193,18 +227,22 @@ func (s *service) fetchLayer(ctx context.Context, ref Reference, staging Staging
 	return s.store.PutLayer(ctx, staging, index, content)
 }
 
-// runSpec is what the guest runs: the entrypoint and the command as one
-// argument vector, and the environment as a map.
-func runSpec(c Config) (machine.ExecSpec, error) {
-	spec := machine.ExecSpec{WorkingDir: c.WorkingDir}
-	spec.Command = append(append(spec.Command, c.Entrypoint...), c.Cmd...)
+// runSpec is the config's run part: the entrypoint, the command and the user
+// apart, and the environment as a map.
+func runSpec(c Config) (machine.ImageRun, error) {
+	spec := machine.ImageRun{
+		Entrypoint: slices.Clone(c.Entrypoint),
+		Cmd:        slices.Clone(c.Cmd),
+		WorkingDir: c.WorkingDir,
+		User:       c.User,
+	}
 	if len(c.Env) > 0 {
 		spec.Env = make(map[string]string, len(c.Env))
 	}
 	for _, entry := range c.Env {
 		name, value, ok := strings.Cut(entry, "=")
 		if !ok || name == "" {
-			return machine.ExecSpec{}, fmt.Errorf("environment entry %q is not NAME=value", entry)
+			return machine.ImageRun{}, fmt.Errorf("environment entry %q is not NAME=value", entry)
 		}
 		spec.Env[name] = value
 	}

@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,4 +59,16 @@ func TestGetRuntimeInfo_FailsRatherThanReportZeroWhenTheCapacityCannotBeRead(t *
 	assert.Nil(t, resp)
 	require.Error(t, err)
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_FAILED, v1alpha2.KindOf(err))
+}
+
+func TestGetRuntimeInfo_ReportsTheMachinePrefixesInCIDRFormOneForEachFamily(t *testing.T) {
+	reader := capacitymemory.NewReader(nodecapacity.Capacity{})
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.77.0.5/24"), netip.MustParsePrefix("fd77::/64")}
+	resp, err := api.New(nil, nil, nil, machine.DriverInfo{}, reader, nil, api.WithMachinePrefixes(prefixes...)).GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10.77.0.0/24", "fd77::/64"}, resp.GetMachinePrefixes(), "each with its host bits clear")
+
+	none, err := api.New(nil, nil, nil, machine.DriverInfo{}, reader, nil).GetRuntimeInfo(context.Background(), &v1alpha2.GetRuntimeInfoRequest{})
+	require.NoError(t, err)
+	assert.Empty(t, none.GetMachinePrefixes(), "a node with no network section reports none")
 }
