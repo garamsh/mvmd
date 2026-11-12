@@ -301,7 +301,7 @@ func (s *service) takeDisks(ctx context.Context, id MachineID, recorded []Snapsh
 func attachments(recorded []SnapshotDisk) []DiskAttachment {
 	var out []DiskAttachment
 	for _, d := range recorded {
-		out = append(out, DiskAttachment{Disk: d.Disk, ReadOnly: d.ReadOnly, MountPath: d.MountPath})
+		out = append(out, DiskAttachment{Disk: d.Disk, ReadOnly: d.ReadOnly})
 	}
 	return out
 }
