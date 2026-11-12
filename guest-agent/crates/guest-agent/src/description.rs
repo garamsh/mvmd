@@ -46,6 +46,14 @@ pub const MAX_FILE_BYTES: usize = 1 << 20;
 /// The directories no file is placed in or under; the agent owns or the kernel fills them.
 const RESERVED: [&str; 4] = ["/proc", "/sys", "/dev", "/run/mvmd"];
 
+/// Whether the absolute `path` is a reserved directory or lies under one.
+pub(crate) fn is_reserved(path: &str) -> bool {
+    RESERVED.iter().any(|dir| {
+        path.strip_prefix(dir)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    })
+}
+
 /// A file placed over the booted root. Its content may be a secret, so neither `Debug` nor any
 /// error shows it.
 #[derive(Clone, PartialEq)]
@@ -75,7 +83,7 @@ impl fmt::Debug for BootFile {
 }
 
 impl BootFile {
-    fn parse(file: v1alpha1::File) -> Result<Self, Error> {
+    pub(crate) fn parse(file: v1alpha1::File) -> Result<Self, Error> {
         let path = file.path;
         let refuse = |why: &str| Error::Invalid(format!("file {path:?} {why}"));
         let clean = path.strip_prefix('/').is_some_and(|rest| {
@@ -87,11 +95,7 @@ impl BootFile {
         if !clean {
             return Err(refuse("is not an absolute, clean path other than /"));
         }
-        let reserved = RESERVED.iter().any(|dir| {
-            path.strip_prefix(dir)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-        });
-        if reserved {
+        if is_reserved(&path) {
             return Err(refuse("is in a directory the agent reserves"));
         }
         if file.mode > 0o7777 {
