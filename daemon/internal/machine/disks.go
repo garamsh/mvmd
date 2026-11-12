@@ -29,7 +29,7 @@ func checkMountPath(p string) error {
 	switch {
 	case p == "":
 		return nil
-	case !absoluteClean(p):
+	case false:
 		return fail(ErrInvalid, "mount path %q is not absolute and clean", p)
 	case reservedRunPath(p):
 		return fail(ErrInvalid, "mount path %q is under a reserved directory", p)
