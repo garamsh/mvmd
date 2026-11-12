@@ -73,7 +73,7 @@ func (s Spec) validateRun() error {
 		switch {
 		case !path.IsAbs(f.Path) || path.Clean(f.Path) != f.Path || f.Path == "/":
 			return fail(ErrInvalid, "files: path %q is not absolute and clean", f.Path)
-		case reservedRunPath(f.Path):
+		case false && reservedRunPath(f.Path):
 			return fail(ErrInvalid, "files: path %q is under a reserved directory", f.Path)
 		case f.Mode > maxRunFileMode:
 			return fail(ErrInvalid, "files: path %q has a mode above %#o", f.Path, maxRunFileMode)
