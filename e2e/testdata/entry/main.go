@@ -6,7 +6,9 @@
 // "head FILE N" prints its first N bytes, "now" prints the guest's wall clock in nanoseconds since
 // the epoch, "console WORDS..." writes them to the guest's console, "dial HOST:PORT" opens a TCP
 // connection and prints connected, refused or timeout, and "listen PORT..." accepts TCP connections
-// on each port, prints "listening PORT" once each is bound, and stays running.
+// on each port, prints "listening PORT" once each is bound, and stays running, "uname" prints the
+// release and the version of the kernel the guest booted, one to a line, and "ignore-term" ignores
+// SIGTERM, prints "ignoring SIGTERM" once it does, and stays running.
 package main
 
 import (
@@ -15,6 +17,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
@@ -103,6 +106,18 @@ func command(name string, args []string) {
 		}
 		fmt.Fprintln(console, strings.Join(args, " "))
 		console.Close()
+	case "uname":
+		var name syscall.Utsname
+		if err := syscall.Uname(&name); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Println(utsField(name.Release[:]))
+		fmt.Println(utsField(name.Version[:]))
+	case "ignore-term":
+		signal.Ignore(syscall.SIGTERM)
+		fmt.Println("ignoring SIGTERM")
+		time.Sleep(time.Hour)
 	case "dial":
 		dial(args[0])
 	case "listen":
@@ -111,6 +126,18 @@ func command(name string, args []string) {
 		fmt.Fprintln(os.Stderr, "unknown command", name)
 		os.Exit(2)
 	}
+}
+
+// utsField is the text of a NUL-terminated field of the kernel's utsname.
+func utsField(field []int8) string {
+	var text []byte
+	for _, c := range field {
+		if c == 0 {
+			break
+		}
+		text = append(text, byte(c))
+	}
+	return string(text)
 }
 
 // dial prints how a TCP connection to the address ended: connected, refused when the peer answered

@@ -5,6 +5,8 @@ package e2e_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +38,8 @@ type node struct {
 	registry *registry
 	client   v1alpha2.RuntimeServiceClient
 	cgroups  []string
+	// alternateKernelSHA is the digest of the file the kernel name "alternate" maps to.
+	alternateKernelSHA string
 
 	socket     string
 	configFile string
@@ -66,6 +70,8 @@ func startNode(t *testing.T) *node {
 	}
 	binary := stage(driver.binaryEnv, 0o755)
 	kernel := stage(envKernel, 0o644)
+	alternate, alternateSHA := alternateKernel(t, kernel, filepath.Join(inputs, "alternate-vmlinux"))
+	n.alternateKernelSHA = alternateSHA
 	supervisor := stage(envSupervisor, 0o755)
 	guestInitrd := copyFile(t, os.Getenv(envGuestInitrd), filepath.Join(inputs, "guest-initrd.cpio"), 0o644)
 	converterInitrd := copyFile(t, os.Getenv(envConverterInitrd), filepath.Join(inputs, "converter-initrd.cpio"), 0o644)
@@ -85,10 +91,12 @@ func startNode(t *testing.T) *node {
 		"disk":      map[string]any{"mkfs": mkfsExt4()},
 		driver.section: map[string]any{
 			"binary": binary, "binary_sha256": os.Getenv(driver.binarySHAEnv),
-			// Two names for the one CI kernel file: the tests tell the default from the other.
+			// Two names for two files with their own digests, the second the CI kernel with the
+			// version it reports changed: the tests tell the default from the other, and a guest
+			// tells which it booted.
 			"kernels": map[string]any{
 				"default":   map[string]any{"path": kernel, "sha256": os.Getenv(envKernelSHA)},
-				"alternate": map[string]any{"path": kernel, "sha256": os.Getenv(envKernelSHA)},
+				"alternate": map[string]any{"path": alternate, "sha256": alternateSHA},
 			},
 			"default_kernel": "default",
 			"initrd":         guestInitrd, "initrd_sha256": os.Getenv(envGuestInitrdSHA),
@@ -310,6 +318,22 @@ func copyFile(t *testing.T, from, to string, mode os.FileMode) string {
 	require.NoError(t, out.Close())
 	require.NoError(t, os.Chmod(to, mode))
 	return to
+}
+
+// alternateKernel writes a copy of the kernel file to `to` in which the version the kernel reports,
+// "#1 SMP ..." in both places the file holds it, reads "#2 SMP ...", and returns the copy's path
+// and SHA-256. The edit keeps the file's length and touches only that text.
+func alternateKernel(t *testing.T, from, to string) (string, string) {
+	t.Helper()
+	raw, err := os.ReadFile(from)
+	require.NoError(t, err)
+	require.Equal(t, 2, bytes.Count(raw, []byte("#1 SMP ")), "the kernel file holds its version in two places")
+	changed := bytes.ReplaceAll(raw, []byte("#1 SMP "), []byte("#2 SMP "))
+	require.Len(t, changed, len(raw))
+	require.NoError(t, os.WriteFile(to, changed, 0o644))
+	digest := sha256.Sum256(changed)
+	require.NotEqual(t, os.Getenv(envKernelSHA), hex.EncodeToString(digest[:]), "the alternate kernel differs from the default")
+	return to, hex.EncodeToString(digest[:])
 }
 
 // killCgroup kills every process in the cgroup and the cgroups under it.
