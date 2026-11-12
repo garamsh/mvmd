@@ -1,7 +1,8 @@
 // Package runlink checks and makes a hard link of a host file into a Machine's
 // run directory, the one way a file reaches a VMM's root (ADR 0015, ADR 0042).
-// The supervision adapter and both VMM Drivers use it, so a name, a path and a
-// leftover at the name are treated the same wherever a file is linked.
+// The supervision adapter and diskdevice, which both VMM Drivers use, call it,
+// so a name, a path and a leftover at the name are treated the same wherever a
+// file is linked.
 package runlink
 
 import (
