@@ -79,7 +79,6 @@ impl DiskMount {
         if path.is_empty() {
             return Ok(None);
         }
-        check_path(&path).map_err(|why| Error::Invalid(format!("mount_path {path:?} {why}")))?;
         Ok(Some(Self { path, read_only }))
     }
 }
