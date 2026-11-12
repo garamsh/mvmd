@@ -1281,10 +1281,16 @@ mod tests {
             Ok(())
         }
 
-        /// Whether the kernel has an ext4 filesystem mounted at `path`.
+        /// Whether an ext4 filesystem of its own is mounted at `path`: on a device other than the
+        /// directory that holds it, since the host's root may be ext4 too.
         fn is_ext4(path: &Path) -> bool {
-            nix::sys::statfs::statfs(path)
-                .is_ok_and(|stat| stat.filesystem_type() == nix::sys::statfs::EXT4_SUPER_MAGIC)
+            let own_device = || -> io::Result<bool> {
+                let parent = path.parent().ok_or_else(|| io::Error::other("no parent"))?;
+                Ok(fs::metadata(path)?.dev() != fs::metadata(parent)?.dev())
+            };
+            own_device().unwrap_or(false)
+                && nix::sys::statfs::statfs(path)
+                    .is_ok_and(|stat| stat.filesystem_type() == nix::sys::statfs::EXT4_SUPER_MAGIC)
         }
 
         /// The fake `/sys` entry of the device `name` at `address` says it has `sectors`.
