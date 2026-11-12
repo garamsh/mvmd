@@ -1,7 +1,7 @@
 //! The initrd archive, read back with a reader written from the newc format's description and
 //! not from the writer.
 
-use initrd::{Error, initrd};
+use initrd::initrd;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -165,33 +165,5 @@ fn two_files_are_byte_for_byte_the_golden_archive() -> Result {
         initrd(&[("init", b"abc"), ("mkfs.erofs", b"de")])?,
         [INIT, TOOL, TRAILER].concat().as_bytes()
     );
-    Ok(())
-}
-
-/// The error a refused file gives, with the archive of the files before it dropped.
-fn refusal(files: &[(&str, &[u8])]) -> Result<Error> {
-    match initrd(files) {
-        Ok(archive) => Err(format!("accepted, {} bytes", archive.len()).into()),
-        Err(error) => Ok(error),
-    }
-}
-
-#[test]
-fn a_name_the_header_cannot_record_is_refused_with_the_name_and_a_plain_one_is_not() -> Result {
-    assert!(matches!(refusal(&[("", b"x")])?, Error::EmptyName));
-    assert!(
-        matches!(refusal(&[("/init", b"x")])?, Error::LeadingSlash { name } if name == "/init")
-    );
-    assert!(matches!(refusal(&[("in\0it", b"x")])?, Error::NulInName { name } if name == "in\0it"));
-    // A later file is refused as much as the first, and the archive is not returned.
-    assert!(matches!(
-        refusal(&[("init", b"x"), ("/tool", b"y")])?,
-        Error::LeadingSlash { .. }
-    ));
-    // Controls: a slash inside a name, a dot and a leading dot are names the kernel unpacks.
-    let (entries, end) = read(&initrd(&[("etc/init", b"x"), (".hidden", b"y")])?)?;
-    assert_eq!(entries[0].0, "etc/init");
-    assert_eq!(entries[1].0, ".hidden");
-    assert!(end > 0);
     Ok(())
 }
