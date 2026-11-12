@@ -99,6 +99,13 @@ How the supervisor confines the VMM process it starts, Machine and converter ali
 - **A cgroup per VMM**, under a parent of mvmd's outside mvmd's cgroup, entered at creation: `memory.max` at the guest's memory ceiling plus the Driver's overhead, `pids.max` at the Driver's task count, `cpu.max` at the guest's vCPU ceiling plus the Driver's overhead ([ADR 0029](./adr/0029-a-machine-has-a-resource-ceiling-chosen-at-create-which-bounds-a-live-resize-and-the-vmms-limits.md)). The supervisor is not in it; on a kernel with `CONFIG_RT_GROUP_SCHED` the supervisors are in the root cgroup.
 - **Order, before `execve`:** open the descriptors to pass, enter the namespaces and build the root, drop capabilities and change user, `no_new_privs`, Landlock, the baseline filter. A failure at any step fails the start before the VMM runs.
 
+## Registry access
+
+What the node's `registry` configuration section makes mvmd read and run on the node; the pull itself is [image.md](./image.md) §Pull image.
+
+- **Three keys**: `credentials_file`, `credential_helpers` and `ca_file`, each checked at start and read again at each use, so a credential or a CA bundle that is rewritten reaches the next pull without a restart ([ADR 0047](./adr/0047-a-pull-reads-the-registry-credentials-and-ca-at-each-lookup-and-takes-a-credential-from-a-helper.md)).
+- **A helper is a process of mvmd's node**: `docker-credential-<name>`, found on mvmd's `PATH`, run with mvmd's environment inherited whole and nothing filtered (`PATH`, `AWS_CONFIG_FILE`, `AWS_PROFILE`, `AWS_REGION` among it), and free to run other programs, such as `credential_process`. Installing the helper and its AWS identity is the node's, not mvmd's.
+
 ## Invariants
 
 mvmd provides the mechanism for three of the invariants of #2 §4; gaon's Node Agent enforces invariants 4 and 5 (issue garamsh/mvmd#1, Context). Invariant 3, who writes spec, binding and status, concerns gaon's resource API and is not mvmd's.

@@ -148,6 +148,11 @@ func TestFirecracker_ConfigParses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &app.RegistryConfig{CredentialsFile: "/etc/mvmd/registry.json"}, cfg.Registry)
 	assert.Equal(t, "45m", cfg.PullTimeout)
+
+	allKeys := strings.Replace(rawConfig("firecracker", fcSection+cvSection+dkSection+nwSection, fcSupervise), `"driver"`, `"registry":{"credentials_file":"/etc/mvmd/registry.json","credential_helpers":{"1.dkr.ecr.r.amazonaws.com":"ecr-login"},"ca_file":"/etc/mvmd/ca.pem"},"driver"`, 1)
+	cfg, err = app.ParseConfig([]byte(allKeys))
+	require.NoError(t, err)
+	assert.Equal(t, &app.RegistryConfig{CredentialsFile: "/etc/mvmd/registry.json", CredentialHelpers: map[string]string{"1.dkr.ecr.r.amazonaws.com": "ecr-login"}, CAFile: "/etc/mvmd/ca.pem"}, cfg.Registry)
 }
 
 func TestFirecracker_ConfigRefuses(t *testing.T) {
@@ -177,7 +182,9 @@ func TestFirecracker_ConfigRefuses(t *testing.T) {
 		{"the conversion section with the memory driver", rawConfig("memory", cvSection, fcSupervise), "conversion section is for"},
 		{"the registry section with the memory driver", registry("memory", "", `{"credentials_file":"/c"}`), "registry section is for"},
 		{"a relative credentials file", registry("firecracker", fcSection+cvSection+dkSection+nwSection, `{"credentials_file":"c"}`), "registry.credentials_file"},
-		{"no credentials file", registry("firecracker", fcSection+cvSection+dkSection+nwSection, `{}`), "registry.credentials_file"},
+		{"a registry section with no key", registry("firecracker", fcSection+cvSection+dkSection+nwSection, `{}`), "sets none of"},
+		{"a relative CA file", registry("firecracker", fcSection+cvSection+dkSection+nwSection, `{"ca_file":"ca.pem"}`), "registry.ca_file"},
+		{"a helper name with a slash", registry("firecracker", fcSection+cvSection+dkSection+nwSection, `{"credential_helpers":{"r.example":"../x"}}`), "registry.credential_helpers"},
 		{"a pull timeout that is not a duration", pullTimeoutRaw("soon"), "pull_timeout"},
 		{"a pull timeout of zero", pullTimeoutRaw("0s"), "pull_timeout"},
 		{"a pull timeout above the maximum", pullTimeoutRaw("7h"), "pull_timeout"},
