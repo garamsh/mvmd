@@ -137,7 +137,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		out.Disks = append(out.Disks, &v1alpha2.DiskAttachment{DiskId: string(d.Disk), ReadOnly: d.ReadOnly})
 	}
 	for _, e := range m.Env {
-		out.EnvNames = append(out.EnvNames, e.Name)
+		out.EnvNames = append(out.EnvNames, e.Name+"="+e.Value)
 	}
 	for _, f := range m.Files {
 		info := f.Info()
