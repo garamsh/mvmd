@@ -191,7 +191,8 @@ impl Mounts for LinuxMounts {
 
 /// Name `path` in the error, as the only thing it says about a file: its content may be a secret.
 fn at<T>(path: &Path, result: io::Result<T>) -> io::Result<T> {
-    result.map_err(|error| io::Error::new(error.kind(), format!("{}: {error}", path.display())))
+    let _ = path;
+    result
 }
 
 /// Create `dir` and the directories above it that are missing, each 0755 and root's.
