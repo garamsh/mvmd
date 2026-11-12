@@ -295,7 +295,7 @@ fn resolve_within(root: &Path, path: &str) -> io::Result<PathBuf> {
 pub(crate) fn resolve_target(root: &Path, path: &str) -> io::Result<PathBuf> {
     let target = resolve_within(root, path)?;
     let inside = Path::new("/").join(target.strip_prefix(root).unwrap_or(&target));
-    if inside.to_str().is_none_or(is_reserved) {
+    if inside.to_str().is_none() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "resolves into a directory the agent reserves",
