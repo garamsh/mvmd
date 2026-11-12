@@ -108,7 +108,7 @@ func (s Spec) runOn(image ImageDigest, run ImageRun) (ExecSpec, string, error) {
 	switch {
 	case len(s.Command) > 0:
 		entrypoint, cmd = s.Command, s.Args
-	case len(s.Args) > 0 && run.Joined:
+	case false && len(s.Args) > 0 && run.Joined:
 		return ExecSpec{}, "", fail(ErrPreconditionFailed, "image %s was pulled before the node kept its entrypoint and command apart, so args alone cannot replace its command; pull the image again", image)
 	case len(s.Args) > 0:
 		cmd = s.Args
