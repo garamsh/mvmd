@@ -52,11 +52,17 @@ pub enum Error {
         reason: String,
     },
 
-    /// A disk's device, or a partition of it, is mounted or held, so it is not released.
-    #[error("precondition failed: disk {disk_id} is in use")]
+    /// A disk's device, or a partition of it, is mounted or held, or the filesystem the agent
+    /// mounted for it is busy, so it is not released.
+    #[error(
+        "precondition failed: disk {disk_id} is in use{}",
+        mount.as_deref().map(|path| format!(": the filesystem mounted at {path} is busy")).unwrap_or_default()
+    )]
     DiskInUse {
         /// The disk the call named.
         disk_id: String,
+        /// The path of the busy filesystem the agent mounted for it, if that is why.
+        mount: Option<String>,
     },
 
     /// Content received does not match the digest that came with it.
@@ -133,6 +139,8 @@ pub enum BootStep {
     Network,
     /// Placing the files over the booted root.
     PlaceFiles,
+    /// Mounting the disks the Machine was created with, over the booted root.
+    MountDisks,
     /// Resolving the entrypoint's user in the booted root.
     ApplyUser,
     /// Starting the entrypoint.
@@ -150,6 +158,7 @@ impl fmt::Display for BootStep {
             Self::SwitchRoot => "switch root",
             Self::Network => "configure the network",
             Self::PlaceFiles => "place the files",
+            Self::MountDisks => "mount the disks",
             Self::ApplyUser => "apply the user",
             Self::Entrypoint => "start the entrypoint",
         })

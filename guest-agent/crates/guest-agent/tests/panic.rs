@@ -7,9 +7,9 @@ use std::process::Command;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use guest_agent::{
-    Accounts, BootFile, Clock, Console, DiskDevice, DiskError, Disks, EndMethod, Entropy,
-    Filesystem, GuestSize, Identity, KernelCommandLine, Mounts, Network, NetworkConfig, Power,
-    Resources, System, Users, Uuid,
+    Accounts, BootFile, Clock, Console, DiskDevice, DiskError, DiskMount, Disks, EndMethod,
+    Entropy, Filesystem, GuestSize, Identity, KernelCommandLine, Mounts, Network, NetworkConfig,
+    Power, Resources, System, Users, Uuid,
 };
 
 type Log = Arc<Mutex<Vec<String>>>;
@@ -102,7 +102,15 @@ impl Disks for Unused {
         Ok(())
     }
 
-    fn find(&self, _: &str) -> Result<DiskDevice, DiskError> {
+    fn find(&self, _: &str, _: Option<&DiskMount>) -> Result<DiskDevice, DiskError> {
+        Err(DiskError::Unknown)
+    }
+
+    fn mount_recorded(&self) -> Result<(), DiskError> {
+        Ok(())
+    }
+
+    fn grow(&self, _: &str) -> Result<u64, DiskError> {
         Err(DiskError::Unknown)
     }
 

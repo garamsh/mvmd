@@ -167,6 +167,7 @@ async fn the_disk_calls_are_refused_because_this_agents_sys_is_the_hosts() -> Re
     let find = client
         .find_disk(FindDiskRequest {
             disk_id: "data".into(),
+            ..Default::default()
         })
         .await
         .unwrap_err();

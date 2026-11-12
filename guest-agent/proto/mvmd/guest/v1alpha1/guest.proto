@@ -14,7 +14,7 @@ service GuestService {
   // agent sets the wall clock to host_unix_nanos when that is positive, and
   // leaves it as the kernel set it when it is 0. The call returns once the
   // entrypoint runs, or fails naming the boot step that failed; every other
-  // call except Terminate, Health, Info, FindDisk, ReleaseDisk and
+  // call except Terminate, Health, Info, FindDisk, ReleaseDisk, GrowDisk and
   // OnlineVcpus is refused until it has succeeded. A repeat with the same
   // description succeeds and changes nothing, whatever time it carries, and
   // does not set the clock again; a repeat after a failure fails the same
@@ -72,8 +72,14 @@ service GuestService {
   // disk_id the agent holds returns the record without rescanning, and for
   // one it has released rescans as for a new one. No new device within the
   // agent's bound, or more than one, fails the call and records nothing. The
-  // agent does nothing else with the device. It is served before Boot has
-  // succeeded, and the calls of one Machine are serialised.
+  // agent mounts the device only when mount_path is set. It is served
+  // before Boot has succeeded, and the calls of one Machine are serialised.
+  // With a mount_path the agent mounts the device's ext4 filesystem there, in
+  // the booted root: before Boot has succeeded the mount is made at the boot
+  // step that follows placing the files, and after it, before this call
+  // returns. A repeat for a disk_id the agent holds must carry the same
+  // mount_path and read_only, or it is FAILED_PRECONDITION; once the mount
+  // is made a repeat does not make it again.
   rpc FindDisk(FindDiskRequest) returns (FindDiskResponse);
 
   // Release the device FindDisk recorded under disk_id so that mvmd can
@@ -81,10 +87,20 @@ service GuestService {
   // refuses while the device or a partition of it is mounted or otherwise
   // claimed, and that is FAILED_PRECONDITION with a DiskInUse detail;
   // otherwise it removes the device from the PCI bus, still holding the
-  // device. The agent keeps the record as released, so a repeat after a
+  // device. A filesystem the agent mounted for the disk is unmounted first,
+  // and one that is busy fails the call the same way, the message naming the
+  // path. The agent keeps the record as released, so a repeat after a
   // release succeeds. A disk_id the agent never found is NOT_FOUND. It is
   // served before Boot has succeeded.
   rpc ReleaseDisk(ReleaseDiskRequest) returns (ReleaseDiskResponse);
+
+  // Read the size of a found disk again, after mvmd has grown its backing,
+  // and grow the ext4 filesystem the agent mounted for it online to fill the
+  // device (EXT4_IOC_RESIZE_FS). It returns the device's size in bytes. A
+  // disk with no mount only has its size read. A repeat grows nothing. A
+  // disk_id the agent never found, or has released, is NOT_FOUND. It is
+  // served before Boot has succeeded.
+  rpc GrowDisk(GrowDiskRequest) returns (GrowDiskResponse);
 
   // Bring vCPUs online up to a target count. The kernel does not bring a
   // hot-added vCPU online, so the agent counts the online CPUs and, while
@@ -398,6 +414,15 @@ message TerminateResponse {}
 message FindDiskRequest {
   // The ID mvmd attached the disk under.
   string disk_id = 1;
+  // Where to mount the device's ext4 filesystem in the booted root; empty
+  // mounts nothing. The path is absolute and clean, not "/", and not under
+  // /proc, /sys, /dev or /run/mvmd, or the call is INVALID_ARGUMENT. The
+  // agent creates the directory (0755, root) and mounts with nodev and
+  // nosuid.
+  string mount_path = 2;
+  // Whether the attachment is read-only, and so the mount. Ignored without a
+  // mount_path.
+  bool read_only = 3;
 }
 
 message FindDiskResponse {
@@ -415,6 +440,16 @@ message ReleaseDiskRequest {
 }
 
 message ReleaseDiskResponse {}
+
+message GrowDiskRequest {
+  // The ID mvmd attached the disk under.
+  string disk_id = 1;
+}
+
+message GrowDiskResponse {
+  // The device's size in bytes, as the kernel reports it after the call.
+  uint64 size_bytes = 1;
+}
 
 message OnlineVcpusRequest {
   // The number of online vCPUs wanted, at least 1.
@@ -468,6 +503,9 @@ enum BootStep {
   BOOT_STEP_PLACE_FILES = 9;
   // Resolving RunConfig.user in the booted root.
   BOOT_STEP_APPLY_USER = 10;
+  // Mounting the disks FindDisk recorded with a mount_path, after the files
+  // are placed and before the user is resolved.
+  BOOT_STEP_MOUNT_DISKS = 11;
 }
 
 // The detail of an OUT_OF_RANGE status from ReadExecOutput: the read starts
@@ -509,7 +547,8 @@ message NotBooted {
 }
 
 // The detail of a FAILED_PRECONDITION status from ReleaseDisk: the kernel has
-// the device, or a partition of it, claimed, as a mounted filesystem does.
+// the device, or a partition of it, claimed, as a mounted filesystem does, or
+// a filesystem the agent mounted for it is busy.
 message DiskInUse {
   // The disk_id the call named.
   string disk_id = 1;
