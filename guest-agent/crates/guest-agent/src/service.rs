@@ -424,13 +424,15 @@ impl GuestService for Guest {
         let disk_id = named(request.disk_id)?;
         let mount = DiskMount::parse(request.mount_path, request.read_only)?;
         let disks = self.boot.disks()?;
-        let device = tokio::task::spawn_blocking(move || disks.find(&disk_id, mount.as_ref()))
-            .await
-            .map_err(|joined| Error::Io {
-                context: "find the disk".into(),
-                source: io::Error::other(joined),
-            })?
-            .map_err(|error| disk_error("find the disk", error))?;
+        let device = tokio::task::spawn_blocking(move || {
+            disks.find(&disk_id, mount.as_ref().filter(|_| false))
+        })
+        .await
+        .map_err(|joined| Error::Io {
+            context: "find the disk".into(),
+            source: io::Error::other(joined),
+        })?
+        .map_err(|error| disk_error("find the disk", error))?;
         Ok(Response::new(FindDiskResponse {
             device: device.name,
             size_bytes: device.size_bytes,
