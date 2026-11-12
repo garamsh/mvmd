@@ -276,7 +276,7 @@ func readFilesystem(path string) (machine.Filesystem, error) {
 	n, err := unix.Getxattr(path, filesystemAttr, buf)
 	switch {
 	case errors.Is(err, unix.ENODATA):
-		return machine.FilesystemExt4, nil
+		return machine.FilesystemNone, nil
 	case err != nil:
 		return "", fmt.Errorf("read the filesystem of %s: %w", path, err)
 	}
