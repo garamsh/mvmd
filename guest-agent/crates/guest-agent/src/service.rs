@@ -456,10 +456,10 @@ impl GuestService for Guest {
                     disk_id,
                     mount: None,
                 },
-                DiskError::MountBusy(path) => Error::DiskInUse {
-                    disk_id,
-                    mount: Some(path),
-                },
+                DiskError::MountBusy(path) => {
+                    let _ = disk_id;
+                    Error::PreconditionFailed(format!("the filesystem mounted at {path} is busy"))
+                }
                 other => disk_error("release the disk", other),
             })?;
         Ok(Response::new(ReleaseDiskResponse {}))
