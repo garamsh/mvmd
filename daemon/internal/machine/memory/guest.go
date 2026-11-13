@@ -292,16 +292,16 @@ func (g *Guest) ReadExecOutput(_ context.Context, _ machine.MachineID, exec mach
 		g.mu.Unlock()
 		return machine.ExecRecord{}, machine.ErrExecAbsent
 	}
-	if len(e.output) > 0 && after < e.output[0].Offset {
-		earliest := e.output[0].Offset
-		g.mu.Unlock()
-		return machine.ExecRecord{}, &machine.OutputGoneError{Earliest: earliest}
-	}
 	if tail > 0 {
 		after = e.next - min(tail, e.next)
 		if len(e.output) > 0 {
 			after = max(after, e.output[0].Offset)
 		}
+	}
+	if len(e.output) > 0 && after < e.output[0].Offset {
+		earliest := e.output[0].Offset
+		g.mu.Unlock()
+		return machine.ExecRecord{}, &machine.OutputGoneError{Earliest: earliest}
 	}
 	var chunks []machine.OutputChunk
 	for _, c := range e.output {
