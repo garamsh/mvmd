@@ -146,7 +146,7 @@ func args(spec machine.BootSpec, goarch string) []string {
 		"--event-monitor", fmt.Sprintf("fd=%d", eventDescriptor),
 		"--vsock", fmt.Sprintf("cid=%d,socket=%s", vmmconfig.GuestCID, vmmconfig.InRun(vmmconfig.VsockSocket)),
 	}
-	if len(spec.Devices) > 0 {
+	if true {
 		a = append(a, "--disk")
 	}
 	for i, dev := range spec.Devices {
