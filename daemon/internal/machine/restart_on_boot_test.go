@@ -114,6 +114,27 @@ func TestRestartOnBoot_AStopPauseOrDeleteAfterTheMachineRanCancelsTheRestart(t *
 	assert.ErrorIs(t, err, machine.ErrNotFound)
 }
 
+func TestRestartOnBoot_AStartThePermitterRefusesLeavesTheRestartPending(t *testing.T) {
+	ctx := context.Background()
+	e, boot := restartEnv()
+	e.createdRestarting(t, "m", true)
+	require.NoError(t, e.svc.Start(ctx, "m"))
+	boot.Reboot("boot-2")
+	svc := e.restarted(t, boot)
+
+	// The look finds starts permitted and the start itself is refused, as when
+	// the deadline expires between them.
+	e.permit.FailAfter("permit", e.permit.Calls("permit")+1, errBoom)
+	machine.RestartDue(ctx, svc)
+	m := inspected(t, svc, "m")
+	assert.Equal(t, machine.StateStopped, m.State)
+	assert.NotContains(t, m.FailureReason, "the restart", "a refusal is not a failed restart")
+
+	e.permit.Heal("permit")
+	machine.RestartDue(ctx, svc)
+	assert.Equal(t, machine.StateRunning, inspected(t, svc, "m").State, "the restart waited for the next permit")
+}
+
 func TestRestartOnBoot_AFailedRestartLeavesTheMachineStoppedWithTheReasonAndIsNotRetried(t *testing.T) {
 	ctx := context.Background()
 	e, boot := restartEnv()
