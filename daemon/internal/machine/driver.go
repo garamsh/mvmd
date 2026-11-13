@@ -111,8 +111,14 @@ type BootSpec struct {
 	Network       NetworkDevice
 	// Kernel is the guest kernel of a boot; a restore carries none, since a
 	// restored guest is already running one (ADR 0045).
-	Kernel    KernelFile
-	Resources Resources
+	Kernel KernelFile
+	// Initrd and CommandLine are set only for an OS-form Machine (ADR 0058):
+	// the boot set's initrd, and the line the client adds to the parameters the
+	// Driver puts first. A Driver that cannot boot one returns an error
+	// wrapping ErrUnsupported from Describe.
+	Initrd      KernelFile
+	CommandLine string
+	Resources   Resources
 	// Ceiling is the most the guest can have (ADR 0029). A figure left zero is
 	// the figure of Resources.
 	Ceiling Resources

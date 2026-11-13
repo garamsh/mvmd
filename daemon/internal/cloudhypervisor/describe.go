@@ -62,6 +62,9 @@ func cmdline(goarch string) string {
 // the pinned binary and kernel for the supervisor to check; it reads neither
 // file. It keeps nothing: Boot is given the boot description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
+	if spec.Initrd.Path != "" || spec.CommandLine != "" {
+		return machine.ProcessDescription{}, fmt.Errorf("the Cloud Hypervisor Driver cannot boot an OS-form Machine yet: %w", machine.ErrUnsupported)
+	}
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}

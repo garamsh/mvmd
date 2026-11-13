@@ -313,6 +313,16 @@ type VMMConfig struct {
 	DefaultKernel string `json:"default_kernel"`
 	Initrd        string `json:"initrd"`
 	InitrdSHA256  string `json:"initrd_sha256"`
+	// BootSets are the kernel and initrd pairs the node offers an OS-form
+	// Machine by name (ADR 0058); a name is as a kernel's. None is allowed.
+	BootSets map[string]BootSetConfig `json:"boot_sets"`
+}
+
+// BootSetConfig is one boot set: a kernel and an initrd, each by absolute path
+// and SHA-256 in hex.
+type BootSetConfig struct {
+	Kernel KernelConfig `json:"kernel"`
+	Initrd KernelConfig `json:"initrd"`
 }
 
 // KernelConfig is one guest kernel: its absolute path and its SHA-256 in hex.
@@ -344,6 +354,40 @@ func (c VMMConfig) offered() machine.Kernels {
 		offered[name] = machine.KernelFile{Path: k.Path, SHA256: k.SHA256}
 	}
 	return machine.Kernels{Default: c.DefaultKernel, Offered: offered}
+}
+
+// bootSets are the boot sets as the lifecycle resolves them.
+func (c VMMConfig) bootSets() machine.BootSets {
+	sets := make(machine.BootSets, len(c.BootSets))
+	for name, b := range c.BootSets {
+		sets[name] = machine.BootSet{
+			Kernel: machine.KernelFile{Path: b.Kernel.Path, SHA256: b.Kernel.SHA256},
+			Initrd: machine.KernelFile{Path: b.Initrd.Path, SHA256: b.Initrd.SHA256},
+		}
+	}
+	return sets
+}
+
+// checkBootSets refuses a boot set with a bad name, a relative path or no
+// digest. It names the field.
+func (c VMMConfig) checkBootSets() error {
+	for _, name := range slices.Sorted(maps.Keys(c.BootSets)) {
+		if !kernelName.MatchString(name) {
+			return fmt.Errorf("boot_sets name %q is not 1 to 63 characters of a-z, 0-9 and \"-\"", name)
+		}
+		for _, f := range []struct {
+			field string
+			file  KernelConfig
+		}{{"kernel", c.BootSets[name].Kernel}, {"initrd", c.BootSets[name].Initrd}} {
+			if !filepath.IsAbs(f.file.Path) {
+				return fmt.Errorf("boot_sets %q %s path %q is not absolute", name, f.field, f.file.Path)
+			}
+			if f.file.SHA256 == "" {
+				return fmt.Errorf("boot_sets %q %s sha256 is empty", name, f.field)
+			}
+		}
+	}
+	return nil
 }
 
 // checkKernels refuses a section without a kernel, with a bad name, or whose
@@ -405,6 +449,9 @@ type realDriver interface {
 // no file. Any other name is an error.
 func (c VMMConfig) validate(name string) error {
 	if err := c.checkKernels(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if err := c.checkBootSets(); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	switch name {

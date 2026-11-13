@@ -228,7 +228,11 @@ func (d *Driver) Describe(_ context.Context, id machine.MachineID, spec machine.
 		return *p, nil
 	}
 	kernel := machine.File{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256}
-	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: append([]machine.File{kernel}, machine.DeviceFiles(spec.Devices)...)}, nil
+	boot := []machine.File{kernel}
+	if spec.Initrd.Path != "" {
+		boot = append(boot, machine.File{Host: spec.Initrd.Path, In: machine.InInitrd, ReadOnly: true, SHA256: spec.Initrd.SHA256})
+	}
+	return machine.ProcessDescription{Executable: "/usr/libexec/" + d.info.Name, BootFiles: append(boot, machine.DeviceFiles(spec.Devices)...)}, nil
 }
 
 // Boot implements machine.Driver.
@@ -419,6 +423,15 @@ const KernelDigest = "sha256:memory-kernel"
 func Kernels() machine.Kernels {
 	return machine.Kernels{Default: "default", Offered: map[string]machine.KernelFile{
 		"default": {Path: "/memory/kernel", SHA256: KernelDigest},
+	}}
+}
+
+// BootSets is a node that offers one boot set, named "os", for the lifecycle to
+// run an OS-form Machine over this Driver.
+func BootSets() machine.BootSets {
+	return machine.BootSets{"os": {
+		Kernel: machine.KernelFile{Path: "/memory/kernel", SHA256: KernelDigest},
+		Initrd: machine.KernelFile{Path: "/memory/os-initrd", SHA256: "sha256:memory-os-initrd"},
 	}}
 }
 

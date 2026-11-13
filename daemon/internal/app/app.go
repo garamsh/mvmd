@@ -176,8 +176,10 @@ func New(cfg Config) (*App, error) {
 	var guest machine.Guest = sub.Guest
 	var capacity nodecapacity.Reader = sub.Capacity
 	kernels := machinememory.Kernels()
+	bootSets := machinememory.BootSets()
+	var bootFiles machine.BootFileChecker = &machinememory.BootFiles{}
 	if f, ok := cfg.vmm(); ok {
-		kernels = f.offered()
+		kernels, bootSets, bootFiles = f.offered(), f.bootSets(), pinnedBootFiles{}
 		d, err := f.driver(cfg.Driver, supervisors)
 		if err != nil {
 			_ = db.Close()
@@ -221,7 +223,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithDiskSnapshots(diskSnapshots))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithDiskSnapshots(diskSnapshots))
 
 	machinesHeld := func() (uint32, error) {
 		all, err := machines.List(context.Background())
@@ -233,7 +235,7 @@ func New(cfg Config) (*App, error) {
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithMachinePrefixes(prefixes...)),
+		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithBootSets(bootSets), api.WithMachinePrefixes(prefixes...)),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil

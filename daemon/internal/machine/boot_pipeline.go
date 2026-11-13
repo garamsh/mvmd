@@ -14,6 +14,8 @@ type bootPlan struct {
 	machine Machine
 	// kernel is the file a boot gives the VMM; a restore gives none.
 	kernel KernelFile
+	// initrd is the boot set's initrd, given to an OS-form boot only.
+	initrd KernelFile
 	// restoredDisks are the disks the VMM is given at boot after the image and
 	// the root disk: a restore's recorded disks, which its saved state already
 	// holds (ADR 0041). Start gives none; it hot-plugs its disks.
@@ -23,7 +25,8 @@ type bootPlan struct {
 	// vmm is the Driver step that returns once the started VMM's VM runs.
 	vmm func(ctx context.Context, boot BootSpec) error
 	// guest is the step that tells the guest what it needs, given the image as
-	// the node holds it. Its errors are framed by the plan.
+	// the node holds it. Its errors are framed by the plan. An OS-form boot has
+	// none.
 	guest func(ctx context.Context, image LocatedImage) error
 	// guestWhile names what the guest step is doing, for the reason given
 	// when it outlasts the boot timeout.
@@ -71,6 +74,9 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	stopped := func(failure *Error) bootResult { return s.unwind(ctx, id, up, failure) }
 
 	boot := BootSpec{Kernel: p.kernel, Resources: m.Resources, Ceiling: m.Ceiling}
+	if m.OS != nil {
+		boot.Initrd, boot.CommandLine = p.initrd, m.OS.CommandLine
+	}
 	var err error
 	if boot.RunDir, err = s.supervisor.RunDir(id); err != nil {
 		return stopped(fail(ErrFailed, "name the run directory: %v", err))
@@ -91,6 +97,9 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	up.network = true
 	boot.Network = NetworkDevice{Tap: tap, MAC: m.Network.MAC}
 	process, err := p.describe(ctx, boot)
+	if errors.Is(err, ErrUnsupported) {
+		return stopped(fail(ErrUnsupported, "describe the VMM process: %v", err))
+	}
 	if err != nil {
 		return stopped(fail(ErrFailed, "describe the VMM process: %v", err))
 	}
@@ -101,8 +110,10 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	if err := s.awaitVMM(ctx, id, func(ctx context.Context) error { return p.vmm(ctx, boot) }); err != nil {
 		return stopped(fail(ErrFailed, "%v", err))
 	}
-	if err := s.awaitGuest(ctx, p.guestWhile, func(ctx context.Context) error { return p.guest(ctx, image) }); err != nil {
-		return stopped(fail(ErrFailed, "%v", err))
+	if p.guest != nil {
+		if err := s.awaitGuest(ctx, p.guestWhile, func(ctx context.Context) error { return p.guest(ctx, image) }); err != nil {
+			return stopped(fail(ErrFailed, "%v", err))
+		}
 	}
 	return bootResult{begun: up, kernelDigest: kernelDigest(process)}
 }

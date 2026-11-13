@@ -269,6 +269,9 @@ func (s *service) resizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64)
 		return true, err
 	}
 	m := *rec.Machine
+	if err := m.requireBootTime("resize disk"); err != nil {
+		return true, err
+	}
 	e, err := s.growable(ctx, disk, sizeBytes)
 	if err != nil {
 		return true, err
@@ -369,6 +372,12 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	if err := s.requireNotFaulted(m, "attach"); err != nil {
 		return err
 	}
+	if err := m.requireBootTime("attach"); err != nil {
+		return err
+	}
+	if m.OS != nil && a.MountPath != "" {
+		return fail(ErrInvalid, "disk %q has a mount path, and an OS-form Machine has no agent to mount it", a.Disk)
+	}
 	if err := checkMountPath(a.MountPath); err != nil {
 		return err
 	}
@@ -397,7 +406,7 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	}
 	// Start plugs every attached disk (ADR 0041), so a Driver that cannot
 	// hot-plug takes no attach in any state: it would fail every later Start.
-	if !s.driver.Info().has(CapabilityDiskHotplug) {
+	if m.OS == nil && !s.driver.Info().has(CapabilityDiskHotplug) {
 		return fail(ErrUnsupported, "the Driver cannot hot-plug, so it cannot attach a disk to a %s Machine", m.State)
 	}
 	// One holder per disk (ADR 0009): a disk another Machine holds, as writer
@@ -525,6 +534,9 @@ func (s *service) DetachDisk(ctx context.Context, id MachineID, disk DiskID) err
 	if err := s.requireNotFaulted(m, "detach"); err != nil {
 		return err
 	}
+	if err := m.requireBootTime("detach"); err != nil {
+		return err
+	}
 	if _, attached := m.attachment(disk); !attached {
 		if m.RootDisk == disk {
 			return fail(ErrPreconditionFailed, "disk %q is the root disk of Machine %q and is held for its life", disk, id)
@@ -615,6 +627,11 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 	}
 	if m.Resources == target && held == m.Ceiling {
 		return nil
+	}
+	if hot(m) {
+		if err := m.requireAgent("a live resize"); err != nil {
+			return err
+		}
 	}
 	if hot(m) && target.VCPUs != m.Resources.VCPUs && !info.has(CapabilityCPUResize) {
 		return fail(ErrUnsupported, "the Driver cannot resize the vCPUs of a %s Machine", m.State)

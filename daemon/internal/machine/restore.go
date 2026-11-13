@@ -53,7 +53,9 @@ func (s *service) Restore(ctx context.Context) error {
 		rec.Execs = nil // the entries are held in the ledger
 		s.records[rec.ID] = &rec
 		if m := rec.Machine; m != nil && rec.Unreadable == "" {
-			s.held[m.RootDisk] = m.ID
+			if m.RootDisk != "" {
+				s.held[m.RootDisk] = m.ID
+			}
 			for _, a := range m.Disks {
 				s.held[a.Disk] = m.ID
 			}
