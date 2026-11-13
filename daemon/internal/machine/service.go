@@ -116,6 +116,28 @@ type Service interface {
 	// with ErrPreconditionFailed; a snapshot whose Machine exists is not.
 	DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error
 
+	// SnapshotDisk copies the disk the node holds into the disk snapshot, at
+	// most once per request ID (ADR 0056). A disk a Running Machine holds is
+	// copied with the Machine paused and returned to Running, and the copy is
+	// crash-consistent; a disk no Machine holds, or a Created, Stopped or Paused
+	// Machine holds, is copied as it is. Any other holder state is
+	// ErrPreconditionFailed. The same snapshot identifier under another request ID
+	// or disk is ErrConflict, and an unknown disk is ErrNotFound.
+	SnapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSnapshotID, request RequestID) error
+	// CreateDiskFromSnapshot is CreateDisk for a disk that starts as a copy of the
+	// disk snapshot and takes its filesystem: an unspecified filesystem or the
+	// snapshot's is accepted and any other is ErrInvalid, as is a size below the
+	// snapshot's. An unknown snapshot is ErrNotFound. The snapshot joins the
+	// request ID, size and filesystem a repeat is compared against.
+	CreateDiskFromSnapshot(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem, snapshot DiskSnapshotID) error
+	// ListDiskSnapshots returns every disk snapshot the node holds, ordered by
+	// identifier.
+	ListDiskSnapshots(ctx context.Context) ([]DiskSnapshotInfo, error)
+	// DeleteDiskSnapshot removes the disk snapshot. An absent one succeeds; one a
+	// SnapshotDisk or CreateDiskFromSnapshot call is using is refused with
+	// ErrPreconditionFailed. The disk it was taken of is not touched.
+	DeleteDiskSnapshot(ctx context.Context, snapshot DiskSnapshotID) error
+
 	// ListImages returns every image the node holds, ordered by digest.
 	ListImages(ctx context.Context) ([]ImageInfo, error)
 	// RemoveImage unlists the image and reclaims its blobs. An absent image
@@ -188,6 +210,12 @@ type service struct {
 	// diskLocks serializes the Create disk calls for one disk identifier, so a
 	// repeat waits for the first call and answers from the lookup.
 	diskLocks keyedLocks[DiskID]
+	// diskSnapLocks serializes SnapshotDisk, exclusive, against the Create disk
+	// calls that read the same disk snapshot, shared. A call takes a disk's lock
+	// before a disk snapshot's, and a disk snapshot's before a Machine's.
+	diskSnapLocks keyedLocks[DiskSnapshotID]
+	// diskSnaps are the disk snapshots the node holds, or nil where it offers none.
+	diskSnaps DiskSnapshotStore
 	// held maps each disk to its one holder (ADR 0009).
 	held map[DiskID]MachineID
 }
@@ -287,6 +315,12 @@ func WithBootTimeout(d time.Duration) Option {
 // the node offers none, and Create and Start refuse.
 func WithKernels(k Kernels) Option {
 	return func(s *service) { s.kernels = k }
+}
+
+// WithDiskSnapshots sets the store of disk snapshots (ADR 0056). Without it
+// the node offers none, and the disk snapshot calls are ErrUnsupported.
+func WithDiskSnapshots(d DiskSnapshotStore) Option {
+	return func(s *service) { s.diskSnaps = d }
 }
 
 // NewService returns the lifecycle over the given ports. uids is the node's

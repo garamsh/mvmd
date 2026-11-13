@@ -10,7 +10,7 @@ import (
 )
 
 // Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
-// "create-root-from", "create", "get", "list", "stat", "grow", "give", "reclaim" and "remove".
+// "create-root-from", "create", "create-from", "get", "list", "stat", "grow", "give", "reclaim" and "remove".
 type Disk struct {
 	Failures
 
@@ -25,11 +25,13 @@ type Disk struct {
 	// filesystem is the filesystem of each disk Create made; a disk with none
 	// recorded is ext4.
 	filesystem map[machine.DiskID]machine.Filesystem
+	// from is the disk snapshot of each disk CreateFrom made.
+	from map[machine.DiskID]machine.DiskSnapshotID
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem), from: make(map[machine.DiskID]machine.DiskSnapshotID)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -133,6 +135,25 @@ func (d *Disk) Create(_ context.Context, entry machine.DiskEntry) error {
 	return nil
 }
 
+// CreateFrom implements machine.Disk: the disk is the entry's size, and the path
+// it was copied from is what Source reports.
+func (d *Disk) CreateFrom(_ context.Context, entry machine.DiskEntry, source string) error {
+	if err := d.Enter("create-from"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[entry.ID]; held {
+		return machine.ErrDiskExists
+	}
+	d.disks[entry.ID] = entry.SizeBytes
+	d.request[entry.ID] = entry.Request
+	d.filesystem[entry.ID] = entry.Filesystem
+	d.from[entry.ID] = entry.FromSnapshot
+	d.source[entry.ID] = source
+	return nil
+}
+
 // Get implements machine.Disk.
 func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, error) {
 	if err := d.Enter("get"); err != nil {
@@ -168,7 +189,7 @@ func (d *Disk) entry(disk machine.DiskID, size uint64) machine.DiskEntry {
 	if fs == "" {
 		fs = machine.FilesystemExt4
 	}
-	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs}
+	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs, FromSnapshot: d.from[disk]}
 }
 
 // Grow implements machine.Disk: the size changes, as a growth through a file
@@ -240,6 +261,7 @@ func (d *Disk) Remove(ctx context.Context, disk machine.DiskID) error {
 	delete(d.owner, disk)
 	delete(d.source, disk)
 	delete(d.request, disk)
+	delete(d.from, disk)
 	delete(d.written, disk)
 	d.mu.Unlock()
 	return nil
