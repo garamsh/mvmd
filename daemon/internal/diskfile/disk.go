@@ -186,6 +186,23 @@ func (d *Disk) publish(staged, name string) error {
 // attribute and publishes it, syncing the directory. On any failure nothing is
 // left in the directory.
 func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
+	return d.create(ctx, entry, nil)
+}
+
+// CreateWithContents is Create for a disk with no filesystem that holds
+// contents from offset 0, written and synced before the disk is published, with
+// the entry's ContentsDigest recorded beside the request.
+func (d *Disk) CreateWithContents(ctx context.Context, entry machine.DiskEntry, contents []byte) error {
+	switch {
+	case entry.Filesystem != machine.FilesystemNone:
+		return fmt.Errorf("%w: contents go on a disk with no filesystem, not %q", machine.ErrDiskInvalid, entry.Filesystem)
+	case uint64(len(contents)) > entry.SizeBytes:
+		return fmt.Errorf("%w: %d bytes of contents do not fit in %d", machine.ErrDiskInvalid, len(contents), entry.SizeBytes)
+	}
+	return d.create(ctx, entry, contents)
+}
+
+func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, contents []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -220,6 +237,14 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 	if fs == machine.FilesystemExt4 {
 		if err := runMKFS(d.mkfs, tmpName, uuid); err != nil {
 			return fail("format", err)
+		}
+	}
+	if contents != nil {
+		if _, err := tmp.WriteAt(contents, 0); err != nil {
+			return fail("write the contents", err)
+		}
+		if err := unix.Fsetxattr(int(tmp.Fd()), contentsAttr, []byte(entry.ContentsDigest), 0); err != nil {
+			return fail("record the contents", err)
 		}
 	}
 	if err := unix.Fsetxattr(int(tmp.Fd()), requestAttr, []byte(entry.Request), 0); err != nil {
@@ -270,7 +295,11 @@ func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, e
 	if err != nil {
 		return machine.DiskEntry{}, err
 	}
-	return machine.DiskEntry{ID: disk, Request: request, SizeBytes: uint64(info.Size()), Filesystem: fs, FromSnapshot: from}, nil
+	digest, err := readContentsDigest(path)
+	if err != nil {
+		return machine.DiskEntry{}, err
+	}
+	return machine.DiskEntry{ID: disk, Request: request, SizeBytes: uint64(info.Size()), Filesystem: fs, FromSnapshot: from, ContentsDigest: digest}, nil
 }
 
 // readFilesystem returns the filesystem recorded on the disk file, ext4 for a

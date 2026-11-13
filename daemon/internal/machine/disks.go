@@ -2,6 +2,8 @@ package machine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -79,6 +81,19 @@ func (s *service) checkMountable(ctx context.Context, a DiskAttachment) error {
 	return nil
 }
 
+// MaxDiskContents is the most bytes a disk is created holding.
+const MaxDiskContents = 1 << 20
+
+// DiskSectorSize is the unit a disk created with contents and no size is
+// rounded up to.
+const DiskSectorSize = 512
+
+// ContentsDigest is the SHA-256 of contents, in hex, as a DiskEntry records it.
+func ContentsDigest(contents []byte) string {
+	sum := sha256.Sum256(contents)
+	return hex.EncodeToString(sum[:])
+}
+
 func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem) error {
 	if filesystem == "" {
 		filesystem = FilesystemExt4
@@ -93,21 +108,58 @@ func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID
 	case filesystem != FilesystemNone && filesystem != FilesystemExt4:
 		return fail(ErrInvalid, "filesystem %q is neither %q nor %q", filesystem, FilesystemNone, FilesystemExt4)
 	}
+	return s.createDisk(ctx, DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: filesystem}, nil)
+}
+
+// ContentsDiskSize is the size of a disk made holding length bytes: the size
+// asked for, or, when none was, the length rounded up to DiskSectorSize.
+func ContentsDiskSize(sizeBytes uint64, length int) uint64 {
+	if sizeBytes == 0 {
+		return (uint64(length) + DiskSectorSize - 1) / DiskSectorSize * DiskSectorSize
+	}
+	return sizeBytes
+}
+
+func (s *service) CreateDiskWithContents(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, contents []byte) error {
+	sizeBytes = ContentsDiskSize(sizeBytes, len(contents))
+	switch {
+	case !ValidDiskID(disk):
+		return invalidDisk(disk)
+	case request == "":
+		return fail(ErrInvalid, "the request ID is empty")
+	case len(contents) == 0:
+		return fail(ErrInvalid, "the contents are empty")
+	case len(contents) > MaxDiskContents:
+		return fail(ErrInvalid, "the contents are %d bytes, above %d", len(contents), MaxDiskContents)
+	case sizeBytes < uint64(len(contents)):
+		return fail(ErrInvalid, "the disk size %d is below the contents' %d bytes", sizeBytes, len(contents))
+	}
+	return s.createDisk(ctx, DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: FilesystemNone, ContentsDigest: ContentsDigest(contents)}, contents)
+}
+
+// createDisk makes the disk of the validated entry, holding contents when there
+// are any, and answers a repeat of the call that made it.
+func (s *service) createDisk(ctx context.Context, asked DiskEntry, contents []byte) error {
+	disk := asked.ID
 	defer s.diskLocks.lock(disk, true)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
-	asked := DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: filesystem}
 	for attempt := 0; ; attempt++ {
 		switch have, err := s.disks.Get(ctx, disk); {
 		case err == nil:
 			if have == asked {
 				return nil
 			}
-			return fail(ErrConflict, "disk %q exists under another request ID, size or filesystem", disk)
+			return fail(ErrConflict, "disk %q exists under another request ID, size, filesystem or contents", disk)
 		case !errors.Is(err, ErrDiskAbsent):
 			return fail(ErrFailed, "look up disk %q: %v", disk, err)
 		}
-		err := s.disks.Create(ctx, asked)
+		var err error
+		if contents == nil {
+			err = s.disks.Create(ctx, asked)
+		} else {
+			err = s.disks.CreateWithContents(ctx, asked, contents)
+		}
 		switch {
 		case err == nil:
 			return nil

@@ -27,6 +27,11 @@ func (d *diskKeeper) CreateDisk(_ context.Context, disk machine.DiskID, request 
 	return d.err
 }
 
+func (d *diskKeeper) CreateDiskWithContents(_ context.Context, disk machine.DiskID, request machine.RequestID, size uint64, contents []byte) error {
+	d.created = append(d.created, machine.DiskEntry{ID: disk, Request: request, SizeBytes: size, Filesystem: machine.FilesystemNone, ContentsDigest: machine.ContentsDigest(contents)})
+	return d.err
+}
+
 func (d *diskKeeper) ListDisks(context.Context) ([]machine.DiskInfo, error) { return d.listed, d.err }
 
 func (d *diskKeeper) DeleteDisk(_ context.Context, disk machine.DiskID) error {
