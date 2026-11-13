@@ -327,6 +327,7 @@ struct TestDisks {
     no_device: AtomicBool,
     fail_account: bool,
     fail_mount: AtomicBool,
+    fail_owner: AtomicBool,
 }
 
 impl TestDisks {
@@ -382,6 +383,14 @@ impl Disks for TestDisks {
         let wanted: Vec<_> = lock(&self.wanted).drain(..).collect();
         for (disk_id, mount) in wanted {
             self.mount(&disk_id, mount)?;
+        }
+        Ok(())
+    }
+
+    fn set_owner(&self, uid: u32, gid: u32) -> std::result::Result<(), DiskError> {
+        self.log.push(format!("disk set_owner {uid}:{gid}"));
+        if self.fail_owner.load(Ordering::SeqCst) {
+            return Err(DiskError::Failed(io::Error::other("injected failure")));
         }
         Ok(())
     }
@@ -529,6 +538,7 @@ impl Agent {
             no_device: AtomicBool::new(false),
             fail_account: setup.fail_account,
             fail_mount: AtomicBool::new(false),
+            fail_owner: AtomicBool::new(false),
         });
         let resources = Arc::new(TestResources {
             log: log.clone(),
@@ -2536,6 +2546,47 @@ async fn a_named_user_runs_the_entrypoint_with_its_ids_groups_and_home() -> Resu
 }
 
 #[tokio::test]
+async fn the_disks_are_given_to_the_resolved_user_after_they_are_mounted_and_before_the_entrypoint()
+-> Result {
+    for (user, owner) in [
+        ("app", "1000:2000"),
+        ("1000:3000", "1000:3000"),
+        ("4242", "4242:0"),
+    ] {
+        let mut agent = Agent::start_with(with_accounts()).await?;
+        let request = user_request(&agent, user);
+
+        agent.client.boot(request).await?;
+        entrypoint_home(&agent).await?;
+
+        let steps = agent.log.entries();
+        let position = |entry: &str| steps.iter().position(|step| step == entry);
+        let mounted = position("disk mount_recorded").ok_or("the disks were not mounted")?;
+        let given = position(&format!("disk set_owner {owner}"))
+            .ok_or_else(|| format!("{user}: no set_owner {owner} in {steps:?}"))?;
+        assert!(mounted < given, "{user}: {steps:?}");
+        assert_eq!(agent.log.count("disk set_owner"), 1, "{user}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_disk_that_cannot_be_given_to_the_user_fails_the_boot_at_apply_the_user() -> Result {
+    let mut agent = Agent::start_with(with_accounts()).await?;
+    agent.disks.fail_owner.store(true, Ordering::SeqCst);
+    let request = user_request(&agent, "app");
+
+    let failure = agent.client.boot(request).await.unwrap_err();
+
+    let failed: BootFailed = details::detail(&failure).ok_or("no BootFailed detail")?;
+    assert_eq!(failed.step(), WireStep::ApplyUser);
+    // The entrypoint never started.
+    assert!(lock(&agent.users.ran_as).is_empty());
+    assert!(!agent.dir.path().join("home").exists());
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_uid_with_a_gid_runs_as_exactly_those_and_takes_no_groups() -> Result {
     for (user, expected, home) in [
         (
@@ -2591,6 +2642,11 @@ async fn an_empty_user_runs_the_entrypoint_as_root_and_looks_nothing_up() -> Res
 
     assert!(lock(&agent.users.ran_as).is_empty());
     assert_eq!(agent.log.count("users"), 0);
+    assert_eq!(
+        agent.log.count("disk set_owner"),
+        0,
+        "root owns what it mounts"
+    );
     // Nothing sets HOME for root: the description's environment is the whole environment.
     assert_eq!(entrypoint_home(&agent).await?, "unset");
     Ok(())
@@ -2743,13 +2799,14 @@ async fn files_are_placed_after_the_network_and_before_the_user_and_the_entrypoi
         .skip_while(|entry| entry != "switch_root")
         .collect();
     assert_eq!(
-        steps[..6],
+        steps[..7],
         [
             "switch_root".to_owned(),
             "network".to_owned(),
             "place_files /etc/app/config,/var/secret".to_owned(),
             "disk mount_recorded".to_owned(),
             "users accounts".to_owned(),
+            "disk set_owner 1000:2000".to_owned(),
             "users run_as".to_owned(),
         ]
     );
