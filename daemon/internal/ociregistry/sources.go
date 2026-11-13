@@ -159,9 +159,6 @@ func readCredentials(path string, helpers map[string]string) (map[string]Credent
 	}
 	creds := make(map[string]Credential, len(byRegistry))
 	for registry, c := range byRegistry {
-		if _, ok := helpers[registry]; ok {
-			return nil, fmt.Errorf("registry %q is named in both registry.credentials_file and registry.credential_helpers", registry)
-		}
 		if c.Username == "" || c.Password == "" {
 			return nil, fmt.Errorf("registry.credentials_file: the entry of %q has no username or no password", registry)
 		}
