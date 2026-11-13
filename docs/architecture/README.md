@@ -86,5 +86,6 @@ Decisions:
 - [ADR 0053](./adr/0053-create-disk-takes-a-filesystem-and-an-attachment-takes-a-mount-path-the-guest-agent-is-asked-to-mount.md) — Create disk takes a filesystem and an attachment takes a mount path the guest agent is asked to mount
 - [ADR 0054](./adr/0054-the-guest-agent-runs-the-workloads-probes-and-streams-their-results-and-acts-on-none.md) — The run configuration lists the workload's probes (exec, tcp, http_get); the agent runs them and streams their results with `WatchProbes`, and acts on none.
 - [ADR 0055](./adr/0055-a-node-local-disk-grows-offline-or-online-on-a-driver-that-reports-disk-resize-and-the-guest-grows-the-filesystem.md) — a node-local disk grows, offline or online on a Driver that reports disk-resize, and the guest grows the filesystem
+- [ADR 0056](./adr/0056-a-node-local-disk-is-snapshotted-into-a-file-beside-the-disks-and-a-new-disk-is-created-from-a-snapshot.md) — a node-local disk is snapshotted into a file beside the disks, and a new disk is created from a snapshot
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
