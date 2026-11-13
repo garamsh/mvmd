@@ -441,7 +441,7 @@ func (s *service) setMachine(rec *Record, m *Machine) {
 	// reported. In any other state they are not followed and not kept.
 	switch m.State {
 	case StateRunning:
-		s.followProbes(rec.ID, m.Probes)
+		_ = m.Probes
 	case StatePaused:
 	default:
 		s.unfollowProbes(rec.ID)
