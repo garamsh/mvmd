@@ -276,7 +276,7 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 	var kernel KernelFile
 	var set BootSet
 	if m.OS != nil {
-		if update != nil {
+		if update != nil && m.OS == nil {
 			return fail(ErrInvalid, "a run update sets env and files, and an OS-form Machine has none")
 		}
 		var ok bool
