@@ -95,5 +95,6 @@ Decisions:
 - [ADR 0062](./adr/0062-a-machine-created-with-restart-on-boot-that-was-running-when-its-host-went-down-is-started-again-at-the-first-arming-in-the-new-boot.md) — a Machine created with `restart_on_boot` that was Running when its host went down is started again at the first arming in the new boot (it amends ADR 0033)
 - [ADR 0063](./adr/0063-a-client-adds-a-boot-set-by-streaming-its-two-files-to-the-node-which-keeps-them-read-only-and-refuses-to-remove-one-a-machine-names.md) — a client adds a boot set by streaming its two files to the node, which keeps them read-only and refuses to remove one a Machine names (it amends ADR 0058)
 - [ADR 0064](./adr/0064-a-machine-created-fenced-has-a-fence-of-its-own-that-ends-only-its-vmm-when-it-lapses.md) — a Machine created fenced has a fence of its own that ends only its VMM when it lapses (it adds to the fencing deadline of ADR 0003 and to ADR 0062)
+- [ADR 0065](./adr/0065-the-guest-agent-gives-a-fresh-disks-root-to-the-entrypoints-user.md) — the Guest Agent gives a fresh disk's root to the entrypoint's user
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
