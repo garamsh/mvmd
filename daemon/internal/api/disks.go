@@ -90,7 +90,6 @@ func diskSnapshotToWire(d machine.DiskSnapshotInfo) *v1alpha2.DiskSnapshot {
 		Id:             string(d.ID),
 		DiskId:         string(d.Disk),
 		SizeBytes:      d.SizeBytes,
-		Filesystem:     filesystemWire(d.Filesystem),
 		AllocatedBytes: d.AllocatedBytes,
 		CreatedAt:      timeToWire(d.CreatedAt),
 	}
