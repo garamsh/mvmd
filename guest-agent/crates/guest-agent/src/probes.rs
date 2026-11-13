@@ -569,6 +569,15 @@ mod tests {
     use super::*;
     use crate::description::Addressing;
 
+    /// Asserts that the watch has ended; a watch that stays open fails the test instead of
+    /// hanging it.
+    async fn assert_ended(watch: &mut Watch) {
+        let next = tokio::time::timeout(Duration::from_secs(5), watch.next())
+            .await
+            .expect("the probes' watch stream stayed open after the entrypoint ended");
+        assert!(next.is_none(), "the watch sent {next:?} instead of ending");
+    }
+
     fn http(name: &str, path: &str, scheme: &str) -> v1alpha1::Probe {
         v1alpha1::Probe {
             name: name.into(),
@@ -754,13 +763,13 @@ mod tests {
 
         // None of the missed changes follows it.
         probes.end();
-        assert!(watch.next().await.is_none());
+        assert_ended(&mut watch).await;
 
         // A watch opened after the end gets the current results, then ends.
         let mut late = probes.watch();
         let last = late.next().await.expect("the current result");
         assert_eq!(last.status(), ProbeStatus::Failing);
-        assert!(late.next().await.is_none());
+        assert_ended(&mut late).await;
     }
 
     #[test]
