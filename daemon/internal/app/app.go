@@ -63,6 +63,7 @@ type Substitutes struct {
 	Disks                 *machinememory.Disk
 	Images                *machinememory.ImageStore
 	Snapshots             *machinememory.SnapshotStore
+	DiskSnapshots         *machinememory.DiskSnapshotStore
 	Guest                 *machinememory.Guest
 	Supervisors           *fencingmemory.Supervisors
 	Registry              *imagememory.Registry
@@ -121,13 +122,14 @@ func New(cfg Config) (*App, error) {
 			Name: "memory", Version: "1", CPUModel: "memory-cpu",
 			Capabilities: []machine.Capability{machine.CapabilityDiskHotplug, machine.CapabilityCPUResize, machine.CapabilityMemoryResize, machine.CapabilitySnapshot},
 		}),
-		Network:     machinememory.NewNetwork(),
-		Disks:       machinememory.NewDisk(),
-		Images:      machinememory.NewImageStore(),
-		Snapshots:   machinememory.NewSnapshotStore(),
-		Guest:       machinememory.NewGuest(0),
-		Supervisors: fencingmemory.NewSupervisors(nil),
-		Capacity:    capacitymemory.NewReader(nodecapacity.Capacity{CPUs: 4, MemoryBytes: 8<<30 + 1, StateTotalBytes: 100<<30 + 1, StateAvailableBytes: 60<<30 + 1}),
+		Network:       machinememory.NewNetwork(),
+		Disks:         machinememory.NewDisk(),
+		Images:        machinememory.NewImageStore(),
+		Snapshots:     machinememory.NewSnapshotStore(),
+		DiskSnapshots: machinememory.NewDiskSnapshotStore(),
+		Guest:         machinememory.NewGuest(0),
+		Supervisors:   fencingmemory.NewSupervisors(nil),
+		Capacity:      capacitymemory.NewReader(nodecapacity.Capacity{CPUs: 4, MemoryBytes: 8<<30 + 1, StateTotalBytes: 100<<30 + 1, StateAvailableBytes: 60<<30 + 1}),
 	}
 	var network machine.Network = sub.Network
 	machineLimit := cfg.VMMUIDRange.Count
@@ -208,17 +210,18 @@ func New(cfg Config) (*App, error) {
 	// substitutes under a real Driver.
 	var disks machine.Disk = sub.Disks
 	var snapshots machine.SnapshotStore = sub.Snapshots
+	var diskSnapshots machine.DiskSnapshotStore = sub.DiskSnapshots
 	if cfg.Disk != nil {
-		disks, snapshots, err = realStorage(cfg, runDirs)
+		disks, snapshots, diskSnapshots, err = realStorage(cfg, runDirs)
 		if err != nil {
 			_ = db.Close()
 			return nil, err
 		}
-		sub.Disks, sub.Snapshots = nil, nil
+		sub.Disks, sub.Snapshots, sub.DiskSnapshots = nil, nil, nil
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithDiskSnapshots(diskSnapshots))
 
 	machinesHeld := func() (uint32, error) {
 		all, err := machines.List(context.Background())

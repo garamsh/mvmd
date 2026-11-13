@@ -64,6 +64,12 @@ func (r *CreateDiskRequest) Validate() error {
 	return requireIDs(map[string]string{"disk_id": r.GetDiskId(), "request_id": r.GetRequestId()})
 }
 
+// Validate refuses a creating call without its disk, snapshot identifier or
+// request ID.
+func (r *SnapshotDiskRequest) Validate() error {
+	return requireIDs(map[string]string{"disk_id": r.GetDiskId(), "snapshot_id": r.GetSnapshotId(), "request_id": r.GetRequestId()})
+}
+
 // Validate refuses a creating call without its identifier or request ID.
 func (r *SnapshotMachineRequest) Validate() error {
 	return requireIDs(map[string]string{"snapshot_id": r.GetSnapshotId(), "request_id": r.GetRequestId()})
