@@ -2,16 +2,23 @@ package ociregistry_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -318,4 +325,34 @@ func TestRegistryAuth_ACredentialsFileThatIsNotWellFormedIsRefusedAtStart(t *tes
 			assert.NoError(t, err, "control: a well formed file with the mode closed starts")
 		})
 	}
+}
+
+// A pull after the ca_file is rewritten trusts the new bundle, with the same
+// Registry and no restart.
+func TestRegistryAuth_ARewrittenCAFileIsTrustedByTheNextPull(t *testing.T) {
+	reg := newAuthRegistry(t, nil)
+	file := reg.caFile(t)
+	otherPEM := unrelatedCA(t)
+	regPEM, err := os.ReadFile(file)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, otherPEM, 0o644))
+	manifest := newRegistry(t, ociregistry.Sources{CAFile: file}, reg.ref)
+
+	err = manifest()
+	require.Error(t, err, "control: a bundle of another CA fails verification")
+	assert.Contains(t, err.Error(), "certificate")
+
+	require.NoError(t, os.WriteFile(file, regPEM, 0o644))
+	require.NoError(t, manifest())
+}
+
+// unrelatedCA returns the PEM of a self-signed certificate no test server holds.
+func unrelatedCA(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "unrelated"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
