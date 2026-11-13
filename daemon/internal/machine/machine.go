@@ -280,7 +280,9 @@ func (s Spec) clone() Spec {
 }
 
 func (s Spec) equal(o Spec) bool {
-	return reflect.DeepEqual(s.clone(), o.clone())
+	a, b := s.clone(), o.clone()
+	a.Probes, b.Probes = nil, nil
+	return reflect.DeepEqual(a, b)
 }
 
 func (m Machine) attachment(disk DiskID) (DiskAttachment, bool) {
