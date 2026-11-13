@@ -340,9 +340,7 @@ impl Boot {
                 Some(
                     blocking(BootStep::ApplyUser, move || {
                         let identity = execs.identity(&spec)?;
-                        disks
-                            .set_owner(identity.uid, identity.gid)
-                            .map_err(io::Error::other)?;
+                        disks.set_owner(0, 0).map_err(io::Error::other)?;
                         Ok(identity)
                     })
                     .await?,
