@@ -230,6 +230,25 @@ message Machine {
   // Paused one the last results held, and a Machine in any other state, or
   // one whose guest has sent nothing yet, reports UNKNOWN for each probe.
   repeated ProbeResult probes = 17;
+  // Set for an OS-form Machine (ADR 0058) and absent for an image-form one. An
+  // OS-form Machine has no image_digest, no root disk, no env_names, files,
+  // working_dir or probes.
+  OsBoot os_boot = 18;
+}
+
+// OsBoot is the OS form of a Machine (ADR 0058): the guest boots a whole
+// operating system from a boot set the node names, with no image and no Guest
+// Agent, and its disks attached at boot.
+message OsBoot {
+  // The name of a boot set the node offers, as runtime info lists it: a kernel
+  // and an initrd the node pinned by digest. Not empty. A name the node does
+  // not offer is REJECTED.
+  string boot_set = 1;
+  // The kernel command line the client adds. The Driver puts first the
+  // parameters its console and stop request need, and this line follows them.
+  // At most 2048 bytes, with no NUL and no newline; a line outside that is
+  // REJECTED.
+  string kernel_cmdline = 2;
 }
 
 // A check of the workload that the guest runs on a schedule from the
@@ -386,6 +405,13 @@ message CreateMachineRequest {
   // request outside that is REJECTED, naming the probe. A start does not
   // change them.
   repeated Probe probes = 16;
+  // Optional. Present makes an OS-form Machine (ADR 0058), which boots the
+  // named boot set with the command line and has no image and no Guest Agent.
+  // With it, image_digest, root_disk_bytes, kernel, command, args, env, user,
+  // files, working_dir and probes must all be unset: a field set is REJECTED,
+  // naming it. resources, resource_ceiling, disks and network_policy mean what
+  // they mean for the image form, and a disk's mount_path must be empty.
+  OsBoot os_boot = 17;
 }
 
 message CreateMachineResponse {
@@ -680,6 +706,17 @@ message NodeKernel {
   bool is_default = 3;
 }
 
+// BootSet is a kernel and an initrd the node offers an OS-form Machine by name
+// (ADR 0058). A client never uploads either.
+message BootSet {
+  // 1 to 63 characters of lowercase letters, digits and "-".
+  string name = 1;
+  // The SHA-256 digests of the kernel file and the initrd file the node pinned,
+  // in hex.
+  string kernel_digest = 2;
+  string initrd_digest = 3;
+}
+
 message GetRuntimeInfoResponse {
   // The API versions served, as package identifiers (for example
   // "mvmd.runtime.v1alpha2").
@@ -692,6 +729,9 @@ message GetRuntimeInfoResponse {
   // family the node's network configuration names, in CIDR form with the host
   // bits clear, IPv4 first. Empty when the node has no network configuration.
   repeated string machine_prefixes = 5;
+  // The boot sets the node offers an OS-form Machine, ordered by name. Empty
+  // when the node offers none.
+  repeated BootSet boot_sets = 6;
 }
 
 message InspectMachineRequest {
