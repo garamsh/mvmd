@@ -108,7 +108,7 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly(), MountPath: d.GetMountPath()})
 	}
 	var err error
-	if spec.RoutedPrefixes, err = routedOf(req.GetRoutedPrefixes()); err != nil {
+	if spec.RoutedPrefixes, err = routedOf(nil); err != nil {
 		return spec, err
 	}
 	if spec.Policy.Egress, err = rulesOf(req.GetNetworkPolicy().GetEgress()); err != nil {
