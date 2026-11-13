@@ -85,5 +85,6 @@ Decisions:
 - [ADR 0052](./adr/0052-a-machine-keeps-a-working-directory-and-a-start-from-created-or-stopped-may-replace-its-env-and-files.md) — a Machine keeps a working directory, and a start from Created or Stopped may replace its env and files (it supersedes ADR 0051 on a change of env and files)
 - [ADR 0053](./adr/0053-create-disk-takes-a-filesystem-and-an-attachment-takes-a-mount-path-the-guest-agent-is-asked-to-mount.md) — Create disk takes a filesystem and an attachment takes a mount path the guest agent is asked to mount
 - [ADR 0055](./adr/0055-a-node-local-disk-grows-offline-or-online-on-a-driver-that-reports-disk-resize-and-the-guest-grows-the-filesystem.md) — a node-local disk grows, offline or online on a Driver that reports disk-resize, and the guest grows the filesystem
+- [ADR 0056](./adr/0056-a-node-local-disk-is-snapshotted-into-a-file-beside-the-disks-and-a-new-disk-is-created-from-a-snapshot.md) — a node-local disk is snapshotted into a file beside the disks, and a new disk is created from a snapshot
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
