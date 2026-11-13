@@ -83,6 +83,7 @@ func NewDriver(info machine.DriverInfo) *Driver {
 		booted:           make(map[machine.MachineID]machine.BootSpec),
 		devices:          make(map[machine.MachineID][]machine.DiskID),
 		sizes:            make(map[machine.MachineID]machine.Resources),
+		driveSizes:       make(map[machine.MachineID]map[machine.DiskID]uint64),
 		restored:         make(map[machine.MachineID][]string),
 		restoreSpec:      make(map[machine.MachineID]machine.BootSpec),
 		paused:           make(map[machine.MachineID]bool),

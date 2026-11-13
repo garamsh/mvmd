@@ -151,7 +151,7 @@ type service struct {
 	bootTimeout time.Duration
 	// resizeTimeout bounds the wait for the guest to bring the target's vCPUs
 	// online in SetResources, and for the guest to see the new size of a disk
-// in ResizeDisk.
+	// in ResizeDisk.
 	resizeTimeout time.Duration
 	// vmmEndPoll is how often Watch looks for a VMM that has ended.
 	vmmEndPoll time.Duration
