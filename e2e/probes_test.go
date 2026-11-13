@@ -104,10 +104,13 @@ func TestE2E_ProbesAreRunAndTheirResultsReportedAndStreamed(t *testing.T) {
 		}
 	}
 
-	// Every probe's change reached the event stream.
+	// Every probe's change reached the event stream, the last one of each being the status
+	// Inspect reported. A probe may fail once before the entrypoint listens, so an earlier event
+	// of a probe need not be its final status.
 	seen := map[string]v1alpha2.ProbeStatus{}
 	deadline := time.After(time.Minute)
-	for len(seen) < len(want) {
+	for seen["listening"] != want["listening"] || seen["exec-bad"] != want["exec-bad"] ||
+		seen["closed"] != want["closed"] || seen["exec-ok"] != want["exec-ok"] {
 		select {
 		case r := <-changes:
 			seen[r.Name] = r.Status
