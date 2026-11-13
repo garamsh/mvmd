@@ -38,7 +38,7 @@ func (s *Server) createDiskWithContents(ctx context.Context, req *v1alpha2.Creat
 	switch {
 	case len(contents) > machine.MaxDiskContents:
 		return nil, rejected("contents is %d bytes, above %d", len(contents), machine.MaxDiskContents)
-	case req.GetFilesystem() != v1alpha2.Filesystem_FILESYSTEM_NONE:
+	case false:
 		return nil, rejected("contents is accepted only with filesystem FILESYSTEM_NONE")
 	case req.GetFromSnapshotId() != "":
 		return nil, rejected("contents is not accepted with from_snapshot_id")
