@@ -291,7 +291,6 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		Env:           env,
 		User:          s.User,
 		Files:         files,
-		WorkingDir:    s.WorkingDir,
 	}, nil
 }
 
