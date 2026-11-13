@@ -101,6 +101,9 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		Probes:        probesOf(req.GetProbes()),
 	}
 	spec.Env, spec.Files = envOf(req.GetEnv()), filesOf(req.GetFiles())
+	if os := req.GetOsBoot(); os != nil {
+		spec.OS = &machine.OSBoot{BootSet: os.GetBootSet(), CommandLine: os.GetKernelCmdline()}
+	}
 	for _, d := range req.GetDisks() {
 		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly(), MountPath: d.GetMountPath()})
 	}
@@ -147,6 +150,9 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 			Egress:  rulesToWire(m.Policy.Egress),
 			Ingress: rulesToWire(m.Policy.Ingress),
 		},
+	}
+	if m.OS != nil {
+		out.OsBoot = &v1alpha2.OsBoot{BootSet: m.OS.BootSet, KernelCmdline: m.OS.CommandLine}
 	}
 	for _, d := range m.Disks {
 		out.Disks = append(out.Disks, &v1alpha2.DiskAttachment{DiskId: string(d.Disk), ReadOnly: d.ReadOnly, MountPath: d.MountPath})
