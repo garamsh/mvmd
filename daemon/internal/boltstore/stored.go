@@ -459,7 +459,7 @@ func storeMachine(m *machine.Machine) (*storedMachine, error) {
 		ID: m.ID, State: state, storedSpec: spec,
 		RootDisk: m.RootDisk, RootDiskUUID: m.RootDiskUUID,
 		User:          storedUser{UID: m.User.UID, GID: m.User.GID},
-		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers, RoutedPrefixes: m.Network.RoutedPrefixes},
+		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers},
 		FailureReason: m.FailureReason, BootMemoryBytes: m.BootMemoryBytes, KernelDigest: m.KernelDigest,
 	}, nil
 }
