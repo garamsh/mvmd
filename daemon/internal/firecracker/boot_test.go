@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/firecracker"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
@@ -51,6 +52,39 @@ func TestBoot_ConfiguresTheVMMThenStartsTheGuest(t *testing.T) {
 			assert.JSONEq(t, w.body, seen[i].Body, "request %d", i)
 		}
 	}
+}
+
+func TestBoot_AnOSFormBootGivesTheVMMItsDisksInOrderAndTheDriversParametersBeforeTheClientsLine(t *testing.T) {
+	n := newNode(t)
+	f := &fakeAPI{}
+	f.listen(n.t, n.apiSocket())
+	spec := n.osSpec()
+	_, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err)
+	require.NoError(t, n.driver.Boot(context.Background(), "m1", spec))
+
+	data, scratch := diskdevice.Name(0, "data"), diskdevice.Name(1, "scratch")
+	want := []struct{ path, body string }{
+		{"/machine-config", `{"vcpu_count":2,"mem_size_mib":256}`},
+		{"/boot-source", `{"kernel_image_path":"/boot/kernel","initrd_path":"/boot/initrd","boot_args":"` + firecracker.BootParams(runtime.GOARCH) + ` root=/dev/vda ro quiet"}`},
+		{"/drives/" + data, `{"drive_id":"` + data + `","path_on_host":"/disk/0","is_root_device":false,"is_read_only":true}`},
+		{"/drives/" + scratch, `{"drive_id":"` + scratch + `","path_on_host":"/disk/1","is_root_device":false,"is_read_only":false,"cache_type":"Writeback"}`},
+		{"/network-interfaces/eth0", `{"iface_id":"eth0","host_dev_name":"tap-m1","guest_mac":"02:00:00:00:00:01"}`},
+		{"/vsock", `{"guest_cid":3,"uds_path":"/run/vsock.sock"}`},
+		{"/actions", `{"action_type":"InstanceStart"}`},
+	}
+	var puts []request
+	for _, r := range f.seen() {
+		if r.Method == "PUT" {
+			puts = append(puts, r)
+		}
+	}
+	require.Len(t, puts, len(want))
+	for i, w := range want {
+		assert.Equal(t, w.path, puts[i].Path, "request %d", i)
+		assert.JSONEq(t, w.body, puts[i].Body, "request %d", i)
+	}
+	assert.NotContains(t, puts[1].Body, "mvmd.end", "no Guest Agent reads it")
 }
 
 // A snapshot records the paths of the devices the VMM was configured with, and

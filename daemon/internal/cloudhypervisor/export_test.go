@@ -5,6 +5,7 @@ package cloudhypervisor
 var (
 	Args         = args
 	Cmdline      = cmdline
+	OSCmdline    = osCmdline
 	CPUReadFiles = cpuReadFiles
 )
 

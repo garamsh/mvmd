@@ -4,6 +4,8 @@ package firecracker
 // test with the architecture named, so every branch runs on any host.
 var (
 	BootArgs     = bootArgs
+	BootParams   = bootParams
+	OSBootArgs   = osBootArgs
 	CPUReadFiles = cpuReadFiles
 )
 

@@ -3,6 +3,7 @@ package cloudhypervisor_test
 import (
 	"context"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/cloudhypervisor"
+	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -259,21 +261,84 @@ func TestDescribe_NamesTheKernelTheBootSpecCarries(t *testing.T) {
 	}
 }
 
-func TestDescribe_RefusesAnOSFormBootAsUnsupported(t *testing.T) {
-	n := newNode(t)
+// osSpec is an OS-form boot: a boot set's kernel and initrd, a client's command
+// line, and two attached disks, the first read-only.
+func (n *node) osSpec() machine.BootSpec {
 	spec := n.spec()
-	_, err := n.driver.Describe(context.Background(), "m1", spec)
-	require.NoError(t, err, "control: the image-form boot is described")
-
-	for name, change := range map[string]func(*machine.BootSpec){
-		"an initrd":      func(s *machine.BootSpec) { s.Initrd = machine.KernelFile{Path: "/boot/os-initrd", SHA256: "d"} },
-		"a command line": func(s *machine.BootSpec) { s.CommandLine = "console=ttyS0" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			boot := spec
-			change(&boot)
-			_, err := n.driver.Describe(context.Background(), "m1", boot)
-			require.ErrorIs(t, err, machine.ErrUnsupported)
-		})
+	spec.Initrd = machine.KernelFile{Path: "/boot-sets/os-initrd", SHA256: strings.Repeat("d", 64)}
+	spec.CommandLine = "root=/dev/vda ro quiet"
+	spec.Devices = []machine.BlockDevice{
+		{Disk: "data", Path: "/disks/data.img", ReadOnly: true},
+		{Disk: "scratch", Path: "/disks/scratch.img"},
 	}
+	return spec
+}
+
+func TestDescribe_AnOSFormBootNamesItsOwnInitrdAndItsDisksInOrderAndTheDriversParametersBeforeTheClientsLine(t *testing.T) {
+	n := newNode(t)
+	cloudhypervisor.SetGOARCH(n.driver, "amd64")
+	spec := n.osSpec()
+	p, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err)
+
+	assert.Equal(t, []machine.File{
+		{Host: spec.Kernel.Path, In: "/boot/kernel", ReadOnly: true, SHA256: spec.Kernel.SHA256},
+		{Host: "/boot-sets/os-initrd", In: "/boot/initrd", ReadOnly: true, SHA256: spec.Initrd.SHA256},
+		{Host: "/disks/data.img", In: "/disk/0", ReadOnly: true},
+		{Host: "/disks/scratch.img", In: "/disk/1"},
+	}, p.BootFiles, "the boot set's initrd and pin replace the configured initrd")
+
+	data, scratch := diskdevice.Name(0, "data"), diskdevice.Name(1, "scratch")
+	assert.Equal(t, []string{
+		"--api-socket", "path=/run/api.sock",
+		"--log-file", "/run/cloud-hypervisor.log",
+		"--kernel", "/boot/kernel",
+		"--initramfs", "/boot/initrd",
+		"--cmdline", "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd root=/dev/vda ro quiet",
+		"--cpus", "boot=2,max=2",
+		"--memory", "size=256M",
+		"--serial", "tty",
+		"--console", "off",
+		"--event-monitor", "fd=7",
+		"--vsock", "cid=3,socket=/run/vsock.sock",
+		"--disk", "path=/disk/0,readonly=on,image_type=raw,id=" + data, "path=/disk/1,readonly=off,image_type=raw,id=" + scratch,
+		"--net", "id=net0,fd=[3],mac=02:00:00:00:00:01",
+	}, p.Args)
+
+	image, err := n.driver.Describe(context.Background(), "m1", n.spec())
+	require.NoError(t, err)
+	assert.Equal(t, wantArgs, image.Args, "control: an image-form boot keeps the configured initrd and its own line")
+}
+
+func TestOSCmdline_NamesTheSerialPortOfTheArchitectureAndNoGuestAgentParameter(t *testing.T) {
+	assert.Equal(t, "console=ttyAMA0 reboot=k panic=1 root=/dev/vda", cloudhypervisor.OSCmdline("arm64", "root=/dev/vda"))
+	assert.Equal(t, "console=ttyAMA0 reboot=k panic=1", cloudhypervisor.OSCmdline("arm64", ""))
+	assert.Equal(t, "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd", cloudhypervisor.OSCmdline("amd64", ""))
+}
+
+func TestDescribe_AnOSFormMachineWithNoDiskIsDescribedWithoutADiskArgumentAndAnImageFormOneIsRefused(t *testing.T) {
+	n := newNode(t)
+	spec := n.osSpec()
+	spec.Devices = nil
+	p, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err)
+	assert.NotContains(t, p.Args, "--disk", "the option takes a value")
+
+	image := n.spec()
+	image.Devices = nil
+	_, err = n.driver.Describe(context.Background(), "m1", image)
+	require.Error(t, err, "control: an image-form Machine boots with at least one device")
+}
+
+func TestDescribe_RefusesACommandLineThatWithTheDriversParametersExceedsWhatTheKernelTakes(t *testing.T) {
+	n := newNode(t)
+	spec := n.osSpec()
+	params := cloudhypervisor.OSCmdline(runtime.GOARCH, "")
+	spec.CommandLine = strings.Repeat("a", machine.MaxKernelCommandLine-len(params)-1)
+	_, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err, "control: the longest line the kernel takes")
+
+	spec.CommandLine += "a"
+	_, err = n.driver.Describe(context.Background(), "m1", spec)
+	require.ErrorContains(t, err, "command line")
 }

@@ -57,20 +57,45 @@ func cmdline(goarch string) string {
 	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable mvmd.end=poweroff"
 }
 
+// osCmdline is the kernel command line of an OS-form boot: the serial console
+// and the reset parameters of cmdline, which the i8042 ones follow on x86_64,
+// then the client's line. It carries neither the hot-plug policy, since a
+// resize needs the Guest Agent, nor mvmd.end, which only the agent reads
+// (ADR 0059).
+func osCmdline(goarch, client string) string {
+	params := "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+	if goarch == "arm64" {
+		params = "console=ttyAMA0 reboot=k panic=1"
+	}
+	return machine.OSCommandLine(params, client)
+}
+
+// kernelCmdline is the command line a boot gives the guest.
+func kernelCmdline(goarch string, spec machine.BootSpec) string {
+	if spec.OSForm() {
+		return osCmdline(goarch, spec.CommandLine)
+	}
+	return cmdline(goarch)
+}
+
 // Describe implements machine.Driver. It states the process, whose arguments
 // are the VM's whole configuration, and what it needs open, with the digests of
 // the pinned binary and kernel for the supervisor to check; it reads neither
 // file. It keeps nothing: Boot is given the boot description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
-	if spec.Initrd.Path != "" || spec.CommandLine != "" {
-		return machine.ProcessDescription{}, fmt.Errorf("the Cloud Hypervisor Driver cannot boot an OS-form Machine yet: %w", machine.ErrUnsupported)
-	}
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
+	if n := len(kernelCmdline(d.goarch, spec)); n > machine.MaxKernelCommandLine {
+		return machine.ProcessDescription{}, fmt.Errorf("the kernel command line is %d bytes with the Driver's parameters, over the %d a guest kernel takes", n, machine.MaxKernelCommandLine)
+	}
+	initrd := d.initrd()
+	if spec.OSForm() {
+		initrd = machine.File{Host: spec.Initrd.Path, In: machine.InInitrd, ReadOnly: true, SHA256: spec.Initrd.SHA256}
+	}
 	boot := []machine.File{
 		{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256},
-		d.initrd(),
+		initrd,
 	}
 	return d.process(spec, args(spec, d.goarch), boot), nil
 }
@@ -113,14 +138,16 @@ func args(spec machine.BootSpec, goarch string) []string {
 		"--log-file", vmmconfig.InRun(logName),
 		"--kernel", machine.InKernel,
 		"--initramfs", machine.InInitrd,
-		"--cmdline", cmdline(goarch),
+		"--cmdline", kernelCmdline(goarch, spec),
 		"--cpus", cpusArg(spec, goarch),
 		"--memory", memoryArg(spec, goarch),
 		"--serial", "tty",
 		"--console", "off",
 		"--event-monitor", fmt.Sprintf("fd=%d", eventDescriptor),
 		"--vsock", fmt.Sprintf("cid=%d,socket=%s", vmmconfig.GuestCID, vmmconfig.InRun(vmmconfig.VsockSocket)),
-		"--disk",
+	}
+	if len(spec.Devices) > 0 {
+		a = append(a, "--disk")
 	}
 	for i, dev := range spec.Devices {
 		ro := "off"
@@ -192,7 +219,7 @@ func validate(spec machine.BootSpec) error {
 		return fmt.Errorf("a ceiling of %d vCPUs is outside %d to %d", ceiling(spec).VCPUs, spec.Resources.VCPUs, maxVCPUs)
 	case ceiling(spec).MemoryBytes < spec.Resources.MemoryBytes || ceiling(spec).MemoryBytes%mib != 0:
 		return fmt.Errorf("a ceiling of %d bytes of memory is below the resources or not a whole number of MiB", ceiling(spec).MemoryBytes)
-	case len(spec.Devices) == 0:
+	case len(spec.Devices) == 0 && !spec.OSForm():
 		return fmt.Errorf("a Machine boots with at least one block device")
 	}
 	for _, dev := range spec.Devices {
