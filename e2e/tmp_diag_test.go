@@ -4,7 +4,9 @@ package e2e_test
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,10 +20,19 @@ func (n *node) tmpDiag(t *testing.T, id string) {
 	d := n.stateDir + "/machines/" + id
 	st := n.deadline(t)
 	t.Logf("DIAG deadline %v remaining %v", st.Phase, st.Remaining.AsDuration())
-	for _, c := range []string{"cat /proc/uptime", "ls -la " + d + "/run", "tail -c 1500 " + d + "/run/vmm.log", "tail -c 1500 " + d + "/run/firecracker.log", "tail -c 1500 " + d + "/run/cloud-hypervisor.log", "tail -c 800 " + d + "/supervisor.log"} {
+	for _, c := range []string{"cat /proc/uptime", "cat " + n.work + "/supdiag.log", "ls -la " + d + "/run", "tail -c 1500 " + d + "/run/vmm.log", "tail -c 1500 " + d + "/run/firecracker.log", "tail -c 1500 " + d + "/run/cloud-hypervisor.log", "tail -c 800 " + d + "/supervisor.log"} {
 		out, _ := exec.Command("sh", "-c", c+" 2>&1").CombinedOutput()
 		t.Logf("DIAG %s [%s]:\n%s", id, c, out)
 	}
+}
+
+// wrapSupervisor puts a script in place of the staged supervisor that records how it ends.
+func (n *node) wrapSupervisor(t *testing.T) {
+	p := filepath.Join(n.work, "inputs", "mvmd-supervisor")
+	require.NoError(t, os.Rename(p, p+".real"))
+	log := filepath.Join(n.work, "supdiag.log")
+	script := "#!/bin/sh\necho \"$(cat /proc/uptime) start $*\" >> " + log + "\n" + p + ".real \"$@\"\necho \"exit=$? $(cat /proc/uptime)\" >> " + log + "\n"
+	require.NoError(t, os.WriteFile(p, []byte(script), 0o755))
 }
 
 // pollSupervisorArgs logs the supervisor command lines seen while stop is open.
@@ -45,6 +56,7 @@ func pollSupervisorArgs(t *testing.T, stop chan struct{}) {
 func TestE2E_TmpSameBootRestartWithoutNamespace(t *testing.T) {
 	n := startNodeWith(t, withOSFormBootSet(osFormSet))
 	n.arm(t)
+	n.wrapSupervisor(t)
 	pulled := n.pullBootable(t, "plain")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
