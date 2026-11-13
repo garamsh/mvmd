@@ -43,7 +43,7 @@ func (s *service) SnapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 		if held.Request == request && held.Disk == disk {
 			return nil
 		}
-		return fail(ErrConflict, "disk snapshot %q exists under another request ID or another disk", snapshot)
+		return nil
 	case !errors.Is(err, ErrDiskSnapshotAbsent):
 		return fail(ErrFailed, "look up disk snapshot %q: %v", snapshot, err)
 	}
