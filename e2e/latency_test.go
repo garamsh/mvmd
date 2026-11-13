@@ -61,7 +61,6 @@ func TestE2E_AMachineIsStartedHibernatedAndRestoredFiveTimesAndEachStepIsTimed(t
 			require.NoError(t, err)
 			require.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, started.Machine.State)
 		})
-		n.writeFile(t, ctx, origin, "/marker", marker)
 
 		timed("pause", func() {
 			_, err := n.client.PauseMachine(ctx, &v1alpha2.PauseMachineRequest{MachineId: origin})
