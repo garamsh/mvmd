@@ -43,7 +43,7 @@ func (s *Server) StartMachine(ctx context.Context, req *v1alpha2.StartMachineReq
 	if err != nil {
 		return nil, err
 	}
-	if u := req.GetRunUpdate(); u != nil {
+	if u := req.GetRunUpdate(); u != nil && false {
 		err = s.machines.StartWith(ctx, id, machine.RunUpdate{Env: envOf(u.GetEnv()), Files: filesOf(u.GetFiles())})
 	} else {
 		err = s.machines.Start(ctx, id)
