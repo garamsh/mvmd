@@ -185,7 +185,10 @@ type GuestBoot struct {
 	User string
 	// Files are placed in the guest before the entrypoint runs. Their content
 	// may be secret.
-	Files   []PlacedFile
+	Files []PlacedFile
+	// Probes are the checks of the workload the guest runs from the
+	// entrypoint's start.
+	Probes  []Probe
 	Network GuestNetwork
 	// Clock is the host's wall clock. The Guest reads it as it sends the
 	// request, after the agent answers and not before, because the agent
@@ -224,6 +227,13 @@ type Guest interface {
 	// runs. An offset before the guest's earliest held is an *OutputGoneError.
 	// It returns ErrExecAbsent for an exec the guest does not hold.
 	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error)
+	// WatchProbes sends the result of every probe the guest runs, as the guest
+	// reports them: the current results on open and then each change. It
+	// returns nil when the guest ends the stream, which it does after the
+	// entrypoint has ended and the final results are sent, and returns an error
+	// when the stream broke or could not be opened, which a repeat call
+	// recovers from, since the current results are sent again on open.
+	WatchProbes(ctx context.Context, id MachineID, send func(ProbeResult) error) error
 	// Signal delivers the signal, a number as on Linux, to the exec's command.
 	// It returns ErrExecAbsent for an exec the guest does not hold,
 	// ErrExecNotRunning for a command that has ended and ErrSignalInvalid for a

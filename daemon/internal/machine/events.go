@@ -20,4 +20,8 @@ type Events interface {
 	Deleted(id MachineID)
 	// Reported records an event a Driver raised.
 	Reported(event DriverEvent)
+	// ProbeChanged records that a probe of the Machine has a result other
+	// than the one the node held. It is called for a Running or Paused
+	// Machine only.
+	ProbeChanged(id MachineID, result ProbeResult)
 }

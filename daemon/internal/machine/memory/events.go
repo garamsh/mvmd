@@ -12,6 +12,13 @@ type Events struct {
 	changes  []Change
 	reported []machine.DriverEvent
 	deleted  []machine.MachineID
+	probes   []ProbeChange
+}
+
+// ProbeChange is one probe result a Machine was reported to have.
+type ProbeChange struct {
+	ID     machine.MachineID
+	Result machine.ProbeResult
 }
 
 // Change is one state a Machine was reported to be in.
@@ -76,4 +83,24 @@ func (e *Events) DriverEvents() []machine.DriverEvent {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]machine.DriverEvent(nil), e.reported...)
+}
+
+// ProbeChanged implements machine.Events.
+func (e *Events) ProbeChanged(id machine.MachineID, result machine.ProbeResult) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.probes = append(e.probes, ProbeChange{id, result})
+}
+
+// ProbeChanges returns every probe change recorded for the Machine, in order.
+func (e *Events) ProbeChanges(id machine.MachineID) []machine.ProbeResult {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var out []machine.ProbeResult
+	for _, c := range e.probes {
+		if c.ID == id {
+			out = append(out, c.Result)
+		}
+	}
+	return out
 }

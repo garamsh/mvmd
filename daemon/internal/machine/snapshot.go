@@ -106,7 +106,7 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	}
 	spec := SnapshotSpec{
 		Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes,
-		Command: cloneNonEmpty(m.Command), Args: cloneNonEmpty(m.Args), Env: cloneNonEmpty(m.Env), User: m.Spec.User, Files: cloneFiles(m.Files), WorkingDir: m.WorkingDir,
+		Command: cloneNonEmpty(m.Command), Args: cloneNonEmpty(m.Args), Env: cloneNonEmpty(m.Env), User: m.Spec.User, Files: cloneFiles(m.Files), WorkingDir: m.WorkingDir, Probes: cloneProbes(m.Probes),
 	}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
@@ -226,7 +226,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	}
 	spec := Spec{
 		Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Kernel: kernel, Policy: policy.clone(),
-		Command: cloneNonEmpty(held.Spec.Command), Args: cloneNonEmpty(held.Spec.Args), Env: cloneNonEmpty(held.Spec.Env), User: held.Spec.User, Files: cloneFiles(held.Spec.Files), WorkingDir: held.Spec.WorkingDir,
+		Command: cloneNonEmpty(held.Spec.Command), Args: cloneNonEmpty(held.Spec.Args), Env: cloneNonEmpty(held.Spec.Env), User: held.Spec.User, Files: cloneFiles(held.Spec.Files), WorkingDir: held.Spec.WorkingDir, Probes: cloneProbes(held.Spec.Probes),
 	}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.

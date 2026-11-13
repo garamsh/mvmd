@@ -20,6 +20,7 @@ import (
 // caught by the test below without anyone editing it.
 var notStored = map[string]string{
 	"Machine.Driver":       "Inspect fills it from the Driver in service; a record never held anything but its zero value",
+	"Machine.ProbeResults": "Inspect and List fill it from the results the daemon holds in memory (ADR 0057); a record never held anything but its zero value",
 	"Record.Unreadable":    "Load sets it on a record it could not decode; it is not data to keep",
 	"ExecEntry.Unreadable": "Load sets it on an entry it could not decode; it is not data to keep",
 }
@@ -50,7 +51,7 @@ func (f *filler) fill(v reflect.Value) {
 		// A time is an instant in UTC, as the store reads one back.
 		v.Set(reflect.ValueOf(time.Date(2026, 11, 11, 12, 34, 56, f.number(), time.UTC)))
 		return
-	case reflect.TypeOf(machine.State(0)), reflect.TypeOf(machine.Protocol(0)), reflect.TypeOf(machine.ExecStatus(0)):
+	case reflect.TypeOf(machine.State(0)), reflect.TypeOf(machine.Protocol(0)), reflect.TypeOf(machine.ExecStatus(0)), reflect.TypeOf(machine.ProbeKind(0)):
 		// An enum holds one of its own values; 2 is one of each.
 		v.SetInt(2)
 		return

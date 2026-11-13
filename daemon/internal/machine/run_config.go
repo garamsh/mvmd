@@ -108,7 +108,7 @@ func (s Spec) validateRun() error {
 	if total > maxRunFileBytes {
 		return fail(ErrInvalid, "files: %d bytes of content, at most %d", total, maxRunFileBytes)
 	}
-	return nil
+	return validateProbes(s.Probes)
 }
 
 // absoluteClean reports whether p is an absolute path in its cleaned form and

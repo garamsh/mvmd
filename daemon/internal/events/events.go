@@ -26,8 +26,8 @@ type Event struct {
 	Body    Body
 }
 
-// Body is what an event says: one of StateChanged, Deleted, Deadline or
-// Driver.
+// Body is what an event says: one of StateChanged, Deleted, Deadline,
+// Driver or ProbeChanged.
 type Body interface{ body() }
 
 // StateChanged says the Machine's state is now State.
@@ -42,7 +42,12 @@ type Deadline struct{ Event fencing.Event }
 // Driver says a Driver raised an event.
 type Driver struct{ Event machine.DriverEvent }
 
+// ProbeChanged says a probe of the Machine has the Result, which differs from
+// the one the node held.
+type ProbeChanged struct{ Result machine.ProbeResult }
+
 func (StateChanged) body() {}
+func (ProbeChanged) body() {}
 func (Deleted) body()      {}
 func (Deadline) body()     {}
 func (Driver) body()       {}

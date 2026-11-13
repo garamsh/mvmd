@@ -60,6 +60,25 @@ type storedSpec struct {
 	Files   []storedFile `json:"Files,omitempty"`
 	// WorkingDir is empty for the image's.
 	WorkingDir string `json:"WorkingDir,omitempty"`
+	// Probes is absent from a record written before probes were kept, and from
+	// one whose Machine has none.
+	Probes []storedProbe `json:"Probes,omitempty"`
+}
+
+// storedProbe is a probe as it is written: the kind by name, the durations in
+// nanoseconds. A zero duration or threshold is one the request left unset.
+type storedProbe struct {
+	Name             string          `json:"Name"`
+	Kind             json.RawMessage `json:"Kind"`
+	Argv             []string        `json:"Argv,omitempty"`
+	Port             uint32          `json:"Port,omitempty"`
+	Path             string          `json:"Path,omitempty"`
+	Scheme           string          `json:"Scheme,omitempty"`
+	InitialDelay     int64           `json:"InitialDelayNanos,omitempty"`
+	Period           int64           `json:"PeriodNanos,omitempty"`
+	Timeout          int64           `json:"TimeoutNanos,omitempty"`
+	SuccessThreshold uint32          `json:"SuccessThreshold,omitempty"`
+	FailureThreshold uint32          `json:"FailureThreshold,omitempty"`
 }
 
 type storedEnv struct {
@@ -226,6 +245,14 @@ var (
 			4: machine.ProtocolICMPv6,
 		},
 	}
+	probeKinds = enum[machine.ProbeKind]{
+		what: "probe kind",
+		names: map[machine.ProbeKind]string{
+			machine.ProbeExec:    "exec",
+			machine.ProbeTCP:     "tcp",
+			machine.ProbeHTTPGet: "http_get",
+		},
+	}
 	execStatuses = enum[machine.ExecStatus]{
 		what: "exec status",
 		names: map[machine.ExecStatus]string{
@@ -270,6 +297,10 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 	files, _ := mapSlice(s.Files, infallible(func(f machine.PlacedFile) storedFile {
 		return storedFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID}
 	}))
+	probes, err := mapSlice(s.Probes, storeProbe)
+	if err != nil {
+		return storedSpec{}, err
+	}
 	egress, err := mapSlice(s.Policy.Egress, storeRule)
 	if err != nil {
 		return storedSpec{}, err
@@ -292,6 +323,31 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		User:          s.User,
 		Files:         files,
 		WorkingDir:    s.WorkingDir,
+		Probes:        probes,
+	}, nil
+}
+
+func storeProbe(p machine.Probe) (storedProbe, error) {
+	kind, err := probeKinds.encode(p.Kind)
+	if err != nil {
+		return storedProbe{}, err
+	}
+	return storedProbe{
+		Name: p.Name, Kind: kind, Argv: p.Argv, Port: p.Port, Path: p.Path, Scheme: p.Scheme,
+		InitialDelay: int64(p.InitialDelay), Period: int64(p.Period), Timeout: int64(p.Timeout),
+		SuccessThreshold: p.SuccessThreshold, FailureThreshold: p.FailureThreshold,
+	}, nil
+}
+
+func loadProbe(p storedProbe) (machine.Probe, error) {
+	kind, err := probeKinds.decode(p.Kind)
+	if err != nil {
+		return machine.Probe{}, err
+	}
+	return machine.Probe{
+		Name: p.Name, Kind: kind, Argv: p.Argv, Port: p.Port, Path: p.Path, Scheme: p.Scheme,
+		InitialDelay: time.Duration(p.InitialDelay), Period: time.Duration(p.Period), Timeout: time.Duration(p.Timeout),
+		SuccessThreshold: p.SuccessThreshold, FailureThreshold: p.FailureThreshold,
 	}, nil
 }
 
@@ -314,6 +370,10 @@ func (s storedSpec) load() (machine.Spec, error) {
 	files, _ := mapSlice(s.Files, infallible(func(f storedFile) machine.PlacedFile {
 		return machine.PlacedFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID}
 	}))
+	probes, err := mapSlice(s.Probes, loadProbe)
+	if err != nil {
+		return machine.Spec{}, err
+	}
 	egress, err := mapSlice(s.Policy.Egress, loadRule)
 	if err != nil {
 		return machine.Spec{}, err
@@ -336,6 +396,7 @@ func (s storedSpec) load() (machine.Spec, error) {
 		User:          s.User,
 		Files:         files,
 		WorkingDir:    s.WorkingDir,
+		Probes:        probes,
 	}, nil
 }
 
