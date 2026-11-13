@@ -30,3 +30,7 @@ Clients need to change the run configuration of a Machine that exists, or to res
 ## Amendment (garamsh/mvmd#490)
 
 A snapshot carries the five fields, and a restore puts them into the new Machine's record, so a restored Machine that is later stopped and started boots with its source's run configuration. This replaces the Consequences' statement that "the fields are not part of a snapshot". The snapshot's record file, mode 0600 and read only by the daemon, holds the env values and file content, and removing the snapshot removes them; no call returns the record whole, and a listing reports none of the fields. A record written before this amendment has none, and its restore boots with the image's own.
+
+## Amendment ([ADR 0052](./0052-a-machine-keeps-a-working-directory-and-a-start-from-created-or-stopped-may-replace-its-env-and-files.md))
+
+ADR 0052 supersedes the Consequences' sentence "A change of the run configuration is a new Machine" for env and files: a start from Created or Stopped may replace both.

@@ -82,6 +82,7 @@ Decisions:
 - [ADR 0049](./adr/0049-traffic-to-a-configured-no-masquerade-prefix-keeps-the-machines-source-address-and-runtime-info-reports-the-machine-prefixes.md) — traffic to a configured no-masquerade prefix keeps the Machine's source address, and runtime info reports the Machine prefixes (it adds an exception to the masquerade of ADR 0011)
 - [ADR 0050](./adr/0050-the-guest-agent-mounts-an-attached-disks-ext4-at-a-path-and-grows-it-online.md) — the guest agent mounts an attached disk's ext4 at a path and grows it online
 - [ADR 0051](./adr/0051-create-machine-takes-a-command-args-env-user-and-files-which-the-machine-keeps-and-sends-at-every-boot.md) — Create Machine takes a command, args, env, user and files, which the Machine keeps and sends at every boot
+- [ADR 0052](./adr/0052-a-machine-keeps-a-working-directory-and-a-start-from-created-or-stopped-may-replace-its-env-and-files.md) — a Machine keeps a working directory, and a start from Created or Stopped may replace its env and files (it supersedes ADR 0051 on a change of env and files)
 - [ADR 0053](./adr/0053-create-disk-takes-a-filesystem-and-an-attachment-takes-a-mount-path-the-guest-agent-is-asked-to-mount.md) — Create disk takes a filesystem and an attachment takes a mount path the guest agent is asked to mount
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

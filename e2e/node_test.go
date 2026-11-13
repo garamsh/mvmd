@@ -405,6 +405,20 @@ func (n *node) pullEntryAs(t *testing.T, name, user string, args []string, layer
 	return r
 }
 
+// pullEntryIn is pullEntry for an image whose configuration names a working directory.
+func (n *node) pullEntryIn(t *testing.T, name, workingDir string, args []string, layers ...[]byte) ref {
+	t.Helper()
+	program, err := entryProgram()
+	require.NoError(t, err)
+	base := layer(dir("bin"), executable("bin/entry", string(program)))
+	r := n.registry.publishConfigured(name, "", workingDir, append([]string{"/bin/entry"}, args...), append([][]byte{base}, layers...)...)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	_, err = n.client.PullImage(ctx, &v1alpha2.PullImageRequest{Image: &v1alpha2.ImageRef{Repository: r.Repository, Digest: r.Digest}})
+	require.NoError(t, err, "pull %s@%s", r.Repository, r.Digest)
+	return r
+}
+
 // arm arms the node's fencing deadline, which Start refuses to go without.
 func (n *node) arm(t *testing.T) {
 	t.Helper()
