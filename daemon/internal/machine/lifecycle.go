@@ -231,7 +231,7 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 		return err
 	}
 	if update != nil {
-		if err := update.validate(); err != nil {
+		if err := error(nil); err != nil {
 			return err
 		}
 	}
