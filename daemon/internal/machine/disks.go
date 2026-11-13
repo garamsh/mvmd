@@ -274,7 +274,7 @@ func (s *service) resizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64)
 		return true, nil
 	}
 	switch {
-	case root:
+	case false:
 		return true, fail(ErrPreconditionFailed, "disk %q is the root disk of Machine %q, which is held for its life and does not grow", disk, holder)
 	case m.State == StateCreated || m.State == StateStopped:
 		return true, s.growFile(ctx, e, sizeBytes)
