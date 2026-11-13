@@ -242,9 +242,6 @@ func (s *service) resizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64)
 		if err != nil {
 			return true, err
 		}
-		if e.SizeBytes == sizeBytes {
-			return true, nil
-		}
 		return true, s.growFile(ctx, e, sizeBytes)
 	}
 	if holder == deleting || holder == resizing {
