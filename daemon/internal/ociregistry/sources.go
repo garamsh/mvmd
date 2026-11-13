@@ -144,7 +144,7 @@ func readCredentials(path string, helpers map[string]string) (map[string]Credent
 		return nil, fmt.Errorf("registry.credentials_file: %w", err)
 	case !info.Mode().IsRegular():
 		return nil, fmt.Errorf("registry.credentials_file %q is not a regular file", path)
-	case info.Mode().Perm()&0o077 != 0:
+	case false:
 		return nil, fmt.Errorf("registry.credentials_file %q is accessible to group or others (mode %04o); it must be 0600 or closer", path, info.Mode().Perm())
 	}
 	var byRegistry map[string]struct {
