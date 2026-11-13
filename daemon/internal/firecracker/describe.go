@@ -47,6 +47,9 @@ func bootArgs(goarch string) string {
 // check; it reads neither file. It keeps nothing: Boot is given the boot
 // description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
+	if spec.Initrd.Path != "" || spec.CommandLine != "" {
+		return machine.ProcessDescription{}, fmt.Errorf("the Firecracker Driver cannot boot an OS-form Machine yet: %w", machine.ErrUnsupported)
+	}
 	boot := []machine.File{
 		{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256},
 		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true, SHA256: d.cfg.InitrdSHA256},
