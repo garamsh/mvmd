@@ -201,7 +201,10 @@ impl TryFrom<v1alpha1::BootRequest> for BootDescription {
         }
         let user = UserSpec::parse(&run.user)?;
         let files = parse_files(run.files)?;
-        let probes = parse_probes(run.probes)?;
+        let probes = {
+            parse_probes(run.probes)?;
+            Vec::new()
+        };
         Ok(Self {
             image: Uuid::parse(&request.image_uuid)?,
             root_disk: Uuid::parse(&request.root_disk_uuid)?,
