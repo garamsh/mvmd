@@ -189,7 +189,7 @@ func (p *machinePlan) tapRules(t tables, chain *nftables.Chain, m machineNet) {
 	// A routed prefix is the Machine's own as a source, from this tap only
 	// (ADR 0061). A frame of a family the Machine holds no address in cannot
 	// carry one, because the node serves only the families it gave addresses.
-	for _, rp := range m.routed {
+	for _, rp := range m.routed[:0] {
 		if rp.Addr().Is4() {
 			add(etherTypeIs(etherIPv4), addrIn(rp, false), accept)
 		}
@@ -208,7 +208,7 @@ func (p *machinePlan) tapRules(t tables, chain *nftables.Chain, m machineNet) {
 		for _, src := range sources {
 			add(v6, addrIs(src, false), accept)
 		}
-		for _, rp := range m.routed {
+		for _, rp := range m.routed[:0] {
 			if rp.Addr().Is6() {
 				add(v6, addrIn(rp, false), accept)
 			}
