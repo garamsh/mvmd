@@ -224,17 +224,12 @@ func (s *service) readEntrypoint(ctx context.Context, id MachineID, after, tail 
 	var unreached error
 	switch state {
 	case StateRunning:
-		record, err := s.guest.ReadExecOutput(ctx, id, entrypointExec, after, tail, send)
-		if err == nil {
-			record.ID = entrypointExec
-			return record, nil
-		}
-		var gone *OutputGoneError
+		record, unreachable, err := s.execs.readGuest(ctx, id, entrypointExec, after, tail, send)
 		switch {
-		case errors.As(err, &gone):
+		case err == nil:
+			return record, nil
+		case !unreachable:
 			return ExecRecord{}, err
-		case !errors.Is(err, ErrGuestUnreachable):
-			return ExecRecord{}, guestFailure(err, "read exec output")
 		}
 		unreached = err
 	case StateStopped, StateFaulted:
@@ -245,13 +240,13 @@ func (s *service) readEntrypoint(ctx context.Context, id MachineID, after, tail 
 	record, found, err := s.entrypointFromLog(ctx, id)
 	switch {
 	case err != nil && unreached != nil:
-		return ExecRecord{}, guestFailure(unreached, "read exec output")
+		return ExecRecord{}, unreached
 	case err != nil:
 		return ExecRecord{}, fail(ErrFailed, "read the console log: %v", err)
 	case found:
 		return record, nil
 	case unreached != nil:
-		return ExecRecord{}, guestFailure(unreached, "read exec output")
+		return ExecRecord{}, unreached
 	}
 	return ExecRecord{ID: entrypointExec, Status: ExecCutShort,
 		Reason: "the Machine ended and its console log has no line for the entrypoint's end"}, nil

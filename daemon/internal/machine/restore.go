@@ -49,12 +49,8 @@ func (s *service) Restore(ctx context.Context) error {
 				FailureReason: "the Machine's record could not be read: " + rec.Unreadable,
 			}
 		}
-		s.execMu.Lock()
-		for _, e := range rec.Execs {
-			s.execs[e.ID] = &e
-		}
-		s.execMu.Unlock()
-		rec.Execs = nil // the entries are held in s.execs
+		s.execs.load(rec.Execs)
+		rec.Execs = nil // the entries are held in the ledger
 		s.records[rec.ID] = &rec
 		if m := rec.Machine; m != nil && rec.Unreadable == "" {
 			s.held[m.RootDisk] = m.ID
