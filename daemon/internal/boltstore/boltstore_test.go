@@ -22,7 +22,7 @@ func spec() machine.Spec {
 		Resources:     machine.Resources{VCPUs: 2, MemoryBytes: 1 << 30},
 		Ceiling:       machine.Resources{VCPUs: 4, MemoryBytes: 2 << 30},
 		RootDiskBytes: 1 << 30,
-		Disks:         []machine.DiskAttachment{{Disk: "d", ReadOnly: true}},
+		Disks:         []machine.DiskAttachment{{Disk: "d", ReadOnly: true, MountPath: "/data"}},
 		Policy: machine.NetworkPolicy{
 			Egress: []machine.NetworkRule{{
 				Prefix:   netip.MustParsePrefix("10.0.0.0/8"),

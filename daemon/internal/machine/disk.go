@@ -56,20 +56,32 @@ func CheckMachineID(id MachineID) error {
 	return nil
 }
 
+// Filesystem is what a disk's file holds: nothing, or an ext4 filesystem the
+// node formatted (ADR 0053).
+type Filesystem string
+
+const (
+	FilesystemNone Filesystem = "none"
+	FilesystemExt4 Filesystem = "ext4"
+)
+
 // DiskEntry is a disk the node holds as the Disk adapter records it: the
-// request that made it, which a root disk has none of, and its size.
+// request that made it, which a root disk has none of, its size and its
+// filesystem. A disk the adapter holds with no filesystem recorded is ext4.
 type DiskEntry struct {
-	ID        DiskID
-	Request   RequestID
-	SizeBytes uint64
+	ID         DiskID
+	Request    RequestID
+	SizeBytes  uint64
+	Filesystem Filesystem
 }
 
-// DiskInfo is a disk the node holds as ListDisks reports it: its size and the
-// Machine that holds it, if any.
+// DiskInfo is a disk the node holds as ListDisks reports it: its size, its
+// filesystem and the Machine that holds it, if any.
 type DiskInfo struct {
-	ID        DiskID
-	SizeBytes uint64
-	Holder    MachineID
+	ID         DiskID
+	SizeBytes  uint64
+	Filesystem Filesystem
+	Holder     MachineID
 }
 
 // DiskFile is what a disk's file shows of it: its size and the time it was
@@ -91,9 +103,10 @@ type Disk interface {
 	// CreateRootFrom creates a Machine's root disk as a copy of the disk file
 	// at source, owned as CreateRoot's is, and returns its identifier, or ErrDiskExists.
 	CreateRootFrom(ctx context.Context, owner DiskOwner, source string) (DiskID, error)
-	// Create makes a disk of the entry's size, formatted as a root disk is and
-	// owned by mvmd's own user, and records its request ID with it, all or
-	// nothing. It returns ErrDiskExists for an identifier a disk file has, and
+	// Create makes a disk of the entry's size, formatted ext4 as a root disk is
+	// when the entry's filesystem is ext4 and left unformatted when it is none,
+	// owned by mvmd's own user, and records its request ID and filesystem with
+	// it, all or nothing. It returns ErrDiskExists for an identifier a disk file has, and
 	// ErrDiskInvalid for one that cannot name a file; on any other error no disk
 	// is left.
 	Create(ctx context.Context, entry DiskEntry) error

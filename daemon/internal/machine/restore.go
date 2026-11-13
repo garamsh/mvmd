@@ -163,7 +163,7 @@ func (s *service) reconcileDisks(ctx context.Context) error {
 			if rec.Machine.State != StateRunning {
 				break
 			}
-			if err := s.settleDisk(ctx, rec, a.Disk); err != nil {
+			if err := s.settleDisk(ctx, rec, a); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -173,14 +173,15 @@ func (s *service) reconcileDisks(ctx context.Context) error {
 
 // settleDisk checks one disk of a Running Machine's record against its VMM and
 // its guest.
-func (s *service) settleDisk(ctx context.Context, rec *Record, disk DiskID) error {
+func (s *service) settleDisk(ctx context.Context, rec *Record, att DiskAttachment) error {
+	disk := att.Disk
 	state, err := s.driver.Drive(ctx, rec.ID, disk)
 	if err != nil {
 		return s.faultRestored(ctx, rec, "disk %q: the drives of the VMM could not be read after mvmd restarted: %v", disk, err)
 	}
 	switch state {
 	case DriveHotPlugged:
-		if err := s.guest.FindDisk(ctx, rec.ID, disk); err != nil {
+		if err := s.guest.FindDisk(ctx, rec.ID, att); err != nil {
 			return s.faultRestored(ctx, rec, "disk %q is on the VMM and the guest could not find it after mvmd restarted: %v", disk, err)
 		}
 	case DriveAbsent:

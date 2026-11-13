@@ -117,15 +117,15 @@ func AGuestFindsAHotPluggedDiskAndReleasesItBeforeTheUnplug(t *testing.T, s Subj
 	// Control: a disk nothing was plugged for is not found, and a release of a
 	// disk never found is refused as unknown, so the repeats below that succeed
 	// are the agent's record of a release and not an answer by default.
-	err = within(func(c context.Context) error { return guest.FindDisk(c, "m1", "hot") })
+	err = within(func(c context.Context) error { return guest.FindDisk(c, "m1", machine.DiskAttachment{Disk: "hot"}) })
 	require.Error(t, err, "no new device has appeared")
 	require.ErrorIs(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), machine.ErrDiskUnknown)
 
 	for round := 1; round <= 2; round++ {
 		require.NoError(t, d.AttachDisk(ctx, "m1", hot), "round %d", round)
 		s.check(t, Attached, Machine{ID: "m1", RunDir: run, Devices: append(append([]machine.BlockDevice(nil), boot...), hot)})
-		require.NoError(t, within(func(c context.Context) error { return guest.FindDisk(c, "m1", "hot") }), "the guest did not find the disk, round %d", round)
-		require.NoError(t, within(func(c context.Context) error { return guest.FindDisk(c, "m1", "hot") }), "a repeat of the find, round %d", round)
+		require.NoError(t, within(func(c context.Context) error { return guest.FindDisk(c, "m1", machine.DiskAttachment{Disk: "hot"}) }), "the guest did not find the disk, round %d", round)
+		require.NoError(t, within(func(c context.Context) error { return guest.FindDisk(c, "m1", machine.DiskAttachment{Disk: "hot"}) }), "a repeat of the find, round %d", round)
 
 		require.NoError(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), "round %d", round)
 		require.NoError(t, within(func(c context.Context) error { return guest.ReleaseDisk(c, "m1", "hot") }), "a repeat after the release, round %d", round)

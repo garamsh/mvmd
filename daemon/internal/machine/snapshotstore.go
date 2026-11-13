@@ -57,8 +57,11 @@ type SnapshotSpec struct {
 // and what its file showed then. A restore takes the disk only while its file
 // shows the same (ADR 0041).
 type SnapshotDisk struct {
-	Disk      DiskID
-	ReadOnly  bool
+	Disk     DiskID
+	ReadOnly bool
+	// MountPath is where the guest mounted the disk; a restore mounts it there
+	// again (ADR 0053).
+	MountPath string
 	SizeBytes uint64
 	ModTime   time.Time
 }

@@ -130,6 +130,9 @@ func (r Resources) within(ceiling Resources) bool {
 type DiskAttachment struct {
 	Disk     DiskID
 	ReadOnly bool
+	// MountPath is where the guest mounts the disk's filesystem before the
+	// entrypoint runs; empty mounts nothing (ADR 0053).
+	MountPath string
 }
 
 // Spec is what Create Machine carries, and what a Machine is configured with.

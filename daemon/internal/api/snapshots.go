@@ -32,7 +32,7 @@ func (s *Server) DeleteSnapshot(ctx context.Context, req *v1alpha2.DeleteSnapsho
 func snapshotToWire(snapshot machine.SnapshotInfo) *v1alpha2.Snapshot {
 	var disks []*v1alpha2.SnapshotDisk
 	for _, d := range snapshot.Disks {
-		disks = append(disks, &v1alpha2.SnapshotDisk{DiskId: string(d.Disk), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes})
+		disks = append(disks, &v1alpha2.SnapshotDisk{DiskId: string(d.Disk), ReadOnly: d.ReadOnly, MountPath: d.MountPath, SizeBytes: d.SizeBytes})
 	}
 	return &v1alpha2.Snapshot{
 		Id:            string(snapshot.ID),

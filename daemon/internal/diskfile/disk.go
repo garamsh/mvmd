@@ -35,6 +35,11 @@ const tempPrefix = machine.TempDiskPrefix
 // that made a disk, so the disk and its record are published together.
 const requestAttr = "user.mvmd.request"
 
+// filesystemAttr is the extended attribute that holds a disk's filesystem, none
+// or ext4. A file without it is ext4: every disk was formatted before it
+// existed (ADR 0053).
+const filesystemAttr = "user.mvmd.filesystem"
+
 // Disk is a machine.Disk that writes sparse ext4 disks into a directory.
 type Disk struct {
 	dir  string
@@ -190,6 +195,13 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 	if entry.SizeBytes > math.MaxInt64 {
 		return fmt.Errorf("%w: the size %d is too large", machine.ErrDiskInvalid, entry.SizeBytes)
 	}
+	fs := entry.Filesystem
+	if fs == "" {
+		fs = machine.FilesystemExt4
+	}
+	if fs != machine.FilesystemNone && fs != machine.FilesystemExt4 {
+		return fmt.Errorf("%w: filesystem %q is neither none nor ext4", machine.ErrDiskInvalid, fs)
+	}
 	uuid, err := randomUUID()
 	if err != nil {
 		return fmt.Errorf("generate uuid: %w", err)
@@ -205,11 +217,16 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 	if err := tmp.Truncate(int64(entry.SizeBytes)); err != nil {
 		return fail("set size", err)
 	}
-	if err := runMKFS(d.mkfs, tmpName, uuid); err != nil {
-		return fail("format", err)
+	if fs == machine.FilesystemExt4 {
+		if err := runMKFS(d.mkfs, tmpName, uuid); err != nil {
+			return fail("format", err)
+		}
 	}
 	if err := unix.Fsetxattr(int(tmp.Fd()), requestAttr, []byte(entry.Request), 0); err != nil {
 		return fail("record the request", err)
+	}
+	if err := unix.Fsetxattr(int(tmp.Fd()), filesystemAttr, []byte(fs), 0); err != nil {
+		return fail("record the filesystem", err)
 	}
 	if err := tmp.Sync(); err != nil {
 		return fail("sync", err)
@@ -245,7 +262,25 @@ func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, e
 	if err != nil {
 		return machine.DiskEntry{}, err
 	}
-	return machine.DiskEntry{ID: disk, Request: request, SizeBytes: uint64(info.Size())}, nil
+	fs, err := readFilesystem(path)
+	if err != nil {
+		return machine.DiskEntry{}, err
+	}
+	return machine.DiskEntry{ID: disk, Request: request, SizeBytes: uint64(info.Size()), Filesystem: fs}, nil
+}
+
+// readFilesystem returns the filesystem recorded on the disk file, ext4 for a
+// file that has none.
+func readFilesystem(path string) (machine.Filesystem, error) {
+	buf := make([]byte, 16)
+	n, err := unix.Getxattr(path, filesystemAttr, buf)
+	switch {
+	case errors.Is(err, unix.ENODATA):
+		return machine.FilesystemExt4, nil
+	case err != nil:
+		return "", fmt.Errorf("read the filesystem of %s: %w", path, err)
+	}
+	return machine.Filesystem(buf[:n]), nil
 }
 
 // Stat returns the size and modification time of the disk's file.

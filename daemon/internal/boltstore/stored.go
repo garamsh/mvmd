@@ -79,8 +79,9 @@ type storedResources struct {
 }
 
 type storedAttachment struct {
-	Disk     machine.DiskID `json:"Disk"`
-	ReadOnly bool           `json:"ReadOnly"`
+	Disk      machine.DiskID `json:"Disk"`
+	ReadOnly  bool           `json:"ReadOnly"`
+	MountPath string         `json:"MountPath,omitempty"`
 }
 
 type storedPolicy struct {
@@ -261,7 +262,7 @@ func infallible[S, T any](f func(S) T) func(S) (T, error) {
 
 func storeSpec(s machine.Spec) (storedSpec, error) {
 	disks, _ := mapSlice(s.Disks, infallible(func(a machine.DiskAttachment) storedAttachment {
-		return storedAttachment{Disk: a.Disk, ReadOnly: a.ReadOnly}
+		return storedAttachment{Disk: a.Disk, ReadOnly: a.ReadOnly, MountPath: a.MountPath}
 	}))
 	env, _ := mapSlice(s.Env, infallible(func(e machine.EnvVar) storedEnv { return storedEnv{Name: e.Name, Value: e.Value} }))
 	files, _ := mapSlice(s.Files, infallible(func(f machine.PlacedFile) storedFile {
@@ -304,7 +305,7 @@ func storeRule(r machine.NetworkRule) (storedRule, error) {
 
 func (s storedSpec) load() (machine.Spec, error) {
 	disks, _ := mapSlice(s.Disks, infallible(func(a storedAttachment) machine.DiskAttachment {
-		return machine.DiskAttachment{Disk: a.Disk, ReadOnly: a.ReadOnly}
+		return machine.DiskAttachment{Disk: a.Disk, ReadOnly: a.ReadOnly, MountPath: a.MountPath}
 	}))
 	env, _ := mapSlice(s.Env, infallible(func(e storedEnv) machine.EnvVar { return machine.EnvVar{Name: e.Name, Value: e.Value} }))
 	files, _ := mapSlice(s.Files, infallible(func(f storedFile) machine.PlacedFile {

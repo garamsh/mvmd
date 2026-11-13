@@ -73,6 +73,7 @@ type recordFile struct {
 type recordDisk struct {
 	ID          string `json:"id"`
 	ReadOnly    bool   `json:"read_only"`
+	MountPath   string `json:"mount_path,omitempty"`
 	SizeBytes   uint64 `json:"size_bytes"`
 	ModUnixNano int64  `json:"mod_unix_nano"`
 }
@@ -80,7 +81,7 @@ type recordDisk struct {
 func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 	var disks []recordDisk
 	for _, d := range s.Disks {
-		disks = append(disks, recordDisk{ID: string(d.Disk), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModUnixNano: d.ModTime.UnixNano()})
+		disks = append(disks, recordDisk{ID: string(d.Disk), ReadOnly: d.ReadOnly, MountPath: d.MountPath, SizeBytes: d.SizeBytes, ModUnixNano: d.ModTime.UnixNano()})
 	}
 	var env []recordEnv
 	for _, e := range s.Spec.Env {
@@ -146,7 +147,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 	}
 	var disks []machine.SnapshotDisk
 	for _, d := range r.Disks {
-		disks = append(disks, machine.SnapshotDisk{Disk: machine.DiskID(d.ID), ReadOnly: d.ReadOnly, SizeBytes: d.SizeBytes, ModTime: time.Unix(0, d.ModUnixNano)})
+		disks = append(disks, machine.SnapshotDisk{Disk: machine.DiskID(d.ID), ReadOnly: d.ReadOnly, MountPath: d.MountPath, SizeBytes: d.SizeBytes, ModTime: time.Unix(0, d.ModUnixNano)})
 	}
 	var env []machine.EnvVar
 	for _, e := range r.Env {

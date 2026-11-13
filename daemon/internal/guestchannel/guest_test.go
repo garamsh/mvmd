@@ -49,8 +49,9 @@ type state struct {
 	boot       *guestv1alpha1.BootRequest
 	catchUp    *guestv1alpha1.CatchUpRequest
 	terminates int
-	disks      []string // "find:<id>" and "release:<id>", in the order they arrived
-	onlined    []uint32 // the vCPU counts OnlineVcpus asked for, in order
+	disks      []string                         // "find:<id>" and "release:<id>", in the order they arrived
+	finds      []*guestv1alpha1.FindDiskRequest // each FindDisk request as it arrived
+	onlined    []uint32                         // the vCPU counts OnlineVcpus asked for, in order
 	exec       *guestv1alpha1.ExecRequest
 	execStatus guestv1alpha1.ExecStatus
 	endedAt    *timestamppb.Timestamp // the time the exec's records carry
@@ -209,6 +210,7 @@ func (a *agent) Terminate(context.Context, *guestv1alpha1.TerminateRequest) (*gu
 func (a *agent) FindDisk(_ context.Context, r *guestv1alpha1.FindDiskRequest) (*guestv1alpha1.FindDiskResponse, error) {
 	a.mu.Lock()
 	a.disks = append(a.disks, "find:"+r.GetDiskId())
+	a.finds = append(a.finds, r)
 	a.mu.Unlock()
 	if err := a.failure("FindDisk"); err != nil {
 		return nil, err
@@ -713,7 +715,7 @@ func TestDisks_SendTheDiskNamed(t *testing.T) {
 	ctx := context.Background()
 	h := newHarness(t)
 	a := h.agentOf(t, "m")
-	require.NoError(t, h.guest.FindDisk(ctx, "m", "scratch"))
+	require.NoError(t, h.guest.FindDisk(ctx, "m", machine.DiskAttachment{Disk: "scratch"}))
 	require.NoError(t, h.guest.ReleaseDisk(ctx, "m", "scratch"))
 	assert.Equal(t, []string{"find:scratch", "release:scratch"}, a.disks)
 
@@ -765,7 +767,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 		},
 		"CatchUp":     func(h *harness) error { return h.guest.CatchUp(ctx, "m", machine.CatchUp{}) },
 		"Terminate":   func(h *harness) error { return h.guest.Terminate(ctx, "m") },
-		"FindDisk":    func(h *harness) error { return h.guest.FindDisk(ctx, "m", "d") },
+		"FindDisk":    func(h *harness) error { return h.guest.FindDisk(ctx, "m", machine.DiskAttachment{Disk: "d"}) },
 		"ReleaseDisk": func(h *harness) error { return h.guest.ReleaseDisk(ctx, "m", "d") },
 		"OnlineVcpus": func(h *harness) error {
 			_, err := h.guest.OnlineVcpus(ctx, "m", 2)
@@ -1423,4 +1425,23 @@ type dialCountingClock struct {
 func (c *dialCountingClock) Now() time.Time {
 	c.dialsWhenRead = c.conn.Dials()
 	return c.at
+}
+
+// FindDisk sends the mount path and the read-only flag with the disk's ID
+// (ADR 0053), and an attachment with no mount path sends none.
+func TestFindDisk_SendsTheMountPathAndReadOnly(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+
+	require.NoError(t, h.guest.FindDisk(ctx, "m", machine.DiskAttachment{Disk: "data", ReadOnly: true, MountPath: "/data"}))
+	require.NoError(t, h.guest.FindDisk(ctx, "m", machine.DiskAttachment{Disk: "raw"}))
+
+	require.Len(t, a.finds, 2)
+	assert.Equal(t, "data", a.finds[0].GetDiskId())
+	assert.Equal(t, "/data", a.finds[0].GetMountPath())
+	assert.True(t, a.finds[0].GetReadOnly())
+	assert.Equal(t, "raw", a.finds[1].GetDiskId())
+	assert.Empty(t, a.finds[1].GetMountPath(), "control: no mount path is sent when none is asked")
+	assert.False(t, a.finds[1].GetReadOnly())
 }

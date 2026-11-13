@@ -145,7 +145,7 @@ func (s *Server) AttachDisk(ctx context.Context, req *v1alpha2.AttachDiskRequest
 	if req.GetDisk().GetDiskId() == "" {
 		return nil, rejected("disk.disk_id is empty")
 	}
-	attachment := machine.DiskAttachment{Disk: machine.DiskID(req.GetDisk().GetDiskId()), ReadOnly: req.GetDisk().GetReadOnly()}
+	attachment := machine.DiskAttachment{Disk: machine.DiskID(req.GetDisk().GetDiskId()), ReadOnly: req.GetDisk().GetReadOnly(), MountPath: req.GetDisk().GetMountPath()}
 	if err := s.machines.AttachDisk(ctx, id, attachment); err != nil {
 		return nil, status(err)
 	}

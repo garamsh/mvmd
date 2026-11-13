@@ -22,8 +22,8 @@ type diskKeeper struct {
 	deleted []machine.DiskID
 }
 
-func (d *diskKeeper) CreateDisk(_ context.Context, disk machine.DiskID, request machine.RequestID, size uint64) error {
-	d.created = append(d.created, machine.DiskEntry{ID: disk, Request: request, SizeBytes: size})
+func (d *diskKeeper) CreateDisk(_ context.Context, disk machine.DiskID, request machine.RequestID, size uint64, fs machine.Filesystem) error {
+	d.created = append(d.created, machine.DiskEntry{ID: disk, Request: request, SizeBytes: size, Filesystem: fs})
 	return d.err
 }
 

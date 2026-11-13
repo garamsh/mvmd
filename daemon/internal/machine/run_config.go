@@ -71,7 +71,7 @@ func (s Spec) validateRun() error {
 	total := 0
 	for _, f := range s.Files {
 		switch {
-		case !path.IsAbs(f.Path) || path.Clean(f.Path) != f.Path || f.Path == "/":
+		case !absoluteClean(f.Path):
 			return fail(ErrInvalid, "files: path %q is not absolute and clean", f.Path)
 		case reservedRunPath(f.Path):
 			return fail(ErrInvalid, "files: path %q is under a reserved directory", f.Path)
@@ -87,6 +87,12 @@ func (s Spec) validateRun() error {
 		return fail(ErrInvalid, "files: %d bytes of content, at most %d", total, maxRunFileBytes)
 	}
 	return nil
+}
+
+// absoluteClean reports whether p is an absolute path in its cleaned form and
+// not the root.
+func absoluteClean(p string) bool {
+	return path.IsAbs(p) && path.Clean(p) == p && p != "/"
 }
 
 func reservedRunPath(p string) bool {

@@ -89,7 +89,7 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		spec.Files = append(spec.Files, machine.PlacedFile{Path: f.GetPath(), Content: f.GetContent(), Mode: f.GetMode(), UID: f.GetUid(), GID: f.GetGid()})
 	}
 	for _, d := range req.GetDisks() {
-		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly()})
+		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly(), MountPath: d.GetMountPath()})
 	}
 	var err error
 	if spec.Policy.Egress, err = rulesOf(req.GetNetworkPolicy().GetEgress()); err != nil {
@@ -134,7 +134,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		},
 	}
 	for _, d := range m.Disks {
-		out.Disks = append(out.Disks, &v1alpha2.DiskAttachment{DiskId: string(d.Disk), ReadOnly: d.ReadOnly})
+		out.Disks = append(out.Disks, &v1alpha2.DiskAttachment{DiskId: string(d.Disk), ReadOnly: d.ReadOnly, MountPath: d.MountPath})
 	}
 	for _, e := range m.Env {
 		out.EnvNames = append(out.EnvNames, e.Name)

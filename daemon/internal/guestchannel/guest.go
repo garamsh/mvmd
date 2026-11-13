@@ -581,11 +581,11 @@ func (g *Guest) Terminate(ctx context.Context, id machine.MachineID) error {
 	})
 }
 
-// FindDisk implements machine.Guest (ADR 0022). The device the agent found is
+// FindDisk implements machine.Guest (ADR 0022, 0053). The device the agent found is
 // not returned: the daemon records no guest device name.
-func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) error {
+func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, a machine.DiskAttachment) error {
 	return g.run(ctx, id, opDisk, func(c guestv1alpha1.GuestServiceClient) error {
-		_, err := c.FindDisk(ctx, &guestv1alpha1.FindDiskRequest{DiskId: string(disk)})
+		_, err := c.FindDisk(ctx, &guestv1alpha1.FindDiskRequest{DiskId: string(a.Disk), MountPath: a.MountPath, ReadOnly: a.ReadOnly})
 		return err
 	})
 }

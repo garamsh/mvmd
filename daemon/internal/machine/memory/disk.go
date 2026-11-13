@@ -22,11 +22,14 @@ type Disk struct {
 	source  map[machine.DiskID]string
 	// request is the request ID of each disk Create made.
 	request map[machine.DiskID]machine.RequestID
+	// filesystem is the filesystem of each disk Create made; a disk with none
+	// recorded is ext4.
+	filesystem map[machine.DiskID]machine.Filesystem
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -126,6 +129,7 @@ func (d *Disk) Create(_ context.Context, entry machine.DiskEntry) error {
 	}
 	d.disks[entry.ID] = entry.SizeBytes
 	d.request[entry.ID] = entry.Request
+	d.filesystem[entry.ID] = entry.Filesystem
 	return nil
 }
 
@@ -140,7 +144,7 @@ func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, e
 	if !held {
 		return machine.DiskEntry{}, machine.ErrDiskAbsent
 	}
-	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size}, nil
+	return d.entry(disk, size), nil
 }
 
 // List implements machine.Disk.
@@ -152,10 +156,19 @@ func (d *Disk) List(_ context.Context) ([]machine.DiskEntry, error) {
 	defer d.mu.Unlock()
 	out := make([]machine.DiskEntry, 0, len(d.disks))
 	for disk, size := range d.disks {
-		out = append(out, machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size})
+		out = append(out, d.entry(disk, size))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// entry returns the disk as Get reports it; d.mu is held.
+func (d *Disk) entry(disk machine.DiskID, size uint64) machine.DiskEntry {
+	fs := d.filesystem[disk]
+	if fs == "" {
+		fs = machine.FilesystemExt4
+	}
+	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs}
 }
 
 // Give implements machine.Disk.
