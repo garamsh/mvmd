@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"net/netip"
 )
 
 // catchUpEntropy is the bytes of entropy a restore sends its guest, within the
@@ -140,11 +141,11 @@ func (s *service) describeDisks(ctx context.Context, attached []DiskAttachment) 
 	return disks, nil
 }
 
-func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error {
+func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy, routed ...netip.Prefix) error {
 	defer s.lock(id)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
-	asked := Request{ID: request, Snapshot: snapshot, Spec: Spec{Policy: policy.clone()}}
+	asked := Request{ID: request, Snapshot: snapshot, Spec: Spec{Policy: policy.clone(), RoutedPrefixes: cloneNonEmpty(routed)}}
 
 	if rec, ok := s.lookup(id); ok {
 		if rec.Request.ID == request && rec.Request.Snapshot == snapshot && rec.Request.Spec.equal(asked.Spec) {
@@ -176,6 +177,10 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	defer s.snapLocks.lock(snapshot, false)()
 	if err := policy.validate(); err != nil {
 		return fail(ErrInvalid, "network policy: %v", err)
+	}
+
+	if err := ValidateRoutedPrefixes(routed); err != nil {
+		return err
 	}
 
 	held, files, err := s.snapshots.Get(ctx, snapshot)
@@ -218,10 +223,17 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		s.release(disks...)
 		return err
 	}
-	identity, err := s.network.Allocate(ctx, id, held.MAC)
+	identity, err := s.network.Allocate(ctx, id, held.MAC, routed...)
 	if errors.Is(err, ErrNoFreeAddress) {
 		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("allocate network: %v", err))
 		return fail(ErrPreconditionFailed, "%s", reason)
+	}
+	// A routed prefix the node refuses is the request's fault, as in Create.
+	if refusal := (*Error)(nil); errors.As(err, &refusal) && (refusal.Kind == ErrInvalid || refusal.Kind == ErrConflict) {
+		if reason := s.undoRestore(ctx, id, "", disks, refusal.Reason); reason != refusal.Reason {
+			return fail(ErrFailed, "%s", reason)
+		}
+		return refusal
 	}
 	if err != nil {
 		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("allocate network: %v", err))
@@ -230,6 +242,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	spec := Spec{
 		Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Kernel: kernel, Policy: policy.clone(),
 		Command: cloneNonEmpty(held.Spec.Command), Args: cloneNonEmpty(held.Spec.Args), Env: cloneNonEmpty(held.Spec.Env), User: held.Spec.User, Files: cloneFiles(held.Spec.Files), WorkingDir: held.Spec.WorkingDir, Probes: cloneProbes(held.Spec.Probes),
+		RoutedPrefixes: cloneNonEmpty(routed),
 	}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.

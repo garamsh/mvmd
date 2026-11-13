@@ -66,6 +66,9 @@ type storedSpec struct {
 	// OS is absent from a record of the image form, and from one written before
 	// the OS form existed (ADR 0058).
 	OS *storedOS `json:"OS,omitempty"`
+	// RoutedPrefixes is absent from a record written before routed prefixes
+	// existed (ADR 0061), and from one whose Machine has none.
+	RoutedPrefixes []netip.Prefix `json:"RoutedPrefixes,omitempty"`
 }
 
 // storedOS is the OS form of a Machine as it is written.
@@ -140,6 +143,8 @@ type storedNetwork struct {
 	Addresses []netip.Addr `json:"Addresses"`
 	Gateways  []netip.Addr `json:"Gateways"`
 	Resolvers []netip.Addr `json:"Resolvers"`
+	// RoutedPrefixes is absent as RoutedPrefixes of the spec is.
+	RoutedPrefixes []netip.Prefix `json:"RoutedPrefixes,omitempty"`
 }
 
 type storedRequest struct {
@@ -319,21 +324,22 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		return storedSpec{}, err
 	}
 	return storedSpec{
-		Image:         s.Image,
-		Resources:     storedResources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
-		Ceiling:       storedResources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
-		RootDiskBytes: s.RootDiskBytes,
-		Disks:         disks,
-		Policy:        storedPolicy{Egress: egress, Ingress: ingress},
-		Kernel:        s.Kernel,
-		Command:       s.Command,
-		Args:          s.Args,
-		Env:           env,
-		User:          s.User,
-		Files:         files,
-		WorkingDir:    s.WorkingDir,
-		Probes:        probes,
-		OS:            storeOS(s.OS),
+		Image:          s.Image,
+		Resources:      storedResources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
+		Ceiling:        storedResources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
+		RootDiskBytes:  s.RootDiskBytes,
+		Disks:          disks,
+		Policy:         storedPolicy{Egress: egress, Ingress: ingress},
+		Kernel:         s.Kernel,
+		Command:        s.Command,
+		Args:           s.Args,
+		Env:            env,
+		User:           s.User,
+		Files:          files,
+		WorkingDir:     s.WorkingDir,
+		Probes:         probes,
+		OS:             storeOS(s.OS),
+		RoutedPrefixes: s.RoutedPrefixes,
 	}, nil
 }
 
@@ -407,21 +413,22 @@ func (s storedSpec) load() (machine.Spec, error) {
 		return machine.Spec{}, err
 	}
 	return machine.Spec{
-		Image:         s.Image,
-		Resources:     machine.Resources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
-		Ceiling:       machine.Resources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
-		RootDiskBytes: s.RootDiskBytes,
-		Disks:         disks,
-		Policy:        machine.NetworkPolicy{Egress: egress, Ingress: ingress},
-		Kernel:        s.Kernel,
-		Command:       s.Command,
-		Args:          s.Args,
-		Env:           env,
-		User:          s.User,
-		Files:         files,
-		WorkingDir:    s.WorkingDir,
-		Probes:        probes,
-		OS:            loadOS(s.OS),
+		Image:          s.Image,
+		Resources:      machine.Resources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
+		Ceiling:        machine.Resources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
+		RootDiskBytes:  s.RootDiskBytes,
+		Disks:          disks,
+		Policy:         machine.NetworkPolicy{Egress: egress, Ingress: ingress},
+		Kernel:         s.Kernel,
+		Command:        s.Command,
+		Args:           s.Args,
+		Env:            env,
+		User:           s.User,
+		Files:          files,
+		WorkingDir:     s.WorkingDir,
+		Probes:         probes,
+		OS:             loadOS(s.OS),
+		RoutedPrefixes: s.RoutedPrefixes,
 	}, nil
 }
 
@@ -452,7 +459,7 @@ func storeMachine(m *machine.Machine) (*storedMachine, error) {
 		ID: m.ID, State: state, storedSpec: spec,
 		RootDisk: m.RootDisk, RootDiskUUID: m.RootDiskUUID,
 		User:          storedUser{UID: m.User.UID, GID: m.User.GID},
-		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers},
+		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers, RoutedPrefixes: m.Network.RoutedPrefixes},
 		FailureReason: m.FailureReason, BootMemoryBytes: m.BootMemoryBytes, KernelDigest: m.KernelDigest,
 	}, nil
 }
@@ -481,7 +488,7 @@ func (s *storedMachine) load() (*machine.Machine, error) {
 		ID:              s.ID, State: state, Spec: spec,
 		RootDisk: s.RootDisk, RootDiskUUID: s.RootDiskUUID,
 		User:          machine.User{UID: s.User.UID, GID: s.User.GID},
-		Network:       machine.NetworkIdentity{MAC: s.Network.MAC, Addresses: s.Network.Addresses, Gateways: s.Network.Gateways, Resolvers: s.Network.Resolvers},
+		Network:       machine.NetworkIdentity{MAC: s.Network.MAC, Addresses: s.Network.Addresses, Gateways: s.Network.Gateways, Resolvers: s.Network.Resolvers, RoutedPrefixes: s.Network.RoutedPrefixes},
 		FailureReason: s.FailureReason,
 		KernelDigest:  s.KernelDigest,
 	}, nil
