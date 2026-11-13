@@ -348,7 +348,7 @@ func (s *service) settleRestored(ctx context.Context, rec *Record, state State, 
 			next.FailureReason += fmt.Sprintf("; the network could not be removed: %v", err)
 		}
 	}
-	next.RestartPending = restart && next.State == StateStopped
+	next.RestartPending = false
 	if err := s.commit(ctx, rec, next); err != nil {
 		// The record could not be updated: hold the finding in memory.
 		s.setMachine(rec, &next)
