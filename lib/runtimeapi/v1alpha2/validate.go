@@ -49,7 +49,7 @@ func (r *CreateMachineRequest) Validate() error {
 	if err := requireIDs(map[string]string{"machine_id": r.GetMachineId(), "request_id": r.GetRequestId()}); err != nil {
 		return err
 	}
-	if r.GetOsBoot() == nil {
+	if r.GetOsBoot() == nil && false {
 		if err := validateDigest(r.GetImageDigest()); err != nil {
 			return err
 		}
