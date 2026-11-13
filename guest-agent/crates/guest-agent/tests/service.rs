@@ -10,8 +10,9 @@ use guest_agent::v1alpha1::guest_service_client::GuestServiceClient;
 use guest_agent::v1alpha1::{
     EntryKind, ExecOutputGone, ExecRecord, ExecRequest, ExecStatus, FileEntry, HealthRequest,
     InfoRequest, ListFilesRequest, OutputChunk, OutputStream, PatchFileRequest, PatchOutcome,
-    ReadExecOutputRequest, ReadFileRequest, SearchFilesRequest, SignalRequest, WriteFileEnd,
-    WriteFileRequest, WriteFileStart, WrongFileKind, read_exec_output_response, write_file_request,
+    ReadExecOutputRequest, ReadExecOutputResponse, ReadFileRequest, SearchFilesRequest,
+    SignalRequest, WriteFileEnd, WriteFileRequest, WriteFileStart, WrongFileKind,
+    read_exec_output_response, write_file_request,
 };
 use hyper_util::rt::TokioIo;
 use sha2::{Digest, Sha256};
@@ -101,10 +102,31 @@ impl Harness {
             .read_exec_output(ReadExecOutputRequest {
                 exec_id: id.into(),
                 after_offset: after,
+                ..ReadExecOutputRequest::default()
             })
             .await?
             .into_inner();
         collect_output(&mut stream).await
+    }
+
+    async fn output_from_the_start(
+        &mut self,
+        id: &str,
+    ) -> Result<Streaming<ReadExecOutputResponse>> {
+        self.tail(id, 0).await
+    }
+
+    /// Open the output stream starting `tail` bytes before the end of what is held.
+    async fn tail(&mut self, id: &str, tail: u64) -> Result<Streaming<ReadExecOutputResponse>> {
+        Ok(self
+            .client
+            .read_exec_output(ReadExecOutputRequest {
+                exec_id: id.into(),
+                tail_bytes: tail,
+                ..ReadExecOutputRequest::default()
+            })
+            .await?
+            .into_inner())
     }
 
     async fn write(&mut self, path: &Path, content: &[u8]) -> Result {
@@ -384,6 +406,7 @@ async fn output_resumes_after_an_offset_inside_a_chunk() -> Result {
         .read_exec_output(ReadExecOutputRequest {
             exec_id: "e1".into(),
             after_offset: 99,
+            ..ReadExecOutputRequest::default()
         })
         .await
         .err()
@@ -405,6 +428,115 @@ async fn output_follows_a_running_command_until_it_ends() -> Result {
         b"first\nsecond\n"
     );
     assert_eq!(record.status(), ExecStatus::Exited);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tail_of_a_running_command_starts_before_the_end_and_follows_new_output() -> Result {
+    let mut h = Harness::start().await?;
+    let flag = h.path("go");
+    h.exec(
+        "e1",
+        &[
+            SH,
+            "-c",
+            &format!(
+                "printf 0123456789; while [ ! -e {} ]; do sleep 0.05; done; printf more",
+                flag.display()
+            ),
+        ],
+    )
+    .await?;
+    // Read until the first ten bytes are held, so the tail is taken with the command still running.
+    let mut held = h.output_from_the_start("e1").await?;
+    let mut seen = 0;
+    while seen < 10 {
+        match held.message().await?.ok_or("the stream ended")?.part {
+            Some(read_exec_output_response::Part::Chunk(chunk)) => seen += chunk.data.len(),
+            _ => return Err("the command ended early".into()),
+        }
+    }
+    let mut stream = h.tail("e1", 4).await?;
+    std::fs::write(&flag, "")?;
+
+    let (chunks, record) = collect_output(&mut stream).await?;
+
+    assert_eq!(chunks[0].offset, 6);
+    assert_eq!(stream_bytes(&chunks, OutputStream::Stdout), b"6789more");
+    assert_eq!(record.status(), ExecStatus::Exited);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tail_of_an_ended_command_is_its_last_bytes_with_their_offsets() -> Result {
+    let mut h = Harness::start().await?;
+    h.exec("e1", &[SH, "-c", "printf 'hello '; printf world"])
+        .await?;
+    h.output("e1", 0).await?;
+
+    let mut stream = h.tail("e1", 8).await?;
+    let (chunks, record) = collect_output(&mut stream).await?;
+
+    assert_eq!(chunks[0].offset, 3);
+    assert_eq!(stream_bytes(&chunks, OutputStream::Stdout), b"lo world");
+    assert_eq!(record.status(), ExecStatus::Exited);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tail_larger_than_what_is_held_starts_at_the_earliest_byte_held() -> Result {
+    let mut h = Harness::start_with(retention(100)).await?;
+    h.exec("e1", &[SH, "-c", "head -c 1000 /dev/zero | tr '\\0' x"])
+        .await?;
+    // Wait for the command to end, so all 1000 bytes have been through the retention.
+    let finished = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let mut stream = h.tail("e1", 1).await?;
+            match collect_output(&mut stream).await {
+                Ok((_, record)) => return Ok::<_, Box<dyn std::error::Error>>(record),
+                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+            }
+        }
+    })
+    .await??;
+    assert_eq!(finished.earliest_offset, 900);
+
+    let mut stream = h.tail("e1", 5000).await?;
+    let (chunks, _) = collect_output(&mut stream).await?;
+
+    assert_eq!(chunks[0].offset, 900);
+    assert_eq!(chunks.iter().map(|c| c.data.len()).sum::<usize>(), 100);
+    // Control: a tail within what is held starts that many bytes before the end.
+    let mut stream = h.tail("e1", 30).await?;
+    let (chunks, _) = collect_output(&mut stream).await?;
+    assert_eq!(chunks[0].offset, 970);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tail_with_an_offset_is_refused_and_a_tail_alone_is_accepted() -> Result {
+    let mut h = Harness::start().await?;
+    h.exec("e1", &[SH, "-c", "printf 0123456789"]).await?;
+    h.output("e1", 0).await?;
+
+    let refused = h
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: "e1".into(),
+            after_offset: 2,
+            tail_bytes: 4,
+        })
+        .await
+        .err()
+        .ok_or("a tail with an offset was accepted")?;
+
+    assert_eq!(refused.code(), Code::InvalidArgument);
+    // Controls: the same offset alone, and the same tail alone, are accepted.
+    let (chunks, _) = h.output("e1", 2).await?;
+    assert_eq!(chunks[0].offset, 2);
+    let mut stream = h.tail("e1", 4).await?;
+    let (chunks, _) = collect_output(&mut stream).await?;
+    assert_eq!(chunks[0].offset, 6);
     Ok(())
 }
 
@@ -460,6 +592,7 @@ async fn exec_refuses_a_request_that_names_no_command_or_no_id() -> Result {
         .read_exec_output(ReadExecOutputRequest {
             exec_id: "nope".into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await
         .err()
@@ -510,6 +643,7 @@ async fn a_signal_after_the_command_was_reaped_does_not_reach_a_process_id() -> 
         .read_exec_output(ReadExecOutputRequest {
             exec_id: "e1".into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();
@@ -601,6 +735,7 @@ async fn output_older_than_the_retention_is_refused_with_the_earliest_offset_hel
         .read_exec_output(ReadExecOutputRequest {
             exec_id: "e1".into(),
             after_offset: 10,
+            ..ReadExecOutputRequest::default()
         })
         .await
         .err()
@@ -646,6 +781,7 @@ async fn a_command_still_running_when_the_agent_ends_is_recorded_as_cut_short() 
         .read_exec_output(ReadExecOutputRequest {
             exec_id: "e1".into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();

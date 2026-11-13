@@ -255,7 +255,9 @@ impl GuestService for Guest {
     ) -> Result<Response<Self::ReadExecOutputStream>, Status> {
         self.boot.ready()?;
         let request = request.into_inner();
-        let mut follower = self.execs.follow(&request.exec_id, request.after_offset)?;
+        let mut follower =
+            self.execs
+                .follow(&request.exec_id, request.after_offset, request.tail_bytes)?;
         let (tx, rx) = mpsc::channel(STREAM_DEPTH);
         tokio::spawn(async move {
             loop {

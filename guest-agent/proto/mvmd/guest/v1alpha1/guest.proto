@@ -389,6 +389,11 @@ message ReadExecOutputRequest {
   // Resume after this byte offset of the output sequence; zero starts at
   // the beginning.
   uint64 after_offset = 2;
+  // When non-zero, start this many bytes before the end of the output held
+  // when the call arrives, or at the earliest byte held if fewer are held.
+  // The stream then follows as usual. Setting it with a non-zero
+  // after_offset is INVALID_ARGUMENT.
+  uint64 tail_bytes = 3;
 }
 
 enum OutputStream {

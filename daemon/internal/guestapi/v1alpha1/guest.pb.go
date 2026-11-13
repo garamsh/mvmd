@@ -1842,7 +1842,12 @@ type ReadExecOutputRequest struct {
 	ExecId string                 `protobuf:"bytes,1,opt,name=exec_id,json=execId,proto3" json:"exec_id,omitempty"`
 	// Resume after this byte offset of the output sequence; zero starts at
 	// the beginning.
-	AfterOffset   uint64 `protobuf:"varint,2,opt,name=after_offset,json=afterOffset,proto3" json:"after_offset,omitempty"`
+	AfterOffset uint64 `protobuf:"varint,2,opt,name=after_offset,json=afterOffset,proto3" json:"after_offset,omitempty"`
+	// When non-zero, start this many bytes before the end of the output held
+	// when the call arrives, or at the earliest byte held if fewer are held.
+	// The stream then follows as usual. Setting it with a non-zero
+	// after_offset is INVALID_ARGUMENT.
+	TailBytes     uint64 `protobuf:"varint,3,opt,name=tail_bytes,json=tailBytes,proto3" json:"tail_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1887,6 +1892,13 @@ func (x *ReadExecOutputRequest) GetExecId() string {
 func (x *ReadExecOutputRequest) GetAfterOffset() uint64 {
 	if x != nil {
 		return x.AfterOffset
+	}
+	return 0
+}
+
+func (x *ReadExecOutputRequest) GetTailBytes() uint64 {
+	if x != nil {
+		return x.TailBytes
 	}
 	return 0
 }
@@ -3800,10 +3812,12 @@ const file_guest_v1alpha1_guest_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"G\n" +
 	"\fExecResponse\x127\n" +
-	"\x06record\x18\x01 \x01(\v2\x1f.mvmd.guest.v1alpha1.ExecRecordR\x06record\"S\n" +
+	"\x06record\x18\x01 \x01(\v2\x1f.mvmd.guest.v1alpha1.ExecRecordR\x06record\"r\n" +
 	"\x15ReadExecOutputRequest\x12\x17\n" +
 	"\aexec_id\x18\x01 \x01(\tR\x06execId\x12!\n" +
-	"\fafter_offset\x18\x02 \x01(\x04R\vafterOffset\"t\n" +
+	"\fafter_offset\x18\x02 \x01(\x04R\vafterOffset\x12\x1d\n" +
+	"\n" +
+	"tail_bytes\x18\x03 \x01(\x04R\ttailBytes\"t\n" +
 	"\vOutputChunk\x129\n" +
 	"\x06stream\x18\x01 \x01(\x0e2!.mvmd.guest.v1alpha1.OutputStreamR\x06stream\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x12\n" +

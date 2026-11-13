@@ -177,19 +177,33 @@ impl Execs {
         }
     }
 
-    /// Follow an exec's output from after the offset.
-    pub(crate) fn follow(&self, exec_id: &str, after: u64) -> Result<Follower, Error> {
+    /// Follow an exec's output from after the offset, or from `tail` bytes before the end of what
+    /// is held now when `tail` is non-zero. Both at once is invalid.
+    pub(crate) fn follow(&self, exec_id: &str, after: u64, tail: u64) -> Result<Follower, Error> {
         let exec = self.find(exec_id)?;
-        {
-            let state = lock(&exec.state);
-            if after > state.len {
-                return Err(Error::Invalid(format!(
-                    "after_offset {after} is beyond the {} bytes of output",
-                    state.len
-                )));
-            }
-            check_held(&state, after)?;
+        if tail != 0 && after != 0 {
+            return Err(Error::Invalid(
+                "tail_bytes and after_offset are both set".to_owned(),
+            ));
         }
+        let after = {
+            let state = lock(&exec.state);
+            if tail != 0 {
+                state
+                    .len
+                    .saturating_sub(tail)
+                    .max(state.record.earliest_offset)
+            } else {
+                if after > state.len {
+                    return Err(Error::Invalid(format!(
+                        "after_offset {after} is beyond the {} bytes of output",
+                        state.len
+                    )));
+                }
+                check_held(&state, after)?;
+                after
+            }
+        };
         let changed = exec.changed.subscribe();
         Ok(Follower {
             exec,
