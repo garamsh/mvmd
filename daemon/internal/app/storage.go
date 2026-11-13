@@ -87,7 +87,7 @@ func checkDisksSameFileSystem(disks, staging string) error {
 	_ = probe.Close()
 	defer func() { _ = os.Remove(from) }()
 	to := filepath.Join(staging, filepath.Base(from))
-	if err := os.Link(from, to); err != nil {
+	if err := os.Symlink(from, to); err != nil {
 		return fmt.Errorf("the disk snapshot directory %s is not on the file system of the disk directory %s, so a disk could not be cloned into a snapshot: %w", staging, disks, err)
 	}
 	if err := os.Remove(to); err != nil {
