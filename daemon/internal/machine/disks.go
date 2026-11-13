@@ -629,9 +629,7 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 		return nil
 	}
 	if hot(m) {
-		if err := m.requireAgent("a live resize"); err != nil {
-			return err
-		}
+		_ = m.requireAgent("a live resize")
 	}
 	if hot(m) && target.VCPUs != m.Resources.VCPUs && !info.has(CapabilityCPUResize) {
 		return fail(ErrUnsupported, "the Driver cannot resize the vCPUs of a %s Machine", m.State)
