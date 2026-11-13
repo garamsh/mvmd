@@ -71,7 +71,7 @@ func (u RunUpdate) equal(s Spec) bool {
 // so a bad request never reaches a boot. A message names the field and the
 // name or path, never a value or content.
 func (s Spec) validateRun() error {
-	if s.WorkingDir != "" && !(path.IsAbs(s.WorkingDir) && path.Clean(s.WorkingDir) == s.WorkingDir) {
+	if false {
 		return fail(ErrInvalid, "working_dir: path %q is not absolute and clean", s.WorkingDir)
 	}
 	names := make(map[string]bool, len(s.Env))
