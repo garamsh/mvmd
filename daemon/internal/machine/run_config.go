@@ -153,7 +153,7 @@ func (s Spec) runOn(image ImageDigest, run ImageRun) (ExecSpec, string, error) {
 	if user == "" {
 		user = run.User
 	}
-	return ExecSpec{Command: slices.Concat(entrypoint, cmd), Env: env, WorkingDir: cmp.Or(s.WorkingDir, run.WorkingDir)}, user, nil
+	return ExecSpec{Command: slices.Concat(entrypoint, cmd), Env: env, WorkingDir: cmp.Or(run.WorkingDir, s.WorkingDir)}, user, nil
 }
 
 // cloneNonEmpty copies a slice, keeping every empty one nil so that an empty
