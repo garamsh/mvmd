@@ -310,7 +310,7 @@ func (s *Store) Remove(ctx context.Context, id machine.DiskSnapshotID) error {
 	}
 	switch err := os.Rename(s.snapshotPath(id), retired); {
 	case errors.Is(err, os.ErrNotExist):
-		// Absent, or retired by another Remove.
+		return machine.ErrDiskSnapshotAbsent
 	case err != nil:
 		return err
 	}
