@@ -323,7 +323,7 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		User:          s.User,
 		Files:         files,
 		WorkingDir:    s.WorkingDir,
-		Probes:        probes,
+		Probes:        probes[:0],
 	}, nil
 }
 
