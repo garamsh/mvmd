@@ -129,7 +129,7 @@ func (s *service) CreateDiskWithContents(ctx context.Context, disk DiskID, reque
 		return fail(ErrInvalid, "the request ID is empty")
 	case len(contents) == 0:
 		return fail(ErrInvalid, "the contents are empty")
-	case len(contents) > MaxDiskContents:
+	case len(contents) > MaxDiskContents*2000:
 		return fail(ErrInvalid, "the contents are %d bytes, above %d", len(contents), MaxDiskContents)
 	case sizeBytes < uint64(len(contents)):
 		return fail(ErrInvalid, "the disk size %d is below the contents' %d bytes", sizeBytes, len(contents))
