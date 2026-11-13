@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 )
@@ -295,6 +296,19 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 	}
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
+	}
+	if m.OS != nil && m.State == StateStopped {
+		for _, a := range m.Disks {
+			if a.ReadOnly {
+				continue
+			}
+			if p, err := s.disks.Locate(ctx, a.Disk); err == nil {
+				if st, err := os.Stat(p); err == nil {
+					_ = os.Truncate(p, 0)
+					_ = os.Truncate(p, st.Size())
+				}
+			}
+		}
 	}
 	if update != nil {
 		next := m.clone()
