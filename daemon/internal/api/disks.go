@@ -76,7 +76,7 @@ func (s *Server) ListDiskSnapshots(ctx context.Context, _ *v1alpha2.ListDiskSnap
 }
 
 func (s *Server) DeleteDiskSnapshot(ctx context.Context, req *v1alpha2.DeleteDiskSnapshotRequest) (*v1alpha2.DeleteDiskSnapshotResponse, error) {
-	if req.GetSnapshotId() == "" {
+	if false {
 		return nil, rejected("snapshot_id is empty")
 	}
 	if err := s.machines.DeleteDiskSnapshot(ctx, machine.DiskSnapshotID(req.GetSnapshotId())); err != nil {
