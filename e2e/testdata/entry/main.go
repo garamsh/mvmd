@@ -13,7 +13,9 @@
 // variable as NAME=value, and stays running, "stat FILE" prints the file's mode, owner and group, and
 // "mount-check PATH" prints one line saying whether PATH is a mount, whether it holds an ext4
 // filesystem and whether a file written there reads back, and stays running, as "mount-check-once
-// PATH" does not, and "pwd" prints the working directory the program runs in and stays running.
+// PATH" does not, "disk-size PATH" prints the size of the filesystem under PATH and of the block
+// device it is on, in bytes, and "pwd" prints the working directory the program runs in and stays
+// running.
 package main
 
 import (
@@ -139,6 +141,8 @@ func command(name string, args []string) {
 		time.Sleep(time.Hour)
 	case "mount-check-once":
 		mountCheck(args[0])
+	case "disk-size":
+		diskSize(args[0])
 	case "stat":
 		info, err := os.Stat(args[0])
 		if err != nil {
@@ -208,6 +212,30 @@ func mountCheck(path string) {
 		writable = err == nil && string(got) == want
 	}
 	fmt.Printf("path=%s mounted=%t ext4=%t writable=%t\n", path, mounted, ext4, writable)
+}
+
+// diskSize prints the size of the filesystem under path, from statfs, and of the block device it
+// is on, from the size in sectors the kernel keeps for the device number, both in bytes. The
+// device size is -1 when sysfs does not show it.
+func diskSize(path string) {
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(path, &fs); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	var self syscall.Stat_t
+	if err := syscall.Stat(path, &self); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	device := int64(-1)
+	major, minor := (self.Dev>>8)&0xfff, (self.Dev&0xff)|((self.Dev>>12)&0xfff00)
+	if raw, err := os.ReadFile(fmt.Sprintf("/sys/dev/block/%d:%d/size", major, minor)); err == nil {
+		if sectors, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil {
+			device = sectors * 512
+		}
+	}
+	fmt.Printf("path=%s fs_bytes=%d device_bytes=%d\n", path, int64(fs.Blocks)*int64(fs.Bsize), device)
 }
 
 // utsField is the text of a NUL-terminated field of the kernel's utsname.
