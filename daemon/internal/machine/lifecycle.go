@@ -258,9 +258,6 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 	if update != nil {
 		next := m.clone()
 		next.Env, next.Files = cloneNonEmpty(update.Env), cloneFiles(update.Files)
-		if err := s.commit(ctx, rec, next); err != nil {
-			return fail(ErrFailed, "record the new env and files: %v", err)
-		}
 		m = next
 	}
 	plan := bootPlan{
