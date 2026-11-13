@@ -229,7 +229,7 @@ func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID,
 		return held, nil
 	}
 
-	record, err := s.guest.ReadExecOutput(ctx, id, exec, after, tail, send)
+	record, err := s.guest.ReadExecOutput(ctx, id, exec, after, 0, send)
 	var gone *OutputGoneError
 	if errors.As(err, &gone) {
 		return ExecRecord{}, err
