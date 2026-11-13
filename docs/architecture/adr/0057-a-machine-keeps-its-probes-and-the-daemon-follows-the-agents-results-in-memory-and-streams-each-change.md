@@ -30,3 +30,7 @@ A client reads a workload's health with one Inspect or one stream and needs no c
 ## Signs the decision was wrong
 
 Clients need the history of a probe, not its latest result. Clients need results of a Machine that is Stopped. A node holds so many probed Machines that a stream for each costs more than polling. Clients need mvmd to act on a result.
+
+## Errata
+
+- 2026-11-13. The decision stands. §Decision's last paragraph says `tail_bytes` on Read exec output needs an end offset that the guest's `ExecRecord` does not carry. It does not need one: the Guest Agent resolves the tail against the output it holds when the call arrives (`ReadExecOutputRequest.tail_bytes`, commit df306f633d99575a88003478987255db3cfc5d80), and mvmd passes the field on. `docs/architecture/runtime-api.md` §Guest access states the field, decided in #619.

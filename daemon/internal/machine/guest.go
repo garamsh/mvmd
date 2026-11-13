@@ -224,9 +224,12 @@ type Guest interface {
 	Exec(ctx context.Context, id MachineID, exec ExecID, spec ExecSpec) (ExecRecord, error)
 	// ReadExecOutput sends the chunks that end after the offset, in order, then
 	// returns the exec's record, whose Status is ExecStarted while the command
-	// runs. An offset before the guest's earliest held is an *OutputGoneError.
-	// It returns ErrExecAbsent for an exec the guest does not hold.
-	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error)
+	// runs. A non-zero tail starts that many bytes before the end of the output
+	// held, or at the earliest byte held if fewer are held, and is used with a
+	// zero offset. An offset before the guest's earliest held is an
+	// *OutputGoneError. It returns ErrExecAbsent for an exec the guest does not
+	// hold.
+	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after, tail uint64, send func(OutputChunk) error) (ExecRecord, error)
 	// WatchProbes sends the result of every probe the guest runs, as the guest
 	// reports them: the current results on open and then each change. It
 	// returns nil when the guest ends the stream, which it does after the

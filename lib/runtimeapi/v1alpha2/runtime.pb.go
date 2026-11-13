@@ -5352,7 +5352,12 @@ type ReadExecOutputRequest struct {
 	MachineId string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
 	ExecId    string                 `protobuf:"bytes,2,opt,name=exec_id,json=execId,proto3" json:"exec_id,omitempty"`
 	// Resume after this offset; zero starts at the beginning.
-	AfterOffset   uint64 `protobuf:"varint,3,opt,name=after_offset,json=afterOffset,proto3" json:"after_offset,omitempty"`
+	AfterOffset uint64 `protobuf:"varint,3,opt,name=after_offset,json=afterOffset,proto3" json:"after_offset,omitempty"`
+	// When non-zero, start this many bytes before the end of the output held
+	// when the call arrives, or at the earliest byte held if fewer are held,
+	// and then follow as usual. Zero leaves it unset. Setting it with a
+	// non-zero after_offset is rejected.
+	TailBytes     uint64 `protobuf:"varint,4,opt,name=tail_bytes,json=tailBytes,proto3" json:"tail_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5404,6 +5409,13 @@ func (x *ReadExecOutputRequest) GetExecId() string {
 func (x *ReadExecOutputRequest) GetAfterOffset() uint64 {
 	if x != nil {
 		return x.AfterOffset
+	}
+	return 0
+}
+
+func (x *ReadExecOutputRequest) GetTailBytes() uint64 {
+	if x != nil {
+		return x.TailBytes
 	}
 	return 0
 }
@@ -7673,12 +7685,14 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
 	"\fExecResponse\x129\n" +
-	"\x06record\x18\x01 \x01(\v2!.mvmd.runtime.v1alpha2.ExecRecordR\x06record\"r\n" +
+	"\x06record\x18\x01 \x01(\v2!.mvmd.runtime.v1alpha2.ExecRecordR\x06record\"\x91\x01\n" +
 	"\x15ReadExecOutputRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x17\n" +
 	"\aexec_id\x18\x02 \x01(\tR\x06execId\x12!\n" +
-	"\fafter_offset\x18\x03 \x01(\x04R\vafterOffset\"v\n" +
+	"\fafter_offset\x18\x03 \x01(\x04R\vafterOffset\x12\x1d\n" +
+	"\n" +
+	"tail_bytes\x18\x04 \x01(\x04R\ttailBytes\"v\n" +
 	"\vOutputChunk\x12;\n" +
 	"\x06stream\x18\x01 \x01(\x0e2#.mvmd.runtime.v1alpha2.OutputStreamR\x06stream\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x12\n" +

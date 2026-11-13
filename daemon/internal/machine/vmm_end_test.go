@@ -40,7 +40,7 @@ func TestVMMEnd_RunningAndPausedMachinesBecomeStopped(t *testing.T) {
 			require.Len(t, states, before+1)
 			assert.Equal(t, machine.StateStopped, states[before])
 
-			record, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, nil)
+			record, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, 0, nil)
 			require.NoError(t, err)
 			assert.Equal(t, machine.ExecRecord{ID: "entrypoint", Status: machine.ExecExited, ExitCode: 3}, record)
 

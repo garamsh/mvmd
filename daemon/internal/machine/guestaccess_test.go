@@ -196,12 +196,12 @@ func TestExec_AfterFailure(t *testing.T) {
 		_, err = e.svc.Exec(ctx, "m", "ended", "r2", echo)
 		require.NoError(t, err)
 		e.guest.Finish("ended", 0)
-		_, err = e.svc.ReadExecOutput(ctx, "m", "ended", 0, func(machine.OutputChunk) error { return nil })
+		_, err = e.svc.ReadExecOutput(ctx, "m", "ended", 0, 0, func(machine.OutputChunk) error { return nil })
 		require.NoError(t, err)
 
 		require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
 
-		record, err := e.svc.ReadExecOutput(ctx, "m", "running", 0, func(machine.OutputChunk) error { return nil })
+		record, err := e.svc.ReadExecOutput(ctx, "m", "running", 0, 0, func(machine.OutputChunk) error { return nil })
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecCutShort, record.Status)
 		assert.Contains(t, record.Reason, "Stopped", "and why")
@@ -210,7 +210,7 @@ func TestExec_AfterFailure(t *testing.T) {
 		assert.Equal(t, record, repeat, "the repeat is the same record")
 
 		// Control: a command that had ended keeps its exit status.
-		kept, err := e.svc.ReadExecOutput(ctx, "m", "ended", 0, func(machine.OutputChunk) error { return nil })
+		kept, err := e.svc.ReadExecOutput(ctx, "m", "ended", 0, 0, func(machine.OutputChunk) error { return nil })
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecExited, kept.Status)
 	})
@@ -226,13 +226,13 @@ func TestExec_AfterFailure(t *testing.T) {
 
 		require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
 
-		unanswered, err := e.svc.ReadExecOutput(ctx, "m", "unanswered", 0, func(machine.OutputChunk) error { return nil })
+		unanswered, err := e.svc.ReadExecOutput(ctx, "m", "unanswered", 0, 0, func(machine.OutputChunk) error { return nil })
 		require.NoError(t, err, "the record can be read once the Machine has stopped")
 		assert.Equal(t, machine.ExecCutShort, unanswered.Status)
 		assert.Contains(t, unanswered.Reason, "never answered", "and says whether the command ran is not known")
 
 		// Control: a running command that was answered is cut short the same way.
-		answered, err := e.svc.ReadExecOutput(ctx, "m", "answered", 0, func(machine.OutputChunk) error { return nil })
+		answered, err := e.svc.ReadExecOutput(ctx, "m", "answered", 0, 0, func(machine.OutputChunk) error { return nil })
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecCutShort, answered.Status)
 		assert.NotContains(t, answered.Reason, "never answered")
@@ -251,7 +251,7 @@ func TestExec_AfterFailure(t *testing.T) {
 		requireKind(t, e.svc.Stop(ctx, "m", time.Second), machine.ErrFailed)
 		e.requireState(t, "m", machine.StateFaulted)
 
-		record, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, func(machine.OutputChunk) error { return nil })
+		record, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, func(machine.OutputChunk) error { return nil })
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecCutShort, record.Status)
 	})
@@ -270,13 +270,13 @@ func TestReadExecOutput_Needs(t *testing.T) {
 	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
 	require.NoError(t, err)
 
-	_, err = e.svc.ReadExecOutput(ctx, "m", "nope", 0, collect(new([]machine.OutputChunk)))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "nope", 0, 0, collect(new([]machine.OutputChunk)))
 	requireKind(t, err, machine.ErrNotFound)
-	_, err = e.svc.ReadExecOutput(ctx, "other", "x", 0, collect(new([]machine.OutputChunk)))
+	_, err = e.svc.ReadExecOutput(ctx, "other", "x", 0, 0, collect(new([]machine.OutputChunk)))
 	requireKind(t, err, machine.ErrNotFound)
 
 	// Control: the Machine's own exec is read.
-	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, collect(new([]machine.OutputChunk)))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, collect(new([]machine.OutputChunk)))
 	require.NoError(t, err)
 }
 
@@ -291,13 +291,13 @@ func TestReadExecOutput_NeedsRunningWhileTheCommandRuns(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.svc.Pause(ctx, "m"))
 
-	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, collect(new([]machine.OutputChunk)))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, collect(new([]machine.OutputChunk)))
 	requireKind(t, err, machine.ErrPreconditionFailed)
 	assert.Zero(t, e.guest.Calls("read-exec-output"), "the guest was not asked")
 
 	// Control: the same read succeeds once the Machine runs again.
 	require.NoError(t, e.svc.Resume(ctx, "m"))
-	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, collect(new([]machine.OutputChunk)))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, collect(new([]machine.OutputChunk)))
 	require.NoError(t, err)
 }
 
@@ -314,7 +314,7 @@ func TestReadExecOutput_OnSuccessAndRepeat(t *testing.T) {
 	e.guest.Emit("x", machine.OutputStderr, "err2")
 
 	var got []machine.OutputChunk
-	record, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, collect(&got))
+	record, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, collect(&got))
 	require.NoError(t, err)
 	assert.Equal(t, []machine.OutputChunk{
 		{Stream: machine.OutputStdout, Offset: 0, Data: []byte("out1")},
@@ -324,14 +324,14 @@ func TestReadExecOutput_OnSuccessAndRepeat(t *testing.T) {
 
 	// A repeat from an offset resumes after it.
 	got = nil
-	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 4, collect(&got))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 4, 0, collect(&got))
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, uint64(4), got[0].Offset)
 
 	e.guest.Finish("x", 3)
 	got = nil
-	record, err = e.svc.ReadExecOutput(ctx, "m", "x", 8, collect(&got))
+	record, err = e.svc.ReadExecOutput(ctx, "m", "x", 8, 0, collect(&got))
 	require.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Equal(t, machine.ExecRecord{ID: "x", Status: machine.ExecExited, ExitCode: 3}, record, "the record carries the exit code")
@@ -351,13 +351,13 @@ func TestReadExecOutput_AnOffsetNoLongerHeld(t *testing.T) {
 		e.guest.Emit("x", machine.OutputStdout, s)
 	}
 
-	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, collect(new([]machine.OutputChunk)))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, collect(new([]machine.OutputChunk)))
 	var gone *machine.OutputGoneError
 	require.ErrorAs(t, err, &gone)
 	assert.Equal(t, uint64(4), gone.Earliest, "the earliest offset held")
 
 	var got []machine.OutputChunk
-	_, err = e.svc.ReadExecOutput(ctx, "m", "x", gone.Earliest, collect(&got))
+	_, err = e.svc.ReadExecOutput(ctx, "m", "x", gone.Earliest, 0, collect(&got))
 	require.NoError(t, err, "a read inside the window succeeds")
 	assert.Equal(t, []string{"bbbb", "cccc"}, []string{string(got[0].Data), string(got[1].Data)})
 	e.requireState(t, "m", machine.StateRunning)

@@ -76,13 +76,15 @@ type Service interface {
 	// Exec starts a command under the exec identifier, at most once per request
 	// ID, and returns its record.
 	Exec(ctx context.Context, id MachineID, exec ExecID, request RequestID, spec ExecSpec) (ExecRecord, error)
-	// ReadExecOutput sends the output after the offset, and returns the exec's
+	// ReadExecOutput sends the output after the offset, or from tail bytes
+	// before the end of the output the guest holds when tail is non-zero (with a
+	// zero offset), and returns the exec's
 	// record, whose Status is ExecStarted while the command runs. An offset the
 	// guest no longer holds is an *OutputGoneError. The exec "entrypoint" is the
 	// guest's own: Running it is asked of the guest; Stopped, Faulted, or
 	// Running with a guest that no longer answers, its record is what the
 	// Guest Agent wrote to the console log, and no output is sent.
-	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error)
+	ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after, tail uint64, send func(OutputChunk) error) (ExecRecord, error)
 	// SignalExec delivers the signal to the exec's command. The guest answers
 	// for a command that has ended: ErrPreconditionFailed.
 	SignalExec(ctx context.Context, id MachineID, exec ExecID, signal int32) error

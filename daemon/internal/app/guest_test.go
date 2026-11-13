@@ -159,6 +159,73 @@ func TestGuestAPI_ExecAndItsOutput(t *testing.T) {
 	})
 }
 
+// readAll reads one ReadExecOutput stream to its end and returns the bytes.
+func readAll(t *testing.T, c v1alpha2.RuntimeServiceClient, req *v1alpha2.ReadExecOutputRequest) (data string, next uint64) {
+	t.Helper()
+	s, err := c.ReadExecOutput(context.Background(), req)
+	require.NoError(t, err)
+	for {
+		part, err := s.Recv()
+		if err == io.EOF {
+			return data, next
+		}
+		require.NoError(t, err)
+		if chunk := part.GetChunk(); chunk != nil {
+			data += string(chunk.GetData())
+			next = chunk.GetOffset() + uint64(len(chunk.GetData()))
+		}
+	}
+}
+
+// tail_bytes on the entrypoint through the wired graph: the stream starts that
+// many bytes before the end of the output held, a later read after the last
+// offset follows the new output, and a tail larger than the output held
+// starts at the oldest byte held.
+func TestGuestAPI_ReadExecOutputStartsAtTheTail(t *testing.T) {
+	n := running(t)
+	g, c := n.app.Substitutes.Guest, n.client
+	_, err := g.Exec(context.Background(), "m", "entrypoint", machine.ExecSpec{})
+	require.NoError(t, err)
+	g.Emit("entrypoint", machine.OutputStdout, "line one\n")
+	g.Emit("entrypoint", machine.OutputStdout, "line two\n")
+
+	data, next := readAll(t, c, &v1alpha2.ReadExecOutputRequest{MachineId: "m", ExecId: "entrypoint", TailBytes: 6})
+	assert.Equal(t, "e two\n", data, "the last six bytes of the output")
+	assert.Equal(t, uint64(18), next)
+
+	g.Emit("entrypoint", machine.OutputStdout, "line three\n")
+	data, _ = readAll(t, c, &v1alpha2.ReadExecOutputRequest{MachineId: "m", ExecId: "entrypoint", AfterOffset: next})
+	assert.Equal(t, "line three\n", data, "the read after the tail's last offset follows the new output")
+
+	t.Run("larger than what is held", func(t *testing.T) {
+		g.Retain(16)
+		g.Emit("entrypoint", machine.OutputStdout, "four\n")
+		data, _ := readAll(t, c, &v1alpha2.ReadExecOutputRequest{MachineId: "m", ExecId: "entrypoint", TailBytes: 1 << 20})
+		assert.Equal(t, "line three\nfour\n", data, "from the oldest byte held")
+	})
+}
+
+// tail_bytes with a non-zero after_offset is refused as invalid and reaches no
+// guest; the control is tail_bytes alone, which is accepted.
+func TestGuestAPI_TailBytesWithAnOffsetIsRefused(t *testing.T) {
+	n := running(t)
+	g, c := n.app.Substitutes.Guest, n.client
+	_, err := g.Exec(context.Background(), "m", "entrypoint", machine.ExecSpec{})
+	require.NoError(t, err)
+	g.Emit("entrypoint", machine.OutputStdout, "0123456789")
+
+	data, _ := readAll(t, c, &v1alpha2.ReadExecOutputRequest{MachineId: "m", ExecId: "entrypoint", TailBytes: 4})
+	assert.Equal(t, "6789", data, "the control: tail_bytes alone is accepted")
+	reads := g.Calls("read-exec-output")
+	require.Equal(t, 1, reads)
+
+	bad, err := c.ReadExecOutput(context.Background(), &v1alpha2.ReadExecOutputRequest{MachineId: "m", ExecId: "entrypoint", AfterOffset: 2, TailBytes: 4})
+	require.NoError(t, err)
+	_, err = bad.Recv()
+	requireKind(t, err, rejected)
+	assert.Equal(t, reads, g.Calls("read-exec-output"), "the refused read reached no guest")
+}
+
 // The files through the wired graph, with the Machine Running; the same calls
 // are refused once it is stopped.
 func TestGuestAPI_Files(t *testing.T) {

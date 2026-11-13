@@ -57,6 +57,7 @@ type state struct {
 	endedAt    *timestamppb.Timestamp // the time the exec's records carry
 	outStream  guestv1alpha1.OutputStream
 	outAfter   []uint64
+	outTail    []uint64
 	patchOut   guestv1alpha1.PatchOutcome
 	patch      *guestv1alpha1.PatchFileRequest
 	paths      []string
@@ -262,13 +263,18 @@ func (a *agent) Exec(_ context.Context, r *guestv1alpha1.ExecRequest) (*guestv1a
 func (a *agent) ReadExecOutput(r *guestv1alpha1.ReadExecOutputRequest, srv grpc.ServerStreamingServer[guestv1alpha1.ReadExecOutputResponse]) error {
 	a.mu.Lock()
 	a.outAfter = append(a.outAfter, r.GetAfterOffset())
+	a.outTail = append(a.outTail, r.GetTailBytes())
 	output, hold, stream, endedAt := a.output, a.holdAfter, a.outStream, a.endedAt
 	a.mu.Unlock()
 	if err := a.failure("ReadExecOutput"); err != nil {
 		return err
 	}
 	sent := 0
-	for off := r.GetAfterOffset(); off < uint64(len(output)); off += 100 {
+	start := r.GetAfterOffset()
+	if tail := r.GetTailBytes(); tail > 0 {
+		start = uint64(len(output)) - min(tail, uint64(len(output)))
+	}
+	for off := start; off < uint64(len(output)); off += 100 {
 		if a.n == 1 && hold > 0 && sent == hold {
 			<-srv.Context().Done()
 			return srv.Context().Err()
@@ -620,7 +626,7 @@ func TestExec_CarriesTheTimeTheAgentStamped(t *testing.T) {
 
 			started, err := h.guest.Exec(context.Background(), "m", "x", machine.ExecSpec{Command: []string{"ls"}})
 			require.NoError(t, err)
-			read, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 0, func(machine.OutputChunk) error { return nil })
+			read, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 0, 0, func(machine.OutputChunk) error { return nil })
 			require.NoError(t, err)
 
 			assert.True(t, tt.want.Equal(started.EndedAt), "the start's answer: %v", started.EndedAt)
@@ -646,7 +652,7 @@ func TestReadExecOutput_MapsStreamsAndTheRecord(t *testing.T) {
 			a := h.agentOf(t, "m")
 			a.output, a.outStream = []byte(strings.Repeat("x", 150)), tt.sent
 			var got []machine.OutputChunk
-			rec, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 100, func(c machine.OutputChunk) error {
+			rec, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 100, 0, func(c machine.OutputChunk) error {
 				got = append(got, c)
 				return nil
 			})
@@ -809,7 +815,7 @@ func TestErrors_AreMappedToThePortsErrors(t *testing.T) {
 			return err
 		},
 		"ReadExecOutput": func(h *harness) error {
-			_, err := h.guest.ReadExecOutput(ctx, "m", "x", 0, func(machine.OutputChunk) error { return nil })
+			_, err := h.guest.ReadExecOutput(ctx, "m", "x", 0, 0, func(machine.OutputChunk) error { return nil })
 			return err
 		},
 		"ReadFile": func(h *harness) error {
@@ -1061,7 +1067,7 @@ func TestReadExecOutput_ResumesAfterTheLastByteAfterAReset(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		rec, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 0, func(c machine.OutputChunk) error {
+		rec, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 0, 0, func(c machine.OutputChunk) error {
 			assert.Equal(t, uint64(len(got)), c.Offset, "no gap and no repeat")
 			got = append(got, c.Data...)
 			if len(got) == 400 {
@@ -1079,6 +1085,43 @@ func TestReadExecOutput_ResumesAfterTheLastByteAfterAReset(t *testing.T) {
 	assert.Equal(t, want, string(got))
 	assert.Equal(t, machine.ExecExited, r.rec.Status)
 	assert.Equal(t, []uint64{0, 400}, a.outAfter, "the second read began where the first was cut")
+}
+
+// A read that sets the tail sends it to the agent and starts where the agent
+// does; once a byte was passed on, a resume after a reset asks after that byte
+// and sets no tail, or the caller would see bytes twice.
+func TestReadExecOutput_TailIsSentUntilAByteIsPassedOn(t *testing.T) {
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	all := distinct(1000)
+	a.output, a.outStream, a.holdAfter = []byte(all), guestv1alpha1.OutputStream_OUTPUT_STREAM_STDOUT, 4
+
+	var got []byte
+	half := make(chan struct{})
+	type result struct {
+		rec machine.ExecRecord
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		rec, err := h.guest.ReadExecOutput(context.Background(), "m", "x", 0, 600, func(c machine.OutputChunk) error {
+			assert.Equal(t, uint64(400+len(got)), c.Offset, "no gap and no repeat")
+			got = append(got, c.Data...)
+			if len(got) == 400 {
+				close(half)
+			}
+			return nil
+		})
+		done <- result{rec, err}
+	}()
+	within(t, half)
+	a.closeConn(1)
+
+	r := within(t, done)
+	require.NoError(t, r.err)
+	assert.Equal(t, all[400:], string(got), "the read started 600 bytes before the end")
+	assert.Equal(t, []uint64{600, 0}, a.outTail, "the resume sets no tail")
+	assert.Equal(t, []uint64{0, 800}, a.outAfter, "the resume began where the first read was cut")
 }
 
 // A file read cut by a reset is read again and the bytes already passed on

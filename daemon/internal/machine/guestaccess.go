@@ -196,9 +196,9 @@ func (s *service) cutShort(id MachineID, why string) {
 	}
 }
 
-func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after uint64, send func(OutputChunk) error) (ExecRecord, error) {
+func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after, tail uint64, send func(OutputChunk) error) (ExecRecord, error) {
 	if exec == entrypointExec {
-		return s.readEntrypoint(ctx, id, after, send)
+		return s.readEntrypoint(ctx, id, after, tail, send)
 	}
 	s.execMu.Lock()
 	entry, ok := s.execs[exec]
@@ -229,7 +229,7 @@ func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID,
 		return held, nil
 	}
 
-	record, err := s.guest.ReadExecOutput(ctx, id, exec, after, send)
+	record, err := s.guest.ReadExecOutput(ctx, id, exec, after, tail, send)
 	var gone *OutputGoneError
 	if errors.As(err, &gone) {
 		return ExecRecord{}, err

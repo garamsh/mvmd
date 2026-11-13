@@ -72,31 +72,31 @@ func TestExecRecords_ARestartKeepsACutShortRecord(t *testing.T) {
 	_, err = e.svc.Exec(ctx, "m", "ended", "r2", echo)
 	require.NoError(t, err)
 	e.guest.Finish("ended", 3)
-	_, err = e.svc.ReadExecOutput(ctx, "m", "ended", 0, discard)
+	_, err = e.svc.ReadExecOutput(ctx, "m", "ended", 0, 0, discard)
 	require.NoError(t, err)
 	e.guest.FailAt("exec", errBoom)
 	_, err = e.svc.Exec(ctx, "m", "unanswered", "r3", echo)
 	requireKind(t, err, machine.ErrFailed)
 	require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
-	before, err := e.svc.ReadExecOutput(ctx, "m", "running", 0, discard)
+	before, err := e.svc.ReadExecOutput(ctx, "m", "running", 0, 0, discard)
 	require.NoError(t, err)
 	require.Equal(t, machine.ExecCutShort, before.Status, "the setup: it was cut short before the restart")
 
 	svc := e.reopened(t)
 
-	after, err := svc.ReadExecOutput(ctx, "m", "running", 0, discard)
+	after, err := svc.ReadExecOutput(ctx, "m", "running", 0, 0, discard)
 	require.NoError(t, err)
 	assert.Equal(t, before, after, "the cut-short record, with its reason")
 	repeat, err := svc.Exec(ctx, "m", "running", "r1", echo)
 	require.NoError(t, err)
 	assert.Equal(t, before, repeat)
-	unanswered, err := svc.ReadExecOutput(ctx, "m", "unanswered", 0, discard)
+	unanswered, err := svc.ReadExecOutput(ctx, "m", "unanswered", 0, 0, discard)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecCutShort, unanswered.Status)
 	assert.Contains(t, unanswered.Reason, "never answered")
 
 	// Control: a command that had ended keeps its exit code.
-	ended, err := svc.ReadExecOutput(ctx, "m", "ended", 0, discard)
+	ended, err := svc.ReadExecOutput(ctx, "m", "ended", 0, 0, discard)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecRecord{ID: "ended", Status: machine.ExecExited, ExitCode: 3}, ended)
 }
@@ -115,17 +115,17 @@ func TestExecRecords_ARestartCutsShortWhatTheVMMLost(t *testing.T) {
 	require.NoError(t, e.sup.Terminate(ctx, "m"))
 
 	svc := e.reopened(t)
-	record, err := svc.ReadExecOutput(ctx, "m", "x", 0, discard)
+	record, err := svc.ReadExecOutput(ctx, "m", "x", 0, 0, discard)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecCutShort, record.Status)
 	assert.Contains(t, record.Reason, "Stopped")
 
-	next, err := svc.ReadExecOutput(ctx, "alive", "y", 0, discard)
+	next, err := svc.ReadExecOutput(ctx, "alive", "y", 0, 0, discard)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecStarted, next.Status, "control: a Machine whose VMM lives keeps its command")
 
 	again := e.reopened(t)
-	record, err = again.ReadExecOutput(ctx, "m", "x", 0, discard)
+	record, err = again.ReadExecOutput(ctx, "m", "x", 0, 0, discard)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecCutShort, record.Status)
 }
@@ -142,14 +142,14 @@ func TestExecRecords_ARestartReadsARunningCommandFromTheGuest(t *testing.T) {
 	svc := e.reopened(t)
 
 	var got []machine.OutputChunk
-	record, err := svc.ReadExecOutput(ctx, "m", "x", 0, collect(&got))
+	record, err := svc.ReadExecOutput(ctx, "m", "x", 0, 0, collect(&got))
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecStarted, record.Status)
 	require.Len(t, got, 1)
 	assert.Equal(t, "out", string(got[0].Data), "the output comes from the guest")
 
 	e.guest.Finish("x", 5)
-	record, err = svc.ReadExecOutput(ctx, "m", "x", 3, discard)
+	record, err = svc.ReadExecOutput(ctx, "m", "x", 3, 0, discard)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecRecord{ID: "x", Status: machine.ExecExited, ExitCode: 5}, record)
 
@@ -233,11 +233,11 @@ func TestExecRecords_ARecordThatCannotBeKeptIsAFailure(t *testing.T) {
 		e.guest.Finish("x", 2)
 		e.store.FailAt("save-exec", errBoom)
 
-		_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, discard)
+		_, err = e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, discard)
 		requireKind(t, err, machine.ErrFailed)
 
 		e.store.Heal("save-exec")
-		record, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, discard)
+		record, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, discard)
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecRecord{ID: "x", Status: machine.ExecExited, ExitCode: 2}, record)
 	})
@@ -284,7 +284,7 @@ func TestExecRecords_AnUnreadableEntryCostsOnlyThatExec(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid character", "the reason is named")
 	}
 	assert.Equal(t, callsBefore, e.guest.Calls("exec"), "nothing ran")
-	_, err = svc.ReadExecOutput(ctx, "m", "bad", 0, discard)
+	_, err = svc.ReadExecOutput(ctx, "m", "bad", 0, 0, discard)
 	requireKind(t, err, machine.ErrFailed)
 	assert.Contains(t, err.Error(), "invalid character")
 
@@ -293,7 +293,7 @@ func TestExecRecords_AnUnreadableEntryCostsOnlyThatExec(t *testing.T) {
 	again, err := svc.Exec(ctx, "m", "good", "r", echo)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecStarted, again.Status)
-	_, err = svc.ReadExecOutput(ctx, "m", "good", 0, discard)
+	_, err = svc.ReadExecOutput(ctx, "m", "good", 0, 0, discard)
 	require.NoError(t, err)
 	_, err = svc.Exec(ctx, "m", "new", "r2", echo)
 	require.NoError(t, err)
