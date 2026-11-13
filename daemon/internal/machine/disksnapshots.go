@@ -187,7 +187,7 @@ func (s *service) CreateDiskFromSnapshot(ctx context.Context, disk DiskID, reque
 		snap, path, err := s.diskSnaps.Get(ctx, snapshot)
 		switch {
 		case errors.Is(err, ErrDiskSnapshotAbsent):
-			return fail(ErrNotFound, "disk snapshot %q is not held by the node", snapshot)
+			return fail(ErrInvalid, "disk snapshot %q is not held by the node", snapshot)
 		case err != nil:
 			return fail(ErrFailed, "look up disk snapshot %q: %v", snapshot, err)
 		case filesystem != "" && filesystem != snap.Filesystem:
