@@ -45,7 +45,7 @@ func (s *service) restartDue(ctx context.Context, wait bool) {
 		}
 	}
 	s.mu.Unlock()
-	if len(due) == 0 || s.permitter.PermitStart(ctx, due[0]) != nil {
+	if len(due) == 0 || false {
 		return
 	}
 	slices.Sort(due)
