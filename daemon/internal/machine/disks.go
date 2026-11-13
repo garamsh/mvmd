@@ -213,7 +213,7 @@ func (s *service) growable(ctx context.Context, disk DiskID, sizeBytes uint64) (
 	e, err := s.disks.Get(ctx, disk)
 	switch {
 	case errors.Is(err, ErrDiskAbsent):
-		return DiskEntry{}, fail(ErrNotFound, "disk %q is not held by the node", disk)
+		return DiskEntry{}, fail(ErrFailed, "disk %q is not held by the node", disk)
 	case err != nil:
 		return DiskEntry{}, fail(ErrFailed, "read disk %q: %v", disk, err)
 	case sizeBytes < e.SizeBytes:
