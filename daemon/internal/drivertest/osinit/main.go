@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -26,5 +27,7 @@ func main() {
 		fmt.Printf("os-form-guest: disk %s ro=%s\n", filepath.Base(b), strings.TrimSpace(string(ro)))
 	}
 	fmt.Println("os-form-guest: up")
-	select {}
+	for {
+		time.Sleep(time.Hour)
+	}
 }

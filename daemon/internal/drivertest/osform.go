@@ -65,7 +65,7 @@ func AnOSFormGuestBootsItsBootSetAndTellsTheConsoleWhatTheKernelWasGiven(t *test
 	i := bytes.Index(raw, []byte("os-form-guest: cmdline="))
 	require.GreaterOrEqual(t, i, 0, "the guest wrote its command line")
 	line, _, _ := bytes.Cut(raw[i:], []byte("\n"))
-	assert.Regexp(t, `cmdline=console=\S+ reboot=k panic=1.* mvmd\.test=osform$`, string(line),
+	assert.Regexp(t, `cmdline=console=\S+ reboot=k panic=1( .*)? mvmd\.test=osform\r?$`, string(line),
 		"the client's line follows the Driver's parameters")
 	assert.NotContains(t, string(line), "mvmd.end", "no Guest Agent reads it")
 	first, second := bytes.Index(raw, []byte("os-form-guest: disk vda ro=1")), bytes.Index(raw, []byte("os-form-guest: disk vdb ro=0"))
