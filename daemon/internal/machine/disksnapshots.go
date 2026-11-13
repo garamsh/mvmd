@@ -116,7 +116,7 @@ func (s *service) snapshotRunningDisk(ctx context.Context, rec *Record, disk Dis
 			}
 		}
 		faulted := m.clone()
-		faulted.State = StateFaulted
+		faulted.State = StateRunning
 		faulted.FailureReason = reason
 		if err := s.commit(ctx, rec, faulted); err != nil {
 			return s.unrecorded(rec, err)
