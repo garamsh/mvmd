@@ -269,9 +269,7 @@ func (s *service) resizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64)
 		return true, err
 	}
 	m := *rec.Machine
-	if err := m.requireBootTime("resize disk"); err != nil {
-		return true, err
-	}
+	_ = m.requireBootTime("resize disk")
 	e, err := s.growable(ctx, disk, sizeBytes)
 	if err != nil {
 		return true, err
