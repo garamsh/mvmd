@@ -27,13 +27,13 @@ type Disk struct {
 	filesystem map[machine.DiskID]machine.Filesystem
 	// from is the disk snapshot of each disk CreateFrom made.
 	from map[machine.DiskID]machine.DiskSnapshotID
-	// contents is what each disk CreateWithContents made holds from offset 0.
-	contents map[machine.DiskID][]byte
+	// contents is the digest of what each disk CreateWithContents made holds.
+	contents map[machine.DiskID]string
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem), from: make(map[machine.DiskID]machine.DiskSnapshotID), contents: make(map[machine.DiskID][]byte)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem), from: make(map[machine.DiskID]machine.DiskSnapshotID), contents: make(map[machine.DiskID]string)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -137,8 +137,8 @@ func (d *Disk) Create(_ context.Context, entry machine.DiskEntry) error {
 	return nil
 }
 
-// CreateWithContents implements machine.Disk: the disk is the entry's size, and
-// Contents reports what it holds.
+// CreateWithContents implements machine.Disk: the disk is the entry's size and
+// records the digest of the contents.
 func (d *Disk) CreateWithContents(_ context.Context, entry machine.DiskEntry, contents []byte) error {
 	if err := d.Enter("create-with-contents"); err != nil {
 		return err
@@ -151,15 +151,8 @@ func (d *Disk) CreateWithContents(_ context.Context, entry machine.DiskEntry, co
 	d.disks[entry.ID] = entry.SizeBytes
 	d.request[entry.ID] = entry.Request
 	d.filesystem[entry.ID] = entry.Filesystem
-	d.contents[entry.ID] = append([]byte(nil), contents...)
+	d.contents[entry.ID] = machine.ContentsDigest(contents)
 	return nil
-}
-
-// Contents is what CreateWithContents made the disk hold.
-func (d *Disk) Contents(disk machine.DiskID) []byte {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.contents[disk]
 }
 
 // CreateFrom implements machine.Disk: the disk is the entry's size, and the path
@@ -216,7 +209,7 @@ func (d *Disk) entry(disk machine.DiskID, size uint64) machine.DiskEntry {
 	if fs == "" {
 		fs = machine.FilesystemExt4
 	}
-	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs, FromSnapshot: d.from[disk], ContentsDigest: digestOf(d.contents[disk])}
+	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs, FromSnapshot: d.from[disk], ContentsDigest: d.contents[disk]}
 }
 
 // Grow implements machine.Disk: the size changes, as a growth through a file
@@ -311,11 +304,4 @@ func (d *Disk) Owner(disk machine.DiskID) (machine.DiskOwner, bool) {
 	defer d.mu.Unlock()
 	o, ok := d.owner[disk]
 	return o, ok
-}
-
-func digestOf(contents []byte) string {
-	if contents == nil {
-		return ""
-	}
-	return machine.ContentsDigest(contents)
 }
