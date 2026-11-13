@@ -16,6 +16,9 @@ func (s *Server) CreateDisk(ctx context.Context, req *v1alpha2.CreateDiskRequest
 	if err != nil {
 		return nil, err
 	}
+	if req.GetFromSnapshotId() != "" {
+		return s.createDiskFromSnapshot(ctx, req, fs)
+	}
 	if err := s.machines.CreateDisk(ctx, disk, machine.RequestID(req.GetRequestId()), req.GetSizeBytes(), fs); err != nil {
 		return nil, status(err)
 	}
@@ -23,6 +26,74 @@ func (s *Server) CreateDisk(ctx context.Context, req *v1alpha2.CreateDiskRequest
 		fs = machine.FilesystemExt4
 	}
 	return &v1alpha2.CreateDiskResponse{Disk: &v1alpha2.Disk{Id: string(disk), SizeBytes: req.GetSizeBytes(), Filesystem: filesystemWire(fs)}}, nil
+}
+
+// createDiskFromSnapshot makes the disk from a snapshot. The disk takes the
+// snapshot's filesystem, so the response reports what the disk holds.
+func (s *Server) createDiskFromSnapshot(ctx context.Context, req *v1alpha2.CreateDiskRequest, fs machine.Filesystem) (*v1alpha2.CreateDiskResponse, error) {
+	disk := machine.DiskID(req.GetDiskId())
+	if err := s.machines.CreateDiskFromSnapshot(ctx, disk, machine.RequestID(req.GetRequestId()), req.GetSizeBytes(), fs, machine.DiskSnapshotID(req.GetFromSnapshotId())); err != nil {
+		return nil, status(err)
+	}
+	all, err := s.machines.ListDisks(ctx)
+	if err != nil {
+		return nil, status(err)
+	}
+	for _, d := range all {
+		if d.ID == disk {
+			return &v1alpha2.CreateDiskResponse{Disk: &v1alpha2.Disk{Id: string(d.ID), SizeBytes: d.SizeBytes, Filesystem: filesystemWire(d.Filesystem), HolderMachineId: string(d.Holder)}}, nil
+		}
+	}
+	return &v1alpha2.CreateDiskResponse{Disk: &v1alpha2.Disk{Id: string(disk), SizeBytes: req.GetSizeBytes()}}, nil
+}
+
+func (s *Server) SnapshotDisk(ctx context.Context, req *v1alpha2.SnapshotDiskRequest) (*v1alpha2.SnapshotDiskResponse, error) {
+	if err := s.machines.SnapshotDisk(ctx, machine.DiskID(req.GetDiskId()), machine.DiskSnapshotID(req.GetSnapshotId()), machine.RequestID(req.GetRequestId())); err != nil {
+		return nil, status(err)
+	}
+	all, err := s.machines.ListDiskSnapshots(ctx)
+	if err != nil {
+		return nil, status(err)
+	}
+	for _, d := range all {
+		if string(d.ID) == req.GetSnapshotId() {
+			return &v1alpha2.SnapshotDiskResponse{DiskSnapshot: diskSnapshotToWire(d)}, nil
+		}
+	}
+	return &v1alpha2.SnapshotDiskResponse{DiskSnapshot: &v1alpha2.DiskSnapshot{Id: req.GetSnapshotId(), DiskId: req.GetDiskId()}}, nil
+}
+
+func (s *Server) ListDiskSnapshots(ctx context.Context, _ *v1alpha2.ListDiskSnapshotsRequest) (*v1alpha2.ListDiskSnapshotsResponse, error) {
+	all, err := s.machines.ListDiskSnapshots(ctx)
+	if err != nil {
+		return nil, status(err)
+	}
+	resp := &v1alpha2.ListDiskSnapshotsResponse{}
+	for _, d := range all {
+		resp.DiskSnapshots = append(resp.DiskSnapshots, diskSnapshotToWire(d))
+	}
+	return resp, nil
+}
+
+func (s *Server) DeleteDiskSnapshot(ctx context.Context, req *v1alpha2.DeleteDiskSnapshotRequest) (*v1alpha2.DeleteDiskSnapshotResponse, error) {
+	if req.GetSnapshotId() == "" {
+		return nil, rejected("snapshot_id is empty")
+	}
+	if err := s.machines.DeleteDiskSnapshot(ctx, machine.DiskSnapshotID(req.GetSnapshotId())); err != nil {
+		return nil, status(err)
+	}
+	return &v1alpha2.DeleteDiskSnapshotResponse{}, nil
+}
+
+func diskSnapshotToWire(d machine.DiskSnapshotInfo) *v1alpha2.DiskSnapshot {
+	return &v1alpha2.DiskSnapshot{
+		Id:             string(d.ID),
+		DiskId:         string(d.Disk),
+		SizeBytes:      d.SizeBytes,
+		Filesystem:     filesystemWire(d.Filesystem),
+		AllocatedBytes: d.AllocatedBytes,
+		CreatedAt:      timeToWire(d.CreatedAt),
+	}
 }
 
 func (s *Server) ListDisks(ctx context.Context, _ *v1alpha2.ListDisksRequest) (*v1alpha2.ListDisksResponse, error) {

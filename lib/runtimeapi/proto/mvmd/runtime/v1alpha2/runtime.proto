@@ -27,6 +27,9 @@ service RuntimeService {
   rpc CreateDisk(CreateDiskRequest) returns (CreateDiskResponse);
   rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
   rpc ResizeDisk(ResizeDiskRequest) returns (ResizeDiskResponse);
+  rpc SnapshotDisk(SnapshotDiskRequest) returns (SnapshotDiskResponse);
+  rpc ListDiskSnapshots(ListDiskSnapshotsRequest) returns (ListDiskSnapshotsResponse);
+  rpc DeleteDiskSnapshot(DeleteDiskSnapshotRequest) returns (DeleteDiskSnapshotResponse);
   rpc DeleteDisk(DeleteDiskRequest) returns (DeleteDiskResponse);
   rpc AttachDisk(AttachDiskRequest) returns (AttachDiskResponse);
   rpc DetachDisk(DetachDiskRequest) returns (DetachDiskResponse);
@@ -402,6 +405,14 @@ message CreateDiskRequest {
   uint64 size_bytes = 3;
   // A value other than the ones above is rejected.
   Filesystem filesystem = 4;
+  // When set, the disk starts as a copy of this disk snapshot (SnapshotDisk).
+  // It takes the snapshot's filesystem: filesystem may be unspecified or the
+  // snapshot's, and any other value is rejected. size_bytes is at least the
+  // snapshot's size_bytes, and a larger size grows the new file, which the guest
+  // grows the filesystem into at the next start. An unknown snapshot is not
+  // found. The snapshot joins request_id, size_bytes and filesystem in what a
+  // repeated call is compared against.
+  string from_snapshot_id = 5;
 }
 
 message CreateDiskResponse {
@@ -435,6 +446,57 @@ message ResizeDiskRequest {
 }
 
 message ResizeDiskResponse {}
+
+// SnapshotDiskRequest copies a disk into a disk snapshot, at most once per
+// request_id. A disk a Running Machine holds is copied with the Machine paused
+// and returned to Running, and the copy is crash-consistent: it holds what the
+// guest had written to the disk and not what it held in memory. A disk no
+// Machine holds, or one a Created, Stopped or Paused Machine holds, is copied as
+// it is. Any other holder state is rejected as a failed precondition.
+message SnapshotDiskRequest {
+  // The disk to copy.
+  string disk_id = 1;
+  // The disk snapshot's identifier, chosen by the client. It obeys the rules of
+  // a disk identifier.
+  string snapshot_id = 2;
+  string request_id = 3;
+}
+
+message SnapshotDiskResponse {
+  DiskSnapshot disk_snapshot = 1;
+}
+
+// DiskSnapshot is what the node holds of one disk snapshot.
+message DiskSnapshot {
+  string id = 1;
+  // The disk the snapshot was taken of, which may no longer exist.
+  string disk_id = 2;
+  // The size of the disk's file when it was copied: the least a disk made from
+  // the snapshot has.
+  uint64 size_bytes = 3;
+  // What the disk held, which a disk made from the snapshot holds.
+  Filesystem filesystem = 4;
+  // The disk space the snapshot's file occupies: allocated blocks, not apparent
+  // size.
+  uint64 allocated_bytes = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListDiskSnapshotsRequest {}
+
+message ListDiskSnapshotsResponse {
+  // Ordered by id.
+  repeated DiskSnapshot disk_snapshots = 1;
+}
+
+// DeleteDiskSnapshotRequest removes a disk snapshot; an absent one succeeds. A
+// snapshot a SnapshotDisk or CreateDisk call is using is rejected as a failed
+// precondition. The disk the snapshot was taken of is not touched.
+message DeleteDiskSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message DeleteDiskSnapshotResponse {}
 
 message DeleteDiskRequest {
   string disk_id = 1;
