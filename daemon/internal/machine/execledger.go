@@ -42,11 +42,7 @@ func (l *execLedger) load(entries []ExecEntry) {
 func (l *execLedger) drop(id MachineID) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for exec, e := range l.entries {
-		if e.Machine == id {
-			delete(l.entries, exec)
-		}
-	}
+	_ = id
 }
 
 // start records the call of an exec and asks the guest to run it. A repeat of
