@@ -6,7 +6,9 @@
 // "head FILE N" prints its first N bytes, "now" prints the guest's wall clock in nanoseconds since
 // the epoch, "console WORDS..." writes them to the guest's console, "dial HOST:PORT" opens a TCP
 // connection and prints connected, refused or timeout, and "listen PORT..." accepts TCP connections
-// on each port, prints "listening PORT" once each is bound, and stays running, "uname" prints the
+// on each port, prints "listening PORT" once each is bound, and stays running, "serve PORT" answers
+// HTTP on the port, 200 to GET /ok, 500 to GET /broken and 404 to any other path, prints "serving
+// PORT" once it is bound, and stays running, "uname" prints the
 // release and the version of the kernel the guest booted, one to a line, and "ignore-term" ignores
 // SIGTERM, prints "ignoring SIGTERM" once it does, and stays running, "probe NAME..." prints one line
 // with the user and group the program runs as, its supplementary groups, and each named environment
@@ -23,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -155,6 +158,8 @@ func command(name string, args []string) {
 		dial(args[0])
 	case "listen":
 		listen(args)
+	case "serve":
+		serve(args[0])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command", name)
 		os.Exit(2)
@@ -266,6 +271,23 @@ func dial(address string) {
 	default:
 		fmt.Println("error", err)
 	}
+}
+
+// serve answers HTTP on the port for good: 200 to /ok, 500 to /broken and 404 to any other path.
+func serve(port string) {
+	listener, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	fmt.Println("serving", port)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ok", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
+	mux.HandleFunc("/broken", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "broken", http.StatusInternalServerError)
+	})
+	fmt.Fprintln(os.Stderr, http.Serve(listener, mux))
+	os.Exit(2)
 }
 
 // listen binds every port, prints one line for each, then accepts and closes connections for good.

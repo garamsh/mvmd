@@ -46,7 +46,10 @@ type env struct {
 
 // newEnv returns an env whose Driver supports the given capabilities and
 // whose node holds the image.
-func newEnv(caps ...machine.Capability) *env {
+func newEnv(caps ...machine.Capability) *env { return newEnvWith(caps) }
+
+// newEnvWith is newEnv with options the service is also given.
+func newEnvWith(caps []machine.Capability, opts ...machine.Option) *env {
 	e := &env{
 		driver: memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Capabilities: caps}),
 		sup:    memory.NewSupervision(),
@@ -62,7 +65,7 @@ func newEnv(caps ...machine.Capability) *env {
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()), machine.WithDiskSnapshots(e.dsnaps))
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, append([]machine.Option{machine.WithKernels(memory.Kernels()), machine.WithDiskSnapshots(e.dsnaps)}, opts...)...)
 	return e
 }
 

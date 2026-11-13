@@ -21,7 +21,7 @@ The Guest Agent runs a workload's probes and streams their results with `WatchPr
 
 **What a state reports.** Inspect and List report one result for each probe, in the order of the request. A Running Machine reports what the guest last sent, a Paused one the results held, and a Machine in any other state reports `UNKNOWN` for each probe with no per-probe event, since the state's own event says why.
 
-**Exec output is read from the end.** `tail_bytes` on Read exec output was part of the decision and is not in this change; see the pull request for why.
+`tail_bytes` on Read exec output is not part of this decision. It needs an end offset that the guest's `ExecRecord` does not carry, and it is decided in #618 (guest) and #619 (go).
 
 ## Consequences
 
