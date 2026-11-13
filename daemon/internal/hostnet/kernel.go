@@ -148,7 +148,7 @@ func removeRules(tap string) error {
 		return err
 	}
 	t := newTables()
-	for _, name := range []string{chainForward, chainInput, chainOutput} {
+	for _, name := range []string{chainForward, chainInput, chainOutput, chainPostrouting} {
 		if !slices.Contains(have.inet, name) {
 			continue
 		}
@@ -218,6 +218,7 @@ func (n *Network) reconcile(machines []machine.Machine, lost *[]machine.MachineI
 	var errs []error
 	var plans []*machinePlan
 	kept := make(map[string]bool)
+	var keptNets []machineNet
 	t := newTables()
 	for _, m := range machines {
 		if _, ok := held[m.ID]; !ok {
@@ -243,6 +244,7 @@ func (n *Network) reconcile(machines []machine.Machine, lost *[]machine.MachineI
 		}
 		plans = append(plans, plan)
 		kept[tap] = true
+		keptNets = append(keptNets, mn)
 	}
 
 	c, err := nftables.New()
@@ -264,6 +266,13 @@ func (n *Network) reconcile(machines []machine.Machine, lost *[]machine.MachineI
 	}
 	n.held = held
 
+	// The routes belong to the tap and outlive mvmd with it; making them again
+	// from the records costs nothing and covers one that was removed.
+	for _, mn := range keptNets {
+		if err := routeRouted(taps[mn.tap], mn); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	for name, link := range taps {
 		if !kept[name] {
 			if err := deleteTap(link); err != nil {

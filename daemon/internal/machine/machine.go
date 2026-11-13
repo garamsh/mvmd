@@ -6,6 +6,7 @@ package machine
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"slices"
 )
@@ -171,6 +172,11 @@ type Spec struct {
 	// image-form fields above: no Image, Kernel, RootDiskBytes, Command, Args,
 	// Env, User, Files, WorkingDir or Probes.
 	OS *OSBoot
+	// RoutedPrefixes are the prefixes the Machine owns besides its addresses
+	// (ADR 0061): at most MaxRoutedPrefixes, fixed for its life. The node
+	// routes each to the Machine's tap, accepts it as a source from that tap
+	// only, and applies the Machine's policy to it as to the Machine's address.
+	RoutedPrefixes []netip.Prefix
 }
 
 // Machine is a Machine as Inspect reports it.
@@ -269,6 +275,7 @@ func (m Machine) clone() Machine {
 	m.Network.Addresses = slices.Clone(m.Network.Addresses)
 	m.Network.Gateways = slices.Clone(m.Network.Gateways)
 	m.Network.Resolvers = slices.Clone(m.Network.Resolvers)
+	m.Network.RoutedPrefixes = slices.Clone(m.Network.RoutedPrefixes)
 	return m
 }
 
@@ -280,6 +287,7 @@ func (s Spec) clone() Spec {
 	s.Env = cloneNonEmpty(s.Env)
 	s.Files = cloneFiles(s.Files)
 	s.Probes = cloneProbes(s.Probes)
+	s.RoutedPrefixes = cloneNonEmpty(s.RoutedPrefixes)
 	if s.OS != nil {
 		os := *s.OS
 		s.OS = &os

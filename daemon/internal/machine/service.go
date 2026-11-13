@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"io"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
@@ -113,8 +114,9 @@ type Service interface {
 	// Driver and the Snapshot Store take it, and returns it to its state.
 	Snapshot(ctx context.Context, id MachineID, snapshot SnapshotID, request RequestID) error
 	// RestoreSnapshot creates the Machine id, Running, from the snapshot, with
-	// the policy as its network policy. It is gated as Start is.
-	RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy) error
+	// the policy as its network policy and routed as its routed prefixes (ADR
+	// 0061; a snapshot carries none). It is gated as Start is.
+	RestoreSnapshot(ctx context.Context, id MachineID, request RequestID, snapshot SnapshotID, policy NetworkPolicy, routed ...netip.Prefix) error
 	// ListSnapshots returns every snapshot the node holds, ordered by
 	// identifier.
 	ListSnapshots(ctx context.Context) ([]SnapshotInfo, error)

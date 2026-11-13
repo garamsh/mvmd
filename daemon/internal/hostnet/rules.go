@@ -91,13 +91,15 @@ func (n *Network) addBase(c *nftables.Conn, t tables) {
 			Exprs: join(nfprotoIs(familyOf(p.Addr())), addrIn(p, true), verdict(expr.VerdictAccept)),
 		})
 	}
+	// What goes out of another Machine's tap is routed, not translated: that is
+	// a routed prefix of that Machine (ADR 0061), whose source the guest must see.
 	for _, p := range []netip.Prefix{n.cfg.IPv4Prefix, n.cfg.IPv6Prefix} {
 		if !p.IsValid() {
 			continue
 		}
 		c.AddRule(&nftables.Rule{
 			Table: t.inet, Chain: post,
-			Exprs: join(nfprotoIs(familyOf(p.Addr())), addrIn(p, false), addrOutside(p, true), []expr.Any{&expr.Masq{}}),
+			Exprs: join(nfprotoIs(familyOf(p.Addr())), addrIn(p, false), addrOutside(p, true), oifnameNotStarting(tapPrefix), []expr.Any{&expr.Masq{}}),
 		})
 	}
 }
@@ -184,6 +186,14 @@ func (p *machinePlan) tapRules(t tables, chain *nftables.Chain, m machineNet) {
 		add(arp(arpField(6, be16(2))), accept)                                // a reply
 		add(etherTypeIs(etherIPv4), addrIs(m.ip4, false), accept)
 	}
+	// A routed prefix is the Machine's own as a source, from this tap only
+	// (ADR 0061). A frame of a family the Machine holds no address in cannot
+	// carry one, because the node serves only the families it gave addresses.
+	for _, rp := range m.routed {
+		if rp.Addr().Is4() {
+			add(etherTypeIs(etherIPv4), addrIn(rp, false), accept)
+		}
+	}
 	if m.ip6.IsValid() {
 		v6 := etherTypeIs(etherIPv6)
 		icmpv6 := l4protoIs(unix.IPPROTO_ICMPV6)
@@ -197,6 +207,11 @@ func (p *machinePlan) tapRules(t tables, chain *nftables.Chain, m machineNet) {
 		add(v6, icmpv6, icmpv6TypeIn(icmpv6MLDv2Report, icmpv6MLDv2Report), verdict(expr.VerdictDrop))
 		for _, src := range sources {
 			add(v6, addrIs(src, false), accept)
+		}
+		for _, rp := range m.routed {
+			if rp.Addr().Is6() {
+				add(v6, addrIn(rp, false), accept)
+			}
 		}
 	}
 }
@@ -234,6 +249,19 @@ func (p *machinePlan) baseRules(t tables, m machineNet) {
 	}
 	p.rule(t.inet, t.inetChain(chainOutput), tag, join(to, jump(in)))
 	p.rule(t.inet, t.inetChain(chainOutput), tag, join(to, accept))
+
+	// What leaves the node from a routed prefix is masqueraded as what leaves
+	// from the Machine's address is (ADR 0049, ADR 0061), but not what goes to
+	// another Machine's tap, which the node routes and does not translate. The
+	// rules follow the base chain's no-masquerade accepts.
+	for _, rp := range m.routed {
+		node := m.node4
+		if rp.Addr().Is6() {
+			node = m.node6
+		}
+		p.rule(t.inet, t.inetChain(chainPostrouting), tag,
+			join(nfprotoIs(familyOf(rp.Addr())), addrIn(rp, false), addrOutside(node, true), oifnameNotStarting(tapPrefix), []expr.Any{&expr.Masq{}}))
+	}
 }
 
 // add queues the plan in the order the kernel needs: a chain before its rules.

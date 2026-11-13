@@ -34,7 +34,7 @@ func NewNetwork() *Network {
 }
 
 // Allocate implements machine.Network.
-func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string) (machine.NetworkIdentity, error) {
+func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string, routed ...netip.Prefix) (machine.NetworkIdentity, error) {
 	if err := n.Enter("allocate"); err != nil {
 		return machine.NetworkIdentity{}, err
 	}
@@ -42,6 +42,15 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string) 
 	defer n.mu.Unlock()
 	if have, ok := n.allocated[id]; ok {
 		return have, nil
+	}
+	for _, p := range routed {
+		for other, held := range n.allocated {
+			for _, q := range held.RoutedPrefixes {
+				if p.Overlaps(q) {
+					return machine.NetworkIdentity{}, machine.NewError(machine.ErrConflict, "routed prefix %s overlaps routed prefix %s of Machine %q", p, q, other)
+				}
+			}
+		}
 	}
 	if n.limit > 0 && len(n.allocated) >= n.limit {
 		return machine.NetworkIdentity{}, fmt.Errorf("%w: all %d of the Network's addresses are held", machine.ErrNoFreeAddress, n.limit)
@@ -55,6 +64,8 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string) 
 		Addresses: []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 0, byte(n.next)})},
 		Gateways:  []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 255, 254})},
 		Resolvers: []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 255, 253})},
+		// Held as given, so the identity echoes the request as the real adapter's does.
+		RoutedPrefixes: append([]netip.Prefix(nil), routed...),
 	}
 	n.allocated[id] = identity
 	return identity, nil

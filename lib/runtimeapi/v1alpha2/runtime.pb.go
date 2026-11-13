@@ -1204,9 +1204,12 @@ type Machine struct {
 	// Set for an OS-form Machine (ADR 0058) and absent for an image-form one. An
 	// OS-form Machine has no image_digest, no root disk, no env_names, files,
 	// working_dir or probes.
-	OsBoot        *OsBoot `protobuf:"bytes,18,opt,name=os_boot,json=osBoot,proto3" json:"os_boot,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	OsBoot *OsBoot `protobuf:"bytes,18,opt,name=os_boot,json=osBoot,proto3" json:"os_boot,omitempty"`
+	// The routed prefixes the Machine owns (ADR 0061), in the order the request
+	// gave them; empty when it has none.
+	RoutedPrefixes []string `protobuf:"bytes,19,rep,name=routed_prefixes,json=routedPrefixes,proto3" json:"routed_prefixes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Machine) Reset() {
@@ -1361,6 +1364,13 @@ func (x *Machine) GetProbes() []*ProbeResult {
 func (x *Machine) GetOsBoot() *OsBoot {
 	if x != nil {
 		return x.OsBoot
+	}
+	return nil
+}
+
+func (x *Machine) GetRoutedPrefixes() []string {
+	if x != nil {
+		return x.RoutedPrefixes
 	}
 	return nil
 }
@@ -2111,9 +2121,21 @@ type CreateMachineRequest struct {
 	// files, working_dir and probes must all be unset: a field set is REJECTED,
 	// naming it. resources, resource_ceiling, disks and network_policy mean what
 	// they mean for the image form, and a disk's mount_path must be empty.
-	OsBoot        *OsBoot `protobuf:"bytes,17,opt,name=os_boot,json=osBoot,proto3" json:"os_boot,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	OsBoot *OsBoot `protobuf:"bytes,17,opt,name=os_boot,json=osBoot,proto3" json:"os_boot,omitempty"`
+	// Optional. Prefixes the Machine owns besides its addresses (ADR 0061): the
+	// node routes each to the Machine's tap, accepts it as a source from that tap
+	// only, and applies the Machine's network_policy to it as to the Machine's
+	// address. At most 4, each in CIDR form with the host bits clear, IPv4 from
+	// /16 to /32 or IPv6 from /48 to /128, in a family the node serves, and not
+	// loopback, link-local, multicast or unspecified space. A request outside
+	// that, or one that lists prefixes that overlap each other, is REJECTED
+	// naming the prefix. A prefix that overlaps the node's Machine prefix or an
+	// address or prefix another Machine holds is CONFLICT naming the prefix. The
+	// prefixes are fixed for the Machine's life and released at Delete Machine.
+	// mvmd does not configure them in the guest.
+	RoutedPrefixes []string `protobuf:"bytes,18,rep,name=routed_prefixes,json=routedPrefixes,proto3" json:"routed_prefixes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateMachineRequest) Reset() {
@@ -2261,6 +2283,13 @@ func (x *CreateMachineRequest) GetProbes() []*Probe {
 func (x *CreateMachineRequest) GetOsBoot() *OsBoot {
 	if x != nil {
 		return x.OsBoot
+	}
+	return nil
+}
+
+func (x *CreateMachineRequest) GetRoutedPrefixes() []string {
+	if x != nil {
+		return x.RoutedPrefixes
 	}
 	return nil
 }
@@ -2853,8 +2882,11 @@ type RestoreMachineRequest struct {
 	RequestId     string         `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	SnapshotId    string         `protobuf:"bytes,3,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
 	NetworkPolicy *NetworkPolicy `protobuf:"bytes,4,opt,name=network_policy,json=networkPolicy,proto3" json:"network_policy,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Optional. The new Machine's routed prefixes, under the rules of
+	// CreateMachineRequest.routed_prefixes. A snapshot carries none.
+	RoutedPrefixes []string `protobuf:"bytes,5,rep,name=routed_prefixes,json=routedPrefixes,proto3" json:"routed_prefixes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RestoreMachineRequest) Reset() {
@@ -2911,6 +2943,13 @@ func (x *RestoreMachineRequest) GetSnapshotId() string {
 func (x *RestoreMachineRequest) GetNetworkPolicy() *NetworkPolicy {
 	if x != nil {
 		return x.NetworkPolicy
+	}
+	return nil
+}
+
+func (x *RestoreMachineRequest) GetRoutedPrefixes() []string {
+	if x != nil {
+		return x.RoutedPrefixes
 	}
 	return nil
 }
@@ -7557,7 +7596,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"mount_path\x18\x03 \x01(\tR\tmountPath\"6\n" +
 	"\x06Driver\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"\xe1\x06\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\x8a\a\n" +
 	"\aMachine\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\x05state\x18\x02 \x01(\x0e2#.mvmd.runtime.v1alpha2.MachineStateR\x05state\x12.\n" +
@@ -7578,7 +7617,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\vworking_dir\x18\x10 \x01(\tR\n" +
 	"workingDir\x12:\n" +
 	"\x06probes\x18\x11 \x03(\v2\".mvmd.runtime.v1alpha2.ProbeResultR\x06probes\x126\n" +
-	"\aos_boot\x18\x12 \x01(\v2\x1d.mvmd.runtime.v1alpha2.OsBootR\x06osBoot\"J\n" +
+	"\aos_boot\x18\x12 \x01(\v2\x1d.mvmd.runtime.v1alpha2.OsBootR\x06osBoot\x12'\n" +
+	"\x0frouted_prefixes\x18\x13 \x03(\tR\x0eroutedPrefixes\"J\n" +
 	"\x06OsBoot\x12\x19\n" +
 	"\bboot_set\x18\x01 \x01(\tR\abootSet\x12%\n" +
 	"\x0ekernel_cmdline\x18\x02 \x01(\tR\rkernelCmdline\"\xd4\x03\n" +
@@ -7626,7 +7666,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x03uid\x18\x03 \x01(\rR\x03uid\x12\x10\n" +
 	"\x03gid\x18\x04 \x01(\rR\x03gid\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x05 \x01(\x04R\tsizeBytes\"\x83\x06\n" +
+	"size_bytes\x18\x05 \x01(\x04R\tsizeBytes\"\xac\x06\n" +
 	"\x14CreateMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x1d\n" +
@@ -7648,7 +7688,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\vworking_dir\x18\x0f \x01(\tR\n" +
 	"workingDir\x124\n" +
 	"\x06probes\x18\x10 \x03(\v2\x1c.mvmd.runtime.v1alpha2.ProbeR\x06probes\x126\n" +
-	"\aos_boot\x18\x11 \x01(\v2\x1d.mvmd.runtime.v1alpha2.OsBootR\x06osBoot\"Q\n" +
+	"\aos_boot\x18\x11 \x01(\v2\x1d.mvmd.runtime.v1alpha2.OsBootR\x06osBoot\x12'\n" +
+	"\x0frouted_prefixes\x18\x12 \x03(\tR\x0eroutedPrefixes\"Q\n" +
 	"\x15CreateMachineResponse\x128\n" +
 	"\amachine\x18\x01 \x01(\v2\x1e.mvmd.runtime.v1alpha2.MachineR\amachine\"o\n" +
 	"\tRunUpdate\x12/\n" +
@@ -7686,7 +7727,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"machine_id\x18\x03 \x01(\tR\tmachineId\":\n" +
 	"\x17SnapshotMachineResponse\x12\x1f\n" +
 	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
-	"snapshotId\"\xc3\x01\n" +
+	"snapshotId\"\xec\x01\n" +
 	"\x15RestoreMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x1d\n" +
@@ -7694,7 +7735,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tR\trequestId\x12\x1f\n" +
 	"\vsnapshot_id\x18\x03 \x01(\tR\n" +
 	"snapshotId\x12K\n" +
-	"\x0enetwork_policy\x18\x04 \x01(\v2$.mvmd.runtime.v1alpha2.NetworkPolicyR\rnetworkPolicy\"R\n" +
+	"\x0enetwork_policy\x18\x04 \x01(\v2$.mvmd.runtime.v1alpha2.NetworkPolicyR\rnetworkPolicy\x12'\n" +
+	"\x0frouted_prefixes\x18\x05 \x03(\tR\x0eroutedPrefixes\"R\n" +
 	"\x16RestoreMachineResponse\x128\n" +
 	"\amachine\x18\x01 \x01(\v2\x1e.mvmd.runtime.v1alpha2.MachineR\amachine\"5\n" +
 	"\x14DeleteMachineRequest\x12\x1d\n" +
