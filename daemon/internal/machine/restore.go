@@ -114,7 +114,7 @@ func (s *service) Restore(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	s.refollowProbes()
+
 	return errors.Join(append(errs, s.sweepState(ctx), s.reconcileDisks(ctx), s.reconcileOwners(ctx), s.reconcileNetwork(ctx))...)
 }
 
