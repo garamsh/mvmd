@@ -42,17 +42,14 @@ func requireIDs(ids map[string]string) error {
 }
 
 // Validate refuses a creating call without its identifier or request ID, or
-// with neither os_boot nor a sha256 image digest, or with a network policy
-// that is not valid (runtime-api.md). Whether both forms are set is the
-// service's to decide (ADR 0058).
+// with an image that is not a sha256 digest, or with a network policy that
+// is not valid (runtime-api.md).
 func (r *CreateMachineRequest) Validate() error {
 	if err := requireIDs(map[string]string{"machine_id": r.GetMachineId(), "request_id": r.GetRequestId()}); err != nil {
 		return err
 	}
-	if r.GetOsBoot() == nil {
-		if err := validateDigest(r.GetImageDigest()); err != nil {
-			return err
-		}
+	if err := validateDigest(r.GetImageDigest()); err != nil {
+		return err
 	}
 	if r.GetNetworkPolicy() != nil {
 		if err := r.GetNetworkPolicy().Validate(); err != nil {
