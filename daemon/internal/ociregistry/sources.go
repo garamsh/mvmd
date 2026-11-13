@@ -100,7 +100,7 @@ func runHelper(ctx context.Context, name, registry string) (Credential, error) {
 	cmd.Stdout = &out // Stderr stays nil: discarded
 	cmd.WaitDelay = helperWaitDelay
 	if err := cmd.Run(); err != nil {
-		return Credential{}, fmt.Errorf("registry.credential_helpers: helper %q for %q failed: %s", name, registry, helperFailure(ctx, err))
+		return Credential{}, fmt.Errorf("registry.credential_helpers: helper %q for %q failed: %s %s", name, registry, helperFailure(ctx, err), out.String())
 	}
 	var got struct {
 		Username string
