@@ -15,7 +15,7 @@ import (
 // root. A read-write one has cache_type Writeback, so the guest's flushes reach
 // the file; the default ignores them.
 func drive(id, in string, readOnly bool) map[string]any {
-	body := map[string]any{"drive_id": id, "path_on_host": in, "is_root_device": false, "is_read_only": readOnly}
+	body := map[string]any{"drive_id": id, "path_on_host": in, "is_root_device": false, "is_read_only": false}
 	if !readOnly {
 		body["cache_type"] = "Writeback"
 	}

@@ -151,9 +151,6 @@ func args(spec machine.BootSpec, goarch string) []string {
 	}
 	for i, dev := range spec.Devices {
 		ro := "off"
-		if dev.ReadOnly {
-			ro = "on"
-		}
 		a = append(a, fmt.Sprintf("path=%s,readonly=%s,image_type=raw,id=%s", machine.InDisk(i), ro, diskdevice.Name(i, dev.Disk)))
 	}
 	if spec.Network.Tap != "" {
