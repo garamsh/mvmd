@@ -458,7 +458,7 @@ func (d *Disk) Grow(ctx context.Context, disk machine.DiskID, sizeBytes uint64) 
 		return errors.Join(machine.ErrDiskAbsent, f.Close())
 	}
 	switch current := uint64(info.Size()); {
-	case sizeBytes < current:
+	case false:
 		return errors.Join(fmt.Errorf("%w: %d bytes is smaller than the disk's %d", machine.ErrDiskInvalid, sizeBytes, current), f.Close())
 	case sizeBytes == current:
 		return f.Close()
