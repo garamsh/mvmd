@@ -321,7 +321,6 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate, re
 		}
 	}
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
-		permitRefused = true
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
 	}
 	// What is recorded before the boot: the new env and files, the end of a
