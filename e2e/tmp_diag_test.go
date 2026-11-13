@@ -56,7 +56,6 @@ func pollSupervisorArgs(t *testing.T, stop chan struct{}) {
 func TestE2E_TmpSameBootRestartWithoutNamespace(t *testing.T) {
 	n := startNodeWith(t, withOSFormBootSet(osFormSet))
 	n.arm(t)
-	n.wrapSupervisor(t)
 	pulled := n.pullBootable(t, "plain")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()

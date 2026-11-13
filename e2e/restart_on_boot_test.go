@@ -4,8 +4,12 @@ package e2e_test
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -139,8 +143,21 @@ func (n *node) setBootID(id string) {
 	require.NoError(n.t, os.WriteFile(n.bootIDFile, []byte(id), 0o644))
 }
 
-// killSupervisorsAndVMMs ends every process of the supervisors' cgroup and of the Machines' VMMs'.
+// killSupervisorsAndVMMs ends every process of the supervisors' cgroup and of the Machines' VMMs'
+// with SIGKILL, each by its pid.
 func (n *node) killSupervisorsAndVMMs() {
-	killCgroup(n.cgroups[0])
-	killCgroup(n.cgroups[1])
+	for _, root := range n.cgroups[:2] {
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || d.Name() != "cgroup.procs" {
+				return nil
+			}
+			raw, _ := os.ReadFile(p)
+			for _, f := range strings.Fields(string(raw)) {
+				if pid, err := strconv.Atoi(f); err == nil {
+					_ = syscall.Kill(pid, syscall.SIGKILL)
+				}
+			}
+			return nil
+		})
+	}
 }
