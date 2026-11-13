@@ -115,7 +115,7 @@ func (s *service) CreateDisk(ctx context.Context, disk DiskID, request RequestID
 // asked for, or, when none was, the length rounded up to DiskSectorSize.
 func ContentsDiskSize(sizeBytes uint64, length int) uint64 {
 	if sizeBytes == 0 {
-		return (uint64(length) + DiskSectorSize - 1) / DiskSectorSize * DiskSectorSize
+		return uint64(length)
 	}
 	return sizeBytes
 }
