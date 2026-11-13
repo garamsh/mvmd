@@ -76,6 +76,10 @@ type DiskEntry struct {
 	// FromSnapshot is the disk snapshot the disk was made from, or empty. It is
 	// part of what a repeated create is compared against.
 	FromSnapshot DiskSnapshotID
+	// ContentsDigest is the SHA-256, in hex, of the bytes the disk was made
+	// holding, or empty for a disk made with none. It is part of what a repeated
+	// create is compared against.
+	ContentsDigest string
 }
 
 // DiskInfo is a disk the node holds as ListDisks reports it: its size, its
@@ -122,6 +126,12 @@ type Disk interface {
 	// that cannot name a file or a size below the source's; on any other error no
 	// disk is left.
 	CreateFrom(ctx context.Context, entry DiskEntry, source string) error
+	// CreateWithContents makes the disk of the entry as Create does with no
+	// filesystem, holding contents from offset 0, which are at most the entry's
+	// size and synced before the disk is published. It records the entry's
+	// ContentsDigest, all or nothing. It returns ErrDiskExists and ErrDiskInvalid
+	// as Create does, and ErrDiskInvalid for contents longer than the size.
+	CreateWithContents(ctx context.Context, entry DiskEntry, contents []byte) error
 	// Get returns the disk the node holds, or ErrDiskAbsent.
 	Get(ctx context.Context, disk DiskID) (DiskEntry, error)
 	// List returns every disk the node holds, root disks included, ordered by

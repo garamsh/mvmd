@@ -47,6 +47,11 @@ type Service interface {
 	// ErrInvalid. The same identifier under another request ID, size or
 	// filesystem is ErrConflict.
 	CreateDisk(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem) error
+	// CreateDiskWithContents makes a disk with no filesystem that holds contents
+	// from offset 0 (ADR 0060). The contents are at most MaxDiskContents. A
+	// size of zero is the contents' length rounded up to DiskSectorSize; a size
+	// below the length is ErrInvalid.
+	CreateDiskWithContents(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, contents []byte) error
 	// ListDisks returns every disk the node holds, root disks included, with
 	// the Machine that holds each, ordered by identifier.
 	ListDisks(ctx context.Context) ([]DiskInfo, error)

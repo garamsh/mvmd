@@ -10,7 +10,7 @@ import (
 )
 
 // Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
-// "create-root-from", "create", "create-from", "get", "list", "stat", "grow", "give", "reclaim" and "remove".
+// "create-root-from", "create", "create-with-contents", "create-from", "get", "list", "stat", "grow", "give", "reclaim" and "remove".
 type Disk struct {
 	Failures
 
@@ -27,11 +27,13 @@ type Disk struct {
 	filesystem map[machine.DiskID]machine.Filesystem
 	// from is the disk snapshot of each disk CreateFrom made.
 	from map[machine.DiskID]machine.DiskSnapshotID
+	// contents is the digest of what each disk CreateWithContents made holds.
+	contents map[machine.DiskID]string
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem), from: make(map[machine.DiskID]machine.DiskSnapshotID)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem), from: make(map[machine.DiskID]machine.DiskSnapshotID), contents: make(map[machine.DiskID]string)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -135,6 +137,24 @@ func (d *Disk) Create(_ context.Context, entry machine.DiskEntry) error {
 	return nil
 }
 
+// CreateWithContents implements machine.Disk: the disk is the entry's size and
+// records the digest of the contents.
+func (d *Disk) CreateWithContents(_ context.Context, entry machine.DiskEntry, contents []byte) error {
+	if err := d.Enter("create-with-contents"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[entry.ID]; held {
+		return machine.ErrDiskExists
+	}
+	d.disks[entry.ID] = entry.SizeBytes
+	d.request[entry.ID] = entry.Request
+	d.filesystem[entry.ID] = entry.Filesystem
+	d.contents[entry.ID] = machine.ContentsDigest(contents)
+	return nil
+}
+
 // CreateFrom implements machine.Disk: the disk is the entry's size, and the path
 // it was copied from is what Source reports.
 func (d *Disk) CreateFrom(_ context.Context, entry machine.DiskEntry, source string) error {
@@ -189,7 +209,7 @@ func (d *Disk) entry(disk machine.DiskID, size uint64) machine.DiskEntry {
 	if fs == "" {
 		fs = machine.FilesystemExt4
 	}
-	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs, FromSnapshot: d.from[disk]}
+	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs, FromSnapshot: d.from[disk], ContentsDigest: d.contents[disk]}
 }
 
 // Grow implements machine.Disk: the size changes, as a growth through a file
@@ -262,6 +282,7 @@ func (d *Disk) Remove(ctx context.Context, disk machine.DiskID) error {
 	delete(d.source, disk)
 	delete(d.request, disk)
 	delete(d.from, disk)
+	delete(d.contents, disk)
 	delete(d.written, disk)
 	d.mu.Unlock()
 	return nil

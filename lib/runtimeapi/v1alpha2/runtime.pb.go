@@ -3056,8 +3056,16 @@ type CreateDiskRequest struct {
 	// found. The snapshot joins request_id, size_bytes and filesystem in what a
 	// repeated call is compared against.
 	FromSnapshotId string `protobuf:"bytes,5,opt,name=from_snapshot_id,json=fromSnapshotId,proto3" json:"from_snapshot_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The bytes the disk holds from offset 0, at most 1 MiB, with filesystem
+	// FILESYSTEM_NONE set; any other filesystem, including unspecified, and a
+	// from_snapshot_id are rejected, as are more than 1 MiB. size_bytes is at
+	// least the length of contents and, when it is zero, the length rounded up to
+	// a multiple of 512. The bytes are synced before the call returns. The
+	// contents join request_id, size_bytes and filesystem in what a repeated call
+	// is compared against. Empty contents are no contents.
+	Contents      []byte `protobuf:"bytes,6,opt,name=contents,proto3" json:"contents,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateDiskRequest) Reset() {
@@ -3123,6 +3131,13 @@ func (x *CreateDiskRequest) GetFromSnapshotId() string {
 		return x.FromSnapshotId
 	}
 	return ""
+}
+
+func (x *CreateDiskRequest) GetContents() []byte {
+	if x != nil {
+		return x.Contents
+	}
+	return nil
 }
 
 type CreateDiskResponse struct {
@@ -7685,7 +7700,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x14DeleteMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\"\x17\n" +
-	"\x15DeleteMachineResponse\"\xd7\x01\n" +
+	"\x15DeleteMachineResponse\"\xf3\x01\n" +
 	"\x11CreateDiskRequest\x12\x17\n" +
 	"\adisk_id\x18\x01 \x01(\tR\x06diskId\x12\x1d\n" +
 	"\n" +
@@ -7695,7 +7710,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\n" +
 	"filesystem\x18\x04 \x01(\x0e2!.mvmd.runtime.v1alpha2.FilesystemR\n" +
 	"filesystem\x12(\n" +
-	"\x10from_snapshot_id\x18\x05 \x01(\tR\x0efromSnapshotId\"E\n" +
+	"\x10from_snapshot_id\x18\x05 \x01(\tR\x0efromSnapshotId\x12\x1a\n" +
+	"\bcontents\x18\x06 \x01(\fR\bcontents\"E\n" +
 	"\x12CreateDiskResponse\x12/\n" +
 	"\x04disk\x18\x01 \x01(\v2\x1b.mvmd.runtime.v1alpha2.DiskR\x04disk\"\xa4\x01\n" +
 	"\x04Disk\x12\x0e\n" +
