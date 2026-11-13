@@ -525,6 +525,14 @@ message CreateDiskRequest {
   // found. The snapshot joins request_id, size_bytes and filesystem in what a
   // repeated call is compared against.
   string from_snapshot_id = 5;
+  // The bytes the disk holds from offset 0, at most 1 MiB, with filesystem
+  // FILESYSTEM_NONE set; any other filesystem, including unspecified, and a
+  // from_snapshot_id are rejected, as are more than 1 MiB. size_bytes is at
+  // least the length of contents and, when it is zero, the length rounded up to
+  // a multiple of 512. The bytes are synced before the call returns. The
+  // contents join request_id, size_bytes and filesystem in what a repeated call
+  // is compared against. Empty contents are no contents.
+  bytes contents = 6;
 }
 
 message CreateDiskResponse {
