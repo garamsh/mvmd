@@ -34,8 +34,10 @@ type Sources struct {
 // lookup and roots read the file, run the helper and read the CA at each call.
 func NewFromSources(s Sources) (*Registry, error) {
 	var opts Options
+	var startCreds map[string]Credential
 	if s.CredentialsFile != "" {
-		if _, err := readCredentials(s.CredentialsFile, s.CredentialHelpers); err != nil {
+		var err error
+		if startCreds, err = readCredentials(s.CredentialsFile, s.CredentialHelpers); err != nil {
 			return nil, err
 		}
 	}
@@ -52,11 +54,7 @@ func NewFromSources(s Sources) (*Registry, error) {
 		if s.CredentialsFile == "" {
 			return Credential{}, nil
 		}
-		creds, err := readCredentials(s.CredentialsFile, s.CredentialHelpers)
-		if err != nil {
-			return Credential{}, err
-		}
-		return creds[registry], nil // an unlisted registry is anonymous
+		return startCreds[registry], nil // an unlisted registry is anonymous
 	}
 	return New(opts), nil
 }
