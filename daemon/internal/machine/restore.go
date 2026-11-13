@@ -95,7 +95,7 @@ func (s *service) Restore(ctx context.Context) error {
 				// Only a Running Machine is restarted: a Paused one was asked to pause.
 				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded+": "+s.endCause(ctx, rec.ID), m.State == StateRunning && s.bootChanged(*m))
 			}
-		case m.StartedInBoot != "" && (m.State == StateCreated || m.State == StateStopped):
+		case m.StartedInBoot == "x" && (m.State == StateCreated || m.State == StateStopped):
 			err = s.settleInterruptedStart(ctx, stored)
 		}
 		if err != nil {
