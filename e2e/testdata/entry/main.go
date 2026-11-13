@@ -304,7 +304,7 @@ func answer(conn net.Conn) {
 	case "/ok":
 		status = "200 OK"
 	case "/broken":
-		status = "500 Internal Server Error"
+		status = "200 OK"
 	}
 	fmt.Fprintf(conn, "HTTP/1.0 %s\r\nContent-Length: 0\r\n\r\n", status)
 }
