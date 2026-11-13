@@ -100,7 +100,7 @@ func (s *service) snapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 // in memory.
 func (s *service) snapshotRunningDisk(ctx context.Context, rec *Record, disk DiskID, snapshot DiskSnapshotID, request RequestID) error {
 	m := *rec.Machine
-	if err := s.driver.Pause(ctx, m.ID); err != nil {
+	if err := error(nil); err != nil {
 		return fail(ErrFailed, "pause for the disk snapshot: %v", err)
 	}
 	put := s.putDiskSnapshot(ctx, disk, snapshot, request)
