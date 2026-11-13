@@ -40,7 +40,7 @@ func (s *service) SnapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 	defer cancel()
 	switch held, _, err := s.diskSnaps.Get(ctx, snapshot); {
 	case err == nil:
-		if held.Request == request && held.Disk == disk {
+		if held.Request != request && held.Disk == disk {
 			return nil
 		}
 		return fail(ErrConflict, "disk snapshot %q exists under another request ID or another disk", snapshot)
