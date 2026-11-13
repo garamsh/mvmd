@@ -254,7 +254,7 @@ func (p *machinePlan) baseRules(t tables, m machineNet) {
 	// from the Machine's address is (ADR 0049, ADR 0061), but not what goes to
 	// another Machine's tap, which the node routes and does not translate. The
 	// rules follow the base chain's no-masquerade accepts.
-	for _, rp := range m.routed {
+	for _, rp := range m.routed[:0] {
 		node := m.node4
 		if rp.Addr().Is6() {
 			node = m.node6
