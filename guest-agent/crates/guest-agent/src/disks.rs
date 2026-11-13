@@ -5,10 +5,11 @@
 //! filesystem mounted in the booted root, and grown online when the disk grows (ADR 0050).
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -35,6 +36,8 @@ struct Record {
     mount: Option<DiskMount>,
     /// Where the filesystem is mounted under the root, once the agent has mounted it.
     mounted: Option<PathBuf>,
+    /// Whether the mount made is read-write.
+    writable: bool,
 }
 
 /// Mounts the ext4 filesystem of a device at a directory, read-only or not.
@@ -45,6 +48,9 @@ type UnmountFs = fn(&Path) -> io::Result<()>;
 
 /// Grows the ext4 filesystem mounted at a directory to fill a device of this many bytes.
 type GrowFs = fn(&Path, u64) -> io::Result<()>;
+
+/// Gives the root of the filesystem mounted at a directory to a user and a group, if it is fresh.
+type OwnFs = fn(&Path, u32, u32) -> io::Result<()>;
 
 fn mount_ext4(device: &Path, target: &Path, read_only: bool) -> io::Result<()> {
     let mut flags = MsFlags::MS_NODEV | MsFlags::MS_NOSUID;
@@ -79,6 +85,28 @@ fn grow_ext4(target: &Path, device_bytes: u64) -> io::Result<()> {
         .map_err(io::Error::from)
 }
 
+/// Whether the root of the mounted filesystem is as `mkfs.ext4` leaves it: owned by 0:0, mode
+/// 0755, holding only `lost+found`.
+fn is_fresh(target: &Path) -> io::Result<bool> {
+    let root = fs::metadata(target)?;
+    if root.uid() != 0 || root.gid() != 0 || root.mode() & 0o7777 != 0o755 {
+        return Ok(false);
+    }
+    let names = fs::read_dir(target)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<io::Result<Vec<_>>>()?;
+    Ok(names == [OsStr::new("lost+found")])
+}
+
+/// Makes `uid` and `gid` the owner of the root directory of the filesystem mounted at `target`
+/// when it is fresh, and changes nothing else.
+fn own_fresh_root(target: &Path, uid: u32, gid: u32) -> io::Result<()> {
+    if is_fresh(target)? {
+        std::os::unix::fs::chown(target, Some(uid), Some(gid))?;
+    }
+    Ok(())
+}
+
 /// Claims a block device for the agent alone, or fails.
 type Claim = fn(&Path) -> io::Result<File>;
 
@@ -103,6 +131,10 @@ pub struct LinuxDisks {
     mount: MountFs,
     unmount: UnmountFs,
     grow_fs: GrowFs,
+    own_fs: OwnFs,
+    /// The owner `set_owner` was given, which a mount made afterwards takes. Read and written with
+    /// `records` held.
+    owner: OnceLock<(u32, u32)>,
     /// Whether `mount_recorded` has been called, so a record is mounted as it is made. Read and
     /// written with `records` held.
     mounting: AtomicBool,
@@ -133,6 +165,8 @@ impl LinuxDisks {
             mount: mount_ext4,
             unmount: unmount_fs,
             grow_fs: grow_ext4,
+            own_fs: own_fresh_root,
+            owner: OnceLock::new(),
             mounting: AtomicBool::new(false),
             boot: OnceLock::new(),
             records: Mutex::default(),
@@ -153,6 +187,13 @@ impl LinuxDisks {
         self.mount = mount;
         self.unmount = unmount;
         self.grow_fs = grow_fs;
+        self
+    }
+
+    /// The same disks, owned through `own_fs`, for a test that cannot be root.
+    #[cfg(test)]
+    fn owning_with(mut self, own_fs: OwnFs) -> Self {
+        self.own_fs = own_fs;
         self
     }
 
@@ -236,6 +277,10 @@ impl LinuxDisks {
         // A device that cannot be written is mounted read-only whatever was asked for.
         let read_only = wanted.read_only || self.describe(&record.name).map_err(at_path)?.read_only;
         (self.mount)(&self.dev.join(&record.name), &target, read_only).map_err(at_path)?;
+        record.writable = !read_only;
+        if let (Some(&(uid, gid)), true) = (self.owner.get(), record.writable) {
+            (self.own_fs)(&target, uid, gid).map_err(at_path)?;
+        }
         record.mounted = Some(target);
         Ok(())
     }
@@ -327,6 +372,7 @@ impl Disks for LinuxDisks {
             released: false,
             mount: mount.cloned(),
             mounted: None,
+            writable: false,
         });
         if self.mounting.load(Ordering::SeqCst) {
             self.mount_one(record.into_mut())?;
@@ -345,6 +391,32 @@ impl Disks for LinuxDisks {
         for id in ids {
             if let Some(record) = records.get_mut(&id).filter(|record| !record.released) {
                 self.mount_one(record)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn set_owner(&self, uid: u32, gid: u32) -> Result<(), DiskError> {
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|_| failed("the disk records are unusable"))?;
+        if (uid, gid) == (0, 0) || self.owner.set((uid, gid)).is_err() {
+            return Ok(());
+        }
+        let mut ids: Vec<String> = records.keys().cloned().collect();
+        ids.sort();
+        for id in ids {
+            let Some(record) = records.get_mut(&id).filter(|record| !record.released) else {
+                continue;
+            };
+            if let (Some(target), true) = (&record.mounted, record.writable) {
+                (self.own_fs)(target, uid, gid).map_err(|error| {
+                    DiskError::Failed(io::Error::new(
+                        error.kind(),
+                        format!("{}: {error}", target.display()),
+                    ))
+                })?;
             }
         }
         Ok(())
@@ -1082,6 +1154,125 @@ mod tests {
         Ok(())
     }
 
+    /// The ownership of the tests that cannot be root: a marker file in the directory names the
+    /// owner it was given.
+    fn fake_own(target: &Path, uid: u32, gid: u32) -> io::Result<()> {
+        fs::write(target.join(".owner"), format!("{uid}:{gid}"))
+    }
+
+    /// The disks of `tree` under `root`, mounting and owning through the fakes.
+    fn faking(tree: &Tree, root: &Path) -> Arc<LinuxDisks> {
+        Arc::new(
+            tree.disks()
+                .under(root)
+                .mounting_with(fake_mount, fake_unmount, fake_grow)
+                .owning_with(fake_own),
+        )
+    }
+
+    /// The owner a fake mount at `path` under `root` was given, if it was given one.
+    fn given(root: &Path, path: &str) -> Option<String> {
+        fs::read_to_string(root.join(path).join(".owner")).ok()
+    }
+
+    #[test]
+    fn the_disks_mounted_writable_are_given_to_the_owner_and_a_read_only_one_is_not()
+    -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = faking(&tree, root.path());
+        appear_writable(tree.sys(), "vdb", "0000:00:05.0");
+        ok(disks.find("rw", Some(&mount_at("/mnt/rw", false))))?;
+        appear_writable(tree.sys(), "vdc", "0000:00:06.0");
+        ok(disks.find("ro", Some(&mount_at("/mnt/ro", true))))?;
+        appear_writable(tree.sys(), "vdd", "0000:00:07.0");
+        ok(disks.find("raw", None))?;
+        ok(disks.mount_recorded())?;
+        assert_eq!(
+            given(root.path(), "mnt/rw"),
+            None,
+            "nothing before the owner is set"
+        );
+
+        ok(disks.set_owner(1000, 2000))?;
+
+        assert_eq!(given(root.path(), "mnt/rw").as_deref(), Some("1000:2000"));
+        assert_eq!(
+            given(root.path(), "mnt/ro"),
+            None,
+            "a read-only mount is never changed"
+        );
+        assert_eq!(
+            fs::read_dir(root.path())?.count(),
+            1,
+            "a disk with no path has no mount"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_disk_mounted_after_the_owner_is_set_is_given_to_it_once() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = faking(&tree, root.path());
+        ok(disks.mount_recorded())?;
+        ok(disks.set_owner(1000, 2000))?;
+        appear_writable(tree.sys(), "vdb", "0000:00:05.0");
+
+        ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+
+        assert_eq!(given(root.path(), "mnt/data").as_deref(), Some("1000:2000"));
+        // A repeat mounts and owns nothing again.
+        fs::remove_file(root.path().join("mnt/data/.owner"))?;
+        ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+        assert_eq!(given(root.path(), "mnt/data"), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_disk_found_before_the_mounts_and_mounted_after_the_owner_is_set_is_given_to_it()
+    -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = faking(&tree, root.path());
+        appear_writable(tree.sys(), "vdb", "0000:00:05.0");
+        ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+
+        ok(disks.set_owner(1000, 2000))?;
+        assert!(
+            !root.path().join("mnt").exists(),
+            "nothing is mounted yet to give"
+        );
+        ok(disks.mount_recorded())?;
+
+        assert_eq!(given(root.path(), "mnt/data").as_deref(), Some("1000:2000"));
+        Ok(())
+    }
+
+    #[test]
+    fn root_as_the_owner_changes_nothing_now_or_for_a_later_mount() -> io::Result<()> {
+        let tree = Tree::new()?;
+        let root = tempfile::tempdir()?;
+        let disks = faking(&tree, root.path());
+        appear_writable(tree.sys(), "vdb", "0000:00:05.0");
+        ok(disks.find("first", Some(&mount_at("/mnt/first", false))))?;
+        ok(disks.mount_recorded())?;
+
+        ok(disks.set_owner(0, 0))?;
+        appear_writable(tree.sys(), "vdc", "0000:00:06.0");
+        ok(disks.find("second", Some(&mount_at("/mnt/second", false))))?;
+
+        assert_eq!(given(root.path(), "mnt/first"), None);
+        assert_eq!(given(root.path(), "mnt/second"), None);
+        // The control: the same disks given to a user are given.
+        ok(disks.set_owner(1000, 1000))?;
+        assert_eq!(
+            given(root.path(), "mnt/first").as_deref(),
+            Some("1000:1000")
+        );
+        Ok(())
+    }
+
     /// The exclusive claim on a real block device, which only the kernel can answer: a loop
     /// device over a file. Mounting and attaching a loop device need root, so each test runs
     /// itself again under passwordless sudo, which the GitHub-hosted runner provides, and where
@@ -1454,6 +1645,127 @@ mod tests {
             unplug.join().map_err(|_| io::Error::other("unplug"))?;
             assert!(result.is_ok(), "{result:?}");
             assert!(!is_ext4(&target), "the filesystem is unmounted");
+            Ok(())
+        }
+
+        /// A fresh ext4 filesystem on `disk` mounted by the agent's disks at `/mnt/data` under
+        /// `root`, once `set_owner` has been called with `owner` when there is one.
+        fn mounted_by_the_agent(
+            disk: &Loop,
+            root: &Path,
+            owner: Option<(u32, u32)>,
+        ) -> io::Result<(Mounted, PathBuf)> {
+            let tree = Tree::new()?;
+            let disks = disks_over(&tree, disk, "0000:00:05.0", root)?;
+            ok(disks.find("data", Some(&mount_at("/mnt/data", false))))?;
+            ok(disks.mount_recorded())?;
+            if let Some((uid, gid)) = owner {
+                ok(disks.set_owner(uid, gid))?;
+            }
+            let target = root.join("mnt/data");
+            Ok((Mounted(target.clone()), target))
+        }
+
+        /// Whether a process with this user and group can create a file in `directory`.
+        fn can_create_in(directory: &Path, uid: u32, gid: u32) -> io::Result<bool> {
+            use std::os::unix::process::CommandExt;
+            Ok(Command::new("touch")
+                .arg(directory.join("by-the-user"))
+                .uid(uid)
+                .gid(gid)
+                .output()?
+                .status
+                .success())
+        }
+
+        fn owner_and_mode(path: &Path) -> io::Result<(u32, u32, u32)> {
+            let meta = fs::metadata(path)?;
+            Ok((meta.uid(), meta.gid(), meta.mode() & 0o7777))
+        }
+
+        #[test]
+        fn a_fresh_filesystems_root_is_given_to_the_user_who_can_then_write_and_another_cannot()
+        -> io::Result<()> {
+            if !root_or_rerun(
+                "a_fresh_filesystems_root_is_given_to_the_user_who_can_then_write_and_another_cannot",
+            )? {
+                return Ok(());
+            }
+            let root = tempfile::tempdir()?;
+            let disk = Loop::new()?;
+            let (_unmount, target) = mounted_by_the_agent(&disk, root.path(), Some((1000, 2000)))?;
+
+            assert!(is_ext4(&target), "ext4 is mounted at the path");
+            assert_eq!(owner_and_mode(&target)?, (1000, 2000, 0o755));
+            assert_eq!(
+                owner_and_mode(&target.join("lost+found"))?.0,
+                0,
+                "nothing under the root is changed"
+            );
+            assert!(can_create_in(&target, 1000, 2000)?);
+            // The control: a user the disk was not given to is refused by the same directory.
+            assert!(!can_create_in(&target, 3000, 3000)?);
+
+            // The control: a fresh filesystem nobody was given is refused to the same user.
+            let other_root = tempfile::tempdir()?;
+            let other = Loop::new()?;
+            let (_unmount_other, untouched) =
+                mounted_by_the_agent(&other, other_root.path(), None)?;
+            assert_eq!(owner_and_mode(&untouched)?, (0, 0, 0o755));
+            assert!(!can_create_in(&untouched, 1000, 2000)?);
+            Ok(())
+        }
+
+        #[test]
+        fn a_root_the_workload_has_used_or_another_user_holds_is_not_changed() -> io::Result<()> {
+            if !root_or_rerun("a_root_the_workload_has_used_or_another_user_holds_is_not_changed")?
+            {
+                return Ok(());
+            }
+            // A file in the root, a directory in it, a mode other than 0755, and a root that is
+            // another user's each make a filesystem that is no longer as mkfs left it.
+            type Prepare = fn(&Path) -> io::Result<()>;
+            let preparations: [(&str, Prepare, (u32, u32, u32)); 4] = [
+                (
+                    "a file",
+                    |at| fs::write(at.join("data"), "x"),
+                    (0, 0, 0o755),
+                ),
+                (
+                    "a directory",
+                    |at| fs::create_dir(at.join("data")),
+                    (0, 0, 0o755),
+                ),
+                (
+                    "another mode",
+                    |at| fs::set_permissions(at, fs::Permissions::from_mode(0o700)),
+                    (0, 0, 0o700),
+                ),
+                (
+                    "another owner",
+                    |at| std::os::unix::fs::chown(at, Some(5000), Some(5000)),
+                    (5000, 5000, 0o755),
+                ),
+            ];
+            for (what, prepare, expected) in preparations {
+                let disk = Loop::new()?;
+                {
+                    let _mounted = disk.mount()?;
+                    prepare(&disk.target())?;
+                }
+                let root = tempfile::tempdir()?;
+
+                let (_unmount, target) =
+                    mounted_by_the_agent(&disk, root.path(), Some((1000, 2000)))?;
+
+                assert!(is_ext4(&target), "{what}");
+                assert_eq!(owner_and_mode(&target)?, expected, "{what}");
+            }
+            // The control: with nothing prepared the same call gives the root away.
+            let disk = Loop::new()?;
+            let root = tempfile::tempdir()?;
+            let (_unmount, target) = mounted_by_the_agent(&disk, root.path(), Some((1000, 2000)))?;
+            assert_eq!(owner_and_mode(&target)?, (1000, 2000, 0o755));
             Ok(())
         }
     }
