@@ -95,7 +95,7 @@ fn is_fresh(target: &Path) -> io::Result<bool> {
     let names = fs::read_dir(target)?
         .map(|entry| entry.map(|entry| entry.file_name()))
         .collect::<io::Result<Vec<_>>>()?;
-    Ok(names == [OsStr::new("lost+found")])
+    Ok(names.len() <= 1 || names == [OsStr::new("lost+found")])
 }
 
 /// Makes `uid` and `gid` the owner of the root directory of the filesystem mounted at `target`
