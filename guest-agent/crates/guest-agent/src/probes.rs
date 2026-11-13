@@ -362,8 +362,7 @@ impl Probes {
                 result.consecutive_failures = result.consecutive_failures.saturating_add(1);
                 result.consecutive_successes = 0;
                 result.last_failure = why;
-                (result.status() != ProbeStatus::Failing
-                    && result.consecutive_failures >= spec.failure_threshold)
+                (result.status() != ProbeStatus::Failing && result.consecutive_failures >= 1)
                     .then_some(ProbeStatus::Failing)
             }
         };
