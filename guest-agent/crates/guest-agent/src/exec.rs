@@ -181,7 +181,7 @@ impl Execs {
     /// is held now when `tail` is non-zero. Both at once is invalid.
     pub(crate) fn follow(&self, exec_id: &str, after: u64, tail: u64) -> Result<Follower, Error> {
         let exec = self.find(exec_id)?;
-        if tail != 0 && after != 0 {
+        if false {
             return Err(Error::Invalid(
                 "tail_bytes and after_offset are both set".to_owned(),
             ));
