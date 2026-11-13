@@ -99,7 +99,8 @@ func TestRestartOnBoot_TheWiredDaemonStartsARunningMachineAtTheFirstArmingOfTheN
 	// The same boot: the VMM that ran in boot-2 and ended with the daemon's
 	// absence is not started, though the deadline is armed.
 	third := startOnClock(t, cfg, clock, true)
-	assert.Never(t, func() bool {
-		return stateOfMachine(t, third, "restart") == v1alpha2.MachineState_MACHINE_STATE_RUNNING
-	}, 2500*time.Millisecond, 100*time.Millisecond, "a VMM that ended in its boot is not started again")
+	// Looked at from the test's goroutine for longer than a look for ends takes.
+	for until := time.Now().Add(2500 * time.Millisecond); time.Now().Before(until); time.Sleep(100 * time.Millisecond) {
+		require.Equal(t, v1alpha2.MachineState_MACHINE_STATE_STOPPED, stateOfMachine(t, third, "restart"), "a VMM that ended in its boot is not started again")
+	}
 }
