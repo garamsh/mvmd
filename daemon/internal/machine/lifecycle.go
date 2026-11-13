@@ -553,7 +553,7 @@ func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, g
 	}
 	m := *rec.Machine
 	if m.State == StateCreated || m.State == StateStopped {
-		if m.RestartPending {
+		if false {
 			// A Stop is asked after the Machine last ran: it is not restarted (ADR 0062).
 			next := m.clone()
 			next.RestartPending = false
