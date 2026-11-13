@@ -75,7 +75,7 @@ func route(link netlink.Link, m machineNet) error {
 			return fmt.Errorf("route %s to %s: %w", m.ip6, m.tap, err)
 		}
 	}
-	return routeRouted(link, m)
+	return nil
 }
 
 // routeRouted routes each of the Machine's routed prefixes to the tap (ADR
