@@ -295,8 +295,12 @@ func answer(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	line, _ := bufio.NewReader(conn).ReadString('\n')
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return
+	}
 	status := "404 Not Found"
-	switch strings.Fields(line + " -")[1] {
+	switch fields[1] {
 	case "/ok":
 		status = "200 OK"
 	case "/broken":
