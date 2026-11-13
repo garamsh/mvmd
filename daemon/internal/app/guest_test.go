@@ -205,6 +205,23 @@ func TestGuestAPI_ReadExecOutputStartsAtTheTail(t *testing.T) {
 	})
 }
 
+// tail_bytes on an exec that is not the entrypoint reaches the guest too; the
+// control is the same read without it, which returns the whole output.
+func TestGuestAPI_ReadExecOutputStartsAtTheTailOfAnotherExec(t *testing.T) {
+	ctx := context.Background()
+	n := running(t)
+	g, c := n.app.Substitutes.Guest, n.client
+	_, err := c.Exec(ctx, execRequest())
+	require.NoError(t, err)
+	g.Emit("x", machine.OutputStdout, "0123456789")
+
+	whole, _ := readAll(t, c, &v1alpha2.ReadExecOutputRequest{MachineId: "m", ExecId: "x"})
+	assert.Equal(t, "0123456789", whole, "the control: without a tail the whole output")
+	data, next := readAll(t, c, &v1alpha2.ReadExecOutputRequest{MachineId: "m", ExecId: "x", TailBytes: 4})
+	assert.Equal(t, "6789", data)
+	assert.Equal(t, uint64(10), next)
+}
+
 // tail_bytes with a non-zero after_offset is refused as invalid and reaches no
 // guest; the control is tail_bytes alone, which is accepted.
 func TestGuestAPI_TailBytesWithAnOffsetIsRefused(t *testing.T) {
