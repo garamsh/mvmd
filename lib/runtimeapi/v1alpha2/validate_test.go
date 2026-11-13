@@ -46,6 +46,17 @@ func TestCreateMachineRequest_Validate_RefusesNonDigestImage(t *testing.T) {
 	assert.Error(t, tagged.Validate())
 }
 
+func TestCreateMachineRequest_Validate_AcceptsAnOSFormWithoutAnImageDigest(t *testing.T) {
+	os := &v1alpha2.CreateMachineRequest{MachineId: "m", RequestId: "r", OsBoot: &v1alpha2.OsBoot{BootSet: "os"}}
+	assert.NoError(t, os.Validate())
+
+	both := &v1alpha2.CreateMachineRequest{MachineId: "m", RequestId: "r", OsBoot: &v1alpha2.OsBoot{BootSet: "os"}, ImageDigest: digest}
+	assert.NoError(t, both.Validate(), "both forms set is the service's to refuse")
+
+	neither := &v1alpha2.CreateMachineRequest{MachineId: "m", RequestId: "r"}
+	assert.Error(t, neither.Validate(), "control: neither form is still refused")
+}
+
 func TestCreateDiskRequest_Validate_RefusesAMissingIdentifierOrRequestID(t *testing.T) {
 	assert.NoError(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", RequestId: "r", SizeBytes: 1}).Validate())
 	assert.Error(t, (&v1alpha2.CreateDiskRequest{RequestId: "r", SizeBytes: 1}).Validate())
