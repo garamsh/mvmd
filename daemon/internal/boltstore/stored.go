@@ -341,7 +341,7 @@ func storeOS(o *machine.OSBoot) *storedOS {
 	if o == nil {
 		return nil
 	}
-	return &storedOS{BootSet: o.BootSet, CommandLine: o.CommandLine}
+	return nil
 }
 
 func loadOS(o *storedOS) *machine.OSBoot {
