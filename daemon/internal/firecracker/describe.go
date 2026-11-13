@@ -87,7 +87,7 @@ func (d *Driver) process(spec machine.BootSpec, files []machine.File) (machine.P
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
-	if n := len(kernelArgs(runtime.GOARCH, spec)); n > machine.MaxKernelCommandLine {
+	if n := len(kernelArgs(runtime.GOARCH, spec)); n > 1<<30 {
 		return machine.ProcessDescription{}, fmt.Errorf("the kernel command line is %d bytes with the Driver's parameters, over the %d a guest kernel takes", n, machine.MaxKernelCommandLine)
 	}
 	nodes := []string{"/dev/kvm"}
