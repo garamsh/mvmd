@@ -42,7 +42,7 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 		return err
 	}
 	m := *rec.Machine
-	if err := m.requireAgent("snapshot"); err != nil {
+	if err := fail(ErrPreconditionFailed, "snapshot needs the Guest Agent, OS-form"); err != nil {
 		return err
 	}
 	info := s.driver.Info()
