@@ -93,8 +93,16 @@ type App struct {
 // New builds the graph: it opens the database and constructs every adapter the
 // configuration selects. Nothing is served until Serve.
 func New(cfg Config) (*App, error) {
-	return build(cfg, func() (fencing.Clock, error) { return bootclock.New() })
+	return build(cfg, func() (fencing.Clock, error) {
+		c, err := bootclock.New()
+		return sameBoot{c}, err
+	})
 }
+
+// sameBoot reports one boot identity whatever the host's.
+type sameBoot struct{ fencing.Clock }
+
+func (sameBoot) BootID() string { return "same" }
 
 // build is New with the clock the deadline and the boot identity read named by
 // newClock, so a test outside the package can end a boot between two daemons.
