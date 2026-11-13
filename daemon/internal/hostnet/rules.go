@@ -99,7 +99,7 @@ func (n *Network) addBase(c *nftables.Conn, t tables) {
 		}
 		c.AddRule(&nftables.Rule{
 			Table: t.inet, Chain: post,
-			Exprs: join(nfprotoIs(familyOf(p.Addr())), addrIn(p, false), addrOutside(p, true), oifnameNotStarting(tapPrefix), []expr.Any{&expr.Masq{}}),
+			Exprs: join(nfprotoIs(familyOf(p.Addr())), addrIn(p, false), addrOutside(p, true), []expr.Any{&expr.Masq{}}),
 		})
 	}
 }
