@@ -266,7 +266,11 @@ func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, e
 	if err != nil {
 		return machine.DiskEntry{}, err
 	}
-	return machine.DiskEntry{ID: disk, Request: request, SizeBytes: uint64(info.Size()), Filesystem: fs}, nil
+	from, err := readFromSnapshot(path)
+	if err != nil {
+		return machine.DiskEntry{}, err
+	}
+	return machine.DiskEntry{ID: disk, Request: request, SizeBytes: uint64(info.Size()), Filesystem: fs, FromSnapshot: from}, nil
 }
 
 // readFilesystem returns the filesystem recorded on the disk file, ext4 for a

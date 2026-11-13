@@ -73,6 +73,9 @@ type DiskEntry struct {
 	Request    RequestID
 	SizeBytes  uint64
 	Filesystem Filesystem
+	// FromSnapshot is the disk snapshot the disk was made from, or empty. It is
+	// part of what a repeated create is compared against.
+	FromSnapshot DiskSnapshotID
 }
 
 // DiskInfo is a disk the node holds as ListDisks reports it: its size, its
@@ -110,6 +113,15 @@ type Disk interface {
 	// ErrDiskInvalid for one that cannot name a file; on any other error no disk
 	// is left.
 	Create(ctx context.Context, entry DiskEntry) error
+	// CreateFrom makes the disk of the entry as a copy of the disk file at
+	// source, which a disk snapshot holds: the file is duplicated, by reflink where
+	// the file system has one, and grown to the entry's size, which is at least
+	// the source's. It records the entry's request ID, filesystem and
+	// FromSnapshot, all or nothing, owned as Create's disk is. It returns
+	// ErrDiskExists for an identifier a disk file has, and ErrDiskInvalid for one
+	// that cannot name a file or a size below the source's; on any other error no
+	// disk is left.
+	CreateFrom(ctx context.Context, entry DiskEntry, source string) error
 	// Get returns the disk the node holds, or ErrDiskAbsent.
 	Get(ctx context.Context, disk DiskID) (DiskEntry, error)
 	// List returns every disk the node holds, root disks included, ordered by

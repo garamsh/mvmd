@@ -21,6 +21,11 @@ const deleting MachineID = ""
 // identifier, and ListDisks reports the disk as having no holder.
 const resizing MachineID = "\x00resizing"
 
+// snapshotting is the holder a disk no Machine holds takes while SnapshotDisk
+// copies it, so that no attach, resize or delete races the copy. It is not a
+// Machine identifier, and ListDisks reports the disk as having no holder.
+const snapshotting MachineID = "\x00snapshotting"
+
 // holderIs says who holds a disk in the words of a refusal: a Machine, or the
 // call that took the disk for a moment.
 func holderIs(holder MachineID) string {
@@ -29,6 +34,8 @@ func holderIs(holder MachineID) string {
 		return "being deleted"
 	case resizing:
 		return "being resized"
+	case snapshotting:
+		return "being snapshotted"
 	}
 	return fmt.Sprintf("held by Machine %q", holder)
 }
@@ -163,7 +170,7 @@ func (s *service) ListDisks(ctx context.Context) ([]DiskInfo, error) {
 	out := make([]DiskInfo, 0, len(entries))
 	for _, e := range entries {
 		holder := s.held[e.ID]
-		if holder == resizing {
+		if holder == resizing || holder == snapshotting {
 			holder = ""
 		}
 		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Filesystem: e.Filesystem, Holder: holder})
@@ -247,7 +254,7 @@ func (s *service) resizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64)
 		}
 		return true, s.growFile(ctx, e, sizeBytes)
 	}
-	if holder == deleting || holder == resizing {
+	if holder == deleting || holder == resizing || holder == snapshotting {
 		return true, fail(ErrPreconditionFailed, "disk %q is %s", disk, holderIs(holder))
 	}
 	defer s.lock(holder)()
