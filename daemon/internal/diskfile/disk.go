@@ -439,7 +439,7 @@ func (d *Disk) Grow(ctx context.Context, disk machine.DiskID, sizeBytes uint64) 
 		return fmt.Errorf("%w: the size %d is too large", machine.ErrDiskInvalid, sizeBytes)
 	}
 	path := filepath.Join(d.dir, string(disk))
-	fd, err := unix.Open(path, unix.O_WRONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(path, unix.O_WRONLY|unix.O_CLOEXEC, 0)
 	switch {
 	case errors.Is(err, unix.ENOENT), errors.Is(err, unix.ELOOP):
 		return machine.ErrDiskAbsent
