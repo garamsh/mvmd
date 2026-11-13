@@ -568,7 +568,7 @@ func TestGet_ARecordWithoutARunConfigurationReadsBackWithNone(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the record is the daemon's alone")
 	var fields map[string]any
 	require.NoError(t, json.Unmarshal([]byte(read(t, path)), &fields))
-	for _, key := range []string{"command", "args", "env", "run_user", "files", "working_dir"} {
+	for _, key := range []string{"command", "args", "env", "run_user", "files", "working_dir", "probes"} {
 		require.Contains(t, fields, key)
 		delete(fields, key)
 	}
@@ -584,5 +584,6 @@ func TestGet_ARecordWithoutARunConfigurationReadsBackWithNone(t *testing.T) {
 	assert.Empty(t, got.Spec.User)
 	assert.Empty(t, got.Spec.Files)
 	assert.Empty(t, got.Spec.WorkingDir)
+	assert.Empty(t, got.Spec.Probes)
 	assert.Equal(t, "sha256:kernel", got.Compat.KernelDigest, "the rest of the record reads as before")
 }
