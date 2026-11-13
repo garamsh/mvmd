@@ -444,7 +444,6 @@ func (s *service) setMachine(rec *Record, m *Machine) {
 		s.followProbes(rec.ID, m.Probes)
 	case StatePaused:
 	default:
-		s.unfollowProbes(rec.ID)
 	}
 	if changed {
 		if m.State == StateStopped || m.State == StateFaulted {
