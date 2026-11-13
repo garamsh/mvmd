@@ -69,10 +69,10 @@ func New(cfg Config) (*Driver, error) {
 }
 
 // Info implements machine.Driver. The optional capabilities reported are the
-// console, snapshot and disk hot-plug, and on x86_64 resize: v54.0's vCPU and
+// console, snapshot, disk hot-plug and disk resize, and on x86_64 resize: v54.0's vCPU and
 // memory hot-plug are x86_64's, and elsewhere Resize refuses (unsupported).
 func (d *Driver) Info() machine.DriverInfo {
-	caps := []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}
+	caps := []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug, machine.CapabilityDiskResize}
 	if resizeCapable(d.goarch) {
 		caps = append(caps, machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 	}

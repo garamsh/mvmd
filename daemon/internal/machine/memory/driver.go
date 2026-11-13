@@ -21,13 +21,15 @@ type Driver struct {
 	Failures
 	info machine.DriverInfo
 
-	mu       sync.Mutex
-	specs    map[machine.MachineID]machine.BootSpec
-	booted   map[machine.MachineID]machine.BootSpec
-	grace    time.Duration
-	devices  map[machine.MachineID][]machine.DiskID
-	sizes    map[machine.MachineID]machine.Resources
-	restored map[machine.MachineID][]string
+	mu      sync.Mutex
+	specs   map[machine.MachineID]machine.BootSpec
+	booted  map[machine.MachineID]machine.BootSpec
+	grace   time.Duration
+	devices map[machine.MachineID][]machine.DiskID
+	// driveSizes is the size of the last ResizeDisk of each drive.
+	driveSizes map[machine.MachineID]map[machine.DiskID]uint64
+	sizes      map[machine.MachineID]machine.Resources
+	restored   map[machine.MachineID][]string
 	// restoreSpec is the boot description each Machine's Restore was given.
 	restoreSpec map[machine.MachineID]machine.BootSpec
 	// running tracks Machines booted or restored until Shutdown clears them.
@@ -384,6 +386,28 @@ func (d *Driver) Resize(_ context.Context, id machine.MachineID, target machine.
 	d.sizes[id] = target
 	d.mu.Unlock()
 	return nil
+}
+
+// ResizeDisk implements machine.Driver. Its step is "resize-disk".
+func (d *Driver) ResizeDisk(_ context.Context, id machine.MachineID, disk machine.DiskID, sizeBytes uint64) error {
+	if err := d.Enter("resize-disk"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.driveSizes[id] == nil {
+		d.driveSizes[id] = make(map[machine.DiskID]uint64)
+	}
+	d.driveSizes[id][disk] = sizeBytes
+	return nil
+}
+
+// DriveSize returns the size of the last ResizeDisk of the disk's drive on the
+// Machine, zero when there was none.
+func (d *Driver) DriveSize(id machine.MachineID, disk machine.DiskID) uint64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.driveSizes[id][disk]
 }
 
 // KernelDigest is the digest of the one kernel Kernels offers.

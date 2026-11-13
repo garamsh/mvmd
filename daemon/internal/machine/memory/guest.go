@@ -47,6 +47,8 @@ type Guest struct {
 	held      map[machine.MachineID]map[machine.DiskID]bool
 	present   map[machine.MachineID]uint32
 	online    map[machine.MachineID]uint32
+	devSize   map[machine.MachineID]map[machine.DiskID]uint64
+	grows     map[machine.MachineID][]machine.DiskID
 }
 
 type guestExec struct {
@@ -75,6 +77,8 @@ func NewGuest(retention int) *Guest {
 		held:      make(map[machine.MachineID]map[machine.DiskID]bool),
 		present:   make(map[machine.MachineID]uint32),
 		online:    make(map[machine.MachineID]uint32),
+		devSize:   make(map[machine.MachineID]map[machine.DiskID]uint64),
+		grows:     make(map[machine.MachineID][]machine.DiskID),
 		retention: retention,
 	}
 }
@@ -567,6 +571,25 @@ func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, a machine.Di
 	return nil
 }
 
+// GrowDisk implements machine.Guest: it records the call and answers the device
+// size set with SetDeviceSize, zero when none was set. A disk the guest has not
+// found, or released, is machine.ErrDiskUnknown.
+func (g *Guest) GrowDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) (uint64, error) {
+	if err := g.enter("grow-disk"); err != nil {
+		return 0, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, errors.Join(machine.ErrGuestUnreachable, err)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.found[id][disk] {
+		return 0, machine.ErrDiskUnknown
+	}
+	g.grows[id] = append(g.grows[id], disk)
+	return g.devSize[id][disk], nil
+}
+
 // ReleaseDisk implements machine.Guest: it releases a disk the guest found,
 // unless the disk is held open (HoldDisk). A disk it already released is
 // released again without effect, and machine.ErrDiskUnknown is the answer for
@@ -660,6 +683,25 @@ func (g *Guest) Finds(id machine.MachineID) []machine.DiskAttachment {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return slices.Clone(g.finds[id])
+}
+
+// SetDeviceSize sets the size GrowDisk reports for the disk of the Machine: what
+// the guest sees of the device.
+func (g *Guest) SetDeviceSize(id machine.MachineID, disk machine.DiskID, size uint64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.devSize[id] == nil {
+		g.devSize[id] = make(map[machine.DiskID]uint64)
+	}
+	g.devSize[id][disk] = size
+}
+
+// Grows returns the disks of every GrowDisk the guest of the Machine served, in
+// order.
+func (g *Guest) Grows(id machine.MachineID) []machine.DiskID {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.grows[id])
 }
 
 // Terminated returns how many Terminate calls the guest of the Machine took.

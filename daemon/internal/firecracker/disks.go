@@ -3,6 +3,7 @@ package firecracker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
@@ -61,6 +62,18 @@ func (d *Driver) DetachDisk(ctx context.Context, id machine.MachineID, disk mach
 		return err
 	}
 	return diskdevice.RemoveLink(filepath.Join(dir, name))
+}
+
+// ResizeDisk implements machine.Driver and always refuses: Firecracker v1.17.0
+// has no call that grows a drive's file, and PATCH /drives/{id}, which updates
+// the emulation's length and tells the guest, is documented for a device the
+// guest has not mounted and does no I/O to (docs/api_requests/patch-block.md),
+// which an ext4 disk of a Machine is not. The Driver does not report the
+// capability, so the lifecycle refuses the resize of a disk a Running Machine
+// holds before it gets here.
+func (d *Driver) ResizeDisk(context.Context, machine.MachineID, machine.DiskID, uint64) error {
+	return fmt.Errorf("%w: Firecracker v1.17.0 resizes a drive only while the guest has not mounted it "+
+		"(PATCH /drives/{id}, docs/api_requests/patch-block.md)", machine.ErrUnsupported)
 }
 
 // Drive implements machine.Driver. It reads the VMM's own configuration

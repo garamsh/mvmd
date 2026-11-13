@@ -231,7 +231,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.
 	if taken, holder, ok := s.claim(id, RootDiskID(id)); !ok {
-		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("disk %q is held by Machine %q", taken, holder))
+		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("disk %q is %s", taken, holderIs(holder)))
 		return fail(ErrPreconditionFailed, "%s", reason)
 	}
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
@@ -273,10 +273,7 @@ func (s *service) takeDisks(ctx context.Context, id MachineID, recorded []Snapsh
 		disks = append(disks, d.Disk)
 	}
 	if taken, holder, ok := s.claim(id, disks...); !ok {
-		if holder == deleting {
-			return nil, fail(ErrPreconditionFailed, "disk %q is being deleted", taken)
-		}
-		return nil, fail(ErrPreconditionFailed, "disk %q is held by Machine %q", taken, holder)
+		return nil, fail(ErrPreconditionFailed, "disk %q is %s", taken, holderIs(holder))
 	}
 	for _, d := range recorded {
 		file, err := s.disks.Stat(ctx, d.Disk)

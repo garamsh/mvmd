@@ -36,6 +36,9 @@ const (
 	// CapabilityConsole opens sessions to the console of a Running or Paused
 	// Machine. The console log is not part of it.
 	CapabilityConsole Capability = "console"
+	// CapabilityDiskResize grows the drive of a disk a Running Machine holds,
+	// so the guest sees the new device size without a restart (ADR 0055).
+	CapabilityDiskResize Capability = "disk-resize"
 	// CapabilitySnapshot snapshots a Running or Paused Machine and restores
 	// a Machine from a snapshot.
 	CapabilitySnapshot Capability = "snapshot"
@@ -254,7 +257,8 @@ type ProcessOverhead struct {
 //
 // An operation that needs a Capability the Driver does not report returns an
 // error wrapping ErrUnsupported. The operations are Console (CapabilityConsole),
-// AttachDisk, DetachDisk and Drive (CapabilityDiskHotplug), Resize
+// AttachDisk, DetachDisk and Drive (CapabilityDiskHotplug), ResizeDisk
+// (CapabilityDiskResize), Resize
 // (CapabilityCPUResize for the vCPUs, CapabilityMemoryResize for the memory),
 // and Snapshot, DescribeRestore and Restore
 // (CapabilitySnapshot).
@@ -302,6 +306,12 @@ type Driver interface {
 	// disk and how it came by it (ADR 0023). It reads the VMM and changes
 	// nothing.
 	Drive(ctx context.Context, id MachineID, disk DiskID) (DriveState, error)
+	// ResizeDisk needs CapabilityDiskResize. It grows the drive of a disk the
+	// running VMM of the Machine has to sizeBytes, the size the disk's file now
+	// has, and returns when the VMM has taken the change and told the guest. It
+	// never changes the host file. Repeating it for a size the drive has is
+	// safe.
+	ResizeDisk(ctx context.Context, id MachineID, disk DiskID, sizeBytes uint64) error
 	// Resize needs the capability of each resource the target changes.
 	Resize(ctx context.Context, id MachineID, target Resources) error
 	// Snapshot, DescribeRestore and Restore need CapabilitySnapshot.
