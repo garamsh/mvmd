@@ -103,12 +103,11 @@ impl Boot {
 
     /// The probes of the booted guest. An agent that does not boot the guest runs none.
     pub(crate) fn probes(&self) -> Result<Arc<Probes>, Error> {
-        self.ready()?;
-        self.probes.get().cloned().ok_or_else(|| {
-            Error::PreconditionFailed(
-                "this agent does not boot the guest and runs no probes".into(),
-            )
-        })
+        Ok(self
+            .probes
+            .get()
+            .cloned()
+            .unwrap_or_else(|| Arc::new(crate::probes::Probes::empty())))
     }
 
     /// Whether the calls that act on the guest may be served.

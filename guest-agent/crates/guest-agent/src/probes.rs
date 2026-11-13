@@ -340,6 +340,15 @@ async fn run_probe(probes: Arc<Probes>, context: Arc<Context>, index: usize, spe
 }
 
 impl Probes {
+    pub(crate) fn empty() -> Self {
+        Probes {
+            state: Mutex::new(State {
+                results: Vec::new(),
+                changes: None,
+            }),
+        }
+    }
+
     /// Count a run in its probe's result, and send the result if its status changed.
     fn record(&self, index: usize, spec: &ProbeSpec, outcome: Outcome) {
         let mut guard = lock(&self.state);
