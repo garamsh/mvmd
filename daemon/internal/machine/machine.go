@@ -167,6 +167,10 @@ type Spec struct {
 	// Probes are the checks of the workload the guest runs from the
 	// entrypoint's start (ADR 0057). A start does not change them.
 	Probes []Probe
+	// OS is set for an OS-form Machine (ADR 0058), which has none of the
+	// image-form fields above: no Image, Kernel, RootDiskBytes, Command, Args,
+	// Env, User, Files, WorkingDir or Probes.
+	OS *OSBoot
 }
 
 // Machine is a Machine as Inspect reports it.
@@ -276,6 +280,10 @@ func (s Spec) clone() Spec {
 	s.Env = cloneNonEmpty(s.Env)
 	s.Files = cloneFiles(s.Files)
 	s.Probes = cloneProbes(s.Probes)
+	if s.OS != nil {
+		os := *s.OS
+		s.OS = &os
+	}
 	return s
 }
 

@@ -42,6 +42,9 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 		return err
 	}
 	m := *rec.Machine
+	if err := m.requireAgent("snapshot"); err != nil {
+		return err
+	}
 	info := s.driver.Info()
 	if !info.has(CapabilitySnapshot) {
 		return fail(ErrUnsupported, "the Driver %s does not support snapshot", info.Name)

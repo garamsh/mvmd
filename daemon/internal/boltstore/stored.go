@@ -63,6 +63,15 @@ type storedSpec struct {
 	// Probes is absent from a record written before probes were kept, and from
 	// one whose Machine has none.
 	Probes []storedProbe `json:"Probes,omitempty"`
+	// OS is absent from a record of the image form, and from one written before
+	// the OS form existed (ADR 0058).
+	OS *storedOS `json:"OS,omitempty"`
+}
+
+// storedOS is the OS form of a Machine as it is written.
+type storedOS struct {
+	BootSet     string `json:"BootSet"`
+	CommandLine string `json:"CommandLine,omitempty"`
 }
 
 // storedProbe is a probe as it is written: the kind by name, the durations in
@@ -324,7 +333,22 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		Files:         files,
 		WorkingDir:    s.WorkingDir,
 		Probes:        probes,
+		OS:            storeOS(s.OS),
 	}, nil
+}
+
+func storeOS(o *machine.OSBoot) *storedOS {
+	if o == nil {
+		return nil
+	}
+	return &storedOS{BootSet: o.BootSet, CommandLine: o.CommandLine}
+}
+
+func loadOS(o *storedOS) *machine.OSBoot {
+	if o == nil {
+		return nil
+	}
+	return &machine.OSBoot{BootSet: o.BootSet, CommandLine: o.CommandLine}
 }
 
 func storeProbe(p machine.Probe) (storedProbe, error) {
@@ -397,6 +421,7 @@ func (s storedSpec) load() (machine.Spec, error) {
 		Files:         files,
 		WorkingDir:    s.WorkingDir,
 		Probes:        probes,
+		OS:            loadOS(s.OS),
 	}, nil
 }
 

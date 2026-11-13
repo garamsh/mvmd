@@ -19,12 +19,28 @@ func (s *service) requireRunning(id MachineID, call string) error {
 		return err
 	}
 	s.mu.Lock()
-	state := rec.Machine.State
+	m := *rec.Machine
 	s.mu.Unlock()
-	if state != StateRunning {
+	if err := m.requireAgent(call); err != nil {
+		return err
+	}
+	if state := m.State; state != StateRunning {
 		return fail(ErrPreconditionFailed, "Machine %q is %s; %s needs Running", id, state, call)
 	}
 	return nil
+}
+
+// requireAgentOf refuses a call that needs the Guest Agent on an OS-form
+// Machine, whatever its state.
+func (s *service) requireAgentOf(id MachineID, call string) error {
+	rec, err := s.machine(id)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	m := *rec.Machine
+	s.mu.Unlock()
+	return m.requireAgent(call)
 }
 
 // requireGuestPath refuses a guest file path that is empty or not absolute, as
@@ -71,6 +87,9 @@ func (s *service) Exec(ctx context.Context, id MachineID, exec ExecID, request R
 
 func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after, tail uint64, send func(OutputChunk) error) (ExecRecord, error) {
 	if exec == entrypointExec {
+		if err := s.requireAgentOf(id, "read exec output"); err != nil {
+			return ExecRecord{}, err
+		}
 		return s.readEntrypoint(ctx, id, after, tail, send)
 	}
 	return s.execs.read(ctx, id, exec, after, tail, send, func() error { return s.requireRunning(id, "read exec output") })

@@ -88,5 +88,6 @@ Decisions:
 - [ADR 0055](./adr/0055-a-node-local-disk-grows-offline-or-online-on-a-driver-that-reports-disk-resize-and-the-guest-grows-the-filesystem.md) — a node-local disk grows, offline or online on a Driver that reports disk-resize, and the guest grows the filesystem
 - [ADR 0056](./adr/0056-a-node-local-disk-is-snapshotted-into-a-file-beside-the-disks-and-a-new-disk-is-created-from-a-snapshot.md) — a node-local disk is snapshotted into a file beside the disks, and a new disk is created from a snapshot
 - [ADR 0057](./adr/0057-a-machine-keeps-its-probes-and-the-daemon-follows-the-agents-results-in-memory-and-streams-each-change.md) — a Machine keeps its probes, and the daemon follows the agent's results in memory and streams each change
+- [ADR 0058](./adr/0058-an-os-form-machine-boots-a-node-named-kernel-and-initrd-with-a-command-line-and-disks-attached-at-boot-and-has-no-image-or-guest-agent.md) — an OS-form Machine boots a node-named kernel and initrd with a command line and disks attached at boot, and has no image or Guest Agent
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

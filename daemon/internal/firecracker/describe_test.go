@@ -154,3 +154,22 @@ func TestDescribe_NamesTheKernelTheBootSpecCarries(t *testing.T) {
 		assert.Contains(t, p.BootFiles, machine.File{Host: k.Path, In: "/boot/kernel", ReadOnly: true, SHA256: k.SHA256})
 	}
 }
+
+func TestDescribe_RefusesAnOSFormBootAsUnsupported(t *testing.T) {
+	n := newNode(t)
+	spec := n.spec()
+	_, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err, "control: the image-form boot is described")
+
+	for name, change := range map[string]func(*machine.BootSpec){
+		"an initrd":      func(s *machine.BootSpec) { s.Initrd = machine.KernelFile{Path: "/boot/os-initrd", SHA256: "d"} },
+		"a command line": func(s *machine.BootSpec) { s.CommandLine = "console=ttyS0" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			boot := spec
+			change(&boot)
+			_, err := n.driver.Describe(context.Background(), "m1", boot)
+			require.ErrorIs(t, err, machine.ErrUnsupported)
+		})
+	}
+}
