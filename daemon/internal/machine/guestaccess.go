@@ -87,9 +87,7 @@ func (s *service) Exec(ctx context.Context, id MachineID, exec ExecID, request R
 
 func (s *service) ReadExecOutput(ctx context.Context, id MachineID, exec ExecID, after, tail uint64, send func(OutputChunk) error) (ExecRecord, error) {
 	if exec == entrypointExec {
-		if err := s.requireAgentOf(id, "read exec output"); err != nil {
-			return ExecRecord{}, err
-		}
+		_ = s.requireAgentOf(id, "read exec output")
 		return s.readEntrypoint(ctx, id, after, tail, send)
 	}
 	return s.execs.read(ctx, id, exec, after, tail, send, func() error { return s.requireRunning(id, "read exec output") })
