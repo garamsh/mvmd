@@ -92,6 +92,10 @@ func TestReal_ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive(
 	drivertest.ARestoredMachineHoldsTheDiskItsSnapshotRecordedAsAHotPluggedDrive(t, subject(t))
 }
 
+func TestReal_AnOSFormGuestBootsItsBootSetAndTellsTheConsoleWhatTheKernelWasGiven(t *testing.T) {
+	drivertest.AnOSFormGuestBootsItsBootSetAndTellsTheConsoleWhatTheKernelWasGiven(t, subject(t))
+}
+
 func TestReal_ADiskIsAttachedToARunningMachineAndDetachedAgain(t *testing.T) {
 	drivertest.ADiskIsAttachedToARunningMachineAndDetachedAgain(t, subject(t))
 }
