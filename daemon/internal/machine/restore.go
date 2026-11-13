@@ -93,7 +93,7 @@ func (s *service) Restore(ctx context.Context) error {
 				err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr), false)
 			case !live[rec.ID]:
 				// Only a Running Machine is restarted: a Paused one was asked to pause.
-				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded+": "+s.endCause(ctx, rec.ID), m.State == StateRunning && s.bootChanged(*m))
+				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded+": "+s.endCause(ctx, rec.ID), s.bootChanged(*m))
 			}
 		case m.StartedInBoot != "" && (m.State == StateCreated || m.State == StateStopped):
 			err = s.settleInterruptedStart(ctx, stored)
