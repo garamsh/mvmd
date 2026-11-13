@@ -40,9 +40,6 @@ func NewFromSources(s Sources) (*Registry, error) {
 		}
 	}
 	if s.CAFile != "" {
-		if _, err := readRoots(s.CAFile); err != nil {
-			return nil, err
-		}
 		opts.RootCAs = func(context.Context) (*x509.CertPool, error) { return readRoots(s.CAFile) }
 	}
 	opts.Credentials = func(ctx context.Context, registry string) (Credential, error) {
