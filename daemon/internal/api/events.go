@@ -59,7 +59,7 @@ func eventToWire(e events.Event) *v1alpha2.WatchEventsResponse {
 		}
 	case events.ProbeChanged:
 		out.Event = &v1alpha2.WatchEventsResponse_ProbeChanged{
-			ProbeChanged: &v1alpha2.ProbeChanged{Result: probeResultToWire(body.Result)},
+			ProbeChanged: &v1alpha2.ProbeChanged{},
 		}
 	case events.Driver:
 		out.Event = &v1alpha2.WatchEventsResponse_Driver{
