@@ -86,7 +86,7 @@ func (s *service) snapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 	}
 	m := *rec.Machine
 	switch m.State {
-	case StateCreated, StateStopped, StatePaused:
+	case StateCreated, StateStopped, StatePaused, StateFaulted:
 		return true, s.putDiskSnapshot(ctx, disk, snapshot, request)
 	case StateRunning:
 		return true, s.snapshotRunningDisk(ctx, rec, disk, snapshot, request)
