@@ -97,7 +97,6 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		Command:       req.GetCommand(),
 		Args:          req.GetArgs(),
 		User:          req.GetUser(),
-		WorkingDir:    req.GetWorkingDir(),
 	}
 	spec.Env, spec.Files = envOf(req.GetEnv()), filesOf(req.GetFiles())
 	for _, d := range req.GetDisks() {
