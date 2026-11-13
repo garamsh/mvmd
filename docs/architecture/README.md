@@ -41,8 +41,8 @@ Decisions:
 - [ADR 0008](./adr/0008-fs-verity-on-the-host-guards-every-read-of-a-machineimage.md) — fs-verity on the host guards every read of a MachineImage
 - [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) — a Machine's root disk is a sparse raw file with one holder (the location of the root disk is amended by ADR 0021)
 - [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md) — a Machine boots a pinned kernel and the Guest Agent initrd from raw block devices (the pin is extended to the initrd by ADR 0030)
-- [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md) — each Machine gets a routed tap and addresses mvmd assigns
-- [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) — nftables on the host enforces each Machine's policy at its tap
+- [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md) — each Machine gets a routed tap and addresses mvmd assigns (the tap's accepted sources are amended by ADR 0061)
+- [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) — nftables on the host enforces each Machine's policy at its tap (the tap's accepted sources are amended by ADR 0061)
 - [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md) — a network policy is an allow-list of address, protocol and port rules
 - [ADR 0014](./adr/0014-the-guest-agent-serves-a-grpc-contract-it-owns-over-vsock.md) — the Guest Agent serves a gRPC contract it owns over vsock
 - [ADR 0015](./adr/0015-the-supervisor-confines-every-vmm-process-the-same-way.md) — the supervisor confines every VMM process the same way (the names of the files in the VMM's mount namespace are amended by ADR 0019)
@@ -91,5 +91,6 @@ Decisions:
 - [ADR 0058](./adr/0058-an-os-form-machine-boots-a-node-named-kernel-and-initrd-with-a-command-line-and-disks-attached-at-boot-and-has-no-image-or-guest-agent.md) — an OS-form Machine boots a node-named kernel and initrd with a command line and disks attached at boot, and has no image or Guest Agent (the interim refusal is amended by ADR 0059)
 - [ADR 0059](./adr/0059-each-driver-boots-an-os-form-machine-with-its-own-parameters-before-the-clients-command-line-and-refuses-a-line-the-kernel-would-cut.md) — each Driver boots an OS-form Machine with its own parameters before the client's command line, and refuses a line the kernel would cut (it amends the interim refusal of ADR 0058)
 - [ADR 0060](./adr/0060-create-disk-takes-up-to-1-mib-of-contents-for-a-raw-disk.md) — Create disk takes up to 1 MiB of contents for a raw disk
+- [ADR 0061](./adr/0061-a-machine-owns-routed-prefixes-accepted-as-source-only-from-its-tap-and-governed-by-its-policy.md) — a Machine owns routed prefixes accepted as source only from its tap and governed by its policy (it amends ADR 0011 and ADR 0012)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
