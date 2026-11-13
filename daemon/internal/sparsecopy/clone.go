@@ -49,7 +49,7 @@ func DuplicateWith(clone Cloner, dst, src *os.File) (cloned bool, err error) {
 	case err == nil:
 		return true, nil
 	case errors.Is(err, ErrCloneUnsupported):
-		return false, Copy(dst, src)
+		return false, err
 	default:
 		return false, err
 	}
