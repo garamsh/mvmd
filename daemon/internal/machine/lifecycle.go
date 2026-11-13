@@ -84,7 +84,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	// published, so Delete disk cannot remove it between the two.
 	disks = append(disks, RootDiskID(id))
 	if taken, holder, ok := s.claim(id, disks...); !ok {
-		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", taken, holder)
+		return fail(ErrPreconditionFailed, "disk %q is %s", taken, holderIs(holder))
 	}
 
 	uid, err := s.uids.AllocateMachine(id)
@@ -294,6 +294,18 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 			description := GuestBoot{ImageUUID: image.UUID, RootDiskUUID: m.RootDiskUUID, Run: run, User: user, Files: m.Files, Network: m.Network.guestNetwork(), Clock: s.clock}
 			if err := s.guest.Boot(ctx, id, description); err != nil {
 				return fmt.Errorf("send the boot description to the guest: %w", err)
+			}
+			// The agent has mounted the disks. A disk grown while the Machine was
+			// not running has a device larger than its filesystem, and the guest
+			// grows the filesystem to the device (ADR 0055); one already that size
+			// is left as it is.
+			for _, a := range m.Disks {
+				if a.MountPath == "" || a.ReadOnly {
+					continue
+				}
+				if _, err := s.guest.GrowDisk(ctx, id, a.Disk); err != nil {
+					return fmt.Errorf("grow the filesystem of disk %q to its device: %w", a.Disk, err)
+				}
 			}
 			return nil
 		},

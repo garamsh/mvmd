@@ -218,6 +218,16 @@ func (a *agent) FindDisk(_ context.Context, r *guestv1alpha1.FindDiskRequest) (*
 	return &guestv1alpha1.FindDiskResponse{Device: "/dev/vdb"}, nil
 }
 
+func (a *agent) GrowDisk(_ context.Context, r *guestv1alpha1.GrowDiskRequest) (*guestv1alpha1.GrowDiskResponse, error) {
+	a.mu.Lock()
+	a.disks = append(a.disks, "grow:"+r.GetDiskId())
+	a.mu.Unlock()
+	if err := a.failure("GrowDisk"); err != nil {
+		return nil, err
+	}
+	return &guestv1alpha1.GrowDiskResponse{SizeBytes: 8 << 20}, nil
+}
+
 func (a *agent) OnlineVcpus(_ context.Context, r *guestv1alpha1.OnlineVcpusRequest) (*guestv1alpha1.OnlineVcpusResponse, error) {
 	a.mu.Lock()
 	a.onlined = append(a.onlined, r.GetVcpus())
@@ -724,6 +734,27 @@ func TestDisks_SendTheDiskNamed(t *testing.T) {
 	a.dropOnConnect = func(n int) bool { return n == 1 }
 	require.NoError(t, h.guest.ReleaseDisk(ctx, "m", "scratch"))
 	assert.Equal(t, []string{"release:scratch"}, a.disks)
+	assert.Equal(t, 2, a.connections())
+}
+
+// GrowDisk sends the disk named and returns the size the agent reports, and a
+// connection that breaks before the answer is replaced: the call repeats safely.
+func TestGrowDisk_SendsTheDiskNamedAndReturnsTheDevicesSize(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness(t)
+	a := h.agentOf(t, "m")
+	size, err := h.guest.GrowDisk(ctx, "m", "scratch")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(8<<20), size)
+	assert.Equal(t, []string{"grow:scratch"}, a.disks)
+
+	h = newHarness(t)
+	a = h.agentOf(t, "m")
+	a.dropOnConnect = func(n int) bool { return n == 1 }
+	size, err = h.guest.GrowDisk(ctx, "m", "scratch")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(8<<20), size)
+	assert.Equal(t, []string{"grow:scratch"}, a.disks)
 	assert.Equal(t, 2, a.connections())
 }
 

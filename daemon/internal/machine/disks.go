@@ -16,6 +16,23 @@ func hot(m Machine) bool {
 // attach or create holds a file on its way out.
 const deleting MachineID = ""
 
+// resizing is the holder a disk no Machine holds takes while ResizeDisk grows
+// its file, so that no attach or delete races the growth. It is not a Machine
+// identifier, and ListDisks reports the disk as having no holder.
+const resizing MachineID = "\x00resizing"
+
+// holderIs says who holds a disk in the words of a refusal: a Machine, or the
+// call that took the disk for a moment.
+func holderIs(holder MachineID) string {
+	switch holder {
+	case deleting:
+		return "being deleted"
+	case resizing:
+		return "being resized"
+	}
+	return fmt.Sprintf("held by Machine %q", holder)
+}
+
 // invalidDisk is the outcome of a call that names an identifier no disk file
 // has, refused before the call takes a lock or reaches a port.
 func invalidDisk(disk DiskID) error {
@@ -145,7 +162,11 @@ func (s *service) ListDisks(ctx context.Context) ([]DiskInfo, error) {
 	defer s.mu.Unlock()
 	out := make([]DiskInfo, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Filesystem: e.Filesystem, Holder: s.held[e.ID]})
+		holder := s.held[e.ID]
+		if holder == resizing {
+			holder = ""
+		}
+		out = append(out, DiskInfo{ID: e.ID, SizeBytes: e.SizeBytes, Filesystem: e.Filesystem, Holder: holder})
 	}
 	return out, nil
 }
@@ -157,10 +178,7 @@ func (s *service) DeleteDisk(ctx context.Context, disk DiskID) error {
 	// Taking the holder slot refuses a disk with a holder and keeps an attach
 	// from holding the file while it is removed.
 	if _, holder, ok := s.claim(deleting, disk); !ok {
-		if holder == deleting {
-			return fail(ErrPreconditionFailed, "disk %q is being deleted by another call", disk)
-		}
-		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", disk, holder)
+		return fail(ErrPreconditionFailed, "disk %q is %s", disk, holderIs(holder))
 	}
 	defer s.release(disk)
 	ctx, cancel := s.accepted(ctx, 0)
@@ -169,6 +187,164 @@ func (s *service) DeleteDisk(ctx context.Context, disk DiskID) error {
 		return fail(ErrFailed, "remove disk %q: %v", disk, err)
 	}
 	return nil
+}
+
+// resizeAttempts bounds how often ResizeDisk starts over because the holder of
+// the disk changed between looking and taking its lock.
+const resizeAttempts = 3
+
+func (s *service) ResizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64) error {
+	if !ValidDiskID(disk) {
+		return invalidDisk(disk)
+	}
+	ctx, cancel := s.accepted(ctx, 0)
+	defer cancel()
+	for attempt := 0; attempt < resizeAttempts; attempt++ {
+		if done, err := s.resizeDisk(ctx, disk, sizeBytes); done {
+			return err
+		}
+	}
+	return fail(ErrPreconditionFailed, "the holder of disk %q kept changing", disk)
+}
+
+// growable returns the disk as the node holds it, or the outcome of a call that
+// cannot grow it to sizeBytes: it is absent, or it is larger.
+func (s *service) growable(ctx context.Context, disk DiskID, sizeBytes uint64) (DiskEntry, error) {
+	e, err := s.disks.Get(ctx, disk)
+	switch {
+	case errors.Is(err, ErrDiskAbsent):
+		return DiskEntry{}, fail(ErrNotFound, "disk %q is not held by the node", disk)
+	case err != nil:
+		return DiskEntry{}, fail(ErrFailed, "read disk %q: %v", disk, err)
+	case sizeBytes < e.SizeBytes:
+		return DiskEntry{}, fail(ErrInvalid, "disk %q is %d bytes and a disk only grows: %d is smaller", disk, e.SizeBytes, sizeBytes)
+	}
+	return e, nil
+}
+
+// resizeDisk is one attempt of ResizeDisk. It reports done false when the
+// holder changed under it and the call should look again.
+func (s *service) resizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64) (done bool, _ error) {
+	if _, err := s.growable(ctx, disk, sizeBytes); err != nil {
+		return true, err
+	}
+	s.mu.Lock()
+	holder, held := s.held[disk]
+	s.mu.Unlock()
+	if !held {
+		// The holder slot keeps an attach from taking the disk, and a delete
+		// from removing it, while its file grows.
+		if _, _, ok := s.claim(resizing, disk); !ok {
+			return false, nil
+		}
+		defer s.release(disk)
+		e, err := s.growable(ctx, disk, sizeBytes)
+		if err != nil {
+			return true, err
+		}
+		if e.SizeBytes == sizeBytes {
+			return true, nil
+		}
+		return true, s.growFile(ctx, e, sizeBytes)
+	}
+	if holder == deleting || holder == resizing {
+		return true, fail(ErrPreconditionFailed, "disk %q is %s", disk, holderIs(holder))
+	}
+	defer s.lock(holder)()
+	s.mu.Lock()
+	still := s.held[disk] == holder
+	s.mu.Unlock()
+	if !still {
+		return false, nil
+	}
+	rec, err := s.machine(holder)
+	if err != nil {
+		return true, err
+	}
+	m := *rec.Machine
+	e, err := s.growable(ctx, disk, sizeBytes)
+	if err != nil {
+		return true, err
+	}
+	root := m.RootDisk == disk
+	live := m.State == StateRunning && !root && s.driver.Info().has(CapabilityDiskResize)
+	// An equal size changes nothing, except on a disk the guest sees live: a
+	// repeat after a call that stopped half way finishes what it began.
+	if e.SizeBytes == sizeBytes && !live {
+		return true, nil
+	}
+	switch {
+	case root:
+		return true, fail(ErrPreconditionFailed, "disk %q is the root disk of Machine %q, which is held for its life and does not grow", disk, holder)
+	case m.State == StateCreated || m.State == StateStopped:
+		return true, s.growFile(ctx, e, sizeBytes)
+	case live:
+		return true, s.growLive(ctx, m, e, sizeBytes)
+	case m.State == StateRunning:
+		return true, fail(ErrPreconditionFailed, "disk %q is held by Running Machine %q and the Driver cannot grow a disk live; stop the Machine to grow it", disk, holder)
+	}
+	return true, fail(ErrPreconditionFailed, "disk %q is held by %s Machine %q; only a Created, Stopped or Running Machine's disk grows", disk, m.State, holder)
+}
+
+// growFile grows the file of a disk no running VMM has open. The guest grows
+// the filesystem the next time the disk is mounted (ADR 0055).
+func (s *service) growFile(ctx context.Context, e DiskEntry, sizeBytes uint64) error {
+	switch err := s.disks.Grow(ctx, e.ID, sizeBytes); {
+	case errors.Is(err, ErrDiskAbsent):
+		return fail(ErrNotFound, "disk %q is not held by the node", e.ID)
+	case errors.Is(err, ErrDiskInvalid):
+		return fail(ErrInvalid, "%v", err)
+	case err != nil:
+		return fail(ErrFailed, "grow disk %q: %v", e.ID, err)
+	}
+	return nil
+}
+
+// growLive grows the disk of a Running Machine: the Driver has the VMM grow the
+// drive, and the guest is asked until it sees the size and has grown the
+// filesystem on it. Every step is safe to repeat, so a call that failed is
+// retried whole.
+func (s *service) growLive(ctx context.Context, m Machine, e DiskEntry, sizeBytes uint64) error {
+	a, attached := m.attachment(e.ID)
+	if !attached {
+		return fail(ErrFailed, "disk %q is held by Machine %q but is not one of its attachments", e.ID, m.ID)
+	}
+	if a.ReadOnly {
+		return fail(ErrPreconditionFailed, "disk %q is attached read-only to Machine %q, and the VMM cannot grow what it opened read-only", e.ID, m.ID)
+	}
+	if err := s.driver.ResizeDisk(ctx, m.ID, e.ID, sizeBytes); err != nil {
+		if errors.Is(err, ErrUnsupported) {
+			return fail(ErrUnsupported, "%v", err)
+		}
+		return fail(ErrFailed, "grow the drive of disk %q: %v", e.ID, err)
+	}
+	if err := s.awaitDiskSize(ctx, m.ID, e.ID, sizeBytes); err != nil {
+		return fail(ErrFailed, "the guest of Machine %q did not take the new size of disk %q: %v", m.ID, e.ID, err)
+	}
+	return nil
+}
+
+// awaitDiskSize asks the guest to grow the filesystem of the disk until the
+// device it sees is sizeBytes, or the resize timeout passes. A smaller device
+// is the VMM's change not yet seen by the guest, not a failure; an error of the
+// guest is.
+func (s *service) awaitDiskSize(ctx context.Context, id MachineID, disk DiskID, sizeBytes uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, s.resizeTimeout)
+	defer cancel()
+	for {
+		size, err := s.guest.GrowDisk(ctx, id, disk)
+		if err != nil {
+			return err
+		}
+		if size >= sizeBytes {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("it sees %d bytes: %w", size, ctx.Err())
+		case <-time.After(resizePoll):
+		}
+	}
 }
 
 func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment) error {
@@ -220,10 +396,7 @@ func (s *service) AttachDisk(ctx context.Context, id MachineID, a DiskAttachment
 	// One holder per disk (ADR 0009): a disk another Machine holds, as writer
 	// or as reader, takes no second holder.
 	if _, holder, ok := s.claim(id, a.Disk); !ok {
-		if holder == deleting {
-			return fail(ErrPreconditionFailed, "disk %q is being deleted", a.Disk)
-		}
-		return fail(ErrPreconditionFailed, "disk %q is held by Machine %q", a.Disk, holder)
+		return fail(ErrPreconditionFailed, "disk %q is %s", a.Disk, holderIs(holder))
 	}
 
 	// The file is the holder's before a Driver is asked to open it (ADR 0038).

@@ -37,6 +37,19 @@ func (s *Server) ListDisks(ctx context.Context, _ *v1alpha2.ListDisksRequest) (*
 	return resp, nil
 }
 
+func (s *Server) ResizeDisk(ctx context.Context, req *v1alpha2.ResizeDiskRequest) (*v1alpha2.ResizeDiskResponse, error) {
+	if req.GetDiskId() == "" {
+		return nil, rejected("disk_id is empty")
+	}
+	if req.GetSizeBytes() == 0 {
+		return nil, rejected("size_bytes is zero")
+	}
+	if err := s.machines.ResizeDisk(ctx, machine.DiskID(req.GetDiskId()), req.GetSizeBytes()); err != nil {
+		return nil, status(err)
+	}
+	return &v1alpha2.ResizeDiskResponse{}, nil
+}
+
 func (s *Server) DeleteDisk(ctx context.Context, req *v1alpha2.DeleteDiskRequest) (*v1alpha2.DeleteDiskResponse, error) {
 	if req.GetDiskId() == "" {
 		return nil, rejected("disk_id is empty")

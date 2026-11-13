@@ -26,6 +26,7 @@ service RuntimeService {
   // Disks and resources.
   rpc CreateDisk(CreateDiskRequest) returns (CreateDiskResponse);
   rpc ListDisks(ListDisksRequest) returns (ListDisksResponse);
+  rpc ResizeDisk(ResizeDiskRequest) returns (ResizeDiskResponse);
   rpc DeleteDisk(DeleteDiskRequest) returns (DeleteDiskResponse);
   rpc AttachDisk(AttachDiskRequest) returns (AttachDiskResponse);
   rpc DetachDisk(DetachDiskRequest) returns (DetachDiskResponse);
@@ -111,6 +112,7 @@ enum Capability {
   CAPABILITY_CPU_RESIZE = 3;
   CAPABILITY_MEMORY_RESIZE = 4;
   CAPABILITY_CONSOLE = 5;
+  CAPABILITY_DISK_RESIZE = 6;
 }
 
 // ImageRef locates an image to pull: the repository to fetch it from and the
@@ -423,6 +425,16 @@ message ListDisksResponse {
   // Ordered by id.
   repeated Disk disks = 1;
 }
+
+// ResizeDiskRequest grows a disk. A size below the disk's current size is
+// rejected; an equal size succeeds and changes nothing.
+message ResizeDiskRequest {
+  string disk_id = 1;
+  // The new size of the raw file.
+  uint64 size_bytes = 2;
+}
+
+message ResizeDiskResponse {}
 
 message DeleteDiskRequest {
   string disk_id = 1;

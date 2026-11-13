@@ -590,6 +590,20 @@ func (g *Guest) FindDisk(ctx context.Context, id machine.MachineID, a machine.Di
 	})
 }
 
+// GrowDisk implements machine.Guest (ADR 0050, 0055).
+func (g *Guest) GrowDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID) (uint64, error) {
+	var size uint64
+	err := g.run(ctx, id, opDisk, func(c guestv1alpha1.GuestServiceClient) error {
+		r, err := c.GrowDisk(ctx, &guestv1alpha1.GrowDiskRequest{DiskId: string(disk)})
+		if err != nil {
+			return err
+		}
+		size = r.GetSizeBytes()
+		return nil
+	})
+	return size, err
+}
+
 // OnlineVcpus implements machine.Guest (ADR 0029).
 func (g *Guest) OnlineVcpus(ctx context.Context, id machine.MachineID, vcpus uint32) (machine.GuestSize, error) {
 	var size machine.GuestSize

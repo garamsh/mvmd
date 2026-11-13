@@ -261,6 +261,14 @@ type Guest interface {
 	// has the agent mount the disk there (ADR 0053); a repeat carries the same
 	// MountPath and ReadOnly.
 	FindDisk(ctx context.Context, id MachineID, a DiskAttachment) error
+	// GrowDisk asks the agent to read the device size of a disk it found and
+	// to grow the ext4 filesystem mounted from it to that size (ADR 0050,
+	// 0055), and returns the device size the guest sees. A disk with no mount
+	// only has its size read. Repeating it grows nothing, so it is safe, and a
+	// size below the one the Driver was told means the guest has not yet seen
+	// the change: the caller asks again. A disk the agent never found or has
+	// released is ErrDiskUnknown.
+	GrowDisk(ctx context.Context, id MachineID, disk DiskID) (uint64, error)
 	// OnlineVcpus asks the agent to bring online the vCPUs the Driver has just
 	// hot-plugged, up to vcpus, and returns how many are online and the memory
 	// the guest holds (ADR 0029). It onlines only a CPU that is present and

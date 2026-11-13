@@ -10,7 +10,7 @@ import (
 )
 
 // Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
-// "create-root-from", "create", "get", "list", "stat", "give", "reclaim" and "remove".
+// "create-root-from", "create", "get", "list", "stat", "grow", "give", "reclaim" and "remove".
 type Disk struct {
 	Failures
 
@@ -169,6 +169,25 @@ func (d *Disk) entry(disk machine.DiskID, size uint64) machine.DiskEntry {
 		fs = machine.FilesystemExt4
 	}
 	return machine.DiskEntry{ID: disk, Request: d.request[disk], SizeBytes: size, Filesystem: fs}
+}
+
+// Grow implements machine.Disk: the size changes, as a growth through a file
+// does, and a smaller size is machine.ErrDiskInvalid.
+func (d *Disk) Grow(_ context.Context, disk machine.DiskID, sizeBytes uint64) error {
+	if err := d.Enter("grow"); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	size, held := d.disks[disk]
+	switch {
+	case !held:
+		return machine.ErrDiskAbsent
+	case sizeBytes < size:
+		return machine.ErrDiskInvalid
+	}
+	d.disks[disk] = sizeBytes
+	return nil
 }
 
 // Give implements machine.Disk.

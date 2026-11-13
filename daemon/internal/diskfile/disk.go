@@ -425,6 +425,53 @@ func (d *Disk) chown(disk machine.DiskID, uid, gid int) error {
 	return nil
 }
 
+// Grow sets the size of the disk's file with ftruncate on a descriptor opened
+// without following a link, so the file keeps its owner, mode and attributes,
+// and syncs it. It never shrinks a file.
+func (d *Disk) Grow(ctx context.Context, disk machine.DiskID, sizeBytes uint64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !validDiskID(disk) {
+		return fmt.Errorf("%w: %q must not be empty, ., .., start with %s, contain / or a NUL, or exceed 255 bytes", machine.ErrDiskInvalid, disk, tempPrefix)
+	}
+	if sizeBytes > math.MaxInt64 {
+		return fmt.Errorf("%w: the size %d is too large", machine.ErrDiskInvalid, sizeBytes)
+	}
+	path := filepath.Join(d.dir, string(disk))
+	fd, err := unix.Open(path, unix.O_WRONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	switch {
+	case errors.Is(err, unix.ENOENT), errors.Is(err, unix.ELOOP):
+		return machine.ErrDiskAbsent
+	case err != nil:
+		return fmt.Errorf("open disk %s: %w", path, err)
+	}
+	f := os.NewFile(uintptr(fd), path)
+	fail := func(what string, err error) error {
+		return errors.Join(fmt.Errorf("%s %s: %w", what, path, err), f.Close())
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return fail("stat disk", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.Join(machine.ErrDiskAbsent, f.Close())
+	}
+	switch current := uint64(info.Size()); {
+	case sizeBytes < current:
+		return errors.Join(fmt.Errorf("%w: %d bytes is smaller than the disk's %d", machine.ErrDiskInvalid, sizeBytes, current), f.Close())
+	case sizeBytes == current:
+		return f.Close()
+	}
+	if err := f.Truncate(int64(sizeBytes)); err != nil {
+		return fail("grow disk", err)
+	}
+	if err := f.Sync(); err != nil {
+		return fail("sync disk", err)
+	}
+	return f.Close()
+}
+
 // Remove deletes the disk file. Invalid DiskID is refused.
 // Removing an absent disk succeeds.
 func (d *Disk) Remove(_ context.Context, disk machine.DiskID) error {

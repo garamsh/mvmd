@@ -32,6 +32,7 @@ const (
 	RuntimeService_DeleteMachine_FullMethodName   = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteMachine"
 	RuntimeService_CreateDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/CreateDisk"
 	RuntimeService_ListDisks_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/ListDisks"
+	RuntimeService_ResizeDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/ResizeDisk"
 	RuntimeService_DeleteDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteDisk"
 	RuntimeService_AttachDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/AttachDisk"
 	RuntimeService_DetachDisk_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/DetachDisk"
@@ -78,6 +79,7 @@ type RuntimeServiceClient interface {
 	// Disks and resources.
 	CreateDisk(ctx context.Context, in *CreateDiskRequest, opts ...grpc.CallOption) (*CreateDiskResponse, error)
 	ListDisks(ctx context.Context, in *ListDisksRequest, opts ...grpc.CallOption) (*ListDisksResponse, error)
+	ResizeDisk(ctx context.Context, in *ResizeDiskRequest, opts ...grpc.CallOption) (*ResizeDiskResponse, error)
 	DeleteDisk(ctx context.Context, in *DeleteDiskRequest, opts ...grpc.CallOption) (*DeleteDiskResponse, error)
 	AttachDisk(ctx context.Context, in *AttachDiskRequest, opts ...grpc.CallOption) (*AttachDiskResponse, error)
 	DetachDisk(ctx context.Context, in *DetachDiskRequest, opts ...grpc.CallOption) (*DetachDiskResponse, error)
@@ -211,6 +213,16 @@ func (c *runtimeServiceClient) ListDisks(ctx context.Context, in *ListDisksReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListDisksResponse)
 	err := c.cc.Invoke(ctx, RuntimeService_ListDisks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *runtimeServiceClient) ResizeDisk(ctx context.Context, in *ResizeDiskRequest, opts ...grpc.CallOption) (*ResizeDiskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResizeDiskResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_ResizeDisk_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -528,6 +540,7 @@ type RuntimeServiceServer interface {
 	// Disks and resources.
 	CreateDisk(context.Context, *CreateDiskRequest) (*CreateDiskResponse, error)
 	ListDisks(context.Context, *ListDisksRequest) (*ListDisksResponse, error)
+	ResizeDisk(context.Context, *ResizeDiskRequest) (*ResizeDiskResponse, error)
 	DeleteDisk(context.Context, *DeleteDiskRequest) (*DeleteDiskResponse, error)
 	AttachDisk(context.Context, *AttachDiskRequest) (*AttachDiskResponse, error)
 	DetachDisk(context.Context, *DetachDiskRequest) (*DetachDiskResponse, error)
@@ -596,6 +609,9 @@ func (UnimplementedRuntimeServiceServer) CreateDisk(context.Context, *CreateDisk
 }
 func (UnimplementedRuntimeServiceServer) ListDisks(context.Context, *ListDisksRequest) (*ListDisksResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListDisks not implemented")
+}
+func (UnimplementedRuntimeServiceServer) ResizeDisk(context.Context, *ResizeDiskRequest) (*ResizeDiskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResizeDisk not implemented")
 }
 func (UnimplementedRuntimeServiceServer) DeleteDisk(context.Context, *DeleteDiskRequest) (*DeleteDiskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteDisk not implemented")
@@ -866,6 +882,24 @@ func _RuntimeService_ListDisks_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RuntimeServiceServer).ListDisks(ctx, req.(*ListDisksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RuntimeService_ResizeDisk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResizeDiskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).ResizeDisk(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_ResizeDisk_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).ResizeDisk(ctx, req.(*ResizeDiskRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1291,6 +1325,10 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListDisks",
 			Handler:    _RuntimeService_ListDisks_Handler,
+		},
+		{
+			MethodName: "ResizeDisk",
+			Handler:    _RuntimeService_ResizeDisk_Handler,
 		},
 		{
 			MethodName: "DeleteDisk",

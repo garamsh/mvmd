@@ -154,6 +154,7 @@ var wireCapabilities = map[machine.Capability][]v1alpha2.Capability{
 	machine.CapabilityDiskHotplug:  {v1alpha2.Capability_CAPABILITY_DISK_HOTPLUG},
 	machine.CapabilityCPUResize:    {v1alpha2.Capability_CAPABILITY_CPU_RESIZE},
 	machine.CapabilityMemoryResize: {v1alpha2.Capability_CAPABILITY_MEMORY_RESIZE},
+	machine.CapabilityDiskResize:   {v1alpha2.Capability_CAPABILITY_DISK_RESIZE},
 }
 
 func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest) (*v1alpha2.GetRuntimeInfoResponse, error) {

@@ -53,6 +53,16 @@ type Service interface {
 	// DeleteDisk removes the disk. An absent disk succeeds; a disk with a
 	// holder, a root disk among them, is refused with ErrPreconditionFailed.
 	DeleteDisk(ctx context.Context, disk DiskID) error
+	// ResizeDisk grows the disk to sizeBytes (ADR 0055). A disk the node does
+	// not hold is ErrNotFound and a size below the disk's is ErrInvalid; an
+	// equal size succeeds and changes nothing. A disk no Machine holds, or one a
+	// Created or Stopped Machine holds, has its file grown, and the guest grows
+	// the ext4 filesystem when it next mounts the disk. A disk a Running Machine
+	// holds is grown live, when the Driver reports CapabilityDiskResize and the
+	// disk is not the root disk, and the call returns once the guest sees the
+	// new size and has grown the filesystem. Any other holder or state is
+	// ErrPreconditionFailed.
+	ResizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64) error
 	AttachDisk(ctx context.Context, id MachineID, attachment DiskAttachment) error
 	DetachDisk(ctx context.Context, id MachineID, disk DiskID) error
 	// SetResources sets the Machine's resources, and its ceiling when one is
@@ -140,7 +150,8 @@ type service struct {
 	// bootTimeout bounds the wait for the guest's boot in Start.
 	bootTimeout time.Duration
 	// resizeTimeout bounds the wait for the guest to bring the target's vCPUs
-	// online in SetResources.
+	// online in SetResources, and for the guest to see the new size of a disk
+	// in ResizeDisk.
 	resizeTimeout time.Duration
 	// vmmEndPoll is how often Watch looks for a VMM that has ended.
 	vmmEndPoll time.Duration

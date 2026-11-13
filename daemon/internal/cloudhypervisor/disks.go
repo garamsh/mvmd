@@ -128,6 +128,29 @@ func (d *Driver) Drive(ctx context.Context, id machine.MachineID, disk machine.D
 	return machine.DriveAbsent, nil
 }
 
+// ResizeDisk implements machine.Driver. It asks the VMM to resize the device of
+// the disk (PUT /vm.resize-disk): the VMM sets the length of the raw file
+// itself, pauses the device while it updates its capacity, and sends the guest
+// a configuration-change interrupt (docs/api.md and the v54.0 release notes,
+// "Live Disk Resizing Support for Raw Images"). The file is therefore opened
+// read-write, and a read-only attachment is refused by the VMM. The VMM
+// requires a multiple of 512 bytes, which is checked here so nothing is sent
+// for a size it would refuse.
+func (d *Driver) ResizeDisk(ctx context.Context, id machine.MachineID, disk machine.DiskID, sizeBytes uint64) error {
+	if disk == "" {
+		return errors.New("a disk to resize names no disk")
+	}
+	if sizeBytes == 0 || sizeBytes%512 != 0 {
+		return fmt.Errorf("cannot resize %q to %d bytes: Cloud Hypervisor v54.0 resizes a disk to a multiple of 512 bytes", disk, sizeBytes)
+	}
+	c, err := d.api(id)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"id": diskdevice.Name(0, disk), "desired_size": sizeBytes}
+	return c.do(ctx, "PUT", "/vm.resize-disk", body, nil)
+}
+
 // vmInfo is the part of GET /vm.info the disk and resize calls read: the disks
 // the VMM's configuration holds, its device tree, which keeps a removed
 // device's identifier until the guest has ejected it, and the vCPUs and memory

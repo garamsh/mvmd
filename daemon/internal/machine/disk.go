@@ -124,6 +124,12 @@ type Disk interface {
 	// Reclaim makes the disk file owned by mvmd's own user again, or returns
 	// ErrDiskAbsent.
 	Reclaim(ctx context.Context, disk DiskID) error
+	// Grow makes the disk's file sizeBytes long, keeping its contents, its
+	// ownership and what it records, and returns once the new size is durable.
+	// A size equal to the file's changes nothing; a smaller one is
+	// ErrDiskInvalid and leaves the file as it is. It does not touch the
+	// filesystem inside the file (ADR 0053). An absent disk is ErrDiskAbsent.
+	Grow(ctx context.Context, disk DiskID, sizeBytes uint64) error
 	// Remove deletes a disk file. Removing an absent disk succeeds.
 	Remove(ctx context.Context, disk DiskID) error
 }
