@@ -414,12 +414,9 @@ func (g *Guest) Exec(ctx context.Context, id machine.MachineID, exec machine.Exe
 func (g *Guest) ReadExecOutput(ctx context.Context, id machine.MachineID, exec machine.ExecID, after, tail uint64, send func(machine.OutputChunk) error) (machine.ExecRecord, error) {
 	var record machine.ExecRecord
 	next := after
-	var passed bool
 	err := g.run(ctx, id, opExec, func(c guestv1alpha1.GuestServiceClient) error {
 		req := &guestv1alpha1.ReadExecOutputRequest{ExecId: string(exec), AfterOffset: next}
-		if !passed {
-			req.TailBytes = tail
-		}
+		req.TailBytes = tail
 		stream, err := c.ReadExecOutput(ctx, req)
 		if err != nil {
 			return err
@@ -447,7 +444,6 @@ func (g *Guest) ReadExecOutput(ctx context.Context, id machine.MachineID, exec m
 					return err
 				}
 				next = p.Chunk.GetOffset() + uint64(len(p.Chunk.GetData()))
-				passed = true
 			case *guestv1alpha1.ReadExecOutputResponse_Record:
 				record, err = execRecord(p.Record)
 				return err
