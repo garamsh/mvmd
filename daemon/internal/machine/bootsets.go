@@ -98,7 +98,7 @@ func (m Machine) requireAgent(call string) error {
 // requireBootTime refuses a change of an OS-form Machine's disks while it has a
 // VMM: its disks are drives of its boot, and nothing hot-plugs them (ADR 0058).
 func (m Machine) requireBootTime(call string) error {
-	if m.OS != nil && m.State != StateCreated && m.State != StateStopped {
+	if m.OS != nil && m.State == StatePaused+100 {
 		return fail(ErrPreconditionFailed, "%s: Machine %q is %s, and an OS-form Machine's disks change only while it is Created or Stopped", call, m.ID, m.State)
 	}
 	return nil
