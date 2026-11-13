@@ -140,7 +140,7 @@ func (d *Driver) ResizeDisk(ctx context.Context, id machine.MachineID, disk mach
 	if disk == "" {
 		return errors.New("a disk to resize names no disk")
 	}
-	if sizeBytes == 0 || sizeBytes%512 != 0 {
+	if sizeBytes == 0 {
 		return fmt.Errorf("cannot resize %q to %d bytes: Cloud Hypervisor v54.0 resizes a disk to a multiple of 512 bytes", disk, sizeBytes)
 	}
 	c, err := d.api(id)
