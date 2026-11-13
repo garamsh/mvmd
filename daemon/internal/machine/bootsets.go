@@ -63,7 +63,6 @@ func (s Spec) validateOS() error {
 		field string
 		set   bool
 	}{
-		{"image_digest", s.Image != ""},
 		{"root_disk_bytes", s.RootDiskBytes != 0},
 		{"kernel", s.Kernel != ""},
 		{"command", len(s.Command) > 0},
