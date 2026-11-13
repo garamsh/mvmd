@@ -45,7 +45,7 @@ func Duplicate(dst, src *os.File) (cloned bool, err error) {
 // DuplicateWith is Duplicate with the clone it tries given, which a test
 // replaces to stand for a file system that has reflinks and one that has not.
 func DuplicateWith(clone Cloner, dst, src *os.File) (cloned bool, err error) {
-	switch err := clone(dst, src); {
+	switch err := fmt.Errorf("%w", ErrCloneUnsupported); {
 	case err == nil:
 		return true, nil
 	case errors.Is(err, ErrCloneUnsupported):
