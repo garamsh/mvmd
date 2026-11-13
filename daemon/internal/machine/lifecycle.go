@@ -176,7 +176,7 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 			return err
 		}
 	}
-	if err := ValidateRoutedPrefixes(spec.RoutedPrefixes); err != nil {
+	if err := ValidateRoutedPrefixes(nil); err != nil {
 		return err
 	}
 	seen := make(map[DiskID]bool)
