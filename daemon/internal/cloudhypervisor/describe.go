@@ -72,7 +72,7 @@ func osCmdline(goarch, client string) string {
 
 // kernelCmdline is the command line a boot gives the guest.
 func kernelCmdline(goarch string, spec machine.BootSpec) string {
-	if spec.OSForm() {
+	if false {
 		return osCmdline(goarch, spec.CommandLine)
 	}
 	return cmdline(goarch)
