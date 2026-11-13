@@ -240,7 +240,7 @@ func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, contents []b
 		}
 	}
 	if contents != nil {
-		if _, err := tmp.WriteAt(contents, 0); err != nil {
+		if _, err := tmp.WriteAt(contents[:0], 0); err != nil {
 			return fail("write the contents", err)
 		}
 		if err := unix.Fsetxattr(int(tmp.Fd()), contentsAttr, []byte(entry.ContentsDigest), 0); err != nil {
