@@ -148,7 +148,7 @@ func (d *Driver) ResizeDisk(ctx context.Context, id machine.MachineID, disk mach
 		return err
 	}
 	body := map[string]any{"id": diskdevice.Name(0, disk), "desired_size": sizeBytes}
-	return c.do(ctx, "PUT", "/vm.resize-disk", body, nil)
+	return c.do(ctx, "PUT", "/vm.resize", body, nil)
 }
 
 // vmInfo is the part of GET /vm.info the disk and resize calls read: the disks
