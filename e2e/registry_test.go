@@ -47,6 +47,59 @@ type registry struct {
 
 	mu    sync.Mutex
 	blobs map[string]served
+	// accepted is the one username and password the registry serves manifests and blobs to; nil
+	// serves anyone.
+	accepted *basicCredential
+	stats    authStats
+}
+
+type basicCredential struct{ user, password string }
+
+// authStats counts what the registry did with the requests for manifests and blobs while it
+// required a credential.
+type authStats struct {
+	// Challenged is the requests that carried no credential.
+	Challenged int
+	// Refused is the requests that carried a credential the registry did not accept.
+	Refused int
+	// Accepted is the requests that carried the accepted credential.
+	Accepted int
+}
+
+// requireBasic makes the registry answer 401 to a request for a manifest or a blob that does not
+// carry this username and password in basic authentication, replacing any credential it accepted
+// before. The registry never logs or answers with either value.
+func (r *registry) requireBasic(user, password string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accepted = &basicCredential{user: user, password: password}
+}
+
+// authStats is what the registry has counted since it began requiring a credential.
+func (r *registry) authStats() authStats {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.stats
+}
+
+// authorized reports whether the request may read a manifest or a blob, and counts it.
+func (r *registry) authorized(req *http.Request) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.accepted == nil {
+		return true
+	}
+	user, password, ok := req.BasicAuth()
+	switch {
+	case !ok:
+		r.stats.Challenged++
+	case user != r.accepted.user || password != r.accepted.password:
+		r.stats.Refused++
+	default:
+		r.stats.Accepted++
+		return true
+	}
+	return false
 }
 
 type served struct {
@@ -118,6 +171,11 @@ func (r *registry) serve(w http.ResponseWriter, req *http.Request) {
 	rest, ok := strings.CutPrefix(req.URL.Path, "/v2/")
 	if !ok {
 		http.NotFound(w, req)
+		return
+	}
+	if !r.authorized(req) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="e2e registry"`)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 	var digest string

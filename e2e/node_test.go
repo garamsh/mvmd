@@ -41,6 +41,9 @@ type node struct {
 	// alternateKernelSHA is the digest of the file the kernel name "alternate" maps to.
 	alternateKernelSHA string
 
+	// credentialsFile is the registry.credentials_file the node's configuration names, or "".
+	credentialsFile string
+
 	socket     string
 	configFile string
 	logFile    *os.File
@@ -52,6 +55,39 @@ type node struct {
 // startNode brings a node up and returns it once its runtime API answers. The test's cleanup
 // stops it and everything it started, and removes what it made.
 func startNode(t *testing.T) *node {
+	t.Helper()
+	return startNodeWith(t)
+}
+
+// nodeOption changes a node's configuration before the daemon starts. It runs once the fixture
+// registry is up and before the configuration is written.
+type nodeOption func(n *node, config map[string]any)
+
+// withRegistryCredential gives the node a registry.credentials_file that holds this username and
+// password for the fixture registry, and keeps its path so that the test can rewrite it.
+func withRegistryCredential(user, password string) nodeOption {
+	return func(n *node, config map[string]any) {
+		n.credentialsFile = filepath.Join(n.work, "registry-credentials.json")
+		n.writeRegistryCredential(user, password)
+		config["registry"] = map[string]any{"credentials_file": n.credentialsFile}
+	}
+}
+
+// writeRegistryCredential replaces the content of the node's credentials file with one username and
+// password for the fixture registry. The new file is closed to group and others and takes the
+// old one's place whole, so a read never sees half of it.
+func (n *node) writeRegistryCredential(user, password string) {
+	n.t.Helper()
+	raw, err := json.Marshal(map[string]any{n.registry.host: map[string]string{"username": user, "password": password}})
+	require.NoError(n.t, err)
+	next := n.credentialsFile + ".next"
+	require.NoError(n.t, os.WriteFile(next, raw, 0o600))
+	require.NoError(n.t, os.Chmod(next, 0o600))
+	require.NoError(n.t, os.Rename(next, n.credentialsFile))
+}
+
+// startNodeWith is startNode with changes to the node's configuration.
+func startNodeWith(t *testing.T, options ...nodeOption) *node {
 	t.Helper()
 	work, err := os.MkdirTemp("", "mvmd-e2e-")
 	require.NoError(t, err)
@@ -119,6 +155,9 @@ func startNode(t *testing.T) *node {
 		"pull_timeout": "8m",
 		"boot_timeout": "2m",
 		"call_timeout": "10m",
+	}
+	for _, option := range options {
+		option(n, config)
 	}
 	raw, err := json.Marshal(config)
 	require.NoError(t, err)
