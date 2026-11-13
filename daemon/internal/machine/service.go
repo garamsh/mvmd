@@ -171,6 +171,10 @@ type service struct {
 	events     Events
 	// kernels are the guest kernels the node offers.
 	kernels Kernels
+	// bootSets are the boot sets the node offers an OS-form Machine, and
+	// bootFiles states whether a set's files still have their digests.
+	bootSets  BootSets
+	bootFiles BootFileChecker
 	// bootTimeout bounds the wait for the guest's boot in Start.
 	bootTimeout time.Duration
 	// resizeTimeout bounds the wait for the guest to bring the target's vCPUs
@@ -316,6 +320,13 @@ func WithBootTimeout(d time.Duration) Option {
 // the node offers none, and Create and Start refuse.
 func WithKernels(k Kernels) Option {
 	return func(s *service) { s.kernels = k }
+}
+
+// WithBootSets sets the boot sets the node offers an OS-form Machine (ADR
+// 0058) and the check that Start makes of each set's files. Without it the node
+// offers none, and Create refuses an OS-form Machine.
+func WithBootSets(sets BootSets, check BootFileChecker) Option {
+	return func(s *service) { s.bootSets, s.bootFiles = sets, check }
 }
 
 // WithDiskSnapshots sets the store of disk snapshots (ADR 0056). Without it

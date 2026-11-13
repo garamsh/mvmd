@@ -19,9 +19,12 @@ func (s *service) requireRunning(id MachineID, call string) error {
 		return err
 	}
 	s.mu.Lock()
-	state := rec.Machine.State
+	m := *rec.Machine
 	s.mu.Unlock()
-	if state != StateRunning {
+	if err := m.requireAgent(call); err != nil {
+		return err
+	}
+	if state := m.State; state != StateRunning {
 		return fail(ErrPreconditionFailed, "Machine %q is %s; %s needs Running", id, state, call)
 	}
 	return nil

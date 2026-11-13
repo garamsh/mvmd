@@ -31,36 +31,45 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if err := validateCreate(id, request, spec); err != nil {
 		return err
 	}
-	name, _, ok := s.kernels.resolve(spec.Kernel)
-	if !ok {
-		if spec.Kernel == "" {
-			return fail(ErrPreconditionFailed, "the node offers no default kernel")
-		}
-		return fail(ErrInvalid, "kernel %q is not offered by the node", spec.Kernel)
-	}
 	held := spec
-	held.Kernel = name
+	if spec.OS != nil {
+		if _, failure := s.bootSet(*spec.OS); failure != nil {
+			return failure
+		}
+	} else {
+		name, _, ok := s.kernels.resolve(spec.Kernel)
+		if !ok {
+			if spec.Kernel == "" {
+				return fail(ErrPreconditionFailed, "the node offers no default kernel")
+			}
+			return fail(ErrInvalid, "kernel %q is not offered by the node", spec.Kernel)
+		}
+		held.Kernel = name
+	}
 	held.Ceiling = spec.Ceiling.OrElse(spec.Resources)
 	if err := s.checkCeiling(held.Resources, held.Ceiling, spec.Ceiling != Resources{}); err != nil {
 		return err
 	}
 
-	if len(spec.Disks) > 0 && !s.driver.Info().has(CapabilityDiskHotplug) {
+	// An OS-form Machine's disks are drives of its boot, so it needs no hot-plug.
+	if spec.OS == nil && len(spec.Disks) > 0 && !s.driver.Info().has(CapabilityDiskHotplug) {
 		return fail(ErrUnsupported, "the Driver cannot hot-plug, so it cannot start a Machine with a disk")
 	}
 
 	// Shared from Locate until the record is set, so RemoveImage cannot pass
 	// between the two.
-	defer s.imageLocks.lock(spec.Image, false)()
-	located, err := s.images.Locate(ctx, spec.Image)
-	if err != nil {
-		if errors.Is(err, ErrImageAbsent) {
-			return fail(ErrNotFound, "image %s is not on the node", spec.Image)
+	if spec.OS == nil {
+		defer s.imageLocks.lock(spec.Image, false)()
+		located, err := s.images.Locate(ctx, spec.Image)
+		if err != nil {
+			if errors.Is(err, ErrImageAbsent) {
+				return fail(ErrNotFound, "image %s is not on the node", spec.Image)
+			}
+			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "locate image: %v", err))
 		}
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "locate image: %v", err))
-	}
-	if _, _, err := spec.runOn(spec.Image, located.Run); err != nil {
-		return err
+		if _, _, err := spec.runOn(spec.Image, located.Run); err != nil {
+			return err
+		}
 	}
 	var disks []DiskID
 	for _, a := range spec.Disks {
@@ -82,7 +91,9 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	}
 	// The root disk's name is held with the attached disks, before its file is
 	// published, so Delete disk cannot remove it between the two.
-	disks = append(disks, RootDiskID(id))
+	if spec.OS == nil {
+		disks = append(disks, RootDiskID(id))
+	}
 	if taken, holder, ok := s.claim(id, disks...); !ok {
 		return fail(ErrPreconditionFailed, "disk %q is %s", taken, holderIs(holder))
 	}
@@ -104,15 +115,21 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))
 	}
 	owner := DiskOwner{ID: id, UID: uid, GID: uid}
-	root, uuid, err := s.disks.CreateRoot(ctx, owner, spec.RootDiskBytes)
-	if err != nil {
-		reason := fmt.Sprintf("create root disk: %v", err)
-		s.release(disks...)
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", nil, reason)))
+	var root DiskID
+	var uuid string
+	attached := disks
+	if spec.OS == nil {
+		root, uuid, err = s.disks.CreateRoot(ctx, owner, spec.RootDiskBytes)
+		if err != nil {
+			reason := fmt.Sprintf("create root disk: %v", err)
+			s.release(disks...)
+			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", nil, reason)))
+		}
+		// The root disk was made the Machine's own, so only the others are given.
+		attached = disks[:len(disks)-1]
 	}
 	// The attached disks are the Machine's before any Driver opens them
-	// (ADR 0038); the root disk was made its own.
-	attached := disks[:len(disks)-1]
+	// (ADR 0038).
 	if err := s.give(ctx, owner, attached...); err != nil {
 		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, nil, err.Error())))
@@ -140,12 +157,17 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 		return fail(ErrInvalid, "the Machine identifier: %v", idErr)
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
-	case spec.Image == "":
+	case spec.OS == nil && spec.Image == "":
 		return fail(ErrInvalid, "the image digest is empty")
 	case spec.Resources.VCPUs == 0 || spec.Resources.MemoryBytes == 0:
 		return fail(ErrInvalid, "the Machine needs at least one vCPU and some memory")
-	case spec.RootDiskBytes == 0:
+	case spec.OS == nil && spec.RootDiskBytes == 0:
 		return fail(ErrInvalid, "the root disk size is zero")
+	}
+	if spec.OS != nil {
+		if err := spec.validateOS(); err != nil {
+			return err
+		}
 	}
 	seen := make(map[DiskID]bool)
 	mounts := make(map[string]bool)
@@ -169,6 +191,9 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 	}
 	if err := spec.Policy.validate(); err != nil {
 		return fail(ErrInvalid, "network policy: %v", err)
+	}
+	if spec.OS != nil {
+		return nil
 	}
 	return spec.validateRun()
 }
@@ -248,9 +273,25 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 		return fail(ErrPreconditionFailed, "Machine %q is %s; start needs Created or Stopped", id, m.State)
 	}
 
-	_, kernel, ok := s.kernels.resolve(m.Kernel)
-	if !ok {
-		return fail(ErrPreconditionFailed, "kernel %q is not offered by the node", cmp.Or(m.Kernel, s.kernels.Default))
+	var kernel KernelFile
+	var set BootSet
+	if m.OS != nil {
+		if update != nil {
+			return fail(ErrInvalid, "a run update sets env and files, and an OS-form Machine has none")
+		}
+		var ok bool
+		if set, ok = s.bootSets[m.OS.BootSet]; !ok {
+			return fail(ErrPreconditionFailed, "boot set %q is not offered by the node", m.OS.BootSet)
+		}
+		if err := s.checkBootSet(m.OS.BootSet, set); err != nil {
+			return err
+		}
+		kernel = set.Kernel
+	} else {
+		var ok bool
+		if _, kernel, ok = s.kernels.resolve(m.Kernel); !ok {
+			return fail(ErrPreconditionFailed, "kernel %q is not offered by the node", cmp.Or(m.Kernel, s.kernels.Default))
+		}
 	}
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
@@ -311,6 +352,10 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 		},
 		guestWhile: "booting",
 	}
+	if m.OS != nil {
+		// No agent answers, so the boot ends when the VMM's VM runs.
+		plan.initrd, plan.guest = set.Initrd, nil
+	}
 	res := s.bringUp(ctx, plan)
 	if res.failure != nil {
 		if !res.begun.vmm {
@@ -336,6 +381,12 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 // whose UUID and run configuration the guest is told. Every other disk reaches
 // a started VMM by hot-plug (ADR 0041).
 func (s *service) bootDevices(ctx context.Context, m Machine) ([]BlockDevice, LocatedImage, error) {
+	if m.OS != nil {
+		// An OS-form Machine has no image and no root disk: its disks are its
+		// drives, in attachment order (ADR 0058).
+		devices, err := s.diskDevices(ctx, m.Disks...)
+		return devices, LocatedImage{}, err
+	}
 	located, err := s.images.Locate(ctx, m.Image)
 	if err != nil {
 		return nil, LocatedImage{}, locateFailure(err, ErrImageAbsent, "image %s", m.Image)
@@ -448,7 +499,7 @@ func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, g
 	// A guest cannot be trusted to stop, so its answer to the request does not
 	// decide the outcome: the VMM is ended either way.
 	if graceful {
-		s.askGuest(ctx, id, grace, m.State == StatePaused)
+		s.askGuest(ctx, id, grace, m.State == StatePaused || m.OS != nil)
 	}
 	if err := s.supervisor.Terminate(ctx, id); err != nil {
 		if errors.Is(err, ErrNotAttempted) {
