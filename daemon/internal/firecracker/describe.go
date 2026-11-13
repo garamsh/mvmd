@@ -133,7 +133,7 @@ func validate(spec machine.BootSpec) error {
 		return fmt.Errorf("%d vCPUs is outside 1 to %d", spec.Resources.VCPUs, maxVCPUs)
 	case spec.Resources.MemoryBytes == 0 || spec.Resources.MemoryBytes%mib != 0:
 		return fmt.Errorf("%d bytes of memory is not a whole number of MiB", spec.Resources.MemoryBytes)
-	case len(spec.Devices) == 0 && !spec.OSForm():
+	case len(spec.Devices) == 0:
 		return fmt.Errorf("a Machine boots with at least one block device")
 	}
 	for _, dev := range spec.Devices {
