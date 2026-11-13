@@ -27,19 +27,42 @@ const (
 	overheadCPUs = 1.0
 )
 
-// bootArgs is the kernel command line: the serial console the VMM carries to
-// the run directory's log, a reset that ends the VMM, and the method the guest
-// ends its Machine by (ADR 0032). i8042's probe parameters are the ones the
-// Firecracker documentation gives to skip the probe, and apply on x86_64 only.
-// On x86_64 the VMM ends on the keyboard-controller reset, and a power off
-// halts the guest with the VMM running. On aarch64 PSCI turns both into a KVM
-// system event the VMM ends on, so the plain power off is used.
-func bootArgs(goarch string) string {
-	args := "console=ttyS0 reboot=k panic=1"
+// bootParams are the kernel parameters the Driver puts first: the serial
+// console the VMM carries to the run directory's log, and a reset that ends the
+// VMM. i8042's probe parameters are the ones the Firecracker documentation
+// gives to skip the probe, and apply on x86_64 only.
+func bootParams(goarch string) string {
+	params := "console=ttyS0 reboot=k panic=1"
 	if goarch == "amd64" {
-		return args + " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd mvmd.end=reset"
+		return params + " i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 	}
-	return args + " mvmd.end=poweroff"
+	return params
+}
+
+// bootArgs is the kernel command line of an image-form boot: bootParams and
+// the method the guest ends its Machine by (ADR 0032). On x86_64 the VMM ends
+// on the keyboard-controller reset, and a power off halts the guest with the
+// VMM running. On aarch64 PSCI turns both into a KVM system event the VMM ends
+// on, so the plain power off is used.
+func bootArgs(goarch string) string {
+	if goarch == "amd64" {
+		return bootParams(goarch) + " mvmd.end=reset"
+	}
+	return bootParams(goarch) + " mvmd.end=poweroff"
+}
+
+// osBootArgs is the kernel command line of an OS-form boot: bootParams, then
+// the client's line. No Guest Agent reads mvmd.end (ADR 0059).
+func osBootArgs(goarch, client string) string {
+	return machine.OSCommandLine(bootParams(goarch), client)
+}
+
+// kernelArgs is the command line a boot gives the guest.
+func kernelArgs(goarch string, spec machine.BootSpec) string {
+	if spec.OSForm() {
+		return osBootArgs(goarch, spec.CommandLine)
+	}
+	return bootArgs(goarch)
 }
 
 // Describe implements machine.Driver. It states the process and what it needs
@@ -47,12 +70,13 @@ func bootArgs(goarch string) string {
 // check; it reads neither file. It keeps nothing: Boot is given the boot
 // description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
-	if spec.Initrd.Path != "" || spec.CommandLine != "" {
-		return machine.ProcessDescription{}, fmt.Errorf("the Firecracker Driver cannot boot an OS-form Machine yet: %w", machine.ErrUnsupported)
+	initrd := machine.File{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true, SHA256: d.cfg.InitrdSHA256}
+	if spec.OSForm() {
+		initrd = machine.File{Host: spec.Initrd.Path, In: machine.InInitrd, ReadOnly: true, SHA256: spec.Initrd.SHA256}
 	}
 	boot := []machine.File{
 		{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256},
-		{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true, SHA256: d.cfg.InitrdSHA256},
+		initrd,
 	}
 	return d.process(spec, append(boot, machine.DeviceFiles(spec.Devices)...))
 }
@@ -62,6 +86,9 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 func (d *Driver) process(spec machine.BootSpec, files []machine.File) (machine.ProcessDescription, error) {
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
+	}
+	if n := len(kernelArgs(runtime.GOARCH, spec)); n > machine.MaxKernelCommandLine {
+		return machine.ProcessDescription{}, fmt.Errorf("the kernel command line is %d bytes with the Driver's parameters, over the %d a guest kernel takes", n, machine.MaxKernelCommandLine)
 	}
 	nodes := []string{"/dev/kvm"}
 	if spec.Network.Tap != "" {
@@ -106,7 +133,7 @@ func validate(spec machine.BootSpec) error {
 		return fmt.Errorf("%d vCPUs is outside 1 to %d", spec.Resources.VCPUs, maxVCPUs)
 	case spec.Resources.MemoryBytes == 0 || spec.Resources.MemoryBytes%mib != 0:
 		return fmt.Errorf("%d bytes of memory is not a whole number of MiB", spec.Resources.MemoryBytes)
-	case len(spec.Devices) == 0:
+	case len(spec.Devices) == 0 && !spec.OSForm():
 		return fmt.Errorf("a Machine boots with at least one block device")
 	}
 	for _, dev := range spec.Devices {

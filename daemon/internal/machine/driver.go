@@ -114,8 +114,8 @@ type BootSpec struct {
 	Kernel KernelFile
 	// Initrd and CommandLine are set only for an OS-form Machine (ADR 0058):
 	// the boot set's initrd, and the line the client adds to the parameters the
-	// Driver puts first. A Driver that cannot boot one returns an error
-	// wrapping ErrUnsupported from Describe.
+	// Driver puts first. An image-form boot sets neither and a Driver boots its
+	// own initrd and line.
 	Initrd      KernelFile
 	CommandLine string
 	Resources   Resources
@@ -127,6 +127,24 @@ type BootSpec struct {
 	// them under InRunDir. The Supervision port names it and the supervisor is
 	// given the same.
 	RunDir string
+}
+
+// OSForm reports whether the boot is an OS-form Machine's, which names its own
+// initrd (ADR 0058).
+func (b BootSpec) OSForm() bool { return b.Initrd.Path != "" }
+
+// MaxKernelCommandLine is the longest kernel command line a guest takes:
+// COMMAND_LINE_SIZE is 2048 on x86_64 and counts the terminating NUL.
+const MaxKernelCommandLine = 2047
+
+// OSCommandLine is the line an OS-form boot gives the guest: the Driver's
+// parameters, then the client's line, which wins where the kernel takes the
+// last of a repeated parameter (ADR 0059).
+func OSCommandLine(params, client string) string {
+	if client == "" {
+		return params
+	}
+	return params + " " + client
 }
 
 // The paths a VMM sees its Machine's files at, inside its root (ADR 0019).
