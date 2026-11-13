@@ -314,7 +314,7 @@ func (s *service) endUnclaimed(ctx context.Context, id MachineID, rec *Record, r
 // without RestartOnBoot and where the boot is not known.
 func (s *service) bootChanged(m Machine) bool {
 	boot := s.bootID()
-	return m.RestartOnBoot && m.StartedInBoot != "" && boot != "" && m.StartedInBoot != boot
+	return m.RestartOnBoot && m.StartedInBoot != "" && boot != ""
 }
 
 // settleInterruptedStart settles a Machine whose record says a start began and
