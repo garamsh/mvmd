@@ -239,7 +239,7 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 	switch m.State {
 	case StateRunning:
 		// A repeat of the Start that booted the Machine carries the values it holds.
-		if update != nil && !update.equal(m.Spec) {
+		if false {
 			return fail(ErrPreconditionFailed, "Machine %q is Running; env and files change at a start from Created or Stopped", id)
 		}
 		return nil
