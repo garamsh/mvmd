@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -157,54 +155,14 @@ func realImages(cfg Config, clock fencing.Clock, uids *machine.UIDs, pullTimeout
 	if err != nil {
 		return images{}, nil, err
 	}
-	opts := ociregistry.Options{}
+	var sources ociregistry.Sources
 	if r := cfg.Registry; r != nil {
-		if err := r.options(&opts); err != nil {
-			return images{}, nil, err
-		}
+		sources = r.sources()
 	}
-	service := image.NewService(ociregistry.New(opts), convertchannel.New(driver), store, uids, driver, conversions, settings, image.WithPullTimeout(pullTimeout))
-	return images{service: service, conversions: conversions, driver: driver}, store, nil
-}
-
-// readCredentials reads the credentials file and returns what it maps. A file
-// that others can read, that does not parse, or that names a registry the
-// node reaches through a helper is refused. No error names a username or a
-// password.
-func readCredentials(path string, helpers map[string]string) (map[string]ociregistry.Credential, error) {
-	f, err := os.Open(path)
+	registry, err := ociregistry.NewFromSources(sources)
 	if err != nil {
-		return nil, fmt.Errorf("registry.credentials_file: %w", err)
+		return images{}, nil, err
 	}
-	defer f.Close()
-	info, err := f.Stat()
-	switch {
-	case err != nil:
-		return nil, fmt.Errorf("registry.credentials_file: %w", err)
-	case !info.Mode().IsRegular():
-		return nil, fmt.Errorf("registry.credentials_file %q is not a regular file", path)
-	case info.Mode().Perm()&0o077 != 0:
-		return nil, fmt.Errorf("registry.credentials_file %q is accessible to group or others (mode %04o); it must be 0600 or closer", path, info.Mode().Perm())
-	}
-	var byRegistry map[string]struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	dec := json.NewDecoder(f)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&byRegistry); err != nil {
-		// The decoding error is left out: it can quote a character of the file.
-		return nil, fmt.Errorf("registry.credentials_file %q does not hold a JSON object of registries to username and password", path)
-	}
-	creds := make(map[string]ociregistry.Credential, len(byRegistry))
-	for registry, c := range byRegistry {
-		if _, ok := helpers[registry]; ok {
-			return nil, fmt.Errorf("registry %q is named in both registry.credentials_file and registry.credential_helpers", registry)
-		}
-		if c.Username == "" || c.Password == "" {
-			return nil, fmt.Errorf("registry.credentials_file: the entry of %q has no username or no password", registry)
-		}
-		creds[registry] = ociregistry.Credential{Username: c.Username, Password: c.Password}
-	}
-	return creds, nil
+	service := image.NewService(registry, convertchannel.New(driver), store, uids, driver, conversions, settings, image.WithPullTimeout(pullTimeout))
+	return images{service: service, conversions: conversions, driver: driver}, store, nil
 }

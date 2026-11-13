@@ -1,17 +1,24 @@
-package app
+package ociregistry_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,11 +95,11 @@ func (r *authRegistry) caFile(t *testing.T) string {
 var platformAMD64 = image.Platform{OS: "linux", Architecture: "amd64"}
 
 // pull fetches the manifest through a Registry built as the node builds it.
-func pull(t *testing.T, cfg RegistryConfig, ref image.Reference) error {
+func pull(t *testing.T, cfg ociregistry.Sources, ref image.Reference) error {
 	t.Helper()
-	var opts ociregistry.Options
-	require.NoError(t, cfg.options(&opts))
-	_, err := ociregistry.New(opts).Manifest(context.Background(), ref, platformAMD64)
+	registry, err := ociregistry.NewFromSources(cfg)
+	require.NoError(t, err)
+	_, err = registry.Manifest(context.Background(), ref, platformAMD64)
 	return err
 }
 
@@ -104,11 +111,10 @@ func writeCredentials(t *testing.T, path, content string) {
 
 // newRegistry builds one Registry as the node builds it, and returns the pull
 // through it.
-func newRegistry(t *testing.T, cfg RegistryConfig, ref image.Reference) func() error {
+func newRegistry(t *testing.T, cfg ociregistry.Sources, ref image.Reference) func() error {
 	t.Helper()
-	var opts ociregistry.Options
-	require.NoError(t, cfg.options(&opts))
-	registry := ociregistry.New(opts)
+	registry, err := ociregistry.NewFromSources(cfg)
+	require.NoError(t, err)
 	return func() error {
 		_, err := registry.Manifest(context.Background(), ref, platformAMD64)
 		return err
@@ -126,7 +132,7 @@ func TestRegistryAuth_ARewrittenCredentialsFileRenewsTheNextPull(t *testing.T) {
 	reg := newAuthRegistry(t, acceptsPassword(second))
 	file := filepath.Join(t.TempDir(), "registry.json")
 	writeCredentials(t, file, fmt.Sprintf(`{%q:{"username":"node","password":%q}}`, reg.host(), first))
-	manifest := newRegistry(t, RegistryConfig{CredentialsFile: file, CAFile: reg.caFile(t)}, reg.ref)
+	manifest := newRegistry(t, ociregistry.Sources{CredentialsFile: file, CAFile: reg.caFile(t)}, reg.ref)
 
 	err := manifest()
 	require.Error(t, err, "control: the first credential is refused as unauthorized")
@@ -143,7 +149,7 @@ func TestRegistryAuth_ACredentialsFileCredentialThatExpiredIsRenewed(t *testing.
 	reg := newAuthRegistry(t, acceptsPassword(first))
 	file := filepath.Join(t.TempDir(), "registry.json")
 	writeCredentials(t, file, fmt.Sprintf(`{%q:{"username":"node","password":%q}}`, reg.host(), first))
-	manifest := newRegistry(t, RegistryConfig{CredentialsFile: file, CAFile: reg.caFile(t)}, reg.ref)
+	manifest := newRegistry(t, ociregistry.Sources{CredentialsFile: file, CAFile: reg.caFile(t)}, reg.ref)
 	require.NoError(t, manifest(), "control: the first credential is accepted")
 
 	reg.accept(acceptsPassword(second))
@@ -158,11 +164,11 @@ func TestRegistryAuth_ACredentialsFileCredentialThatExpiredIsRenewed(t *testing.
 func TestRegistryAuth_ACAFileIsTrustedForTheRegistryTLS(t *testing.T) {
 	reg := newAuthRegistry(t, nil)
 
-	err := pull(t, RegistryConfig{CredentialHelpers: map[string]string{"other.example": "x"}}, reg.ref)
+	err := pull(t, ociregistry.Sources{CredentialHelpers: map[string]string{"other.example": "x"}}, reg.ref)
 	require.Error(t, err, "control: without ca_file the certificate fails verification")
 	assert.Contains(t, err.Error(), "certificate")
 
-	require.NoError(t, pull(t, RegistryConfig{CAFile: reg.caFile(t)}, reg.ref))
+	require.NoError(t, pull(t, ociregistry.Sources{CAFile: reg.caFile(t)}, reg.ref))
 }
 
 // A ca_file that is not a regular file or holds no certificate is refused at
@@ -174,11 +180,11 @@ func TestRegistryAuth_ACAFileWithoutACertificateIsRefusedAtStart(t *testing.T) {
 	require.NoError(t, os.WriteFile(empty, []byte("not a certificate"), 0o644))
 
 	for name, path := range map[string]string{"no certificate": empty, "a directory": dir, "absent": filepath.Join(dir, "absent.pem")} {
-		var opts ociregistry.Options
-		assert.Error(t, RegistryConfig{CAFile: path}.options(&opts), name)
+		_, err := ociregistry.NewFromSources(ociregistry.Sources{CAFile: path})
+		assert.Error(t, err, name)
 	}
-	var opts ociregistry.Options
-	assert.NoError(t, RegistryConfig{CAFile: reg.caFile(t)}.options(&opts), "control: a bundle with a certificate starts")
+	_, err := ociregistry.NewFromSources(ociregistry.Sources{CAFile: reg.caFile(t)})
+	assert.NoError(t, err, "control: a bundle with a certificate starts")
 }
 
 // helperDir puts fake docker-credential-fake, docker-credential-env and
@@ -220,8 +226,8 @@ func TestRegistryAuth_AHelperIsRunAndItsAnswerIsUsed(t *testing.T) {
 	reg.accept(func(u, p string) bool { return u == "node" && p == "pw-for-"+reg.host() })
 	ca := reg.caFile(t)
 
-	require.Error(t, pull(t, RegistryConfig{CAFile: ca}, reg.ref), "control: without the helper the registry refuses")
-	require.NoError(t, pull(t, RegistryConfig{CAFile: ca, CredentialHelpers: map[string]string{reg.host(): "fake"}}, reg.ref))
+	require.Error(t, pull(t, ociregistry.Sources{CAFile: ca}, reg.ref), "control: without the helper the registry refuses")
+	require.NoError(t, pull(t, ociregistry.Sources{CAFile: ca, CredentialHelpers: map[string]string{reg.host(): "fake"}}, reg.ref))
 }
 
 // A helper's credential that worked and then expired is replaced by the
@@ -233,7 +239,7 @@ func TestRegistryAuth_AHelperCredentialThatExpiredIsRenewed(t *testing.T) {
 	require.NoError(t, os.WriteFile(answer, []byte(first+"\n"), 0o600))
 	t.Setenv("MVMD_TEST_HELPER_SECRET_FILE", answer)
 	reg := newAuthRegistry(t, acceptsPassword(first))
-	manifest := newRegistry(t, RegistryConfig{CAFile: reg.caFile(t), CredentialHelpers: map[string]string{reg.host(): "file"}}, reg.ref)
+	manifest := newRegistry(t, ociregistry.Sources{CAFile: reg.caFile(t), CredentialHelpers: map[string]string{reg.host(): "file"}}, reg.ref)
 	require.NoError(t, manifest(), "control: the helper's first answer is accepted")
 
 	reg.accept(acceptsPassword(second))
@@ -249,7 +255,7 @@ func TestRegistryAuth_AFailingHelperFailsThePullWithoutItsOutput(t *testing.T) {
 	helperDir(t)
 	reg := newAuthRegistry(t, nil)
 	reg.accept(func(u, p string) bool { return u == "node" && p == "pw-for-"+reg.host() })
-	cfg := RegistryConfig{CAFile: reg.caFile(t), CredentialHelpers: map[string]string{reg.host(): "fake"}}
+	cfg := ociregistry.Sources{CAFile: reg.caFile(t), CredentialHelpers: map[string]string{reg.host(): "fake"}}
 	require.NoError(t, pull(t, cfg, reg.ref), "control: the same helper succeeds")
 
 	t.Setenv("MVMD_TEST_HELPER_FAIL", "1")
@@ -258,24 +264,19 @@ func TestRegistryAuth_AFailingHelperFailsThePullWithoutItsOutput(t *testing.T) {
 	assert.Contains(t, err.Error(), `"fake"`)
 	assert.NotContains(t, err.Error(), "leaked-secret", "the helper's stdout and stderr are not in the error")
 	assert.NotContains(t, err.Error(), "pw-for", "the secret is not in the error")
-
-	var opts ociregistry.Options
-	require.NoError(t, cfg.options(&opts))
-	_, err = opts.Credentials(context.Background(), reg.host())
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "leaked-secret")
 }
 
 // A variable set in mvmd's environment reaches the helper.
 func TestRegistryAuth_AHelperRunsWithMvmdsEnvironment(t *testing.T) {
 	helperDir(t)
-	t.Setenv("MVMD_TEST_HELPER_ENV", "from-mvmd")
-	var opts ociregistry.Options
-	require.NoError(t, RegistryConfig{CredentialHelpers: map[string]string{"r.example": "env"}}.options(&opts))
+	reg := newAuthRegistry(t, func(u, p string) bool { return u == "from-mvmd" && p == "s" })
+	cfg := ociregistry.Sources{CAFile: reg.caFile(t), CredentialHelpers: map[string]string{reg.host(): "env"}}
 
-	c, err := opts.Credentials(context.Background(), "r.example")
-	require.NoError(t, err)
-	assert.Equal(t, "from-mvmd", c.Username)
+	t.Setenv("MVMD_TEST_HELPER_ENV", "other")
+	require.Error(t, pull(t, cfg, reg.ref), "control: the helper answers with the variable, and the registry refuses another value")
+
+	t.Setenv("MVMD_TEST_HELPER_ENV", "from-mvmd")
+	require.NoError(t, pull(t, cfg, reg.ref))
 }
 
 // A registry named in both the credentials file and the helpers is refused at
@@ -283,12 +284,75 @@ func TestRegistryAuth_AHelperRunsWithMvmdsEnvironment(t *testing.T) {
 func TestRegistryAuth_ARegistryInBothMapsIsRefusedAtStart(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "registry.json")
 	writeCredentials(t, file, `{"a.example":{"username":"u","password":"p"},"b.example":{"username":"u","password":"p"}}`)
-	var opts ociregistry.Options
 
-	err := RegistryConfig{CredentialsFile: file, CredentialHelpers: map[string]string{"b.example": "fake"}}.options(&opts)
+	_, err := ociregistry.NewFromSources(ociregistry.Sources{CredentialsFile: file, CredentialHelpers: map[string]string{"b.example": "fake"}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"b.example"`)
 	assert.NotContains(t, err.Error(), `"p"`)
 
-	assert.NoError(t, RegistryConfig{CredentialsFile: file, CredentialHelpers: map[string]string{"c.example": "fake"}}.options(&opts), "control: disjoint maps start")
+	_, err = ociregistry.NewFromSources(ociregistry.Sources{CredentialsFile: file, CredentialHelpers: map[string]string{"c.example": "fake"}})
+	assert.NoError(t, err, "control: disjoint maps start")
+}
+
+// A credentials file that others can read, that is not JSON or that has an
+// entry without a password is refused at start, and the error quotes nothing
+// of it.
+func TestRegistryAuth_ACredentialsFileThatIsNotWellFormedIsRefusedAtStart(t *testing.T) {
+	const secret = "hunter2-secret"
+	good := `{"r.example":{"username":"u","password":"` + secret + `"}}`
+	tests := []struct {
+		name, content string
+		mode          os.FileMode
+		reason        string
+	}{
+		{"readable by the group", good, 0o640, "mode"},
+		{"not JSON", secret, 0o600, "username and password"},
+		{"an entry without a password", `{"r.example":{"username":"` + secret + `"}}`, 0o600, "no password"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "registry.json")
+			require.NoError(t, os.WriteFile(path, []byte(tt.content), tt.mode))
+			require.NoError(t, os.Chmod(path, tt.mode))
+
+			_, err := ociregistry.NewFromSources(ociregistry.Sources{CredentialsFile: path})
+			require.Error(t, err)
+			assert.ErrorContains(t, err, tt.reason)
+			assert.NotContains(t, err.Error(), secret)
+
+			writeCredentials(t, path, good)
+			_, err = ociregistry.NewFromSources(ociregistry.Sources{CredentialsFile: path})
+			assert.NoError(t, err, "control: a well formed file with the mode closed starts")
+		})
+	}
+}
+
+// A pull after the ca_file is rewritten trusts the new bundle, with the same
+// Registry and no restart.
+func TestRegistryAuth_ARewrittenCAFileIsTrustedByTheNextPull(t *testing.T) {
+	reg := newAuthRegistry(t, nil)
+	file := reg.caFile(t)
+	otherPEM := unrelatedCA(t)
+	regPEM, err := os.ReadFile(file)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, otherPEM, 0o644))
+	manifest := newRegistry(t, ociregistry.Sources{CAFile: file}, reg.ref)
+
+	err = manifest()
+	require.Error(t, err, "control: a bundle of another CA fails verification")
+	assert.Contains(t, err.Error(), "certificate")
+
+	require.NoError(t, os.WriteFile(file, regPEM, 0o644))
+	require.NoError(t, manifest())
+}
+
+// unrelatedCA returns the PEM of a self-signed certificate no test server holds.
+func unrelatedCA(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "unrelated"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
