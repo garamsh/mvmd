@@ -191,13 +191,9 @@ func (l *execLedger) read(ctx context.Context, id MachineID, exec ExecID, after,
 // be reached, which the entrypoint's read answers from the console instead.
 func (l *execLedger) readGuest(ctx context.Context, id MachineID, exec ExecID, after, tail uint64, send func(OutputChunk) error) (record ExecRecord, unreached bool, err error) {
 	record, err = l.guest.ReadExecOutput(ctx, id, exec, after, tail, send)
-	var gone *OutputGoneError
-	switch {
-	case err == nil:
+	if err == nil {
 		record.ID = exec
 		return record, false, nil
-	case errors.As(err, &gone):
-		return ExecRecord{}, false, err
 	}
 	return ExecRecord{}, errors.Is(err, ErrGuestUnreachable), guestFailure(err, "read exec output")
 }
