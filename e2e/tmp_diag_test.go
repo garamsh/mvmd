@@ -31,7 +31,7 @@ func (n *node) wrapSupervisor(t *testing.T) {
 	p := filepath.Join(n.work, "inputs", "mvmd-supervisor")
 	require.NoError(t, os.Rename(p, p+".real"))
 	log := filepath.Join(n.work, "supdiag.log")
-	script := "#!/bin/sh\necho \"$(cat /proc/uptime) start $*\" >> " + log + "\n" + p + ".real \"$@\"\necho \"exit=$? $(cat /proc/uptime)\" >> " + log + "\n"
+	script := "#!/bin/sh\necho \"$(cat /proc/uptime) start $*\" >> " + log + "\n" + "unshare --pid --fork " + p + ".real \"$@\"\necho \"exit=$? $(cat /proc/uptime)\" >> " + log + "\n"
 	require.NoError(t, os.WriteFile(p, []byte(script), 0o755))
 }
 
