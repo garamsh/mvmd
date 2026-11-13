@@ -106,7 +106,7 @@ func realAgent(t *testing.T) (*guestchannel.Guest, string) {
 // readOutput reads an exec's output from the offset to its record.
 func readOutput(g *guestchannel.Guest, exec machine.ExecID, after uint64) ([]machine.OutputChunk, machine.ExecRecord, error) {
 	var chunks []machine.OutputChunk
-	rec, err := g.ReadExecOutput(context.Background(), "m", exec, after, func(c machine.OutputChunk) error {
+	rec, err := g.ReadExecOutput(context.Background(), "m", exec, after, 0, func(c machine.OutputChunk) error {
 		chunks = append(chunks, machine.OutputChunk{Stream: c.Stream, Offset: c.Offset, Data: append([]byte(nil), c.Data...)})
 		return nil
 	})
@@ -230,6 +230,32 @@ func (c *trackingConnector) opened() []net.Conn {
 	return append([]net.Conn(nil), c.conns...)
 }
 
+// The real agent starts a read at the tail the adapter sends: the last bytes
+// of the output held, whatever the chunk boundaries.
+func TestRealAgent_ReadStartsAtTheTail(t *testing.T) {
+	ctx := context.Background()
+	g, _ := realAgent(t)
+	_, err := g.Exec(ctx, "m", "x", machine.ExecSpec{Command: []string{"/bin/sh", "-c", "printf 0123456789"}})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		_, final, err := readOutput(g, "x", 0)
+		return err == nil && final.Status == machine.ExecExited
+	}, 10*time.Second, 20*time.Millisecond)
+
+	var got []byte
+	var first uint64
+	_, err = g.ReadExecOutput(ctx, "m", "x", 0, 4, func(c machine.OutputChunk) error {
+		if len(got) == 0 {
+			first = c.Offset
+		}
+		got = append(got, c.Data...)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "6789", string(got))
+	assert.Equal(t, uint64(6), first)
+}
+
 // A connection reset in the middle of an output stream is replaced, and the
 // read resumes after the last byte it passed on: the caller sees every byte
 // once.
@@ -249,7 +275,7 @@ func TestRealAgent_OutputResumesByOffsetAfterAForcedReconnect(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		rec, err := g.ReadExecOutput(ctx, "m", "slow", 0, func(c machine.OutputChunk) error {
+		rec, err := g.ReadExecOutput(ctx, "m", "slow", 0, 0, func(c machine.OutputChunk) error {
 			assert.Equal(t, uint64(len(got)), c.Offset, "no gap and no repeat")
 			got = append(got, c.Data...)
 			if len(got) == 4 {

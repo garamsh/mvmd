@@ -92,7 +92,7 @@ func TestReadExecOutput_EntrypointEndFromTheConsoleLog(t *testing.T) {
 			e.inState(t, "m", machine.StateStopped)
 			e.driver.WriteConsoleLog("m", tt.log)
 
-			record, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0,
+			record, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, 0,
 				func(machine.OutputChunk) error { t.Fatal("no output comes from the log"); return nil })
 			require.NoError(t, err)
 			tt.want.ID = "entrypoint"
@@ -109,7 +109,7 @@ func TestReadExecOutput_EntrypointFromTheLogOfAFaultedMachine(t *testing.T) {
 	e := newEnv()
 	e.inState(t, "m", machine.StateFaulted)
 	e.driver.WriteConsoleLog("m", agent+"entrypoint exited code=9\n")
-	record, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, nil)
+	record, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, 0, nil)
 	require.NoError(t, err)
 	assert.Equal(t, machine.ExecRecord{ID: "entrypoint", Status: machine.ExecExited, ExitCode: 9}, record)
 }
@@ -117,7 +117,7 @@ func TestReadExecOutput_EntrypointFromTheLogOfAFaultedMachine(t *testing.T) {
 func TestReadExecOutput_EntrypointLogCannotBeRead(t *testing.T) {
 	e := newEnv()
 	e.inState(t, "m", machine.StateStopped) // the Driver has no log for it
-	_, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, nil)
+	_, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, 0, nil)
 	requireKind(t, err, machine.ErrFailed)
 }
 
@@ -133,7 +133,7 @@ func TestReadExecOutput_EntrypointOfARunningMachineIsTheGuests(t *testing.T) {
 	e.guest.Finish("entrypoint", 5)
 
 	var got []machine.OutputChunk
-	record, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, func(c machine.OutputChunk) error {
+	record, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, 0, func(c machine.OutputChunk) error {
 		got = append(got, c)
 		return nil
 	})
@@ -152,7 +152,7 @@ func TestReadExecOutput_EntrypointOfARunningMachineWhoseGuestIsGone(t *testing.T
 		e.inState(t, "m", machine.StateRunning)
 		e.guest.FailAt("read-exec-output", errBoom)
 		e.driver.WriteConsoleLog("m", agent+"entrypoint exited code=8\n")
-		record, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, nil)
+		record, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, 0, nil)
 		require.NoError(t, err)
 		assert.Equal(t, machine.ExecRecord{ID: "entrypoint", Status: machine.ExecExited, ExitCode: 8}, record)
 	})
@@ -161,14 +161,14 @@ func TestReadExecOutput_EntrypointOfARunningMachineWhoseGuestIsGone(t *testing.T
 		e.inState(t, "m", machine.StateRunning)
 		e.guest.FailAt("read-exec-output", errBoom)
 		e.driver.WriteConsoleLog("m", "[    1] booted\n")
-		_, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, nil)
+		_, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, 0, nil)
 		requireKind(t, err, machine.ErrFailed)
 	})
 	t.Run("there is no log either", func(t *testing.T) {
 		e := newEnv()
 		e.inState(t, "m", machine.StateRunning)
 		e.guest.FailAt("read-exec-output", errBoom)
-		_, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, nil)
+		_, err := e.svc.ReadExecOutput(ctx, "m", "entrypoint", 0, 0, nil)
 		requireKind(t, err, machine.ErrFailed)
 	})
 }
@@ -179,12 +179,12 @@ func TestReadExecOutput_EntrypointNeedsRunningOrEnded(t *testing.T) {
 			e := newEnv()
 			e.inState(t, "m", from)
 			e.driver.WriteConsoleLog("m", agent+"entrypoint exited code=1\n")
-			_, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, nil)
+			_, err := e.svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, 0, nil)
 			requireKind(t, err, machine.ErrPreconditionFailed)
 		})
 	}
 	t.Run("an absent Machine", func(t *testing.T) {
-		_, err := newEnv().svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, nil)
+		_, err := newEnv().svc.ReadExecOutput(context.Background(), "m", "entrypoint", 0, 0, nil)
 		requireKind(t, err, machine.ErrNotFound)
 	})
 }
