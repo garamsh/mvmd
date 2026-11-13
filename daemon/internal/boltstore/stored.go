@@ -58,6 +58,8 @@ type storedSpec struct {
 	Env     []storedEnv  `json:"Env,omitempty"`
 	User    string       `json:"RunUser,omitempty"`
 	Files   []storedFile `json:"Files,omitempty"`
+	// WorkingDir is empty for the image's.
+	WorkingDir string `json:"WorkingDir,omitempty"`
 }
 
 type storedEnv struct {
@@ -289,6 +291,7 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		Env:           env,
 		User:          s.User,
 		Files:         files,
+		WorkingDir:    s.WorkingDir,
 	}, nil
 }
 
@@ -332,6 +335,7 @@ func (s storedSpec) load() (machine.Spec, error) {
 		Env:           env,
 		User:          s.User,
 		Files:         files,
+		WorkingDir:    s.WorkingDir,
 	}, nil
 }
 

@@ -172,6 +172,11 @@ func (r *registry) publish(name string, entrypoint []string, layers ...[]byte) r
 
 // publishAs is publish for an image whose configuration names a user, in the OCI form.
 func (r *registry) publishAs(name, user string, entrypoint []string, layers ...[]byte) ref {
+	return r.publishConfigured(name, user, "", entrypoint, layers...)
+}
+
+// publishConfigured is publishAs for an image whose configuration also names a working directory.
+func (r *registry) publishConfigured(name, user, workingDir string, entrypoint []string, layers ...[]byte) ref {
 	var manifestLayers []descriptor
 	var diffIDs []string
 	for _, tarball := range layers {
@@ -182,7 +187,7 @@ func (r *registry) publishAs(name, user string, entrypoint []string, layers ...[
 	cfg, err := json.Marshal(map[string]any{
 		"architecture": goArch(),
 		"os":           "linux",
-		"config":       map[string]any{"Entrypoint": entrypoint, "User": user},
+		"config":       map[string]any{"Entrypoint": entrypoint, "User": user, "WorkingDir": workingDir},
 		"rootfs":       map[string]any{"type": "layers", "diff_ids": diffIDs},
 	})
 	if err != nil {

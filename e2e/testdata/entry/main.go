@@ -13,7 +13,7 @@
 // variable as NAME=value, and stays running, "stat FILE" prints the file's mode, owner and group, and
 // "mount-check PATH" prints one line saying whether PATH is a mount, whether it holds an ext4
 // filesystem and whether a file written there reads back, and stays running, as "mount-check-once
-// PATH" does not.
+// PATH" does not, and "pwd" prints the working directory the program runs in and stays running.
 package main
 
 import (
@@ -128,6 +128,14 @@ func command(name string, args []string) {
 		probe(args)
 	case "mount-check":
 		mountCheck(args[0])
+		time.Sleep(time.Hour)
+	case "pwd":
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Println(cwd)
 		time.Sleep(time.Hour)
 	case "mount-check-once":
 		mountCheck(args[0])

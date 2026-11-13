@@ -26,6 +26,10 @@ type Service interface {
 	// Create configures a Machine without booting it.
 	Create(ctx context.Context, id MachineID, request RequestID, spec Spec) error
 	Start(ctx context.Context, id MachineID) error
+	// StartWith is Start for a Machine that takes the update's env and files in
+	// place of the ones it holds, validated as Create validates them and
+	// recorded before the boot (ADR 0052).
+	StartWith(ctx context.Context, id MachineID, update RunUpdate) error
 	// Stop asks the guest to stop, waits up to grace, then forces the VMM down.
 	Stop(ctx context.Context, id MachineID, grace time.Duration) error
 	// ForceStop ends the Machine's VMM at once, with no request to the guest and

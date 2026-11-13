@@ -53,6 +53,9 @@ type record struct {
 	Env     []recordEnv  `json:"env,omitempty"`
 	RunUser string       `json:"run_user,omitempty"`
 	Files   []recordFile `json:"files,omitempty"`
+	// WorkingDir is absent from a record written before it was recorded, and
+	// from one whose Machine ran in the image's.
+	WorkingDir string `json:"working_dir,omitempty"`
 }
 
 type recordEnv struct {
@@ -122,6 +125,7 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		Env:                env,
 		RunUser:            s.Spec.User,
 		Files:              files,
+		WorkingDir:         s.Spec.WorkingDir,
 	})
 }
 
@@ -177,6 +181,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 			Env:             env,
 			User:            r.RunUser,
 			Files:           files,
+			WorkingDir:      r.WorkingDir,
 		},
 		RootDiskUUID: r.RootDiskUUID,
 		MAC:          r.MAC,

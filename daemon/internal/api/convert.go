@@ -71,6 +71,22 @@ func rulesOf(in []*v1alpha2.NetworkRule) ([]machine.NetworkRule, error) {
 	return out, nil
 }
 
+func envOf(in []*v1alpha2.EnvVar) []machine.EnvVar {
+	var out []machine.EnvVar
+	for _, e := range in {
+		out = append(out, machine.EnvVar{Name: e.GetName(), Value: e.GetValue()})
+	}
+	return out
+}
+
+func filesOf(in []*v1alpha2.File) []machine.PlacedFile {
+	var out []machine.PlacedFile
+	for _, f := range in {
+		out = append(out, machine.PlacedFile{Path: f.GetPath(), Content: f.GetContent(), Mode: f.GetMode(), UID: f.GetUid(), GID: f.GetGid()})
+	}
+	return out
+}
+
 func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 	spec := machine.Spec{
 		Image:         machine.ImageDigest(req.GetImageDigest()),
@@ -81,13 +97,9 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		Command:       req.GetCommand(),
 		Args:          req.GetArgs(),
 		User:          req.GetUser(),
+		WorkingDir:    req.GetWorkingDir(),
 	}
-	for _, e := range req.GetEnv() {
-		spec.Env = append(spec.Env, machine.EnvVar{Name: e.GetName(), Value: e.GetValue()})
-	}
-	for _, f := range req.GetFiles() {
-		spec.Files = append(spec.Files, machine.PlacedFile{Path: f.GetPath(), Content: f.GetContent(), Mode: f.GetMode(), UID: f.GetUid(), GID: f.GetGid()})
-	}
+	spec.Env, spec.Files = envOf(req.GetEnv()), filesOf(req.GetFiles())
 	for _, d := range req.GetDisks() {
 		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly(), MountPath: d.GetMountPath()})
 	}
@@ -128,6 +140,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		KernelDigest:      m.KernelDigest,
 		Kernel:            m.Kernel,
 		ImageDigest:       string(m.Image),
+		WorkingDir:        m.WorkingDir,
 		NetworkPolicy: &v1alpha2.NetworkPolicy{
 			Egress:  rulesToWire(m.Policy.Egress),
 			Ingress: rulesToWire(m.Policy.Ingress),

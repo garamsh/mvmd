@@ -156,12 +156,14 @@ type Spec struct {
 	// applied over the image's environment, User replaces the image's user and
 	// Files are placed in the guest. Each is empty for a request that set none,
 	// and the Machine boots with the image's own. Env values and file content
-	// may be secret (ADR 0051).
-	Command []string
-	Args    []string
-	Env     []EnvVar
-	User    string
-	Files   []PlacedFile
+	// may be secret (ADR 0051). WorkingDir is the directory the entrypoint
+	// runs in, empty for the image's (ADR 0052).
+	Command    []string
+	Args       []string
+	Env        []EnvVar
+	User       string
+	Files      []PlacedFile
+	WorkingDir string
 }
 
 // Machine is a Machine as Inspect reports it.

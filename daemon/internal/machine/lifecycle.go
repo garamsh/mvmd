@@ -210,6 +210,18 @@ func (s *service) failCreate(ctx context.Context, id MachineID, request RequestI
 }
 
 func (s *service) Start(ctx context.Context, id MachineID) error {
+	return s.start(ctx, id, nil)
+}
+
+func (s *service) StartWith(ctx context.Context, id MachineID, update RunUpdate) error {
+	return s.start(ctx, id, &update)
+}
+
+// start boots the Machine. A non-nil update replaces the Machine's env and
+// files in its record after the checks that refuse a start and before the
+// boot, so a boot that fails leaves the new values for the next start (ADR
+// 0052).
+func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) error {
 	defer s.lock(id)()
 	// The wait for the guest's boot is part of the call, so the bound adds it.
 	ctx, cancel := s.accepted(ctx, s.bootTimeout)
@@ -218,9 +230,18 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	if err != nil {
 		return err
 	}
+	if update != nil {
+		if err := update.validate(); err != nil {
+			return err
+		}
+	}
 	m := *rec.Machine
 	switch m.State {
 	case StateRunning:
+		// A repeat of the Start that booted the Machine carries the values it holds.
+		if update != nil && !update.equal(m.Spec) {
+			return fail(ErrPreconditionFailed, "Machine %q is Running; env and files change at a start from Created or Stopped", id)
+		}
 		return nil
 	case StateCreated, StateStopped:
 	default:
@@ -233,6 +254,14 @@ func (s *service) Start(ctx context.Context, id MachineID) error {
 	}
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
+	}
+	if update != nil {
+		next := m.clone()
+		next.Env, next.Files = cloneNonEmpty(update.Env), cloneFiles(update.Files)
+		if err := s.commit(ctx, rec, next); err != nil {
+			return fail(ErrFailed, "record the new env and files: %v", err)
+		}
+		m = next
 	}
 	plan := bootPlan{
 		machine: m,

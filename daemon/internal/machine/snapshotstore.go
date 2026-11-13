@@ -51,6 +51,7 @@ type SnapshotSpec struct {
 	Env             []EnvVar
 	User            string
 	Files           []PlacedFile
+	WorkingDir      string
 }
 
 // SnapshotDisk is a disk its Machine had attached when the snapshot was taken,
