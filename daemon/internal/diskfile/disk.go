@@ -461,7 +461,7 @@ func (d *Disk) Grow(ctx context.Context, disk machine.DiskID, sizeBytes uint64) 
 	case sizeBytes < current:
 		return errors.Join(fmt.Errorf("%w: %d bytes is smaller than the disk's %d", machine.ErrDiskInvalid, sizeBytes, current), f.Close())
 	case sizeBytes == current:
-		return f.Close()
+		return errors.Join(machine.ErrDiskInvalid, f.Close())
 	}
 	if err := f.Truncate(int64(sizeBytes)); err != nil {
 		return fail("grow disk", err)
