@@ -115,6 +115,7 @@ async fn the_handshake_is_answered_and_health_and_exec_are_served_on_the_host() 
         .read_exec_output(ReadExecOutputRequest {
             exec_id: "e1".into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();

@@ -730,6 +730,7 @@ async fn boot_takes_the_steps_in_order_and_runs_the_entrypoint_as_described() ->
         .read_exec_output(ReadExecOutputRequest {
             exec_id: guest_agent::ENTRYPOINT.into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();
@@ -1309,6 +1310,7 @@ async fn gated_calls(client: &mut GuestServiceClient<Channel>) -> Vec<(&'static 
                 .read_exec_output(ReadExecOutputRequest {
                     exec_id: "x".into(),
                     after_offset: 0,
+                    ..ReadExecOutputRequest::default()
                 })
                 .await
                 .map(|_| ()),
@@ -1612,6 +1614,48 @@ async fn update_network_applies_the_new_configuration_after_the_boot() -> Result
 }
 
 #[tokio::test]
+async fn a_tail_of_the_entrypoint_starts_before_the_end_of_its_output() -> Result {
+    let mut agent = Agent::start().await?;
+    let flag = agent.dir.path().join("exit-now");
+    agent
+        .boot(&format!(
+            "printf abcdef; while [ ! -e {} ]; do sleep 0.05; done; printf ghi",
+            flag.display()
+        ))
+        .await?;
+    let mut held = agent
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: guest_agent::ENTRYPOINT.into(),
+            ..ReadExecOutputRequest::default()
+        })
+        .await?
+        .into_inner();
+    within(read_to_record(&mut held, Some("abcdef"))).await??;
+
+    let mut stream = agent
+        .client
+        .read_exec_output(ReadExecOutputRequest {
+            exec_id: guest_agent::ENTRYPOINT.into(),
+            tail_bytes: 3,
+            ..ReadExecOutputRequest::default()
+        })
+        .await?
+        .into_inner();
+    fs::write(&flag, "")?;
+    let (output, record) = within(read_to_record(&mut stream, None)).await??;
+
+    assert_eq!(output, "defghi");
+    assert_eq!(
+        record
+            .ok_or("the stream ended without the record")?
+            .status(),
+        ExecStatus::Exited
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn the_entrypoints_exit_is_reported_and_the_machine_powers_off() -> Result {
     let mut agent = Agent::start().await?;
     let flag = agent.dir.path().join("exit-now");
@@ -1626,6 +1670,7 @@ async fn the_entrypoints_exit_is_reported_and_the_machine_powers_off() -> Result
         .read_exec_output(ReadExecOutputRequest {
             exec_id: guest_agent::ENTRYPOINT.into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();
@@ -1674,6 +1719,7 @@ async fn an_entrypoint_killed_by_a_signal_is_reported_with_the_signal() -> Resul
         .read_exec_output(ReadExecOutputRequest {
             exec_id: guest_agent::ENTRYPOINT.into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();
@@ -1753,6 +1799,7 @@ async fn termination_is_forwarded_to_the_entrypoint_as_the_signal_received() -> 
             .read_exec_output(ReadExecOutputRequest {
                 exec_id: guest_agent::ENTRYPOINT.into(),
                 after_offset: 0,
+                ..ReadExecOutputRequest::default()
             })
             .await?
             .into_inner();
@@ -1805,6 +1852,7 @@ async fn a_terminate_call_forwards_sigterm_to_the_running_entrypoint() -> Result
         .read_exec_output(ReadExecOutputRequest {
             exec_id: guest_agent::ENTRYPOINT.into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();
@@ -2412,6 +2460,7 @@ async fn processes_orphaned_onto_init_are_reaped_and_a_commands_own_status_is_ke
         .read_exec_output(ReadExecOutputRequest {
             exec_id: "own".into(),
             after_offset: 0,
+            ..ReadExecOutputRequest::default()
         })
         .await?
         .into_inner();
