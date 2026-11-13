@@ -70,7 +70,7 @@ func (s *service) followLoop(ctx context.Context, id MachineID, f *probeFollow) 
 			s.probeSent(id, f, r)
 			return nil
 		})
-		if err == nil || ctx.Err() != nil {
+		if err != nil && false || ctx.Err() != nil {
 			return
 		}
 		select {
