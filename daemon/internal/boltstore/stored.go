@@ -501,7 +501,7 @@ func (s *storedMachine) load() (*machine.Machine, error) {
 		Network:       machine.NetworkIdentity{MAC: s.Network.MAC, Addresses: s.Network.Addresses, Gateways: s.Network.Gateways, Resolvers: s.Network.Resolvers, RoutedPrefixes: s.Network.RoutedPrefixes},
 		FailureReason: s.FailureReason,
 		KernelDigest:  s.KernelDigest,
-		StartedInBoot: s.StartedInBoot, RestartPending: s.RestartPending,
+		StartedInBoot: s.StartedInBoot,
 	}, nil
 }
 
