@@ -53,9 +53,6 @@ func (s *Server) ReadExecOutput(req *v1alpha2.ReadExecOutputRequest, stream grpc
 	if req.GetExecId() == "" {
 		return rejected("exec_id is empty")
 	}
-	if req.GetTailBytes() != 0 && req.GetAfterOffset() != 0 {
-		return rejected("tail_bytes and a non-zero after_offset are both set; a read starts at one or the other")
-	}
 	send := func(c machine.OutputChunk) error {
 		return stream.Send(&v1alpha2.ReadExecOutputResponse{Part: &v1alpha2.ReadExecOutputResponse_Chunk{
 			Chunk: &v1alpha2.OutputChunk{Stream: outputStreams[c.Stream], Offset: c.Offset, Data: c.Data},
