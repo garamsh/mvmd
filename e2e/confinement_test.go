@@ -65,7 +65,7 @@ func TestE2E_ARealVMMIsConfinedAsADR0015States(t *testing.T) {
 		cgroup:           machineCgroup,
 		memoryMax:        req.Resources.MemoryBytes + vmmMemoryOverhead,
 		cpuMax:           fmt.Sprintf("%d %d", (uint64(req.Resources.CpuCount)+vmmCPUOverhead)*cpuPeriod, cpuPeriod),
-		vcpus:            int(req.Resources.CpuCount),
+		pidsMax:          pidsMaxOf(int(req.Resources.CpuCount)),
 		allowedRootPaths: rootPathsOf(n),
 		supervisor:       parentOf(t, vmm),
 	}
@@ -127,7 +127,7 @@ type confinement struct {
 	cgroup           string
 	memoryMax        uint64
 	cpuMax           string
-	vcpus            int
+	pidsMax          int
 	allowedRootPaths []string
 	supervisor       int
 }
@@ -220,6 +220,16 @@ func rootPathsOf(n *node) []string {
 	return paths
 }
 
+// pidsMaxOf is the Driver's task count for a Machine of the vCPUs, created as createRequest does.
+// Firecracker adds 8 tasks to the vCPUs. Cloud Hypervisor adds 16 and one for each block device,
+// and the Machine has two: its image at position 0 and its root disk at 1.
+func pidsMaxOf(vcpus int) int {
+	if driver.driver == "firecracker" {
+		return vcpus + 8
+	}
+	return vcpus + 16 + 2
+}
+
 // failures names each assertion the readings of a process do not meet, with what was read. A
 // confined VMM has none.
 func (c confinement) failures(o observed) map[string]string {
@@ -275,11 +285,8 @@ func (c confinement) failures(o observed) map[string]string {
 	if o.limits["memory.max"] != strconv.FormatUint(c.memoryMax, 10) {
 		fail("memory.max", "%q, wanted the guest's memory plus the Driver's overhead, %d", o.limits["memory.max"], c.memoryMax)
 	}
-	// The Driver states the task count; what the ADR fixes is that it is a limit above the vCPUs
-	// and above the threads the VMM runs.
-	threads, _ := strconv.Atoi(o.status["Threads"])
-	if tasks, err := strconv.Atoi(o.limits["pids.max"]); err != nil || tasks <= c.vcpus || tasks < threads {
-		fail("pids.max", "%q, wanted a number above the %d vCPUs and the %d threads", o.limits["pids.max"], c.vcpus, threads)
+	if o.limits["pids.max"] != strconv.Itoa(c.pidsMax) {
+		fail("pids.max", "%q, wanted the Driver's task count, %d", o.limits["pids.max"], c.pidsMax)
 	}
 	if o.limits["cpu.max"] != c.cpuMax {
 		fail("cpu.max", "%q, wanted the vCPUs plus the Driver's overhead, %q", o.limits["cpu.max"], c.cpuMax)
