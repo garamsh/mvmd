@@ -499,7 +499,7 @@ func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, g
 	// A guest cannot be trusted to stop, so its answer to the request does not
 	// decide the outcome: the VMM is ended either way.
 	if graceful {
-		s.askGuest(ctx, id, grace, m.State == StatePaused || m.OS != nil)
+		s.askGuest(ctx, id, grace, m.State == StatePaused)
 	}
 	if err := s.supervisor.Terminate(ctx, id); err != nil {
 		if errors.Is(err, ErrNotAttempted) {
