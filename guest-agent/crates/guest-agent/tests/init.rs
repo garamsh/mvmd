@@ -3261,9 +3261,14 @@ mod probe_tests {
 
     /// Asserts that the stream ends without another message.
     async fn ended(stream: &mut Streaming<WatchProbesResponse>) -> Result {
-        match within(stream.message()).await?? {
-            None => Ok(()),
-            Some(message) => Err(format!("the stream sent {message:?} instead of ending").into()),
+        match tokio::time::timeout(Duration::from_secs(5), stream.message()).await {
+            Err(_) => Err("the WatchProbes stream stayed open after the entrypoint ended".into()),
+            Ok(message) => match message? {
+                None => Ok(()),
+                Some(message) => {
+                    Err(format!("the stream sent {message:?} instead of ending").into())
+                }
+            },
         }
     }
 
