@@ -33,6 +33,8 @@ type env struct {
 	disks  *memory.Disk
 	images *memory.ImageStore
 	snaps  *memory.SnapshotStore
+	// dsnaps are the disk snapshots the node holds.
+	dsnaps *memory.DiskSnapshotStore
 	guest  *memory.Guest
 	clock  *memory.WallClock
 	store  *memory.StateStore
@@ -52,6 +54,7 @@ func newEnv(caps ...machine.Capability) *env {
 		disks:  memory.NewDisk(),
 		images: memory.NewImageStore(),
 		snaps:  memory.NewSnapshotStore(),
+		dsnaps: memory.NewDiskSnapshotStore(),
 		guest:  memory.NewGuest(0),
 		clock:  memory.NewWallClock(epoch),
 		store:  memory.NewStateStore(),
@@ -59,7 +62,7 @@ func newEnv(caps ...machine.Capability) *env {
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()))
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels()), machine.WithDiskSnapshots(e.dsnaps))
 	return e
 }
 
