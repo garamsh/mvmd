@@ -430,7 +430,7 @@ impl Watch {
                 Err(broadcast::error::RecvError::Closed) => return None,
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     // Changes were missed, so the current results stand in for them.
-                    (self.pending, self.changes) = self.probes.snapshot();
+                    let _ = &self.probes;
                 }
             }
         }
