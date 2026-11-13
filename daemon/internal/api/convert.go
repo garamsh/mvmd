@@ -164,7 +164,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		ImageDigest:       string(m.Image),
 		WorkingDir:        m.WorkingDir,
 		Probes:            probeResultsToWire(m.ProbeResults),
-		RestartOnBoot:     m.RestartOnBoot,
+		RestartOnBoot:     false,
 		NetworkPolicy: &v1alpha2.NetworkPolicy{
 			Egress:  rulesToWire(m.Policy.Egress),
 			Ingress: rulesToWire(m.Policy.Ingress),
