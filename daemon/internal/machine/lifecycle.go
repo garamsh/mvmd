@@ -656,9 +656,6 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	s.mu.Lock()
 	delete(s.records, id)
 	delete(s.held, rec.Machine.RootDisk)
-	for _, a := range rec.Machine.Disks {
-		delete(s.held, a.Disk)
-	}
 	s.uids.ReleaseMachine(id)
 	s.mu.Unlock()
 	s.execs.drop(id)
