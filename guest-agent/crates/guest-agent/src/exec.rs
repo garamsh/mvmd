@@ -189,10 +189,7 @@ impl Execs {
         let after = {
             let state = lock(&exec.state);
             if tail != 0 {
-                state
-                    .len
-                    .saturating_sub(tail)
-                    .max(state.record.earliest_offset)
+                state.len.saturating_sub(tail)
             } else {
                 if after > state.len {
                     return Err(Error::Invalid(format!(
