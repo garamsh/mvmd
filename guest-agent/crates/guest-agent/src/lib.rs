@@ -13,6 +13,7 @@ mod files;
 mod init;
 mod mounts;
 mod network;
+mod probes;
 mod reap;
 mod resources;
 mod restore;
