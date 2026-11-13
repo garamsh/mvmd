@@ -137,7 +137,6 @@ func args(spec machine.BootSpec, goarch string) []string {
 		"--api-socket", "path=" + vmmconfig.InRun(vmmconfig.APISocket),
 		"--log-file", vmmconfig.InRun(logName),
 		"--kernel", machine.InKernel,
-		"--initramfs", machine.InInitrd,
 		"--cmdline", kernelCmdline(goarch, spec),
 		"--cpus", cpusArg(spec, goarch),
 		"--memory", memoryArg(spec, goarch),

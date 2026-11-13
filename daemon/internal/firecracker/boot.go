@@ -28,7 +28,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 	}
 	steps := []put{
 		{"/machine-config", map[string]any{"vcpu_count": spec.Resources.VCPUs, "mem_size_mib": spec.Resources.MemoryBytes / mib}},
-		{"/boot-source", map[string]any{"kernel_image_path": machine.InKernel, "initrd_path": machine.InInitrd, "boot_args": kernelArgs(runtime.GOARCH, spec)}},
+		{"/boot-source", map[string]any{"kernel_image_path": machine.InKernel, "boot_args": kernelArgs(runtime.GOARCH, spec)}},
 	}
 	for i, dev := range spec.Devices {
 		name := diskdevice.Name(i, dev.Disk)
