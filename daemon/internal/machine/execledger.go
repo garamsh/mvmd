@@ -216,7 +216,10 @@ func (l *execLedger) settle(ctx context.Context, id MachineID, exec ExecID, reco
 	if !current.Answered || current.Record.Status == ExecStarted {
 		final := *current
 		final.Record, final.Answered = record, true
-		if err := l.store.SaveExec(ctx, final); err != nil {
+		l.mu.Unlock()
+		err := l.store.SaveExec(ctx, final)
+		l.mu.Lock()
+		if err != nil {
 			return ExecRecord{}, fail(ErrFailed, "the command ended and its record could not be kept: %v", err)
 		}
 		l.entries[exec] = &final
