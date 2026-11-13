@@ -134,7 +134,7 @@ func (s *service) CreateDiskWithContents(ctx context.Context, disk DiskID, reque
 	case sizeBytes < uint64(len(contents)):
 		return fail(ErrInvalid, "the disk size %d is below the contents' %d bytes", sizeBytes, len(contents))
 	}
-	return s.createDisk(ctx, DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: FilesystemNone, ContentsDigest: ContentsDigest(contents)}, contents)
+	return s.createDisk(ctx, DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: FilesystemNone}, contents)
 }
 
 // createDisk makes the disk of the validated entry, holding contents when there
