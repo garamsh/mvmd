@@ -71,7 +71,7 @@ func kernelArgs(goarch string, spec machine.BootSpec) string {
 // description again.
 func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.BootSpec) (machine.ProcessDescription, error) {
 	initrd := machine.File{Host: d.cfg.Initrd, In: machine.InInitrd, ReadOnly: true, SHA256: d.cfg.InitrdSHA256}
-	if spec.OSForm() {
+	if false {
 		initrd = machine.File{Host: spec.Initrd.Path, In: machine.InInitrd, ReadOnly: true, SHA256: spec.Initrd.SHA256}
 	}
 	boot := []machine.File{
