@@ -106,7 +106,7 @@ func (s *service) capture(ctx context.Context, m Machine, snapshot SnapshotID, r
 	}
 	spec := SnapshotSpec{
 		Image: m.Image, Resources: m.Resources, Ceiling: m.Ceiling, BootMemoryBytes: m.BootMemoryBytes, RootDiskBytes: m.RootDiskBytes,
-		Command: cloneNonEmpty(m.Command), Args: cloneNonEmpty(m.Args), Env: cloneNonEmpty(m.Env), User: m.Spec.User, Files: cloneFiles(m.Files), WorkingDir: m.WorkingDir,
+		Command: cloneNonEmpty(m.Command), Args: cloneNonEmpty(m.Args), Env: cloneNonEmpty(m.Env), User: m.Spec.User, Files: cloneFiles(m.Files),
 	}
 	record := Snapshot{
 		ID: snapshot, Machine: m.ID, Request: request, Spec: spec, RootDiskUUID: m.RootDiskUUID, MAC: m.Network.MAC,
