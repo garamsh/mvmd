@@ -60,6 +60,12 @@ func ObserveEnds(ctx context.Context, s Service) {
 	s.(*service).observeEnds(ctx)
 }
 
+// RestartDue runs one pass of the restarts Watch begins on each tick, and
+// returns when the starts it began have ended.
+func RestartDue(ctx context.Context, s Service) {
+	s.(*service).restartDue(ctx, true)
+}
+
 // SettleEnd settles one Machine as a look does once its listing named it, so a
 // test can give it a listing that is stale.
 func SettleEnd(ctx context.Context, s Service, id MachineID) {

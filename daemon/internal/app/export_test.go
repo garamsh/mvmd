@@ -1,6 +1,15 @@
 package app
 
-import "github.com/garamsh/mvmd/daemon/internal/machine"
+import (
+	"github.com/garamsh/mvmd/daemon/internal/fencing"
+	"github.com/garamsh/mvmd/daemon/internal/machine"
+)
+
+// NewWithClock is New with the clock the fencing deadline and the boot
+// identity read, for tests that change the boot between two daemons.
+func NewWithClock(cfg Config, clock fencing.Clock) (*App, error) {
+	return build(cfg, func() (fencing.Clock, error) { return clock, nil })
+}
 
 // HoldBeforeReconcile sets the step the daemon runs before it restores and
 // reconciles, for tests outside the package that hold the daemon there.

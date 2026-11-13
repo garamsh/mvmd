@@ -237,6 +237,8 @@ message Machine {
   // The routed prefixes the Machine owns (ADR 0061), in the order the request
   // gave them; empty when it has none.
   repeated string routed_prefixes = 19;
+  // Whether the Machine was created with restart_on_boot (ADR 0062).
+  bool restart_on_boot = 20;
 }
 
 // OsBoot is the OS form of a Machine (ADR 0058): the guest boots a whole
@@ -427,6 +429,12 @@ message CreateMachineRequest {
   // prefixes are fixed for the Machine's life and released at Delete Machine.
   // mvmd does not configure them in the guest.
   repeated string routed_prefixes = 18;
+  // Optional, default false; both forms accept it (ADR 0062). When set, mvmd
+  // starts the Machine again at the first arming of the fencing deadline in a
+  // new host boot if it was Running, or being started, when the host went down
+  // and no Stop, Pause or Delete was asked for it since. A Machine whose VMM
+  // ended in the same boot is not restarted.
+  bool restart_on_boot = 19;
 }
 
 message CreateMachineResponse {

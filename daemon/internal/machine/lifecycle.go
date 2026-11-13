@@ -245,25 +245,42 @@ func (s *service) failCreate(ctx context.Context, id MachineID, request RequestI
 }
 
 func (s *service) Start(ctx context.Context, id MachineID) error {
-	return s.start(ctx, id, nil)
+	return s.start(ctx, id, nil, false)
 }
 
 func (s *service) StartWith(ctx context.Context, id MachineID, update RunUpdate) error {
-	return s.start(ctx, id, &update)
+	return s.start(ctx, id, &update, false)
 }
 
 // start boots the Machine. A non-nil update replaces the Machine's env and
 // files in its record after the checks that refuse a start and before the
 // boot, so a boot that fails leaves the new values for the next start (ADR
 // 0052).
-func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) error {
+//
+// A restarting start is the restart of a Machine with RestartOnBoot that Restore
+// marked (ADR 0062): it does nothing unless the mark still stands, and a
+// failure that is not a refusal of the permit is recorded as the restart's.
+func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate, restarting bool) (err error) {
 	defer s.lock(id)()
 	// The wait for the guest's boot is part of the call, so the bound adds it.
 	ctx, cancel := s.accepted(ctx, s.bootTimeout)
 	defer cancel()
+	// permitRefused is set when the Start Permitter refuses: the restart then
+	// stays pending for the next arming.
+	permitRefused := false
 	rec, err := s.machine(id)
 	if err != nil {
 		return err
+	}
+	if restarting {
+		if m := rec.Machine; !m.RestartPending || !m.RestartOnBoot || (m.State != StateCreated && m.State != StateStopped) {
+			return nil
+		}
+		defer func() {
+			if err != nil && !permitRefused {
+				err = s.restartFailed(ctx, rec, err)
+			}
+		}()
 	}
 	if update != nil {
 		if err := update.validate(); err != nil {
@@ -304,13 +321,23 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 		}
 	}
 	if err := s.permitter.PermitStart(ctx, id); err != nil {
+		permitRefused = true
 		return fail(ErrPreconditionFailed, "starting is not permitted: %v", err)
 	}
+	// What is recorded before the boot: the new env and files, the end of a
+	// pending restart, and for a Machine with RestartOnBoot the boot this start
+	// begins in, so that a host that goes down during it is seen to (ADR 0062).
+	next := m.clone()
 	if update != nil {
-		next := m.clone()
 		next.Env, next.Files = cloneNonEmpty(update.Env), cloneFiles(update.Files)
-		if err := s.commit(ctx, rec, next); err != nil {
-			return fail(ErrFailed, "record the new env and files: %v", err)
+	}
+	next.RestartPending = false
+	if boot := s.bootID(); next.RestartOnBoot && boot != "" {
+		next.StartedInBoot = boot
+	}
+	if update != nil || next.RestartPending != m.RestartPending || next.StartedInBoot != m.StartedInBoot {
+		if err := s.record(ctx, rec, next); err != nil {
+			return fail(ErrFailed, "record the start: %v", err)
 		}
 		m = next
 	}
@@ -369,13 +396,19 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 	res := s.bringUp(ctx, plan)
 	if res.failure != nil {
 		if !res.begun.vmm {
-			// No VMM process began, so the Machine keeps its state.
+			// No VMM process began, so the Machine keeps its state, and with it
+			// no start in a boot.
+			if m.StartedInBoot != "" {
+				if err := s.commit(ctx, rec, m); err != nil {
+					return fail(ErrFailed, "%s; the start could not be unrecorded: %v", res.reason(), err)
+				}
+			}
 			return fail(res.failure.Kind, "%s", res.reason())
 		}
 		return s.bootFailed(ctx, rec, res)
 	}
 
-	next := m.clone()
+	next = m.clone()
 	next.State = StateRunning
 	next.BootMemoryBytes = m.Resources.MemoryBytes
 	next.KernelDigest = res.kernelDigest
@@ -484,6 +517,23 @@ func (s *service) bootFailed(ctx context.Context, rec *Record, boot bootResult) 
 	return fail(ErrFailed, "%s", next.FailureReason)
 }
 
+// restartFailed records that the restart of a Machine failed: it stays as it is
+// with the reason, and the restart is not retried (ADR 0062). It returns err.
+func (s *service) restartFailed(ctx context.Context, rec *Record, err error) error {
+	ctx, cancel := s.compensating(ctx)
+	defer cancel()
+	next := rec.Machine.clone()
+	next.RestartPending = false
+	if next.State == StateCreated {
+		next.State = StateStopped
+	}
+	next.FailureReason = "the restart after the host's boot changed failed: " + err.Error()
+	if cerr := s.commit(ctx, rec, next); cerr != nil {
+		return fail(ErrFailed, "%v; the failure of the restart could not be recorded: %v", err, cerr)
+	}
+	return err
+}
+
 func (s *service) Stop(ctx context.Context, id MachineID, grace time.Duration) error {
 	return s.stop(ctx, id, grace, true)
 }
@@ -503,6 +553,14 @@ func (s *service) stop(ctx context.Context, id MachineID, grace time.Duration, g
 	}
 	m := *rec.Machine
 	if m.State == StateCreated || m.State == StateStopped {
+		if m.RestartPending {
+			// A Stop is asked after the Machine last ran: it is not restarted (ADR 0062).
+			next := m.clone()
+			next.RestartPending = false
+			if err := s.commit(ctx, rec, next); err != nil {
+				return fail(ErrFailed, "record the stop: %v", err)
+			}
+		}
 		return nil
 	}
 

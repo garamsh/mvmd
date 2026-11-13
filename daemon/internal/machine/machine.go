@@ -177,6 +177,10 @@ type Spec struct {
 	// routes each to the Machine's tap, accepts it as a source from that tap
 	// only, and applies the Machine's policy to it as to the Machine's address.
 	RoutedPrefixes []netip.Prefix
+	// RestartOnBoot asks mvmd to start the Machine again at the first arming of
+	// the fencing deadline in a new host boot, when the Machine was Running or
+	// being started as the host went down (ADR 0062).
+	RestartOnBoot bool
 }
 
 // Machine is a Machine as Inspect reports it.
@@ -205,6 +209,16 @@ type Machine struct {
 	Network NetworkIdentity
 	// FailureReason is the reason for the last failure, empty if none.
 	FailureReason string
+	// StartedInBoot is the host boot a Machine with RestartOnBoot began its
+	// last start in. It is empty while the Machine is not running or being
+	// started: every commit of a state other than Running and Paused clears it,
+	// so a Stop, a failed start and a VMM that ended in its boot leave none
+	// (ADR 0062).
+	StartedInBoot string
+	// RestartPending is set by Restore on a Machine with RestartOnBoot whose
+	// VMM ended because the host's boot changed, and cleared by the next start
+	// of it and by a Stop (ADR 0062).
+	RestartPending bool
 	// Driver is the Driver in service, set by Inspect.
 	Driver DriverInfo
 	// ProbeResults is one result for each of the Probes, in order, set by

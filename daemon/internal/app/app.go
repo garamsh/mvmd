@@ -93,6 +93,12 @@ type App struct {
 // New builds the graph: it opens the database and constructs every adapter the
 // configuration selects. Nothing is served until Serve.
 func New(cfg Config) (*App, error) {
+	return build(cfg, func() (fencing.Clock, error) { return bootclock.New() })
+}
+
+// build is New with the clock the deadline and the boot identity read named by
+// newClock, so a test outside the package can end a boot between two daemons.
+func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	if err := cfg.check(); err != nil {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
@@ -108,7 +114,7 @@ func New(cfg Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configuration: %w", err)
 	}
-	clock, err := bootclock.New()
+	clock, err := newClock()
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +229,7 @@ func New(cfg Config) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithDiskSnapshots(diskSnapshots))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock))
 
 	machinesHeld := func() (uint32, error) {
 		all, err := machines.List(context.Background())
