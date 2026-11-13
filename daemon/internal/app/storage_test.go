@@ -18,7 +18,7 @@ func TestStorage_TheFirecrackerNodeKeepsDisksAndSnapshotsInItsStateDirectory(t *
 		memory := testConfig(t)
 		_, err := app.New(memory)
 		require.NoError(t, err)
-		for _, name := range []string{"disks", "snapshots"} {
+		for _, name := range []string{"disks", "snapshots", "disk-snapshots"} {
 			assert.NoDirExists(t, filepath.Join(memory.StateDir, name), "control: the memory config opens no "+name)
 		}
 
@@ -30,6 +30,7 @@ func TestStorage_TheFirecrackerNodeKeepsDisksAndSnapshotsInItsStateDirectory(t *
 		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "only the daemon lists the root disks")
 		assert.DirExists(t, filepath.Join(cfg.StateDir, "snapshots"), "the Snapshot Store keeps its files in snapshots")
 		assert.DirExists(t, filepath.Join(cfg.StateDir, "snapshots", "staging"))
+		assert.DirExists(t, filepath.Join(cfg.StateDir, "disk-snapshots", "staging"), "the Disk Snapshot Store keeps its files in disk-snapshots")
 	})
 }
 
@@ -42,6 +43,7 @@ func TestStorage_ANodeWhoseStorageCannotBeOpenedDoesNotStart(t *testing.T) {
 		}{
 			{"a disk directory that is a file", occupy("disks"), "the disk directory"},
 			{"a snapshot directory that is a file", occupy("snapshots"), "the Snapshot Store"},
+			{"a disk snapshot directory that is a file", occupy("disk-snapshots"), "the Disk Snapshot Store"},
 			{"a mkfs.ext4 that fails its check", func(t *testing.T, cfg *app.Config) func() {
 				good, err := os.ReadFile(cfg.Disk.MKFS)
 				require.NoError(t, err)
@@ -105,6 +107,35 @@ func TestStorage_ANodeWhoseRunDirectoriesAreOnAnotherFileSystemDoesNotStart(t *t
 			require.NoError(t, err)
 			assert.Empty(t, entries, dir)
 		}
+	})
+}
+
+func TestStorage_ANodeWhoseDiskSnapshotsAreOnAnotherFileSystemDoesNotStart(t *testing.T) {
+	nstest.Run(t, func(t *testing.T) {
+		cfg := firecrackerConfig(t)
+		require.NoError(t, os.MkdirAll(cfg.StateDir, 0o700))
+		// /dev/shm is a tmpfs, so a link out of the disk directory into it
+		// fails with EXDEV, as it does between any two file systems.
+		other, err := os.MkdirTemp("/dev/shm", "mvmd-disk-snapshots-")
+		require.NoError(t, err, "this test needs a second file system, and /dev/shm is it")
+		t.Cleanup(func() { _ = os.RemoveAll(other) })
+		require.NotEqual(t, deviceOf(t, other), deviceOf(t, cfg.StateDir), "the snapshots must be on a different file system than the disks")
+		link := filepath.Join(cfg.StateDir, "disk-snapshots")
+		require.NoError(t, os.Symlink(other, link))
+
+		_, err = app.New(cfg)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "is not on the file system of the disk directory")
+		assert.ErrorContains(t, err, filepath.Join(cfg.StateDir, "disks"))
+		entries, err := os.ReadDir(filepath.Join(cfg.StateDir, "disks"))
+		require.NoError(t, err)
+		assert.Empty(t, entries, "the probe leaves nothing in the disk directory")
+
+		// The control: with the snapshots under the state directory the same
+		// node starts.
+		require.NoError(t, os.Remove(link))
+		_, err = app.New(cfg)
+		require.NoError(t, err)
 	})
 }
 
