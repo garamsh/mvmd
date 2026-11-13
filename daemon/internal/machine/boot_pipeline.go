@@ -97,7 +97,7 @@ func (s *service) bringUp(ctx context.Context, p bootPlan) bootResult {
 	up.network = true
 	boot.Network = NetworkDevice{Tap: tap, MAC: m.Network.MAC}
 	process, err := p.describe(ctx, boot)
-	if errors.Is(err, ErrUnsupported) {
+	if errors.Is(err, context.Canceled) {
 		return stopped(fail(ErrUnsupported, "describe the VMM process: %v", err))
 	}
 	if err != nil {
