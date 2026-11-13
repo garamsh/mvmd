@@ -90,5 +90,6 @@ Decisions:
 - [ADR 0057](./adr/0057-a-machine-keeps-its-probes-and-the-daemon-follows-the-agents-results-in-memory-and-streams-each-change.md) — a Machine keeps its probes, and the daemon follows the agent's results in memory and streams each change
 - [ADR 0058](./adr/0058-an-os-form-machine-boots-a-node-named-kernel-and-initrd-with-a-command-line-and-disks-attached-at-boot-and-has-no-image-or-guest-agent.md) — an OS-form Machine boots a node-named kernel and initrd with a command line and disks attached at boot, and has no image or Guest Agent (the interim refusal is amended by ADR 0059)
 - [ADR 0059](./adr/0059-each-driver-boots-an-os-form-machine-with-its-own-parameters-before-the-clients-command-line-and-refuses-a-line-the-kernel-would-cut.md) — each Driver boots an OS-form Machine with its own parameters before the client's command line, and refuses a line the kernel would cut (it amends the interim refusal of ADR 0058)
+- [ADR 0060](./adr/0060-create-disk-takes-up-to-1-mib-of-contents-for-a-raw-disk.md) — Create disk takes up to 1 MiB of contents for a raw disk
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

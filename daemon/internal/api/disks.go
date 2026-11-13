@@ -8,6 +8,9 @@ import (
 )
 
 func (s *Server) CreateDisk(ctx context.Context, req *v1alpha2.CreateDiskRequest) (*v1alpha2.CreateDiskResponse, error) {
+	if len(req.GetContents()) > 0 {
+		return s.createDiskWithContents(ctx, req)
+	}
 	if req.GetSizeBytes() == 0 {
 		return nil, rejected("size_bytes is zero")
 	}
@@ -26,6 +29,25 @@ func (s *Server) CreateDisk(ctx context.Context, req *v1alpha2.CreateDiskRequest
 		fs = machine.FilesystemExt4
 	}
 	return &v1alpha2.CreateDiskResponse{Disk: &v1alpha2.Disk{Id: string(disk), SizeBytes: req.GetSizeBytes(), Filesystem: filesystemWire(fs)}}, nil
+}
+
+// createDiskWithContents makes a disk with no filesystem that holds the
+// request's contents.
+func (s *Server) createDiskWithContents(ctx context.Context, req *v1alpha2.CreateDiskRequest) (*v1alpha2.CreateDiskResponse, error) {
+	contents := req.GetContents()
+	switch {
+	case len(contents) > machine.MaxDiskContents:
+		return nil, rejected("contents is %d bytes, above %d", len(contents), machine.MaxDiskContents)
+	case req.GetFilesystem() != v1alpha2.Filesystem_FILESYSTEM_NONE:
+		return nil, rejected("contents is accepted only with filesystem FILESYSTEM_NONE")
+	case req.GetFromSnapshotId() != "":
+		return nil, rejected("contents is not accepted with from_snapshot_id")
+	}
+	disk := machine.DiskID(req.GetDiskId())
+	if err := s.machines.CreateDiskWithContents(ctx, disk, machine.RequestID(req.GetRequestId()), req.GetSizeBytes(), contents); err != nil {
+		return nil, status(err)
+	}
+	return &v1alpha2.CreateDiskResponse{Disk: &v1alpha2.Disk{Id: string(disk), SizeBytes: machine.ContentsDiskSize(req.GetSizeBytes(), len(contents)), Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE}}, nil
 }
 
 // createDiskFromSnapshot makes the disk from a snapshot. The disk takes the
