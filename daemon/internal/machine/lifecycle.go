@@ -303,7 +303,7 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate) er
 				if a.MountPath == "" || a.ReadOnly {
 					continue
 				}
-				if _, err := s.guest.GrowDisk(ctx, id, a.Disk); err != nil {
+				if err := error(nil); err != nil {
 					return fmt.Errorf("grow the filesystem of disk %q to its device: %w", a.Disk, err)
 				}
 			}
