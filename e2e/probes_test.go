@@ -28,6 +28,13 @@ func tcpProbe(name string, port uint32) *v1alpha2.Probe {
 	}
 }
 
+func httpProbe(name string, port uint32, path string) *v1alpha2.Probe {
+	return &v1alpha2.Probe{
+		Name: name, Kind: &v1alpha2.Probe_HttpGet{HttpGet: &v1alpha2.HttpGetProbe{Port: port, Path: path}},
+		Period: durationpb.New(200 * time.Millisecond), Timeout: durationpb.New(time.Second), FailureThreshold: 1,
+	}
+}
+
 // probeStatuses is what Inspect reports of the Machine's probes, by name.
 func (n *node) probeStatuses(t *testing.T, ctx context.Context, machine string) map[string]v1alpha2.ProbeStatus {
 	t.Helper()
@@ -45,7 +52,7 @@ func (n *node) probeStatuses(t *testing.T, ctx context.Context, machine string) 
 func TestE2E_ProbesAreRunAndTheirResultsReportedAndStreamed(t *testing.T) {
 	n := startNode(t)
 	n.arm(t)
-	pulled := n.pullEntry(t, "probed", []string{"listen", "8080"})
+	pulled := n.pullEntry(t, "probed", []string{"serve", "8080"})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -74,16 +81,22 @@ func TestE2E_ProbesAreRunAndTheirResultsReportedAndStreamed(t *testing.T) {
 	req.Probes = []*v1alpha2.Probe{
 		tcpProbe("listening", 8080),
 		tcpProbe("closed", 9),
+		httpProbe("http-ok", 8080, "/ok"),
+		httpProbe("http-bad", 8080, "/broken"),
+		httpProbe("http-missing", 8080, "/missing"),
 		execProbe("exec-ok", "/bin/entry", "exit", "0"),
 		execProbe("exec-bad", "/bin/entry", "exit", "1"),
 	}
 	n.runMachine(t, ctx, req)
 
 	want := map[string]v1alpha2.ProbeStatus{
-		"listening": v1alpha2.ProbeStatus_PROBE_STATUS_PASSING,
-		"closed":    v1alpha2.ProbeStatus_PROBE_STATUS_FAILING,
-		"exec-ok":   v1alpha2.ProbeStatus_PROBE_STATUS_PASSING,
-		"exec-bad":  v1alpha2.ProbeStatus_PROBE_STATUS_FAILING,
+		"listening":    v1alpha2.ProbeStatus_PROBE_STATUS_PASSING,
+		"closed":       v1alpha2.ProbeStatus_PROBE_STATUS_FAILING,
+		"http-ok":      v1alpha2.ProbeStatus_PROBE_STATUS_PASSING,
+		"http-bad":     v1alpha2.ProbeStatus_PROBE_STATUS_FAILING,
+		"http-missing": v1alpha2.ProbeStatus_PROBE_STATUS_FAILING,
+		"exec-ok":      v1alpha2.ProbeStatus_PROBE_STATUS_PASSING,
+		"exec-bad":     v1alpha2.ProbeStatus_PROBE_STATUS_FAILING,
 	}
 	require.Eventually(t, func() bool {
 		got := n.probeStatuses(t, ctx, "probed")
@@ -98,7 +111,7 @@ func TestE2E_ProbesAreRunAndTheirResultsReportedAndStreamed(t *testing.T) {
 	inspected, err := n.client.InspectMachine(ctx, &v1alpha2.InspectMachineRequest{MachineId: "probed"})
 	require.NoError(t, err)
 	for _, p := range inspected.Machine.Probes {
-		if p.Name == "exec-bad" || p.Name == "closed" {
+		if p.Name == "exec-bad" || p.Name == "closed" || p.Name == "http-bad" || p.Name == "http-missing" {
 			assert.NotEmpty(t, p.LastFailure, "a failing probe says why: %s", p.Name)
 			assert.GreaterOrEqual(t, p.ConsecutiveFailures, uint32(1))
 		}
@@ -109,8 +122,15 @@ func TestE2E_ProbesAreRunAndTheirResultsReportedAndStreamed(t *testing.T) {
 	// of a probe need not be its final status.
 	seen := map[string]v1alpha2.ProbeStatus{}
 	deadline := time.After(time.Minute)
-	for seen["listening"] != want["listening"] || seen["exec-bad"] != want["exec-bad"] ||
-		seen["closed"] != want["closed"] || seen["exec-ok"] != want["exec-ok"] {
+	reached := func() bool {
+		for name, status := range want {
+			if seen[name] != status {
+				return false
+			}
+		}
+		return true
+	}
+	for !reached() {
 		select {
 		case r := <-changes:
 			seen[r.Name] = r.Status
@@ -118,8 +138,6 @@ func TestE2E_ProbesAreRunAndTheirResultsReportedAndStreamed(t *testing.T) {
 			t.Fatalf("the probe events of a minute: %v", seen)
 		}
 	}
-	assert.Equal(t, v1alpha2.ProbeStatus_PROBE_STATUS_PASSING, seen["listening"])
-	assert.Equal(t, v1alpha2.ProbeStatus_PROBE_STATUS_FAILING, seen["exec-bad"])
 
 	// A Stopped Machine reports each probe Unknown.
 	_, err = n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "probed", GracePeriod: durationpb.New(10 * time.Second)})

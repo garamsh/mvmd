@@ -218,6 +218,21 @@ func TestProbes_AStreamThatBrokeIsOpenedAgain(t *testing.T) {
 	requireProbeStatuses(t, e.svc, "m", machine.ProbePassing)
 }
 
+// A stream the agent ended cleanly is not opened again, while one that broke is.
+func TestProbes_AStreamTheAgentEndedIsNotOpenedAgain(t *testing.T) {
+	e := newEnvWith(nil, machine.WithProbeRetry(5*time.Millisecond))
+	e.startedWith(t, "m", image, withProbes(execProbe))
+	require.Eventually(t, func() bool { return e.guest.ProbeStreams("m") == 1 }, probeWait, time.Millisecond)
+
+	// Control: a stream that broke is opened again within the retry.
+	e.guest.BreakProbes("m")
+	require.Eventually(t, func() bool { return e.guest.ProbeOpens("m") == 2 && e.guest.ProbeStreams("m") == 1 }, probeWait, time.Millisecond, "opened again")
+
+	e.guest.EndProbes("m")
+	require.Eventually(t, func() bool { return e.guest.ProbeStreams("m") == 0 }, probeWait, time.Millisecond, "the stream ended")
+	require.Never(t, func() bool { return e.guest.ProbeOpens("m") != 2 }, 250*time.Millisecond, 5*time.Millisecond, "opened again after a clean end")
+}
+
 // A change of a probe's result is one event; the guest repeating what the
 // daemon holds is none.
 func TestProbes_OnlyAChangeIsAnEvent(t *testing.T) {
