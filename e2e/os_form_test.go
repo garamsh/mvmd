@@ -99,7 +99,7 @@ type osFormReport struct {
 	Token, ReadOnly0, ReadOnly1, Magic, ROWrite, Before, Written string
 }
 
-var osFormLine = regexp.MustCompile(`os-form-e2e: token=(\S*) ro0=(\S+) ro1=(\S+) magic=(\S+) ro-write=(\S+) data-before=(\S+) data-written=(\S+) end\r?\n`)
+var osFormLine = regexp.MustCompile(`os-form-e2e: token=(\S*) ro0=(\S+) ro1=(\S+) magic=(\S+) ro-write=(\S+) data-before=(\S+) data-written=(\S*) end\r?\n`)
 
 // osFormReport opens a Console session and returns the first whole line the guest's init writes.
 // A session carries only what is written after it opened, so the init repeats its line.
