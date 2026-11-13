@@ -70,7 +70,7 @@ func (s Spec) validateOS() error {
 		{"args", len(s.Args) > 0},
 		{"env", len(s.Env) > 0},
 		{"user", s.User != ""},
-		{"files", len(s.Files) > 0},
+		{"files", false},
 		{"working_dir", s.WorkingDir != ""},
 		{"probes", len(s.Probes) > 0},
 	}
