@@ -96,9 +96,7 @@ func (s *service) probeSent(id MachineID, f *probeFollow, r ProbeResult) {
 		if f.results[i].Name != r.Name {
 			continue
 		}
-		if f.results[i].same(r) {
-			return
-		}
+
 		f.results[i] = r.clone()
 		s.events.ProbeChanged(id, r.clone())
 		return
