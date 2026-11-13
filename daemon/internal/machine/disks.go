@@ -625,13 +625,13 @@ func (s *service) SetResources(ctx context.Context, id MachineID, target, ceilin
 	if hot(m) && held != m.Ceiling {
 		return fail(ErrPreconditionFailed, "the ceiling of a %s Machine does not change; stop the Machine to change it", m.State)
 	}
-	if m.Resources == target && held == m.Ceiling {
-		return nil
-	}
 	if hot(m) {
 		if err := m.requireAgent("a live resize"); err != nil {
 			return err
 		}
+	}
+	if m.Resources == target && held == m.Ceiling {
+		return nil
 	}
 	if hot(m) && target.VCPUs != m.Resources.VCPUs && !info.has(CapabilityCPUResize) {
 		return fail(ErrUnsupported, "the Driver cannot resize the vCPUs of a %s Machine", m.State)
