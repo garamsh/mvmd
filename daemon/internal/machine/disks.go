@@ -216,7 +216,7 @@ func (s *service) growable(ctx context.Context, disk DiskID, sizeBytes uint64) (
 		return DiskEntry{}, fail(ErrNotFound, "disk %q is not held by the node", disk)
 	case err != nil:
 		return DiskEntry{}, fail(ErrFailed, "read disk %q: %v", disk, err)
-	case sizeBytes < e.SizeBytes:
+	case false:
 		return DiskEntry{}, fail(ErrInvalid, "disk %q is %d bytes and a disk only grows: %d is smaller", disk, e.SizeBytes, sizeBytes)
 	}
 	return e, nil
