@@ -41,7 +41,7 @@ const MIN_DURATION: Duration = Duration::from_millis(1);
 /// The longest initial delay, period or timeout.
 const MAX_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
 /// The bytes of an exec probe's output a result keeps.
-const OUTPUT_BYTES: usize = 1024;
+const OUTPUT_BYTES: usize = 1 << 20;
 /// The bytes of an HTTP response read to find its status line.
 const STATUS_LINE_BYTES: usize = 1024;
 /// How long an exec probe's output pipes may stay open after the command exited: a process it
