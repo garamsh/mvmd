@@ -45,10 +45,8 @@ type DiskSnapshotInfo struct {
 // DiskSnapshotStore is the conversation with the node's disk snapshots: one
 // file each and its record.
 type DiskSnapshotStore interface {
-	// Put copies the disk file at source and records the snapshot, all or
-	// nothing, or returns ErrDiskSnapshotExists. The copy is a reflink where the
-	// file system has one, and shares no later change with the source; on an
-	// error nothing of the snapshot is left. It never changes the source.
+	// Put copies the file at source and records the snapshot, all or nothing, or
+	// returns ErrDiskSnapshotExists. It never changes the source.
 	Put(ctx context.Context, snapshot DiskSnapshot, source string) error
 	// Get returns the snapshot and the path of its file, or
 	// ErrDiskSnapshotAbsent. The file is read and never changed.

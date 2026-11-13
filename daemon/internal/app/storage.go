@@ -75,10 +75,9 @@ func checkSameFileSystem(runDirs, staging string) error {
 	return nil
 }
 
-// checkDisksSameFileSystem probes what a disk snapshot depends on: a copy of
-// a disk is a clone where the file system has reflinks, and a clone is made
-// within one file system (runtime.md §State and stability). A hard link fails
-// with EXDEV across file systems, even across two mounts of one.
+// checkDisksSameFileSystem probes that the disk directory and the disk snapshot
+// staging directory share a file system, as a clone needs, by a hard link, which
+// fails with EXDEV across any two.
 func checkDisksSameFileSystem(disks, staging string) error {
 	probe, err := os.CreateTemp(disks, "tmp-probe-")
 	if err != nil {

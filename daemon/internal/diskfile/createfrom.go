@@ -33,11 +33,9 @@ func readFromSnapshot(path string) (machine.DiskSnapshotID, error) {
 	return machine.DiskSnapshotID(buf[:n]), nil
 }
 
-// CreateFrom duplicates the file at source into a temporary file, by reflink
-// where the file system has one and as a sparse copy where it has not, grows it
-// to the entry's size, records the request ID, the filesystem and the disk
-// snapshot in extended attributes, and publishes it, syncing the directory. On
-// any failure nothing is left in the directory.
+// CreateFrom publishes a copy of the file at source, grown to the entry's size
+// and recording its request, filesystem and snapshot. On failure nothing is
+// left in the directory.
 func (d *Disk) CreateFrom(ctx context.Context, entry machine.DiskEntry, source string) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -14,12 +14,9 @@ import (
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
 
-// A disk is snapshotted and a new disk is made from the snapshot (ADR 0056). A Machine writes a
-// file to its ext4 disk and is stopped; the disk is snapshotted, a new disk is created from the
-// snapshot, and a second Machine that mounts the new disk reads the file the first one wrote. The
-// new disk is its own copy: a change the second Machine makes does not reach the first disk. The
-// snapshot is listed, a repeat of the snapshot call changes nothing, and deleting it leaves the
-// disk made from it.
+// A disk made from a snapshot holds what the disk held when it was snapshotted (ADR 0056): a
+// second Machine mounting the new disk reads the file the first wrote, after the snapshot is
+// deleted.
 func TestE2E_ADiskMadeFromASnapshotHoldsWhatTheSnapshottedDiskHeld(t *testing.T) {
 	const diskBytes = 64 << 20
 	n := startNode(t)

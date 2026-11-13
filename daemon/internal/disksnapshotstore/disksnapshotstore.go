@@ -1,9 +1,6 @@
-// Package disksnapshotstore is mvmd's store of disk snapshots: each snapshot is
-// one directory of the node's disk-snapshots directory, holding a copy of a
-// disk's file and its record, and it becomes visible by one rename of a
-// directory built outside the snapshots (ADR 0056). The directory lies on the
-// file system of the disks directory, so a copy is a reflink where that file
-// system has one.
+// Package disksnapshotstore is mvmd's store of disk snapshots: one directory
+// each, holding a copy of a disk's file and its record, published by one rename
+// (ADR 0056). It lies on the file system of the disks directory.
 package disksnapshotstore
 
 import (
@@ -36,11 +33,9 @@ const (
 	blockBytes = 512
 )
 
-// Store is the disk snapshots of a node in one directory. A snapshot is the
-// directory named by the SHA-256 of its identifier, so any identifier is a safe
-// name. Put, Get, List and Remove are safe to call at once, for the same
-// snapshot too: what decides a race is a rename. One process holds the
-// directory at a time.
+// Store is the disk snapshots of a node in one directory, each named by the
+// SHA-256 of its identifier. Its methods are safe to call at once; a rename
+// decides a race. One process holds the directory at a time.
 type Store struct {
 	dir string
 
@@ -52,10 +47,8 @@ type Store struct {
 	clone sparsecopy.Cloner
 }
 
-// New opens the disk snapshots in dir, creating it when it is not there, and
-// removes what a crash left in dir's staging area: a Put that had not
-// published, and a Remove that had not finished deleting. Nothing else uses the
-// directory yet, so nothing in staging is in use.
+// New opens the disk snapshots in dir, creating it when absent, and empties
+// staging of what a crash left.
 func New(dir string) (*Store, error) {
 	s := &Store{dir: dir}
 	if err := os.MkdirAll(s.stagingDir(), 0o700); err != nil {
@@ -129,10 +122,8 @@ func decodeRecord(raw []byte) (machine.DiskSnapshot, error) {
 	return machine.DiskSnapshot{ID: machine.DiskSnapshotID(r.ID), Disk: machine.DiskID(r.Disk), Request: machine.RequestID(r.Request), SizeBytes: r.SizeBytes, Filesystem: machine.Filesystem(r.Filesystem), CreatedAt: r.CreatedAt}, nil
 }
 
-// Put implements machine.DiskSnapshotStore. The snapshot is built in a
-// directory of staging and published by renaming it to the snapshot's own name,
-// so a crash leaves the whole snapshot or none, and what it leaves in staging
-// is reclaimed by New. A failure that is not a crash removes what it built.
+// Put implements machine.DiskSnapshotStore. It builds the snapshot in staging
+// and publishes it by rename, so a crash leaves the whole snapshot or none.
 func (s *Store) Put(ctx context.Context, snapshot machine.DiskSnapshot, source string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -254,11 +245,8 @@ func (s *Store) Get(ctx context.Context, id machine.DiskSnapshotID) (machine.Dis
 	return snapshot, filepath.Join(dir, diskName), nil
 }
 
-// List implements machine.DiskSnapshotStore. The staging directory holds no
-// record, so it is left out, as is a snapshot retired between the listing of the
-// directory and the read of its record or its measurement: that one is gone. A
-// record that cannot be read fails the listing, since a node holding one is not
-// in a state a client can reconcile against.
+// List implements machine.DiskSnapshotStore. It leaves out staging and a
+// snapshot retired during the listing, and fails on a record it cannot read.
 func (s *Store) List(ctx context.Context) ([]machine.DiskSnapshotInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -293,10 +281,8 @@ func (s *Store) List(ctx context.Context) ([]machine.DiskSnapshotInfo, error) {
 	return out, nil
 }
 
-// Remove implements machine.DiskSnapshotStore. The snapshot stops being visible
-// in one rename, into staging, and its files are deleted from there: a failure
-// of the deletion returns its error with the snapshot already gone, and the
-// next New reclaims the files.
+// Remove implements machine.DiskSnapshotStore. The snapshot is gone after one
+// rename into staging; a failed deletion is reclaimed by the next New.
 func (s *Store) Remove(ctx context.Context, id machine.DiskSnapshotID) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -94,10 +94,8 @@ func (s *service) snapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 	return true, fail(ErrPreconditionFailed, "disk %q is held by %s Machine %q; only a Created, Stopped, Paused or Running Machine's disk is snapshotted", disk, m.State, holder)
 }
 
-// snapshotRunningDisk copies the disk of a Running Machine with the guest paused,
-// so the file does not change under the copy, and returns the Machine to
-// Running. The copy is crash-consistent: the guest has not flushed what it holds
-// in memory.
+// snapshotRunningDisk copies a Running Machine's disk with the guest paused and
+// returns the Machine to Running. The copy is crash-consistent.
 func (s *service) snapshotRunningDisk(ctx context.Context, rec *Record, disk DiskID, snapshot DiskSnapshotID, request RequestID) error {
 	m := *rec.Machine
 	if err := s.driver.Pause(ctx, m.ID); err != nil {
@@ -229,10 +227,8 @@ func (s *service) DeleteDiskSnapshot(ctx context.Context, snapshot DiskSnapshotI
 	if err := s.requireDiskSnapshots(); err != nil {
 		return err
 	}
-	// A SnapshotDisk call holds the lock exclusively and a Create disk call holds
-	// it shared, so a delete that cannot take it now is beside a call using the
-	// snapshot. It is refused and not made to wait: the snapshot may be gone by
-	// then.
+	// A call using the snapshot holds the lock; refuse rather than wait, since the
+	// snapshot may be gone by then.
 	unlock, ok := s.diskSnapLocks.tryLockExclusive(snapshot)
 	if !ok {
 		return fail(ErrPreconditionFailed, "disk snapshot %q is in use by a snapshot or create disk call", snapshot)

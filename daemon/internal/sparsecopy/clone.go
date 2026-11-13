@@ -17,11 +17,9 @@ var ErrCloneUnsupported = errors.New("the file system cannot clone a file")
 // returns ErrCloneUnsupported and leaves dst as it was.
 type Cloner func(dst, src *os.File) error
 
-// Clone makes dst a reflink of src with FICLONE: no data is read or written,
-// and a later write to either file allocates new blocks for that file alone. It
-// returns ErrCloneUnsupported where the kernel or the file system does not
-// offer it, which FICLONE reports as EOPNOTSUPP, EXDEV, ENOTTY or EINVAL, and
-// leaves dst empty.
+// Clone makes dst a reflink of src with FICLONE. It returns
+// ErrCloneUnsupported, leaving dst empty, where FICLONE reports EOPNOTSUPP,
+// EXDEV, ENOTTY or EINVAL.
 func Clone(dst, src *os.File) error {
 	err := unix.IoctlFileClone(int(dst.Fd()), int(src.Fd()))
 	switch {
@@ -33,11 +31,8 @@ func Clone(dst, src *os.File) error {
 	return err
 }
 
-// Duplicate makes dst, which must be new and empty, a copy of src that shares
-// no later change with it: a reflink where the file system supports one, and
-// Copy where it does not. It reports whether the copy is a reflink. Any
-// failure of the clone other than its being unsupported is the call's, and is
-// not made good by a copy.
+// Duplicate makes the new, empty dst a copy of src: a reflink where supported,
+// else Copy. Any other clone failure is returned, not copied over.
 func Duplicate(dst, src *os.File) (cloned bool, err error) {
 	return DuplicateWith(Clone, dst, src)
 }
