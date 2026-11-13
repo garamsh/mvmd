@@ -52,7 +52,8 @@ func createTap(m machineNet) (netlink.Link, error) {
 }
 
 // route gives the tap the host's gateway address of each family the Machine
-// holds, and routes the Machine's address to it (ADR 0011). The link must be
+// holds, and routes the Machine's address and its routed prefixes to it (ADR
+// 0011, ADR 0061). The link must be
 // up, or the kernel refuses the route.
 func route(link netlink.Link, m machineNet) error {
 	index := link.Attrs().Index
@@ -72,6 +73,21 @@ func route(link netlink.Link, m machineNet) error {
 		}
 		if err := netlink.RouteAdd(&netlink.Route{LinkIndex: index, Dst: hostNet(m.ip6)}); err != nil {
 			return fmt.Errorf("route %s to %s: %w", m.ip6, m.tap, err)
+		}
+	}
+	return routeRouted(link, m)
+}
+
+// routeRouted routes each of the Machine's routed prefixes to the tap (ADR
+// 0061). It replaces a route that exists, so reconciliation can repeat it.
+func routeRouted(link netlink.Link, m machineNet) error {
+	for _, p := range m.routed {
+		r := &netlink.Route{LinkIndex: link.Attrs().Index, Dst: &net.IPNet{IP: p.Addr().AsSlice(), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}}
+		if p.Addr().Is4() {
+			r.Scope = netlink.SCOPE_LINK
+		}
+		if err := netlink.RouteReplace(r); err != nil {
+			return fmt.Errorf("route %s to %s: %w", p, m.tap, err)
 		}
 	}
 	return nil

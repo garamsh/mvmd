@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -125,17 +126,23 @@ func usablePrefix(p netip.Prefix) error {
 
 // Allocate implements machine.Network. It chooses the MAC and one address per
 // family the node serves, and returns what it chose before for the same
-// Machine.
-func (n *Network) Allocate(ctx context.Context, id machine.MachineID, mac string) (machine.NetworkIdentity, error) {
+// Machine. It holds routed (ADR 0061) with them, after refusing a family the
+// node does not serve (machine.ErrInvalid) and an overlap with the node's
+// Machine prefix or what another Machine holds (machine.ErrConflict).
+func (n *Network) Allocate(ctx context.Context, id machine.MachineID, mac string, routed ...netip.Prefix) (machine.NetworkIdentity, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if have, ok := n.held[id]; ok {
 		return have, nil
 	}
+	if err := n.checkRouted(id, routed); err != nil {
+		return machine.NetworkIdentity{}, err
+	}
 	identity, err := n.allocate(mac)
 	if err != nil {
 		return machine.NetworkIdentity{}, err
 	}
+	identity.RoutedPrefixes = slices.Clone(routed)
 	n.held[id] = identity
 	return identity, nil
 }

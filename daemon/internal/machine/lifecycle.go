@@ -104,11 +104,18 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return err
 	}
 
-	identity, err := s.network.Allocate(ctx, id, "")
+	identity, err := s.network.Allocate(ctx, id, "", spec.RoutedPrefixes...)
 	if errors.Is(err, ErrNoFreeAddress) {
 		s.release(disks...)
 		s.uids.ReleaseMachine(id)
 		return fail(ErrPreconditionFailed, "allocate network: %v", err)
+	}
+	// A routed prefix the node refuses is the request's fault, not a failure of
+	// the node, so it is answered as it is and not recorded under the request.
+	if refusal := (*Error)(nil); errors.As(err, &refusal) && (refusal.Kind == ErrInvalid || refusal.Kind == ErrConflict) {
+		s.release(disks...)
+		s.uids.ReleaseMachine(id)
+		return refusal
 	}
 	if err != nil {
 		s.release(disks...)
@@ -168,6 +175,9 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 		if err := spec.validateOS(); err != nil {
 			return err
 		}
+	}
+	if err := ValidateRoutedPrefixes(spec.RoutedPrefixes); err != nil {
+		return err
 	}
 	seen := make(map[DiskID]bool)
 	mounts := make(map[string]bool)

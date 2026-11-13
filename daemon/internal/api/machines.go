@@ -134,8 +134,12 @@ func (s *Server) RestoreMachine(ctx context.Context, req *v1alpha2.RestoreMachin
 	if policy.Ingress, err = rulesOf(req.GetNetworkPolicy().GetIngress()); err != nil {
 		return nil, rejected("%v", err)
 	}
+	routed, err := routedOf(req.GetRoutedPrefixes())
+	if err != nil {
+		return nil, rejected("%v", err)
+	}
 	id := machine.MachineID(req.GetMachineId())
-	if err := s.machines.RestoreSnapshot(ctx, id, machine.RequestID(req.GetRequestId()), machine.SnapshotID(req.GetSnapshotId()), policy); err != nil {
+	if err := s.machines.RestoreSnapshot(ctx, id, machine.RequestID(req.GetRequestId()), machine.SnapshotID(req.GetSnapshotId()), policy, routed...); err != nil {
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)

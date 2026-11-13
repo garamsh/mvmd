@@ -238,6 +238,8 @@ type guest struct {
 	ip4        netip.Addr
 	ip6        netip.Addr
 	ll6        netip.Addr
+	// routed are the routed prefixes the Machine is allocated with.
+	routed []netip.Prefix
 }
 
 // start allocates, applies the policy and attaches to the tap, which is what a
@@ -249,11 +251,31 @@ func (l *lab) start(id machine.MachineID, policy machine.NetworkPolicy) *guest {
 	return g
 }
 
+// startRouted is start for a Machine that owns routed prefixes (ADR 0061).
+func (l *lab) startRouted(id machine.MachineID, policy machine.NetworkPolicy, routed ...string) *guest {
+	l.t.Helper()
+	g := &guest{l: l, id: id, ctl4: outside4, ctl6: outside6}
+	for _, p := range routed {
+		g.routed = append(g.routed, netip.MustParsePrefix(p))
+	}
+	g.allocateAndApply(policy)
+	return g
+}
+
+// reachable makes the host send to addr, an address in a routed prefix, to the
+// guest without asking who has it.
+func (g *guest) reachable(addr netip.Addr) {
+	g.l.t.Helper()
+	require.NoError(g.l.t, netlink.NeighSet(&netlink.Neigh{
+		LinkIndex: g.linkIndex, State: netlink.NUD_PERMANENT, IP: addr.AsSlice(), HardwareAddr: g.mac,
+	}))
+}
+
 func (g *guest) allocateAndApply(policy machine.NetworkPolicy) {
 	t := g.l.t
 	t.Helper()
 	var err error
-	g.identity, err = g.l.net.Allocate(context.Background(), g.id, "")
+	g.identity, err = g.l.net.Allocate(context.Background(), g.id, "", g.routed...)
 	require.NoError(t, err)
 	g.tap, err = g.l.net.Apply(context.Background(), g.id, vmmUser, policy)
 	require.NoError(t, err)

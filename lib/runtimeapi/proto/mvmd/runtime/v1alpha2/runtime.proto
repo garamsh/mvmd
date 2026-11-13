@@ -234,6 +234,9 @@ message Machine {
   // OS-form Machine has no image_digest, no root disk, no env_names, files,
   // working_dir or probes.
   OsBoot os_boot = 18;
+  // The routed prefixes the Machine owns (ADR 0061), in the order the request
+  // gave them; empty when it has none.
+  repeated string routed_prefixes = 19;
 }
 
 // OsBoot is the OS form of a Machine (ADR 0058): the guest boots a whole
@@ -412,6 +415,18 @@ message CreateMachineRequest {
   // naming it. resources, resource_ceiling, disks and network_policy mean what
   // they mean for the image form, and a disk's mount_path must be empty.
   OsBoot os_boot = 17;
+  // Optional. Prefixes the Machine owns besides its addresses (ADR 0061): the
+  // node routes each to the Machine's tap, accepts it as a source from that tap
+  // only, and applies the Machine's network_policy to it as to the Machine's
+  // address. At most 4, each in CIDR form with the host bits clear, IPv4 from
+  // /16 to /32 or IPv6 from /48 to /128, in a family the node serves, and not
+  // loopback, link-local, multicast or unspecified space. A request outside
+  // that, or one that lists prefixes that overlap each other, is REJECTED
+  // naming the prefix. A prefix that overlaps the node's Machine prefix or an
+  // address or prefix another Machine holds is CONFLICT naming the prefix. The
+  // prefixes are fixed for the Machine's life and released at Delete Machine.
+  // mvmd does not configure them in the guest.
+  repeated string routed_prefixes = 18;
 }
 
 message CreateMachineResponse {
@@ -486,6 +501,9 @@ message RestoreMachineRequest {
   string request_id = 2;
   string snapshot_id = 3;
   NetworkPolicy network_policy = 4;
+  // Optional. The new Machine's routed prefixes, under the rules of
+  // CreateMachineRequest.routed_prefixes. A snapshot carries none.
+  repeated string routed_prefixes = 5;
 }
 
 message RestoreMachineResponse {

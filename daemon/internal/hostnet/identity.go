@@ -59,6 +59,49 @@ func (n *Network) allocate(mac string) (machine.NetworkIdentity, error) {
 	return identity, nil
 }
 
+// checkRouted refuses the routed prefixes the node cannot give the Machine id
+// (ADR 0061): a family it does not serve is machine.ErrInvalid, and a prefix
+// that overlaps the node's Machine prefix, a resolver, or an address or routed
+// prefix another Machine holds is machine.ErrConflict. Each names the prefix.
+// Callers hold n.mu.
+func (n *Network) checkRouted(id machine.MachineID, routed []netip.Prefix) error {
+	for _, p := range routed {
+		served := n.cfg.IPv4Prefix
+		if p.Addr().Is6() {
+			served = n.cfg.IPv6Prefix
+		}
+		if !served.IsValid() {
+			return machine.NewError(machine.ErrInvalid, "routed prefix %s is in a family the node does not serve", p)
+		}
+		for _, node := range []netip.Prefix{n.cfg.IPv4Prefix, n.cfg.IPv6Prefix} {
+			if node.IsValid() && p.Overlaps(node) {
+				return machine.NewError(machine.ErrConflict, "routed prefix %s overlaps the node's Machine prefix %s", p, node)
+			}
+		}
+		for _, r := range n.cfg.Resolvers {
+			if p.Contains(r) {
+				return machine.NewError(machine.ErrConflict, "routed prefix %s contains the resolver %s", p, r)
+			}
+		}
+		for other, held := range n.held {
+			if other == id {
+				continue
+			}
+			for _, a := range held.Addresses {
+				if p.Contains(a) {
+					return machine.NewError(machine.ErrConflict, "routed prefix %s contains the address %s of Machine %q", p, a, other)
+				}
+			}
+			for _, q := range held.RoutedPrefixes {
+				if p.Overlaps(q) {
+					return machine.NewError(machine.ErrConflict, "routed prefix %s overlaps routed prefix %s of Machine %q", p, q, other)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // chooseMAC parses the MAC to keep, or makes a locally administered unicast one
 // (ADR 0011) that no held identity has.
 func (n *Network) chooseMAC(mac string) (net.HardwareAddr, error) {
@@ -161,7 +204,14 @@ type machineNet struct {
 	// link-local address, which the tap admits beside ip6.
 	ip4, ip6, ll6 netip.Addr
 	gw4           netip.Addr
-	policy        machine.NetworkPolicy
+	// routed are the prefixes the Machine owns besides its addresses (ADR
+	// 0061): the tap admits them as a source, the node routes them to the tap,
+	// and the policy treats them as the Machine's own address.
+	routed []netip.Prefix
+	// node4 and node6 are the node's Machine prefixes, which what leaves a
+	// routed prefix is masqueraded out of.
+	node4, node6 netip.Prefix
+	policy       machine.NetworkPolicy
 }
 
 func (n *Network) machineNet(id machine.MachineID, identity machine.NetworkIdentity, user machine.User, policy machine.NetworkPolicy) (machineNet, error) {
@@ -169,7 +219,7 @@ func (n *Network) machineNet(id machine.MachineID, identity machine.NetworkIdent
 	if err != nil || len(hw) != 6 {
 		return machineNet{}, fmt.Errorf("Machine %q holds the MAC %q", id, identity.MAC)
 	}
-	m := machineNet{tap: tapName(id), mac: hw, user: user, policy: policy}
+	m := machineNet{tap: tapName(id), mac: hw, user: user, policy: policy, routed: slices.Clone(identity.RoutedPrefixes), node4: n.cfg.IPv4Prefix, node6: n.cfg.IPv6Prefix}
 	for _, a := range identity.Addresses {
 		if a.Is4() {
 			m.ip4 = a

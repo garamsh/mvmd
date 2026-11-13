@@ -43,6 +43,13 @@ func oifnameIs(name string) []expr.Any {
 	return []expr.Any{&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, cmp(expr.CmpOpEq, ifname(name))}
 }
 
+// oifnameNotStarting matches an output interface whose name does not start
+// with prefix. Comparing only len(prefix) bytes of the register is how nft
+// writes a trailing wildcard.
+func oifnameNotStarting(prefix string) []expr.Any {
+	return []expr.Any{&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, cmp(expr.CmpOpNeq, []byte(prefix))}
+}
+
 // nfprotoIs matches the family of the packet, which an inet chain must do
 // before it reads an address.
 func nfprotoIs(family byte) []expr.Any {

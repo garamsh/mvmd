@@ -108,11 +108,28 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly(), MountPath: d.GetMountPath()})
 	}
 	var err error
+	if spec.RoutedPrefixes, err = routedOf(req.GetRoutedPrefixes()); err != nil {
+		return spec, err
+	}
 	if spec.Policy.Egress, err = rulesOf(req.GetNetworkPolicy().GetEgress()); err != nil {
 		return spec, err
 	}
 	spec.Policy.Ingress, err = rulesOf(req.GetNetworkPolicy().GetIngress())
 	return spec, err
+}
+
+// routedOf parses the routed prefixes of a request, in CIDR form. What a
+// prefix may be is the inside's to say, so only its form is checked here.
+func routedOf(in []string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, s := range in {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return nil, fmt.Errorf("routed prefix %q is not a CIDR prefix: %w", s, err)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 func rulesToWire(in []machine.NetworkRule) []*v1alpha2.NetworkRule {
@@ -166,6 +183,9 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 	}
 	for _, a := range m.Network.Addresses {
 		out.Addresses = append(out.Addresses, a.String())
+	}
+	for _, p := range m.Network.RoutedPrefixes {
+		out.RoutedPrefixes = append(out.RoutedPrefixes, p.String())
 	}
 	return out
 }
