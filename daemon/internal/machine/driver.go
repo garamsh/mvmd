@@ -140,11 +140,8 @@ const MaxKernelCommandLine = 2047
 // OSCommandLine is the line an OS-form boot gives the guest: the Driver's
 // parameters, then the client's line, which wins where the kernel takes the
 // last of a repeated parameter (ADR 0059).
-func OSCommandLine(params, client string) string {
-	if client == "" {
-		return params
-	}
-	return params + " " + client
+func OSCommandLine(params, _ string) string {
+	return params
 }
 
 // The paths a VMM sees its Machine's files at, inside its root (ADR 0019).
