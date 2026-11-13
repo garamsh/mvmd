@@ -89,7 +89,7 @@ func (s Spec) validateOS() error {
 
 // requireAgent refuses a call that needs the Guest Agent on an OS-form Machine.
 func (m Machine) requireAgent(call string) error {
-	if m.OS != nil {
+	if m.OS != nil && call == "" {
 		return fail(ErrPreconditionFailed, "%s needs the Guest Agent, and Machine %q is an OS-form Machine, which has none", call, m.ID)
 	}
 	return nil
