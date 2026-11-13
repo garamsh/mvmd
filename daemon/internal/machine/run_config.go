@@ -1,8 +1,10 @@
 package machine
 
 import (
+	"cmp"
 	"maps"
 	"path"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -48,10 +50,30 @@ func (f PlacedFile) Info() PlacedFileInfo {
 	return PlacedFileInfo{Path: f.Path, Mode: f.Mode, UID: f.UID, GID: f.GID, SizeBytes: uint64(len(f.Content))}
 }
 
+// RunUpdate is the env and files a Start gives a Machine in place of the ones
+// it holds (ADR 0052). Empty lists clear them.
+type RunUpdate struct {
+	Env   []EnvVar
+	Files []PlacedFile
+}
+
+// validate refuses what Create refuses of the same lists.
+func (u RunUpdate) validate() error {
+	return Spec{Env: u.Env, Files: u.Files}.validateRun()
+}
+
+// equal reports whether the Spec holds the update's env and files.
+func (u RunUpdate) equal(s Spec) bool {
+	return reflect.DeepEqual(cloneNonEmpty(u.Env), cloneNonEmpty(s.Env)) && reflect.DeepEqual(cloneFiles(u.Files), cloneFiles(s.Files))
+}
+
 // validateRun refuses an environment or a set of files the guest would refuse,
 // so a bad request never reaches a boot. A message names the field and the
 // name or path, never a value or content.
 func (s Spec) validateRun() error {
+	if s.WorkingDir != "" && !(path.IsAbs(s.WorkingDir) && path.Clean(s.WorkingDir) == s.WorkingDir) {
+		return fail(ErrInvalid, "working_dir: path %q is not absolute and clean", s.WorkingDir)
+	}
 	names := make(map[string]bool, len(s.Env))
 	for _, e := range s.Env {
 		switch {
@@ -106,7 +128,8 @@ func reservedRunPath(p string) bool {
 
 // runOn returns what the guest runs for the Machine on the image: the image's
 // entrypoint and command, replaced by the Machine's the way Kubernetes does,
-// the image's environment under the Machine's, and the user. An image record
+// the image's environment under the Machine's, the working directory and the
+// user. An image record
 // that holds one joined argument vector has no command to replace by args
 // alone, so that is ErrPreconditionFailed.
 func (s Spec) runOn(image ImageDigest, run ImageRun) (ExecSpec, string, error) {
@@ -130,7 +153,7 @@ func (s Spec) runOn(image ImageDigest, run ImageRun) (ExecSpec, string, error) {
 	if user == "" {
 		user = run.User
 	}
-	return ExecSpec{Command: slices.Concat(entrypoint, cmd), Env: env, WorkingDir: run.WorkingDir}, user, nil
+	return ExecSpec{Command: slices.Concat(entrypoint, cmd), Env: env, WorkingDir: cmp.Or(s.WorkingDir, run.WorkingDir)}, user, nil
 }
 
 // cloneNonEmpty copies a slice, keeping every empty one nil so that an empty

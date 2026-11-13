@@ -218,6 +218,8 @@ message Machine {
   repeated string env_names = 14;
   // The files the request placed, without their content.
   repeated FileInfo files = 15;
+  // The working directory the request set; empty when it set none.
+  string working_dir = 16;
 }
 
 // An environment variable of the entrypoint. The value may be secret: mvmd
@@ -288,14 +290,37 @@ message CreateMachineRequest {
   // a mode of at most 07777; a request outside that is REJECTED, naming the
   // field and the path.
   repeated File files = 14;
+  // Optional. The directory the entrypoint runs in: absolute and clean (no "."
+  // or ".." element, no empty element, no trailing slash). Empty is the image's
+  // working directory. A path that is not absolute and clean is REJECTED,
+  // naming it. It is kept with the Machine and used at every start.
+  string working_dir = 15;
 }
 
 message CreateMachineResponse {
   Machine machine = 1;
 }
 
+// New environment and files for the next start of a Machine, which replace the
+// ones the Machine holds. A repeated field has no presence, so the message
+// carries it.
+message RunUpdate {
+  // Replaces the Machine's environment as a whole; empty clears it. The same
+  // rules as at Create.
+  repeated EnvVar env = 1;
+  // Replaces the Machine's files as a whole; empty clears them. The same rules
+  // and bounds as at Create.
+  repeated File files = 2;
+}
+
 message StartMachineRequest {
   string machine_id = 1;
+  // Optional. Present replaces the Machine's env and files in its record, then
+  // the start boots with them; a request outside the rules of Create is
+  // REJECTED and changes nothing. Absent keeps the record's. Command, args,
+  // user and working directory are not changed by a start. On a Machine that is
+  // Running, present is accepted only when it equals what the record holds.
+  RunUpdate run_update = 2;
 }
 
 message StartMachineResponse {

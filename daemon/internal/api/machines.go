@@ -43,7 +43,12 @@ func (s *Server) StartMachine(ctx context.Context, req *v1alpha2.StartMachineReq
 	if err != nil {
 		return nil, err
 	}
-	if err := s.machines.Start(ctx, id); err != nil {
+	if u := req.GetRunUpdate(); u != nil {
+		err = s.machines.StartWith(ctx, id, machine.RunUpdate{Env: envOf(u.GetEnv()), Files: filesOf(u.GetFiles())})
+	} else {
+		err = s.machines.Start(ctx, id)
+	}
+	if err != nil {
 		return nil, status(err)
 	}
 	m, err := s.view(ctx, id)
