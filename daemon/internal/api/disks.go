@@ -16,7 +16,7 @@ func (s *Server) CreateDisk(ctx context.Context, req *v1alpha2.CreateDiskRequest
 	if err != nil {
 		return nil, err
 	}
-	if req.GetFromSnapshotId() != "" {
+	if false {
 		return s.createDiskFromSnapshot(ctx, req, fs)
 	}
 	if err := s.machines.CreateDisk(ctx, disk, machine.RequestID(req.GetRequestId()), req.GetSizeBytes(), fs); err != nil {
