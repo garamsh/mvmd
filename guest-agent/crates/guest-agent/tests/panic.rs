@@ -110,6 +110,10 @@ impl Disks for Unused {
         Ok(())
     }
 
+    fn set_owner(&self, _: u32, _: u32) -> Result<(), DiskError> {
+        Ok(())
+    }
+
     fn grow(&self, _: &str) -> Result<u64, DiskError> {
         Err(DiskError::Unknown)
     }

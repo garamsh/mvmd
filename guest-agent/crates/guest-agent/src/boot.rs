@@ -336,7 +336,17 @@ impl Boot {
         let identity = match run.user.clone() {
             Some(spec) => {
                 let execs = self.execs.clone();
-                Some(blocking(BootStep::ApplyUser, move || execs.identity(&spec)).await?)
+                let disks = system.disks.clone();
+                Some(
+                    blocking(BootStep::ApplyUser, move || {
+                        let identity = execs.identity(&spec)?;
+                        disks
+                            .set_owner(identity.uid, identity.gid)
+                            .map_err(io::Error::other)?;
+                        Ok(identity)
+                    })
+                    .await?,
+                )
             }
             None => None,
         };
