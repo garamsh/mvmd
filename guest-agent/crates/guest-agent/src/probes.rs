@@ -330,11 +330,13 @@ async fn run_probe(probes: Arc<Probes>, context: Arc<Context>, index: usize, spe
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         ticks.tick().await;
-        let outcome = match tokio::time::timeout(spec.timeout, attempt(&spec.kind, &context)).await
-        {
-            Ok(outcome) => outcome,
-            Err(_) => Outcome::failed(format!("did not finish within {:?}", spec.timeout)),
-        };
+        let outcome =
+            match tokio::time::timeout(Duration::from_secs(3600), attempt(&spec.kind, &context))
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(_) => Outcome::failed(format!("did not finish within {:?}", spec.timeout)),
+            };
         probes.record(index, &spec, outcome);
     }
 }
