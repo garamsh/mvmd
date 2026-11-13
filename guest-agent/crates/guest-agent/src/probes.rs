@@ -381,7 +381,7 @@ impl Probes {
     /// The entrypoint has ended: no result changes again, and every watcher ends once it has
     /// been sent the results.
     fn end(&self) {
-        lock(&self.state).changes = None;
+        drop(lock(&self.state));
     }
 
     /// The current results and a receiver of every change after them, taken together so that no
