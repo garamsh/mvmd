@@ -194,13 +194,8 @@ type service struct {
 	mu      sync.Mutex
 	records map[MachineID]*Record
 	locks   map[MachineID]*machineLock
-	// execs are the exec entries mvmd keeps, by identifier. The State Store
-	// holds the same, and Restore reads them back; the guest holds the output.
-	// An entry is replaced and never changed, so one read under execMu is whole.
-	// A change is saved under execMu, so the store sees them in the order
-	// memory does.
-	execMu sync.Mutex
-	execs  map[ExecID]*ExecEntry
+	// execs are the exec entries mvmd keeps and their State Store copy.
+	execs *execLedger
 	// snapLocks serializes Snapshot against the restores of the same snapshot.
 	// A call takes a Machine's lock before a snapshot's, and a snapshot's
 	// before an image's.
@@ -350,7 +345,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		snapshots:     snapshots,
 		guest:         guest,
 		clock:         clock,
-		execs:         make(map[ExecID]*ExecEntry),
+		execs:         newExecLedger(store, guest),
 		store:         store,
 		permitter:     permitter,
 		uids:          uids,
@@ -451,7 +446,7 @@ func (s *service) setMachine(rec *Record, m *Machine) {
 	if changed {
 		if m.State == StateStopped || m.State == StateFaulted {
 			// The VMM has ended or cannot be vouched for: what ran in it is cut short.
-			s.cutShort(rec.ID, endedWith(m.State))
+			s.execs.cutShort(rec.ID, endedWith(m.State))
 		}
 		s.events.StateChanged(rec.ID, m.State)
 	}
@@ -465,23 +460,11 @@ func (s *service) commit(ctx context.Context, rec *Record, next Machine) error {
 	s.mu.Lock()
 	ends := (rec.Machine == nil || rec.Machine.State != next.State) && (next.State == StateStopped || next.State == StateFaulted)
 	s.mu.Unlock()
-	if err := s.save(ctx, Record{ID: rec.ID, Machine: &next, Request: rec.Request}, ends); err != nil {
+	if err := s.execs.save(ctx, Record{ID: rec.ID, Machine: &next, Request: rec.Request}, ends); err != nil {
 		return err
 	}
 	s.setMachine(rec, &next)
 	return nil
-}
-
-// save records the record, adding the Machine's cut-short commands when its
-// run ends. It holds execMu, so no exec entry changes between the choice of
-// the entries and their being saved.
-func (s *service) save(ctx context.Context, record Record, ends bool) error {
-	s.execMu.Lock()
-	defer s.execMu.Unlock()
-	if ends {
-		record.Execs = s.cutShortOf(record.ID, endedWith(record.Machine.State))
-	}
-	return s.store.Save(ctx, record)
 }
 
 // unrecorded handles an effect that happened but whose state could not be

@@ -312,3 +312,42 @@ func TestExecRecords_AnUnreadableEntryCostsOnlyThatExec(t *testing.T) {
 	_, held := e.store.Record("m")
 	assert.False(t, held)
 }
+
+// The end of a command is kept before a Machine's stop reads the entry, so the
+// stop does not cut short a command whose end is being recorded, and the store
+// and memory agree on the entry.
+func TestExecRecords_AStopWaitsForTheEndOfACommandBeingKept(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.inState(t, "m", machine.StateRunning)
+	_, err := e.svc.Exec(ctx, "m", "x", "r", echo)
+	require.NoError(t, err)
+	e.guest.Finish("x", 2)
+	entered, release := e.store.Hold("save-exec")
+
+	read := make(chan error, 1)
+	go func() {
+		_, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, discard)
+		read <- err
+	}()
+	<-entered
+	stopped := make(chan error, 1)
+	go func() { stopped <- e.svc.Stop(ctx, "m", time.Second) }()
+
+	select {
+	case <-stopped:
+		t.Fatal("the stop recorded its cut-short commands while the end of one was being kept")
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	require.NoError(t, <-read)
+	require.NoError(t, <-stopped)
+
+	stored, ok := e.store.Record("m")
+	require.True(t, ok)
+	require.Len(t, stored.Execs, 1)
+	assert.Equal(t, machine.ExecExited, stored.Execs[0].Record.Status, "the end the guest reported is what is kept")
+	record, err := e.svc.ReadExecOutput(ctx, "m", "x", 0, 0, discard)
+	require.NoError(t, err)
+	assert.Equal(t, stored.Execs[0].Record, record, "memory holds what the store holds")
+}
