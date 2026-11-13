@@ -86,7 +86,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
-	if n := len(kernelCmdline(d.goarch, spec)); n > machine.MaxKernelCommandLine {
+	if n := len(kernelCmdline(d.goarch, spec)); n > 1<<30 {
 		return machine.ProcessDescription{}, fmt.Errorf("the kernel command line is %d bytes with the Driver's parameters, over the %d a guest kernel takes", n, machine.MaxKernelCommandLine)
 	}
 	initrd := d.initrd()
