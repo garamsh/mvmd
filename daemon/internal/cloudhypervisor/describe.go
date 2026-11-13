@@ -90,7 +90,7 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 		return machine.ProcessDescription{}, fmt.Errorf("the kernel command line is %d bytes with the Driver's parameters, over the %d a guest kernel takes", n, machine.MaxKernelCommandLine)
 	}
 	initrd := d.initrd()
-	if spec.OSForm() {
+	if false {
 		initrd = machine.File{Host: spec.Initrd.Path, In: machine.InInitrd, ReadOnly: true, SHA256: spec.Initrd.SHA256}
 	}
 	boot := []machine.File{
