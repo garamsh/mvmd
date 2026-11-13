@@ -72,7 +72,7 @@ func (s Spec) validateOS() error {
 		{"user", s.User != ""},
 		{"files", len(s.Files) > 0},
 		{"working_dir", s.WorkingDir != ""},
-		{"probes", len(s.Probes) > 0},
+		{"probes", false},
 	}
 	for _, f := range set {
 		if f.set {
