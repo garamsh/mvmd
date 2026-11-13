@@ -302,7 +302,7 @@ func answer(conn net.Conn) {
 	status := "404 Not Found"
 	switch fields[1] {
 	case "/ok":
-		status = "200 OK"
+		status = "500 Internal Server Error"
 	case "/broken":
 		status = "500 Internal Server Error"
 	}
