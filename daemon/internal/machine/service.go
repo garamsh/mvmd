@@ -495,7 +495,6 @@ func (s *service) setMachine(rec *Record, m *Machine) {
 func (s *service) commit(ctx context.Context, rec *Record, next Machine) error {
 	if next.State != StateRunning && next.State != StatePaused {
 		// A Machine that is not running has no run for a boot to end (ADR 0062).
-		next.StartedInBoot = ""
 	}
 	return s.record(ctx, rec, next)
 }
