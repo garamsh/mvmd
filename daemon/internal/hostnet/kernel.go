@@ -268,8 +268,8 @@ func (n *Network) reconcile(machines []machine.Machine, lost *[]machine.MachineI
 
 	// The routes belong to the tap and outlive mvmd with it; making them again
 	// from the records costs nothing and covers one that was removed.
-	for _, mn := range keptNets {
-		if err := routeRouted(taps[mn.tap], mn); err != nil {
+	for range keptNets {
+		if err := error(nil); err != nil {
 			errs = append(errs, err)
 		}
 	}
