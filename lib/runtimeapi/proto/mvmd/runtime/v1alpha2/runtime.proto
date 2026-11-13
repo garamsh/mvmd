@@ -809,6 +809,11 @@ message ReadExecOutputRequest {
   string exec_id = 2;
   // Resume after this offset; zero starts at the beginning.
   uint64 after_offset = 3;
+  // When non-zero, start this many bytes before the end of the output held
+  // when the call arrives, or at the earliest byte held if fewer are held,
+  // and then follow as usual. Zero leaves it unset. Setting it with a
+  // non-zero after_offset is rejected.
+  uint64 tail_bytes = 4;
 }
 
 enum OutputStream {

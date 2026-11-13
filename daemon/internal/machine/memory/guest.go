@@ -282,7 +282,7 @@ func (g *Guest) Signals(exec machine.ExecID) []int32 {
 }
 
 // ReadExecOutput implements machine.Guest.
-func (g *Guest) ReadExecOutput(_ context.Context, _ machine.MachineID, exec machine.ExecID, after uint64, send func(machine.OutputChunk) error) (machine.ExecRecord, error) {
+func (g *Guest) ReadExecOutput(_ context.Context, _ machine.MachineID, exec machine.ExecID, after, tail uint64, send func(machine.OutputChunk) error) (machine.ExecRecord, error) {
 	if err := g.enter("read-exec-output"); err != nil {
 		return machine.ExecRecord{}, err
 	}
@@ -297,9 +297,18 @@ func (g *Guest) ReadExecOutput(_ context.Context, _ machine.MachineID, exec mach
 		g.mu.Unlock()
 		return machine.ExecRecord{}, &machine.OutputGoneError{Earliest: earliest}
 	}
+	if tail > 0 {
+		after = e.next - min(tail, e.next)
+		if len(e.output) > 0 {
+			after = max(after, e.output[0].Offset)
+		}
+	}
 	var chunks []machine.OutputChunk
 	for _, c := range e.output {
 		if c.Offset+uint64(len(c.Data)) > after {
+			if tail > 0 && c.Offset < after {
+				c.Data, c.Offset = c.Data[after-c.Offset:], after
+			}
 			chunks = append(chunks, c)
 		}
 	}

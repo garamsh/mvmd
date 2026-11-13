@@ -212,7 +212,7 @@ func (s *service) entrypointFromLog(ctx context.Context, id MachineID) (ExecReco
 // the Machine off after the entrypoint, the record is what the agent wrote to
 // the console, which the Driver's log holds; the output is not, and no chunk
 // is sent from it.
-func (s *service) readEntrypoint(ctx context.Context, id MachineID, after uint64, send func(OutputChunk) error) (ExecRecord, error) {
+func (s *service) readEntrypoint(ctx context.Context, id MachineID, after, tail uint64, send func(OutputChunk) error) (ExecRecord, error) {
 	rec, err := s.machine(id)
 	if err != nil {
 		return ExecRecord{}, err
@@ -224,7 +224,7 @@ func (s *service) readEntrypoint(ctx context.Context, id MachineID, after uint64
 	var unreached error
 	switch state {
 	case StateRunning:
-		record, err := s.guest.ReadExecOutput(ctx, id, entrypointExec, after, send)
+		record, err := s.guest.ReadExecOutput(ctx, id, entrypointExec, after, tail, send)
 		if err == nil {
 			record.ID = entrypointExec
 			return record, nil
