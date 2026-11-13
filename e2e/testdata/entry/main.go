@@ -21,11 +21,11 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -281,13 +281,28 @@ func serve(port string) {
 		os.Exit(2)
 	}
 	fmt.Println("serving", port)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ok", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
-	mux.HandleFunc("/broken", func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "broken", http.StatusInternalServerError)
-	})
-	fmt.Fprintln(os.Stderr, http.Serve(listener, mux))
-	os.Exit(2)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			os.Exit(2)
+		}
+		go answer(conn)
+	}
+}
+
+// answer reads one request line, answers it with the status of its path and closes.
+func answer(conn net.Conn) {
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	line, _ := bufio.NewReader(conn).ReadString('\n')
+	status := "404 Not Found"
+	switch strings.Fields(line + " -")[1] {
+	case "/ok":
+		status = "200 OK"
+	case "/broken":
+		status = "500 Internal Server Error"
+	}
+	fmt.Fprintf(conn, "HTTP/1.0 %s\r\nContent-Length: 0\r\n\r\n", status)
 }
 
 // listen binds every port, prints one line for each, then accepts and closes connections for good.
