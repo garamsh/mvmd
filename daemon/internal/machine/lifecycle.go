@@ -537,16 +537,16 @@ const vmmPoll = 50 * time.Millisecond
 // Termination rule whatever the VMM and the guest kernel (ADR 0018), and waits
 // up to grace for the VMM to end. The call to the agent is bounded by the
 // grace, so nothing here outlasts it. Any outcome of that call but success,
-// and the cases where the agent is not asked (no grace, or a Paused guest that
-// cannot run it), fall back to the Driver's own request with what is left of
-// the grace; a Driver that did not confirm the end is followed by a wait for
-// the VMM until the deadline. Nothing here decides the outcome: the caller
-// ends the VMM either way.
-func (s *service) askGuest(ctx context.Context, id MachineID, grace time.Duration, paused bool) {
+// and the cases where the agent is not asked (no grace, noAgent for a Paused
+// guest that cannot run it or an OS form that has none), fall back to the
+// Driver's own request with what is left of the grace; a Driver that did not
+// confirm the end is followed by a wait for the VMM until the deadline.
+// Nothing here decides the outcome: the caller ends the VMM either way.
+func (s *service) askGuest(ctx context.Context, id MachineID, grace time.Duration, noAgent bool) {
 	deadline := time.Now().Add(grace)
 	waitCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	if grace > 0 && !paused {
+	if grace > 0 && !noAgent {
 		if err := s.guest.Terminate(waitCtx, id); err == nil {
 			s.awaitVMMEnd(waitCtx, id)
 			return

@@ -2,6 +2,7 @@ package machine_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,9 +14,9 @@ import (
 )
 
 // osEnv is an env whose node offers the memory Driver's boot set "os".
-func osEnv(t *testing.T) (*env, *memory.BootFiles) {
+func osEnv(t *testing.T, caps ...machine.Capability) (*env, *memory.BootFiles) {
 	t.Helper()
-	e := newEnv()
+	e := newEnv(caps...)
 	files := &memory.BootFiles{}
 	e.svc = e.reopenedWith(t, machine.WithBootSets(memory.BootSets(), files))
 	return e, files
@@ -61,6 +62,10 @@ func TestCreate_OSForm(t *testing.T) {
 		{"env", func(s *machine.Spec) { s.Env = []machine.EnvVar{{Name: "A", Value: "b"}} }},
 		{"user", func(s *machine.Spec) { s.User = "1000" }},
 		{"working_dir", func(s *machine.Spec) { s.WorkingDir = "/srv" }},
+		{"files", func(s *machine.Spec) {
+			s.Files = []machine.PlacedFile{{Path: "/etc/x", Content: []byte("x"), Mode: 0o644}}
+		}},
+		{"probes", func(s *machine.Spec) { s.Probes = []machine.Probe{execProbe} }},
 	} {
 		t.Run("refuses "+tc.field+" and names it", func(t *testing.T) {
 			e, _ := osEnv(t)
@@ -182,7 +187,7 @@ func TestAttachDetach_OSFormOnlyWhileCreatedOrStopped(t *testing.T) {
 
 func TestGuestCalls_OSFormIsAFailedPrecondition(t *testing.T) {
 	ctx := context.Background()
-	e, _ := osEnv(t)
+	e, _ := osEnv(t, machine.CapabilitySnapshot)
 	e.osCreated(t, "m")
 	require.NoError(t, e.svc.Start(ctx, "m"))
 	e.created(t, "img")
@@ -212,5 +217,123 @@ func TestGuestCalls_OSFormIsAFailedPrecondition(t *testing.T) {
 		err := snap("m")
 		requireKind(t, err, machine.ErrPreconditionFailed)
 		assert.ErrorContains(t, err, "OS-form")
+		require.NoError(t, snap("img"), "control: the image form")
 	})
+	t.Run("read exec output of the entrypoint and signal exec", func(t *testing.T) {
+		_, err := e.guest.Exec(ctx, "img", "entrypoint", machine.ExecSpec{Command: []string{"true"}})
+		require.NoError(t, err)
+		readEntrypoint := func(id machine.MachineID) error {
+			_, err := e.svc.ReadExecOutput(ctx, id, "entrypoint", 0, 0, func(machine.OutputChunk) error { return nil })
+			return err
+		}
+		signal := func(id machine.MachineID) error { return e.svc.SignalExec(ctx, id, "entrypoint", 15) }
+
+		for name, call := range map[string]func(machine.MachineID) error{"read exec output": readEntrypoint, "signal exec": signal} {
+			err := call("m")
+			requireKind(t, err, machine.ErrPreconditionFailed)
+			assert.ErrorContains(t, err, "OS-form", name)
+			require.NoError(t, call("img"), "control: the image form, %s", name)
+		}
+
+		require.NoError(t, e.svc.ForceStop(ctx, "m"))
+		err = readEntrypoint("m")
+		requireKind(t, err, machine.ErrPreconditionFailed)
+		assert.ErrorContains(t, err, "OS-form", "Stopped")
+	})
+}
+
+func TestResizeDisk_OSFormOnlyWhileCreatedOrStopped(t *testing.T) {
+	ctx := context.Background()
+	e, _ := osEnv(t, resizable...)
+	require.NoError(t, e.svc.CreateDisk(ctx, "d", "r-d", diskBytes, machine.FilesystemExt4))
+	e.osCreated(t, "m", machine.DiskAttachment{Disk: "d"})
+	e.guest.SetDeviceSize("m", "d", diskBytes)
+	grown := uint64(diskBytes * 2)
+
+	require.NoError(t, e.svc.ResizeDisk(ctx, "d", grown), "control: Created")
+	require.NoError(t, e.svc.Start(ctx, "m"))
+	grown += uint64(diskBytes)
+	err := e.svc.ResizeDisk(ctx, "d", grown)
+	requireKind(t, err, machine.ErrPreconditionFailed)
+	assert.ErrorContains(t, err, "OS-form")
+	assert.Zero(t, e.driver.DriveSize("m", "d"), "the Driver was not asked to grow the drive")
+	assert.Zero(t, e.guest.Calls("grow-disk"), "the guest was not asked")
+	require.NoError(t, e.svc.Pause(ctx, "m"))
+	requireKind(t, e.svc.ResizeDisk(ctx, "d", grown), machine.ErrPreconditionFailed)
+	require.NoError(t, e.svc.Resume(ctx, "m"))
+	require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+	require.NoError(t, e.svc.ResizeDisk(ctx, "d", grown), "control: Stopped")
+
+	// Control: the image form's Running Machine grows the same disk live.
+	img := newEnv(resizable...)
+	img.withDisk(t, machine.StateRunning, machine.DiskAttachment{Disk: "d"})
+	img.guest.SetDeviceSize("m", "d", grownTo)
+	require.NoError(t, img.svc.ResizeDisk(ctx, "d", grownTo))
+	assert.Equal(t, uint64(grownTo), img.driver.DriveSize("m", "d"))
+}
+
+func TestSetResources_OSFormRefusesALiveChange(t *testing.T) {
+	ctx := context.Background()
+	more := machine.Resources{VCPUs: 3, MemoryBytes: 512 << 20}
+	created := func(t *testing.T) *env {
+		e, _ := osEnv(t, hotplugAndResize...)
+		spec := osSpec()
+		spec.Ceiling = large
+		require.NoError(t, e.svc.Create(ctx, "m", request("m"), spec))
+		return e
+	}
+	for _, state := range []machine.State{machine.StateRunning, machine.StatePaused} {
+		t.Run(state.String(), func(t *testing.T) {
+			e := created(t)
+			require.NoError(t, e.svc.Start(ctx, "m"))
+			if state == machine.StatePaused {
+				require.NoError(t, e.svc.Pause(ctx, "m"))
+			}
+			require.NoError(t, e.svc.SetResources(ctx, "m", small, machine.Resources{}), "control: a repeat of the held figures")
+			requireKind(t, e.svc.SetResources(ctx, "m", more, machine.Resources{}), machine.ErrPreconditionFailed)
+			assert.Equal(t, small, e.requireState(t, "m", state).Resources)
+		})
+	}
+	t.Run("Running names the OS form", func(t *testing.T) {
+		e := created(t)
+		require.NoError(t, e.svc.Start(ctx, "m"))
+		assert.ErrorContains(t, e.svc.SetResources(ctx, "m", more, machine.Resources{}), "OS-form")
+	})
+	t.Run("controls", func(t *testing.T) {
+		require.NoError(t, created(t).svc.SetResources(ctx, "m", more, machine.Resources{}), "Created accepts the change")
+
+		img := newEnv(hotplugAndResize...)
+		img.ceiling = large
+		img.inState(t, "m", machine.StateRunning)
+		require.NoError(t, img.svc.SetResources(ctx, "m", more, machine.Resources{}), "the image form's Running Machine")
+	})
+}
+
+func TestStart_OSFormReportsADriverThatCannotBootItAsUnsupported(t *testing.T) {
+	ctx := context.Background()
+	e, _ := osEnv(t)
+	e.osCreated(t, "m")
+	e.driver.FailAt("describe", fmt.Errorf("no initrd: %w", machine.ErrUnsupported))
+	requireKind(t, e.svc.Start(ctx, "m"), machine.ErrUnsupported)
+	e.requireState(t, "m", machine.StateCreated)
+
+	e.driver.FailAt("describe", errBoom)
+	requireKind(t, e.svc.Start(ctx, "m"), machine.ErrFailed)
+	e.requireState(t, "m", machine.StateCreated)
+
+	e.driver.Heal("describe")
+	require.NoError(t, e.svc.Start(ctx, "m"), "control: a Driver that can")
+}
+
+func TestStart_OSFormRefusesARunUpdate(t *testing.T) {
+	ctx := context.Background()
+	e, _ := osEnv(t)
+	e.osCreated(t, "m")
+	requireKind(t, e.svc.StartWith(ctx, "m", newRun()), machine.ErrInvalid)
+	e.requireState(t, "m", machine.StateCreated)
+	require.NoError(t, e.svc.Start(ctx, "m"), "control: a Start with no update")
+	require.NoError(t, e.svc.Stop(ctx, "m", time.Second))
+	requireKind(t, e.svc.StartWith(ctx, "m", newRun()), machine.ErrInvalid)
+	e.requireState(t, "m", machine.StateStopped)
+	require.NoError(t, e.svc.Start(ctx, "m"), "control: Stopped, no update")
 }
