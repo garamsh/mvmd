@@ -225,6 +225,86 @@ message Machine {
   repeated FileInfo files = 15;
   // The working directory the request set; empty when it set none.
   string working_dir = 16;
+  // One entry for each probe the request set, in the order sent. Held in the
+  // node's memory only: a Running Machine reports what its guest last sent, a
+  // Paused one the last results held, and a Machine in any other state, or
+  // one whose guest has sent nothing yet, reports UNKNOWN for each probe.
+  repeated ProbeResult probes = 17;
+}
+
+// A check of the workload that the guest runs on a schedule from the
+// entrypoint's start (ADR 0054). The guest acts on no result.
+message Probe {
+  // Names the probe in results. Not empty, at most 63 bytes of letters,
+  // digits, '-', '_' and '.', and not repeated among the probes of a request.
+  string name = 1;
+  oneof kind {
+    ExecProbe exec = 2;
+    TcpProbe tcp = 3;
+    HttpGetProbe http_get = 4;
+  }
+  // Time from the entrypoint's start to the first run. Unset is 0; at most 24 h.
+  google.protobuf.Duration initial_delay = 5;
+  // Time between the starts of runs. Unset is 10 s; from 1 ms to 24 h.
+  google.protobuf.Duration period = 6;
+  // How long one run may take. Unset is 1 s; from 1 ms to 24 h.
+  google.protobuf.Duration timeout = 7;
+  // Consecutive successes that make a probe PASSING. 0 is 1.
+  uint32 success_threshold = 8;
+  // Consecutive failures that make a probe FAILING. 0 is 3.
+  uint32 failure_threshold = 9;
+}
+
+// A command run in the guest as the entrypoint's user, with its environment
+// and working directory. It succeeds on exit code 0.
+message ExecProbe {
+  // The program and its arguments; the first element is the program.
+  repeated string argv = 1;
+}
+
+// A connection to the guest's loopback address accepted.
+message TcpProbe {
+  // 1 to 65535.
+  uint32 port = 1;
+}
+
+// A GET to the guest's loopback address answered with a status from 200 to
+// 399. A redirect is not followed.
+message HttpGetProbe {
+  // 1 to 65535.
+  uint32 port = 1;
+  // The request target: it begins with '/' and holds no space, control or
+  // non-ASCII character, at most 2048 bytes.
+  string path = 2;
+  // Empty or "http", the only scheme spoken.
+  string scheme = 3;
+}
+
+enum ProbeStatus {
+  PROBE_STATUS_UNSPECIFIED = 0;
+  // The probe has not yet met a threshold, or the node holds no result of it.
+  PROBE_STATUS_UNKNOWN = 1;
+  PROBE_STATUS_PASSING = 2;
+  PROBE_STATUS_FAILING = 3;
+}
+
+// The result of one probe, as the guest last sent it.
+message ProbeResult {
+  // The probe's name.
+  string name = 1;
+  ProbeStatus status = 2;
+  // The guest's clock when status last changed; unset while UNKNOWN.
+  google.protobuf.Timestamp changed_at = 3;
+  // The runs in a row that succeeded, and the runs in a row that failed; one
+  // of them is 0.
+  uint32 consecutive_successes = 4;
+  uint32 consecutive_failures = 5;
+  // Why the most recent failed run failed, as text for people; empty when no
+  // run has failed. It never holds output of the workload.
+  string last_failure = 6;
+  // The first 1 KiB of the output of an ExecProbe's most recent run; empty for
+  // the other kinds.
+  bytes last_output = 7;
 }
 
 // An environment variable of the entrypoint. The value may be secret: mvmd
@@ -300,6 +380,12 @@ message CreateMachineRequest {
   // working directory. A path that is not absolute and clean is REJECTED,
   // naming it. It is kept with the Machine and used at every start.
   string working_dir = 15;
+  // Optional. Probes the guest runs on the workload from the entrypoint's
+  // start, at every start of the Machine. At most 8, each with a name not used
+  // twice, a kind and values within the limits the Probe message states; a
+  // request outside that is REJECTED, naming the probe. A start does not
+  // change them.
+  repeated Probe probes = 16;
 }
 
 message CreateMachineResponse {
@@ -650,6 +736,14 @@ message DriverEvent {
   string detail = 2;
 }
 
+// ProbeChanged says a probe of the Machine named by machine_id has a result
+// other than the one the node held. It is sent for a Running or Paused
+// Machine only: a Machine that leaves Running reports its probes UNKNOWN with
+// no ProbeChanged, since the StateChanged says so.
+message ProbeChanged {
+  ProbeResult result = 1;
+}
+
 // ResyncRequired says the events after the requested sequence are no longer
 // held; the client lists to resynchronise.
 message ResyncRequired {}
@@ -665,6 +759,7 @@ message WatchEventsResponse {
     DriverEvent driver = 5;
     ResyncRequired resync_required = 6;
     MachineDeleted machine_deleted = 7;
+    ProbeChanged probe_changed = 8;
   }
 }
 
