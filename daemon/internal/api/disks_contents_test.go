@@ -36,6 +36,7 @@ func TestCreateDisk_ContentsAreRefusedNamingTheFieldOrPassedOn(t *testing.T) {
 			resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).CreateDisk(context.Background(), tt.req)
 
 			if tt.refused {
+				require.Error(t, err)
 				assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
 				assert.True(t, strings.Contains(err.Error(), "contents"), "the reason names the field: %v", err)
 				assert.Empty(t, m.created, "the use case was not asked")
