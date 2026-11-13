@@ -43,8 +43,10 @@ func (r RegistryConfig) validate() error {
 // Registry adapter, which read the file, run the helper and read the CA at
 // each call.
 func (r RegistryConfig) options(opts *ociregistry.Options) error {
+	var cached map[string]ociregistry.Credential
 	if r.CredentialsFile != "" {
-		if _, err := readCredentials(r.CredentialsFile, r.CredentialHelpers); err != nil {
+		var err error
+		if cached, err = readCredentials(r.CredentialsFile, r.CredentialHelpers); err != nil {
 			return err
 		}
 	}
@@ -61,11 +63,7 @@ func (r RegistryConfig) options(opts *ociregistry.Options) error {
 		if r.CredentialsFile == "" {
 			return ociregistry.Credential{}, nil
 		}
-		creds, err := readCredentials(r.CredentialsFile, r.CredentialHelpers)
-		if err != nil {
-			return ociregistry.Credential{}, err
-		}
-		return creds[registry], nil // an unlisted registry is anonymous
+		return cached[registry], nil // an unlisted registry is anonymous
 	}
 	return nil
 }
