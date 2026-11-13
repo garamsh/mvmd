@@ -57,6 +57,10 @@ func eventToWire(e events.Event) *v1alpha2.WatchEventsResponse {
 		out.Event = &v1alpha2.WatchEventsResponse_Deadline{
 			Deadline: &v1alpha2.DeadlineEvent{Kind: deadlineEvents[body.Event]},
 		}
+	case events.ProbeChanged:
+		out.Event = &v1alpha2.WatchEventsResponse_ProbeChanged{
+			ProbeChanged: &v1alpha2.ProbeChanged{Result: probeResultToWire(body.Result)},
+		}
 	case events.Driver:
 		out.Event = &v1alpha2.WatchEventsResponse_Driver{
 			Driver: &v1alpha2.DriverEvent{Name: body.Event.Name, Detail: body.Event.Detail},

@@ -21,34 +21,35 @@ import (
 // and commands. It does not model a VMM, so it answers whether or not the
 // Machine runs; the lifecycle is what refuses a call. Its steps are "health",
 // "boot", "catch-up", "exec", "read-exec-output", "signal",
-// "read-file", "write-file", "patch-file", "list-files", "search-files", "terminate", "find-disk",
+// "read-file", "write-file", "patch-file", "list-files", "search-files", "terminate", "find-disk", "watch-probes",
 // "release-disk" and "online-vcpus"; a failing step
 // answers machine.ErrGuestUnreachable unless told another error.
 type Guest struct {
 	Failures
 
-	mu        sync.Mutex
-	files     map[machine.MachineID]map[string][]byte
-	special   map[machine.MachineID]map[string]bool
-	execs     map[machine.ExecID]*guestExec
-	signals   map[machine.ExecID][]int32
-	catchUps  map[machine.MachineID][]machine.CatchUp
-	boots     map[machine.MachineID][]machine.GuestBoot
-	bootTimes map[machine.MachineID][]int64
-	refused   map[machine.ExecID]string
-	loseExec  bool
-	retention int
-	ends      func(machine.MachineID)
-	refuse    error
-	terms     map[machine.MachineID]int
-	found     map[machine.MachineID]map[machine.DiskID]bool
-	finds     map[machine.MachineID][]machine.DiskAttachment
-	released  map[machine.MachineID]map[machine.DiskID]bool
-	held      map[machine.MachineID]map[machine.DiskID]bool
-	present   map[machine.MachineID]uint32
-	online    map[machine.MachineID]uint32
-	devSize   map[machine.MachineID]map[machine.DiskID]uint64
-	grows     map[machine.MachineID][]machine.DiskID
+	mu         sync.Mutex
+	files      map[machine.MachineID]map[string][]byte
+	special    map[machine.MachineID]map[string]bool
+	execs      map[machine.ExecID]*guestExec
+	signals    map[machine.ExecID][]int32
+	catchUps   map[machine.MachineID][]machine.CatchUp
+	boots      map[machine.MachineID][]machine.GuestBoot
+	bootTimes  map[machine.MachineID][]int64
+	refused    map[machine.ExecID]string
+	loseExec   bool
+	retention  int
+	ends       func(machine.MachineID)
+	refuse     error
+	terms      map[machine.MachineID]int
+	found      map[machine.MachineID]map[machine.DiskID]bool
+	finds      map[machine.MachineID][]machine.DiskAttachment
+	released   map[machine.MachineID]map[machine.DiskID]bool
+	held       map[machine.MachineID]map[machine.DiskID]bool
+	present    map[machine.MachineID]uint32
+	online     map[machine.MachineID]uint32
+	devSize    map[machine.MachineID]map[machine.DiskID]uint64
+	grows      map[machine.MachineID][]machine.DiskID
+	probeFeeds map[machine.MachineID]*probeFeed
 }
 
 type guestExec struct {
@@ -62,24 +63,25 @@ type guestExec struct {
 // retention bytes of each command's output, all of it when retention is zero.
 func NewGuest(retention int) *Guest {
 	return &Guest{
-		files:     make(map[machine.MachineID]map[string][]byte),
-		special:   make(map[machine.MachineID]map[string]bool),
-		execs:     make(map[machine.ExecID]*guestExec),
-		signals:   make(map[machine.ExecID][]int32),
-		catchUps:  make(map[machine.MachineID][]machine.CatchUp),
-		boots:     make(map[machine.MachineID][]machine.GuestBoot),
-		bootTimes: make(map[machine.MachineID][]int64),
-		refused:   make(map[machine.ExecID]string),
-		terms:     make(map[machine.MachineID]int),
-		found:     make(map[machine.MachineID]map[machine.DiskID]bool),
-		finds:     make(map[machine.MachineID][]machine.DiskAttachment),
-		released:  make(map[machine.MachineID]map[machine.DiskID]bool),
-		held:      make(map[machine.MachineID]map[machine.DiskID]bool),
-		present:   make(map[machine.MachineID]uint32),
-		online:    make(map[machine.MachineID]uint32),
-		devSize:   make(map[machine.MachineID]map[machine.DiskID]uint64),
-		grows:     make(map[machine.MachineID][]machine.DiskID),
-		retention: retention,
+		files:      make(map[machine.MachineID]map[string][]byte),
+		special:    make(map[machine.MachineID]map[string]bool),
+		execs:      make(map[machine.ExecID]*guestExec),
+		signals:    make(map[machine.ExecID][]int32),
+		catchUps:   make(map[machine.MachineID][]machine.CatchUp),
+		boots:      make(map[machine.MachineID][]machine.GuestBoot),
+		bootTimes:  make(map[machine.MachineID][]int64),
+		refused:    make(map[machine.ExecID]string),
+		terms:      make(map[machine.MachineID]int),
+		found:      make(map[machine.MachineID]map[machine.DiskID]bool),
+		finds:      make(map[machine.MachineID][]machine.DiskAttachment),
+		released:   make(map[machine.MachineID]map[machine.DiskID]bool),
+		held:       make(map[machine.MachineID]map[machine.DiskID]bool),
+		present:    make(map[machine.MachineID]uint32),
+		online:     make(map[machine.MachineID]uint32),
+		devSize:    make(map[machine.MachineID]map[machine.DiskID]uint64),
+		grows:      make(map[machine.MachineID][]machine.DiskID),
+		probeFeeds: make(map[machine.MachineID]*probeFeed),
+		retention:  retention,
 	}
 }
 

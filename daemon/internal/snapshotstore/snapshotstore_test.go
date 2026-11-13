@@ -93,6 +93,11 @@ func snapshot(id string) machine.Snapshot {
 			User:            "7:8",
 			Files:           []machine.PlacedFile{{Path: "/etc/token", Content: []byte(runMarker), Mode: 0o640, UID: 7, GID: 8}},
 			WorkingDir:      "/srv/app",
+			Probes: []machine.Probe{
+				{Name: "ready", Kind: machine.ProbeHTTPGet, Port: 8080, Path: "/healthz", Scheme: "http", InitialDelay: 2 * time.Second, Period: 5 * time.Second, Timeout: 500 * time.Millisecond, SuccessThreshold: 2, FailureThreshold: 4},
+				{Name: "listening", Kind: machine.ProbeTCP, Port: 5432},
+				{Name: "alive", Kind: machine.ProbeExec, Argv: []string{"/bin/check", "--quick"}},
+			},
 		},
 		RootDiskUUID: "uuid-of-" + id,
 		CreatedAt:    time.Unix(1700000200, 987654321),
