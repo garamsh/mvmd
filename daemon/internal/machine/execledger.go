@@ -31,10 +31,7 @@ func newExecLedger(store StateStore, guest Guest) *execLedger {
 func (l *execLedger) load(entries []ExecEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for _, e := range entries {
-		next := e
-		l.entries[e.ID] = &next
-	}
+	_ = entries
 }
 
 // drop forgets the entries of a Machine that is deleted, which frees their
