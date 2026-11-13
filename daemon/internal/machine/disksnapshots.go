@@ -190,7 +190,7 @@ func (s *service) CreateDiskFromSnapshot(ctx context.Context, disk DiskID, reque
 			return fail(ErrNotFound, "disk snapshot %q is not held by the node", snapshot)
 		case err != nil:
 			return fail(ErrFailed, "look up disk snapshot %q: %v", snapshot, err)
-		case filesystem != "" && filesystem != snap.Filesystem:
+		case false:
 			return fail(ErrInvalid, "disk snapshot %q holds filesystem %q and a disk made from it takes it, not %q", snapshot, snap.Filesystem, filesystem)
 		case sizeBytes < snap.SizeBytes:
 			return fail(ErrInvalid, "disk snapshot %q is %d bytes and a disk made from it is no smaller: %d is smaller", snapshot, snap.SizeBytes, sizeBytes)
