@@ -56,6 +56,57 @@ type record struct {
 	// WorkingDir is absent from a record written before it was recorded, and
 	// from one whose Machine ran in the image's.
 	WorkingDir string `json:"working_dir,omitempty"`
+	// Probes is absent from a record written before they were recorded, and
+	// from one whose Machine had none.
+	Probes []recordProbe `json:"probes,omitempty"`
+}
+
+// recordProbe is a probe as the record holds it: the kind by name, the
+// durations in nanoseconds. A zero duration or threshold is one the Machine's
+// request left unset.
+type recordProbe struct {
+	Name             string   `json:"name"`
+	Kind             string   `json:"kind"`
+	Argv             []string `json:"argv,omitempty"`
+	Port             uint32   `json:"port,omitempty"`
+	Path             string   `json:"path,omitempty"`
+	Scheme           string   `json:"scheme,omitempty"`
+	InitialDelay     int64    `json:"initial_delay_nanos,omitempty"`
+	Period           int64    `json:"period_nanos,omitempty"`
+	Timeout          int64    `json:"timeout_nanos,omitempty"`
+	SuccessThreshold uint32   `json:"success_threshold,omitempty"`
+	FailureThreshold uint32   `json:"failure_threshold,omitempty"`
+}
+
+var probeKindNames = map[machine.ProbeKind]string{
+	machine.ProbeExec:    "exec",
+	machine.ProbeTCP:     "tcp",
+	machine.ProbeHTTPGet: "http_get",
+}
+
+func encodeProbe(p machine.Probe) (recordProbe, error) {
+	kind, ok := probeKindNames[p.Kind]
+	if !ok {
+		return recordProbe{}, fmt.Errorf("probe %q has no recorded kind", p.Name)
+	}
+	return recordProbe{
+		Name: p.Name, Kind: kind, Argv: p.Argv, Port: p.Port, Path: p.Path, Scheme: p.Scheme,
+		InitialDelay: int64(p.InitialDelay), Period: int64(p.Period), Timeout: int64(p.Timeout),
+		SuccessThreshold: p.SuccessThreshold, FailureThreshold: p.FailureThreshold,
+	}, nil
+}
+
+func decodeProbe(r recordProbe) (machine.Probe, error) {
+	for kind, name := range probeKindNames {
+		if name == r.Kind {
+			return machine.Probe{
+				Name: r.Name, Kind: kind, Argv: r.Argv, Port: r.Port, Path: r.Path, Scheme: r.Scheme,
+				InitialDelay: time.Duration(r.InitialDelay), Period: time.Duration(r.Period), Timeout: time.Duration(r.Timeout),
+				SuccessThreshold: r.SuccessThreshold, FailureThreshold: r.FailureThreshold,
+			}, nil
+		}
+	}
+	return machine.Probe{}, fmt.Errorf("probe %q has the unknown kind %q", r.Name, r.Kind)
 }
 
 type recordEnv struct {
@@ -94,6 +145,14 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 	for _, f := range s.Spec.Files {
 		files = append(files, recordFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID})
 	}
+	var probes []recordProbe
+	for _, p := range s.Spec.Probes {
+		probe, err := encodeProbe(p)
+		if err != nil {
+			return nil, err
+		}
+		probes = append(probes, probe)
+	}
 	var created int64
 	if !s.CreatedAt.IsZero() {
 		created = s.CreatedAt.UnixNano()
@@ -126,6 +185,7 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		RunUser:            s.Spec.User,
 		Files:              files,
 		WorkingDir:         s.Spec.WorkingDir,
+		Probes:             probes,
 	})
 }
 
@@ -161,6 +221,14 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 	for _, f := range r.Files {
 		files = append(files, machine.PlacedFile{Path: f.Path, Content: f.Content, Mode: f.Mode, UID: f.UID, GID: f.GID})
 	}
+	var probes []machine.Probe
+	for _, rp := range r.Probes {
+		probe, err := decodeProbe(rp)
+		if err != nil {
+			return machine.Snapshot{}, nil, err
+		}
+		probes = append(probes, probe)
+	}
 	var created time.Time
 	if r.CreatedUnixNano != 0 {
 		created = time.Unix(0, r.CreatedUnixNano)
@@ -182,6 +250,7 @@ func decodeRecord(raw []byte) (machine.Snapshot, []string, error) {
 			User:            r.RunUser,
 			Files:           files,
 			WorkingDir:      r.WorkingDir,
+			Probes:          probes,
 		},
 		RootDiskUUID: r.RootDiskUUID,
 		MAC:          r.MAC,

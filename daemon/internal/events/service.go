@@ -80,6 +80,11 @@ func (s *service) Reported(event machine.DriverEvent) {
 	s.emit("", Driver{Event: event})
 }
 
+// ProbeChanged implements machine.Events.
+func (s *service) ProbeChanged(id machine.MachineID, result machine.ProbeResult) {
+	s.emit(id, ProbeChanged{Result: result})
+}
+
 // Deadline implements fencing.Events.
 func (s *service) Deadline(event fencing.Event) {
 	s.emit("", Deadline{Event: event})

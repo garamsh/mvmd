@@ -164,6 +164,9 @@ type Spec struct {
 	User       string
 	Files      []PlacedFile
 	WorkingDir string
+	// Probes are the checks of the workload the guest runs from the
+	// entrypoint's start (ADR 0057). A start does not change them.
+	Probes []Probe
 }
 
 // Machine is a Machine as Inspect reports it.
@@ -194,6 +197,9 @@ type Machine struct {
 	FailureReason string
 	// Driver is the Driver in service, set by Inspect.
 	Driver DriverInfo
+	// ProbeResults is one result for each of the Probes, in order, set by
+	// Inspect and List and never recorded: the results are held in memory.
+	ProbeResults []ProbeResult
 }
 
 // Request is the record of a creating call, kept for its repeat.
@@ -269,6 +275,7 @@ func (s Spec) clone() Spec {
 	s.Args = cloneNonEmpty(s.Args)
 	s.Env = cloneNonEmpty(s.Env)
 	s.Files = cloneFiles(s.Files)
+	s.Probes = cloneProbes(s.Probes)
 	return s
 }
 

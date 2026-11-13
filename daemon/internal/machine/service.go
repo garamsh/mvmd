@@ -218,6 +218,10 @@ type service struct {
 	diskSnaps DiskSnapshotStore
 	// held maps each disk to its one holder (ADR 0009).
 	held map[DiskID]MachineID
+	// following holds the follower of the probes of each Running or Paused
+	// Machine that has probes, and the results it holds. mu guards it.
+	following  map[MachineID]*probeFollow
+	probeRetry time.Duration
 }
 
 // DefaultBootTimeout is how long Start waits for the guest's boot when the
@@ -352,6 +356,8 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		records:       make(map[MachineID]*Record),
 		locks:         make(map[MachineID]*machineLock),
 		held:          make(map[DiskID]MachineID),
+		following:     make(map[MachineID]*probeFollow),
+		probeRetry:    DefaultProbeRetry,
 	}
 	for _, o := range options {
 		o(s)
@@ -430,6 +436,16 @@ func (s *service) setMachine(rec *Record, m *Machine) {
 	changed := rec.Machine == nil || rec.Machine.State != m.State
 	rec.Machine = m
 	s.mu.Unlock()
+	// The probes are followed while the Machine is Running or Paused: a Paused
+	// guest is frozen and sends nothing, and the results held stay what is
+	// reported. In any other state they are not followed and not kept.
+	switch m.State {
+	case StateRunning:
+		s.followProbes(rec.ID, m.Probes)
+	case StatePaused:
+	default:
+		s.unfollowProbes(rec.ID)
+	}
 	if changed {
 		if m.State == StateStopped || m.State == StateFaulted {
 			// The VMM has ended or cannot be vouched for: what ran in it is cut short.
@@ -517,6 +533,7 @@ func (s *service) Inspect(ctx context.Context, id MachineID) (Machine, error) {
 	}
 	m := rec.Machine.clone()
 	m.Driver = s.driver.Info()
+	m.ProbeResults = s.probeResultsOf(&m)
 	return m, nil
 }
 
@@ -528,6 +545,7 @@ func (s *service) List(ctx context.Context) ([]Machine, error) {
 		if rec.Machine != nil {
 			m := rec.Machine.clone()
 			m.Driver = s.driver.Info()
+			m.ProbeResults = s.probeResultsOf(&m)
 			out = append(out, m)
 		}
 	}

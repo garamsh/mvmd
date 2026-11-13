@@ -52,6 +52,7 @@ type SnapshotSpec struct {
 	User            string
 	Files           []PlacedFile
 	WorkingDir      string
+	Probes          []Probe
 }
 
 // SnapshotDisk is a disk its Machine had attached when the snapshot was taken,

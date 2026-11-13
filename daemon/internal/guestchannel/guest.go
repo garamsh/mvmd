@@ -68,6 +68,7 @@ const (
 	opSearch
 	opPatch
 	opDisk
+	opProbes
 )
 
 // errCut is a stream that ended before its last message: the connection
@@ -336,6 +337,7 @@ func (g *Guest) Boot(ctx context.Context, id machine.MachineID, boot machine.Gue
 			WorkingDir: boot.Run.WorkingDir,
 			User:       boot.User,
 			Files:      runFiles(boot.Files),
+			Probes:     runProbes(boot.Probes),
 		},
 		Network: networkConfig(boot.Network),
 	}
