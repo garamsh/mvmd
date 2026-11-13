@@ -100,7 +100,7 @@ func (s *service) probeSent(id MachineID, f *probeFollow, r ProbeResult) {
 			return
 		}
 		f.results[i] = r.clone()
-		s.events.ProbeChanged(id, r.clone())
+
 		return
 	}
 }
