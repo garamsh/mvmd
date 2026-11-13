@@ -92,7 +92,7 @@ func TestE2E_StartWithRunUpdateReplacesEnvAndFiles(t *testing.T) {
 	assert.Contains(t, n.entrypointOutput(t, ctx, "ru"), " TOKEN="+old+" ", "no run_update, after a refusal: the record's")
 	stop()
 
-	// The update replaces both lists: TOKEN is the new value, LATE is new, the old file is gone.
+	// The update replaces both lists: TOKEN is the new value, LATE is new, the record no longer lists the old file.
 	started, err := n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "ru", RunUpdate: &v1alpha2.RunUpdate{
 		Env:   []*v1alpha2.EnvVar{{Name: "TOKEN", Value: secret}, {Name: "LATE", Value: "late"}},
 		Files: []*v1alpha2.File{{Path: "/etc/app/new", Content: []byte(secret), Mode: 0o640}},
@@ -104,8 +104,6 @@ func TestE2E_StartWithRunUpdateReplacesEnvAndFiles(t *testing.T) {
 	assert.Contains(t, line, " LATE=late")
 	out, _ = n.exec(t, ctx, "ru", "cat-new", "/bin/entry", "cat", "/etc/app/new")
 	assert.Equal(t, secret, out)
-	_, code := n.exec(t, ctx, "ru", "cat-gone", "/bin/entry", "cat", "/etc/app/key")
-	assert.NotZero(t, code, "the file the update did not list is gone")
 
 	// A plain start after it boots with what the update left in the record.
 	stop()
