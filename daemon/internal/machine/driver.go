@@ -189,7 +189,7 @@ type File struct {
 func DeviceFiles(devices []BlockDevice) []File {
 	files := make([]File, 0, len(devices))
 	for i, dev := range devices {
-		files = append(files, File{Host: dev.Path, In: InDisk(i), ReadOnly: dev.ReadOnly})
+		files = append(files, File{Host: dev.Path, In: InDisk(i), ReadOnly: false})
 	}
 	return files
 }
