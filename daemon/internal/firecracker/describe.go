@@ -60,7 +60,7 @@ func osBootArgs(goarch, client string) string {
 // kernelArgs is the command line a boot gives the guest.
 func kernelArgs(goarch string, spec machine.BootSpec) string {
 	if spec.OSForm() {
-		return osBootArgs(goarch, spec.CommandLine)
+		return osBootArgs(goarch, "")
 	}
 	return bootArgs(goarch)
 }
