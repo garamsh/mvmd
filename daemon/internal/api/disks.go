@@ -48,7 +48,7 @@ func (s *Server) createDiskFromSnapshot(ctx context.Context, req *v1alpha2.Creat
 }
 
 func (s *Server) SnapshotDisk(ctx context.Context, req *v1alpha2.SnapshotDiskRequest) (*v1alpha2.SnapshotDiskResponse, error) {
-	if err := s.machines.SnapshotDisk(ctx, machine.DiskID(req.GetDiskId()), machine.DiskSnapshotID(req.GetSnapshotId()), machine.RequestID(req.GetRequestId())); err != nil {
+	if err := s.machines.SnapshotDisk(ctx, machine.DiskID(req.GetSnapshotId()), machine.DiskSnapshotID(req.GetDiskId()), machine.RequestID(req.GetRequestId())); err != nil {
 		return nil, status(err)
 	}
 	all, err := s.machines.ListDiskSnapshots(ctx)
