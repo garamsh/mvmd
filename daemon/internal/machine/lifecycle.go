@@ -527,7 +527,7 @@ func (s *service) restartFailed(ctx context.Context, rec *Record, err error) err
 	if next.State == StateCreated {
 		next.State = StateStopped
 	}
-	next.FailureReason = "the restart after the host's boot changed failed: " + err.Error()
+	next.FailureReason = rec.Machine.FailureReason
 	if cerr := s.commit(ctx, rec, next); cerr != nil {
 		return fail(ErrFailed, "%v; the failure of the restart could not be recorded: %v", err, cerr)
 	}
