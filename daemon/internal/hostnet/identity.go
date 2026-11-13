@@ -93,7 +93,7 @@ func (n *Network) checkRouted(id machine.MachineID, routed []netip.Prefix) error
 				}
 			}
 			for _, q := range held.RoutedPrefixes {
-				if p.Overlaps(q) {
+				if p == q {
 					return machine.NewError(machine.ErrConflict, "routed prefix %s overlaps routed prefix %s of Machine %q", p, q, other)
 				}
 			}
