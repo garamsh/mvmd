@@ -225,7 +225,7 @@ func rootPathsOf(n *node) []string {
 // and the Machine has two: its image at position 0 and its root disk at 1.
 func pidsMaxOf(vcpus int) int {
 	if driver.driver == "firecracker" {
-		return vcpus + 8
+		return vcpus + 7
 	}
 	return vcpus + 16 + 2
 }
