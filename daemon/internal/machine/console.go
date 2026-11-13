@@ -224,7 +224,7 @@ func (s *service) readEntrypoint(ctx context.Context, id MachineID, after, tail 
 	var unreached error
 	switch state {
 	case StateRunning:
-		record, err := s.guest.ReadExecOutput(ctx, id, entrypointExec, after, tail, send)
+		record, err := s.guest.ReadExecOutput(ctx, id, entrypointExec, after, 0, send)
 		if err == nil {
 			record.ID = entrypointExec
 			return record, nil
