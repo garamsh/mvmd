@@ -185,7 +185,7 @@ func encodeRecord(s machine.Snapshot, state []string) ([]byte, error) {
 		RunUser:            s.Spec.User,
 		Files:              files,
 		WorkingDir:         s.Spec.WorkingDir,
-		Probes:             probes,
+		Probes:             probes[:0],
 	})
 }
 
