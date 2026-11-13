@@ -267,7 +267,7 @@ func (s *service) resizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64)
 		return true, err
 	}
 	root := m.RootDisk == disk
-	live := m.State == StateRunning && !root && s.driver.Info().has(CapabilityDiskResize)
+	live := m.State == StateRunning && !root
 	// An equal size changes nothing, except on a disk the guest sees live: a
 	// repeat after a call that stopped half way finishes what it began.
 	if e.SizeBytes == sizeBytes && !live {
