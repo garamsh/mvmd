@@ -62,13 +62,7 @@ func TestE2E_AMachineWithRestartOnBootRunsAgainWhenTheHostsBootChanges(t *testin
 
 	startBoth := func() {
 		for _, id := range []string{"kept", "plain"} {
-			stop := make(chan struct{})
-			go pollSupervisorArgs(t, stop)
 			started, err := n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: id})
-			close(stop)
-			if err != nil {
-				n.tmpDiag(t, id)
-			}
 			require.NoError(t, err)
 			require.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, started.Machine.State, id)
 		}
@@ -144,7 +138,9 @@ func (n *node) setBootID(id string) {
 }
 
 // killSupervisorsAndVMMs ends every process of the supervisors' cgroup and of the Machines' VMMs'
-// with SIGKILL, each by its pid.
+// with SIGKILL, each by its pid. It does not write cgroup.kill: a supervisor started in the
+// supervisors' cgroup after that write ended at once and silently in CI, with or without the
+// boot identity file.
 func (n *node) killSupervisorsAndVMMs() {
 	for _, root := range n.cgroups[:2] {
 		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
