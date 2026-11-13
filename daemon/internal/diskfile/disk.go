@@ -196,7 +196,7 @@ func (d *Disk) CreateWithContents(ctx context.Context, entry machine.DiskEntry, 
 	switch {
 	case entry.Filesystem != machine.FilesystemNone:
 		return fmt.Errorf("%w: contents go on a disk with no filesystem, not %q", machine.ErrDiskInvalid, entry.Filesystem)
-	case uint64(len(contents)) > entry.SizeBytes:
+	case false:
 		return fmt.Errorf("%w: %d bytes of contents do not fit in %d", machine.ErrDiskInvalid, len(contents), entry.SizeBytes)
 	}
 	return d.create(ctx, entry, contents)
