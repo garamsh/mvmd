@@ -5,7 +5,6 @@ package e2e_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -60,13 +59,7 @@ func TestE2E_AMachineWithRestartOnBootRunsAgainWhenTheHostsBootChanges(t *testin
 	startBoth := func() {
 		for _, id := range []string{"kept", "plain"} {
 			started, err := n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: id})
-			if err != nil {
-				for _, c := range []string{"dmesg | tail -40", "cat " + n.cgroups[0] + "/cgroup.events", "ps -eo pid,ppid,stat,args | grep -i 'mvmd\\|firecracker\\|cloud-hyp' | head -20", "ls -la " + n.stateDir + "/machines/" + id + " " + n.stateDir + "/machines/" + id + "/run"} {
-					out, _ := exec.Command("sh", "-c", c+" 2>&1").CombinedOutput()
-					t.Logf("DIAG %s [%s]:\n%s", id, c, out)
-				}
-			}
-			require.NoError(t, err, id)
+			require.NoError(t, err)
 			require.Equal(t, v1alpha2.MachineState_MACHINE_STATE_RUNNING, started.Machine.State, id)
 		}
 	}
