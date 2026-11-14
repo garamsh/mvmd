@@ -140,7 +140,7 @@ func (s *Store) Add(ctx context.Context, name string, upload machine.BootUpload)
 // refuses it as a *machine.BootFileMismatch when its digest is not the one
 // declared.
 func writeVerified(ctx context.Context, path, file string, c machine.BootContent) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o444)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
