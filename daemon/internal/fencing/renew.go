@@ -48,7 +48,7 @@ func (s *service) Renew(ctx context.Context, length time.Duration, number uint64
 		// A shortening goes to the supervisors first, so that none ever holds
 		// a later expiry than the record; one that will not take it is killed.
 		for _, sv := range live {
-			if err := s.sup.SetExpiry(ctx, sv.Machine, next.Expiry); err == nil {
+			if err := s.sup.SetExpiry(ctx, sv.Machine, s.effective(sv.Machine, next.Expiry)); err == nil {
 				continue
 			}
 			if err := s.sup.Terminate(ctx, sv.Machine); err != nil {
@@ -69,7 +69,7 @@ func (s *service) Renew(ctx context.Context, length time.Duration, number uint64
 		}
 		s.set(next, false, event)
 		for _, sv := range live {
-			if err := s.sup.SetExpiry(ctx, sv.Machine, next.Expiry); err != nil {
+			if err := s.sup.SetExpiry(ctx, sv.Machine, s.effective(sv.Machine, next.Expiry)); err != nil {
 				return Status{}, machine.NewError(machine.ErrFailed,
 					"supervisor of %q did not take the renewal: %v", sv.Machine, err)
 			}
@@ -89,10 +89,11 @@ func (s *service) converge(ctx context.Context, expiry BootTime) error {
 		return machine.NewError(machine.ErrFailed, "list the supervisors: %v", err)
 	}
 	for _, sv := range live {
-		if sv.Expiry == expiry {
+		want := s.effective(sv.Machine, expiry)
+		if sv.Expiry == want {
 			continue
 		}
-		if err := s.sup.SetExpiry(ctx, sv.Machine, expiry); err != nil {
+		if err := s.sup.SetExpiry(ctx, sv.Machine, want); err != nil {
 			return machine.NewError(machine.ErrFailed, "supervisor of %q did not take the expiry: %v", sv.Machine, err)
 		}
 	}

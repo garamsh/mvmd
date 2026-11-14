@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"reflect"
 	"slices"
+	"time"
 )
 
 // MachineID is the client-chosen identifier of a Machine.
@@ -181,6 +182,10 @@ type Spec struct {
 	// the fencing deadline in a new host boot, when the Machine was Running or
 	// being started as the host went down (ADR 0062).
 	RestartOnBoot bool
+	// Fenced gives the Machine a fence of its own, which the client renews and
+	// which ends this Machine's VMM when it lapses (ADR 0064). It is not armed
+	// at creation, and the Machine is refused Start until it is.
+	Fenced bool
 }
 
 // Machine is a Machine as Inspect reports it.
@@ -219,6 +224,9 @@ type Machine struct {
 	// VMM ended because the host's boot changed, and cleared by the next start
 	// of it and by a Stop (ADR 0062).
 	RestartPending bool
+	// FenceLapsedAt is when the Machine's own fence lapsed and ended its VMM,
+	// zero if it did not. A start clears it (ADR 0064).
+	FenceLapsedAt time.Time
 	// Driver is the Driver in service, set by Inspect.
 	Driver DriverInfo
 	// ProbeResults is one result for each of the Probes, in order, set by

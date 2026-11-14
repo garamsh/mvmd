@@ -9,6 +9,9 @@ import (
 )
 
 func (s *service) Reconcile(ctx context.Context, machines Machines) error {
+	if err := s.loadFences(ctx); err != nil {
+		return err
+	}
 	s.order.Lock()
 	rec, ok, err := s.store.Load(ctx)
 	if err != nil {
@@ -44,7 +47,7 @@ func (s *service) Reconcile(ctx context.Context, machines Machines) error {
 		return fmt.Errorf("list the supervisors: %w", err)
 	}
 	for _, sv := range live {
-		_ = s.sup.SetExpiry(ctx, sv.Machine, rec.Expiry)
+		_ = s.sup.SetExpiry(ctx, sv.Machine, s.effective(sv.Machine, rec.Expiry))
 	}
 	s.order.Unlock()
 	return nil

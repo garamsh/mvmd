@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 )
 
 const (
@@ -93,6 +94,10 @@ func (s *service) Restore(ctx context.Context) error {
 				err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr), false)
 			case !live[rec.ID]:
 				// Only a Running Machine is restarted: a Paused one was asked to pause.
+				if reason, at, lapsed := s.fenceLapse(ctx, *m); lapsed {
+					err = s.settleLapsed(ctx, stored, reason, at)
+					break
+				}
 				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded+": "+s.endCause(ctx, rec.ID), m.State == StateRunning && s.bootChanged(*m))
 			}
 		case m.StartedInBoot != "" && (m.State == StateCreated || m.State == StateStopped):
@@ -339,6 +344,22 @@ func (s *service) settleInterruptedStart(ctx context.Context, rec *Record) error
 // has ended no longer holds its tap, so it goes with the state change. A
 // Machine that ends Stopped with restart set is marked for the restart ADR 0062
 // describes.
+// settleLapsed brings a Machine found without a supervisor to Stopped with the
+// reason its own fence gives, and the time the fence lapsed.
+func (s *service) settleLapsed(ctx context.Context, rec *Record, reason string, at time.Time) error {
+	next := rec.Machine.clone()
+	next.State, next.FailureReason, next.FenceLapsedAt = StateStopped, reason, at
+	if err := s.network.Withdraw(ctx, rec.ID); err != nil {
+		next.State = StateFaulted
+		next.FailureReason += fmt.Sprintf("; the network could not be removed: %v", err)
+	}
+	if err := s.commit(ctx, rec, next); err != nil {
+		s.setMachine(rec, &next)
+		return fmt.Errorf("record the restored state of %q: %w", rec.ID, err)
+	}
+	return nil
+}
+
 func (s *service) settleRestored(ctx context.Context, rec *Record, state State, reason string, restart bool) error {
 	next := rec.Machine.clone()
 	next.State, next.FailureReason = state, reason

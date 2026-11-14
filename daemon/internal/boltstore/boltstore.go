@@ -62,6 +62,9 @@ func (d *DB) Close() error { return d.db.Close() }
 // Machines returns the store of Machine records, a machine.StateStore.
 func (d *DB) Machines() *MachineStore { return &MachineStore{db: d.db} }
 
+// Fences returns the store of the Machines' own fences, a fencing.FenceStore.
+func (d *DB) Fences() *FenceStore { return &FenceStore{db: d.db} }
+
 // Deadline returns the store of the fencing deadline, a fencing.DeadlineStore.
 func (d *DB) Deadline() *DeadlineStore { return &DeadlineStore{db: d.db} }
 

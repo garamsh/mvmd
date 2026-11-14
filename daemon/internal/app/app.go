@@ -234,8 +234,8 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 		sub.Disks, sub.Snapshots, sub.DiskSnapshots = nil, nil, nil
 	}
 	log := events.NewService(eventsKept)
-	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithAddedBootSets(addedSets), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock))
+	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log, fencing.WithFences(db.Fences()))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithAddedBootSets(addedSets), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock), machine.WithFences(deadline))
 
 	machinesHeld := func() (uint32, error) {
 		all, err := machines.List(context.Background())

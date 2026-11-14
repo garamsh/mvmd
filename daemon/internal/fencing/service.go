@@ -29,8 +29,14 @@ type Service interface {
 	// the context ends or a stop fails.
 	Run(ctx context.Context) error
 
+	// RenewFence and InspectFence are Renew and Inspect for the own fence of
+	// a Machine created with one (ADR 0064).
+	RenewFence(ctx context.Context, id machine.MachineID, length time.Duration, number uint64) (Status, error)
+	InspectFence(ctx context.Context, id machine.MachineID) (Status, error)
+
 	machine.StartPermitter
 	machine.Supervision
+	machine.Fences
 }
 
 type service struct {
@@ -51,11 +57,21 @@ type service struct {
 	stopped  bool
 	machines Machines
 	changed  chan struct{}
+	// fences holds each fenced Machine's own fence; nil until loaded.
+	fences map[machine.MachineID]Record
+
+	fenceStore FenceStore
+	// fenceLoad serializes the one load of the fence records.
+	fenceLoad sync.Mutex
 }
 
 // NewService returns a deadline that is unarmed until Reconcile and a renewal.
-func NewService(clock Clock, store DeadlineStore, sup Supervisors, events Events) Service {
-	return &service{clock: clock, store: store, sup: sup, events: events, changed: make(chan struct{})}
+func NewService(clock Clock, store DeadlineStore, sup Supervisors, events Events, options ...Option) Service {
+	s := &service{clock: clock, store: store, sup: sup, events: events, changed: make(chan struct{})}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *service) current() (rec *Record, stopped bool, machines Machines) {
@@ -98,7 +114,10 @@ func (s *service) Inspect(ctx context.Context) (Status, error) {
 
 func (s *service) PermitStart(ctx context.Context, id machine.MachineID) error {
 	rec, stopped, machines := s.current()
-	return permitted(machines, status(rec, stopped, s.clock.Now()))
+	if err := permitted(machines, status(rec, stopped, s.clock.Now())); err != nil {
+		return err
+	}
+	return s.permitFence(ctx, id)
 }
 
 func permitted(machines Machines, st Status) error {
@@ -126,7 +145,10 @@ func (s *service) Start(ctx context.Context, id machine.MachineID, process machi
 	if err := permitted(machines, status(rec, stopped, s.clock.Now())); err != nil {
 		return err
 	}
-	return s.sup.Start(ctx, id, process, user, rec.Expiry)
+	if err := s.permitFence(ctx, id); err != nil {
+		return err
+	}
+	return s.sup.Start(ctx, id, process, user, s.effective(id, rec.Expiry))
 }
 
 // Live lists the Machines whose supervisors exist: the same listing the

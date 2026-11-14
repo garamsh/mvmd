@@ -243,6 +243,12 @@ message Machine {
   repeated string routed_prefixes = 19;
   // Whether the Machine was created with restart_on_boot (ADR 0062).
   bool restart_on_boot = 20;
+  // Whether the Machine was created with a fence of its own (ADR 0064).
+  bool fenced = 21;
+  // When the Machine's own fence last lapsed and ended its VMM: set with the
+  // Stopped state and a last_failure_reason that names the fence, and cleared
+  // when the Machine starts again. Unset otherwise.
+  google.protobuf.Timestamp fence_lapsed_at = 22;
 }
 
 // OsBoot is the OS form of a Machine (ADR 0058): the guest boots a whole
@@ -439,6 +445,11 @@ message CreateMachineRequest {
   // and no Stop, Pause or Delete was asked for it since. A Machine whose VMM
   // ended in the same boot is not restarted.
   bool restart_on_boot = 19;
+  // Optional, default false; both forms accept it (ADR 0064). The Machine has a
+  // deadline of its own that the client renews with RenewDeadline naming the
+  // Machine. It is not armed at creation, and the Machine is refused Start
+  // until it is. When it lapses mvmd ends this Machine's VMM and no other.
+  bool fenced = 20;
 }
 
 message CreateMachineResponse {
@@ -1170,13 +1181,20 @@ message DeadlineStatus {
 message RenewDeadlineRequest {
   google.protobuf.Duration length = 1;
   uint64 renewal_number = 2;
+  // Empty renews the node's deadline. A Machine's identifier renews that
+  // Machine's own fence (ADR 0064); the Machine must exist and have one.
+  string machine_id = 3;
 }
 
 message RenewDeadlineResponse {
   DeadlineStatus status = 1;
 }
 
-message InspectDeadlineRequest {}
+message InspectDeadlineRequest {
+  // Empty inspects the node's deadline. A Machine's identifier inspects that
+  // Machine's own fence (ADR 0064), whose phase is never STOPPED_EVERYTHING.
+  string machine_id = 1;
+}
 
 message InspectDeadlineResponse {
   DeadlineStatus status = 1;
