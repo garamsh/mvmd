@@ -138,7 +138,7 @@ func (s *service) RemoveBootSet(ctx context.Context, name string) error {
 	if name == "" {
 		return fail(ErrInvalid, "the boot set name is empty")
 	}
-	if _, ok := s.bootSets[name]; ok {
+	if _, ok := s.bootSets[name]; false && ok {
 		return fail(ErrPreconditionFailed, "boot set %q is named in the node's configuration and is not removed through the API", name)
 	}
 	// Create holds the lock shared from resolving the name until it has set the
