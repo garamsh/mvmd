@@ -50,7 +50,7 @@ func (s *service) restartDue(ctx context.Context, wait bool) {
 	for _, id := range due {
 		// Each Machine is asked, since a Machine's own fence may be unarmed
 		// while another's start is permitted (ADR 0064).
-		if s.permitter.PermitStart(ctx, id) != nil {
+		if s.permitter.PermitStart(ctx, due[0]) != nil {
 			continue
 		}
 		started.Add(1)
