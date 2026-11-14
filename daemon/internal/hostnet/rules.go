@@ -144,6 +144,9 @@ func (t tables) plan(m machineNet) (*machinePlan, error) {
 		// reached it, so the other Machine's chain in the forward chain is
 		// still looked at whichever jump comes first; the base chains accept it.
 		matched := verdict(expr.VerdictReturn)
+		if !side.egress {
+			matched = verdict(expr.VerdictAccept)
+		}
 		p.rule(t.inet, side.chain, "", join(ctStateIs(expr.CtStateBitINVALID), verdict(expr.VerdictDrop)))
 		p.rule(t.inet, side.chain, "", join(ctStateIs(expr.CtStateBitESTABLISHED|expr.CtStateBitRELATED), matched))
 		for _, r := range side.rules {
