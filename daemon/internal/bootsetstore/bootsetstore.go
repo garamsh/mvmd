@@ -65,6 +65,13 @@ func New(dir string) (*Store, error) {
 			return nil, fmt.Errorf("reclaim what a crash left: %w", err)
 		}
 	}
+	if sets, err := os.ReadDir(dir); err == nil {
+		for _, e := range sets {
+			if e.Name()[0] != '.' {
+				_ = os.RemoveAll(s.setPath(e.Name()))
+			}
+		}
+	}
 	for _, d := range []string{s.stagingDir(), dir, filepath.Dir(dir)} {
 		if err := syncDir(d); err != nil {
 			return nil, fmt.Errorf("create the boot set store: %w", err)
