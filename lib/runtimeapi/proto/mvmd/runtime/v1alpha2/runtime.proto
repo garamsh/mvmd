@@ -57,6 +57,10 @@ service RuntimeService {
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
   rpc RemoveImage(RemoveImageRequest) returns (RemoveImageResponse);
 
+  // Boot sets (ADR 0063).
+  rpc AddBootSet(stream AddBootSetRequest) returns (AddBootSetResponse);
+  rpc RemoveBootSet(RemoveBootSetRequest) returns (RemoveBootSetResponse);
+
   // Snapshots.
   rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
   rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
@@ -740,8 +744,17 @@ message NodeKernel {
   bool is_default = 3;
 }
 
+// BootSetOrigin is how a boot set came to be offered.
+enum BootSetOrigin {
+  BOOT_SET_ORIGIN_UNSPECIFIED = 0;
+  // Named in the node's configuration.
+  BOOT_SET_ORIGIN_CONFIGURED = 1;
+  // Added by a client through AddBootSet (ADR 0063).
+  BOOT_SET_ORIGIN_ADDED = 2;
+}
+
 // BootSet is a kernel and an initrd the node offers an OS-form Machine by name
-// (ADR 0058). A client never uploads either.
+// (ADR 0058, ADR 0063).
 message BootSet {
   // 1 to 63 characters of lowercase letters, digits and "-".
   string name = 1;
@@ -749,7 +762,40 @@ message BootSet {
   // in hex.
   string kernel_digest = 2;
   string initrd_digest = 3;
+  BootSetOrigin origin = 4;
 }
+
+// AddBootSetRequest is the first message of a stream carrying start, then
+// messages carrying the kernel's chunks, then messages carrying the initrd's
+// (ADR 0063). A chunk of the kernel after one of the initrd is invalid.
+message AddBootSetRequest {
+  oneof part {
+    AddBootSetStart start = 1;
+    bytes kernel_chunk = 2;
+    bytes initrd_chunk = 3;
+  }
+}
+
+message AddBootSetStart {
+  // 1 to 63 characters of lowercase letters, digits and "-".
+  string name = 1;
+  // The SHA-256 digests, in hex, the files must have. A file that does not
+  // is refused as invalid, naming it.
+  string kernel_digest = 2;
+  string initrd_digest = 3;
+}
+
+message AddBootSetResponse {
+  // The set as the node offers it, which for a repeat is the one already
+  // offered.
+  BootSet boot_set = 1;
+}
+
+message RemoveBootSetRequest {
+  string name = 1;
+}
+
+message RemoveBootSetResponse {}
 
 message GetRuntimeInfoResponse {
   // The API versions served, as package identifiers (for example

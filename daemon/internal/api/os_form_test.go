@@ -22,8 +22,8 @@ func osServer() *api.Server {
 	info := machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu"}
 	svc := machine.NewService(memory.NewDriver(info), memory.NewSupervision(), memory.NewNetwork(), memory.NewDisk(), memory.NewImageStore(), memory.NewSnapshotStore(),
 		memory.NewGuest(0), memory.NewWallClock(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)), memory.NewStateStore(), memory.NewStartPermitter(),
-		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents(), machine.WithKernels(memory.Kernels()), machine.WithBootSets(memory.BootSets(), &memory.BootFiles{}))
-	return api.New(svc, nil, nil, info, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, api.WithBootSets(memory.BootSets()))
+		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents(), machine.WithKernels(memory.Kernels()), machine.WithBootSets(memory.BootSets(), &memory.BootFiles{}), machine.WithAddedBootSets(memory.NewBootSetStore()))
+	return api.New(svc, nil, nil, info, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, api.WithBootSets(svc.ListBootSets))
 }
 
 func osRequest(id string) *v1alpha2.CreateMachineRequest {

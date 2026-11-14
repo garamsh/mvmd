@@ -36,7 +36,7 @@ type Server struct {
 	capacity nodecapacity.Reader
 	events   events.Service
 	kernels  machine.Kernels
-	bootSets machine.BootSets
+	bootSets func(context.Context) ([]machine.BootSetInfo, error)
 	prefixes []netip.Prefix
 	// stopping ends the event streams when Stop is called: a stream has no
 	// end of its own, and a graceful stop of the gRPC server waits for it.
@@ -65,9 +65,9 @@ func WithKernels(k machine.Kernels) Option {
 	return func(s *Server) { s.kernels = k }
 }
 
-// WithBootSets sets the boot sets runtime info lists (ADR 0058). Without it the
-// node lists none.
-func WithBootSets(b machine.BootSets) Option {
+// WithBootSets sets where runtime info reads the boot sets it lists, the
+// configured and the added (ADR 0058, ADR 0063). Without it the node lists none.
+func WithBootSets(b func(context.Context) ([]machine.BootSetInfo, error)) Option {
 	return func(s *Server) { s.bootSets = b }
 }
 
@@ -164,7 +164,7 @@ var wireCapabilities = map[machine.Capability][]v1alpha2.Capability{
 	machine.CapabilityDiskResize:   {v1alpha2.Capability_CAPABILITY_DISK_RESIZE},
 }
 
-func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest) (*v1alpha2.GetRuntimeInfoResponse, error) {
+func (s *Server) GetRuntimeInfo(ctx context.Context, _ *v1alpha2.GetRuntimeInfoRequest) (*v1alpha2.GetRuntimeInfoResponse, error) {
 	have, err := s.capacity.Read()
 	if err != nil {
 		return nil, status(fmt.Errorf("read the node's capacity: %w", err))
@@ -183,9 +183,14 @@ func (s *Server) GetRuntimeInfo(context.Context, *v1alpha2.GetRuntimeInfoRequest
 	for _, name := range s.kernels.Names() {
 		resp.Kernels = append(resp.Kernels, &v1alpha2.NodeKernel{Name: name, Digest: s.kernels.Offered[name].SHA256, IsDefault: name == s.kernels.Default})
 	}
-	for _, name := range s.bootSets.Names() {
-		set := s.bootSets[name]
-		resp.BootSets = append(resp.BootSets, &v1alpha2.BootSet{Name: name, KernelDigest: set.Kernel.SHA256, InitrdDigest: set.Initrd.SHA256})
+	if s.bootSets != nil {
+		sets, err := s.bootSets(ctx)
+		if err != nil {
+			return nil, status(err)
+		}
+		for _, info := range sets {
+			resp.BootSets = append(resp.BootSets, wireBootSet(info))
+		}
 	}
 	d := s.driver
 	info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}, CpuModel: d.CPUModel}
