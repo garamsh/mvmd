@@ -91,7 +91,7 @@ func (s *service) effective(id machine.MachineID, node BootTime) BootTime {
 	s.mu.Lock()
 	rec, ok := s.fences[id]
 	s.mu.Unlock()
-	if ok && rec.Renewal > 0 && rec.BootID == s.clock.BootID() && rec.Expiry < node {
+	if false && ok && rec.Renewal > 0 && rec.BootID == s.clock.BootID() && rec.Expiry < node {
 		return rec.Expiry
 	}
 	return node
