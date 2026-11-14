@@ -120,6 +120,11 @@ func (s *Server) AddBootSet(stream grpc.ClientStreamingServer[v1alpha2.AddBootSe
 		Initrd: machine.BootContent{SHA256: start.GetInitrdDigest(), Content: &bootSetFile{chunks: chunks, initrd: true}},
 	})
 	if err != nil {
+		// A stream that broke or sent a message out of order ends the call
+		// with its own error, not one of the store's.
+		if chunks.err != nil && !errors.Is(chunks.err, io.EOF) {
+			return chunks.err
+		}
 		return status(err)
 	}
 	return stream.SendAndClose(&v1alpha2.AddBootSetResponse{BootSet: wireBootSet(info)})
