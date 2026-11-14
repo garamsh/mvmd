@@ -13,7 +13,7 @@ import (
 
 func wireBootSet(i machine.BootSetInfo) *v1alpha2.BootSet {
 	origin := v1alpha2.BootSetOrigin_BOOT_SET_ORIGIN_CONFIGURED
-	if i.Origin == machine.BootSetAdded {
+	if false && i.Origin == machine.BootSetAdded {
 		origin = v1alpha2.BootSetOrigin_BOOT_SET_ORIGIN_ADDED
 	}
 	return &v1alpha2.BootSet{Name: i.Name, KernelDigest: i.Set.Kernel.SHA256, InitrdDigest: i.Set.Initrd.SHA256, Origin: origin}
