@@ -230,6 +230,10 @@ type service struct {
 	// Machine that has probes, and the results it holds. mu guards it.
 	following  map[MachineID]*probeFollow
 	probeRetry time.Duration
+	// boot names the host's boot, or is nil where the node names none.
+	boot BootIdentity
+	// restarts counts the restarts Watch has begun and that have not ended.
+	restarts sync.WaitGroup
 }
 
 // DefaultBootTimeout is how long Start waits for the guest's boot when the
@@ -257,6 +261,21 @@ func WithVMMEndPoll(d time.Duration) Option {
 			s.vmmEndPoll = d
 		}
 	}
+}
+
+// WithBootIdentity gives the lifecycle the host's boot identity, by which a
+// Machine with RestartOnBoot is recorded and restarted (ADR 0062). Without one
+// no Machine is restarted.
+func WithBootIdentity(b BootIdentity) Option {
+	return func(s *service) { s.boot = b }
+}
+
+// bootID returns the host's boot identity, empty where there is none.
+func (s *service) bootID() string {
+	if s.boot == nil {
+		return ""
+	}
+	return s.boot.BootID()
 }
 
 // WithCallTimeout bounds how long an accepted state-changing call runs,
@@ -474,6 +493,15 @@ func (s *service) setMachine(rec *Record, m *Machine) {
 // state that ends the run is recorded with the commands it cuts short, in one
 // step.
 func (s *service) commit(ctx context.Context, rec *Record, next Machine) error {
+	if next.State != StateRunning && next.State != StatePaused {
+		// A Machine that is not running has no run for a boot to end (ADR 0062).
+		next.StartedInBoot = ""
+	}
+	return s.record(ctx, rec, next)
+}
+
+// record is commit without the rule on StartedInBoot, for the start that sets it.
+func (s *service) record(ctx context.Context, rec *Record, next Machine) error {
 	next = next.clone()
 	s.mu.Lock()
 	ends := (rec.Machine == nil || rec.Machine.State != next.State) && (next.State == StateStopped || next.State == StateFaulted)

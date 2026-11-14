@@ -1208,8 +1208,10 @@ type Machine struct {
 	// The routed prefixes the Machine owns (ADR 0061), in the order the request
 	// gave them; empty when it has none.
 	RoutedPrefixes []string `protobuf:"bytes,19,rep,name=routed_prefixes,json=routedPrefixes,proto3" json:"routed_prefixes,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Whether the Machine was created with restart_on_boot (ADR 0062).
+	RestartOnBoot bool `protobuf:"varint,20,opt,name=restart_on_boot,json=restartOnBoot,proto3" json:"restart_on_boot,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Machine) Reset() {
@@ -1373,6 +1375,13 @@ func (x *Machine) GetRoutedPrefixes() []string {
 		return x.RoutedPrefixes
 	}
 	return nil
+}
+
+func (x *Machine) GetRestartOnBoot() bool {
+	if x != nil {
+		return x.RestartOnBoot
+	}
+	return false
 }
 
 // OsBoot is the OS form of a Machine (ADR 0058): the guest boots a whole
@@ -2134,8 +2143,14 @@ type CreateMachineRequest struct {
 	// prefixes are fixed for the Machine's life and released at Delete Machine.
 	// mvmd does not configure them in the guest.
 	RoutedPrefixes []string `protobuf:"bytes,18,rep,name=routed_prefixes,json=routedPrefixes,proto3" json:"routed_prefixes,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Optional, default false; both forms accept it (ADR 0062). When set, mvmd
+	// starts the Machine again at the first arming of the fencing deadline in a
+	// new host boot if it was Running, or being started, when the host went down
+	// and no Stop, Pause or Delete was asked for it since. A Machine whose VMM
+	// ended in the same boot is not restarted.
+	RestartOnBoot bool `protobuf:"varint,19,opt,name=restart_on_boot,json=restartOnBoot,proto3" json:"restart_on_boot,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateMachineRequest) Reset() {
@@ -2292,6 +2307,13 @@ func (x *CreateMachineRequest) GetRoutedPrefixes() []string {
 		return x.RoutedPrefixes
 	}
 	return nil
+}
+
+func (x *CreateMachineRequest) GetRestartOnBoot() bool {
+	if x != nil {
+		return x.RestartOnBoot
+	}
+	return false
 }
 
 type CreateMachineResponse struct {
@@ -7596,7 +7618,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"mount_path\x18\x03 \x01(\tR\tmountPath\"6\n" +
 	"\x06Driver\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"\x8a\a\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\xb2\a\n" +
 	"\aMachine\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\x05state\x18\x02 \x01(\x0e2#.mvmd.runtime.v1alpha2.MachineStateR\x05state\x12.\n" +
@@ -7618,7 +7640,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"workingDir\x12:\n" +
 	"\x06probes\x18\x11 \x03(\v2\".mvmd.runtime.v1alpha2.ProbeResultR\x06probes\x126\n" +
 	"\aos_boot\x18\x12 \x01(\v2\x1d.mvmd.runtime.v1alpha2.OsBootR\x06osBoot\x12'\n" +
-	"\x0frouted_prefixes\x18\x13 \x03(\tR\x0eroutedPrefixes\"J\n" +
+	"\x0frouted_prefixes\x18\x13 \x03(\tR\x0eroutedPrefixes\x12&\n" +
+	"\x0frestart_on_boot\x18\x14 \x01(\bR\rrestartOnBoot\"J\n" +
 	"\x06OsBoot\x12\x19\n" +
 	"\bboot_set\x18\x01 \x01(\tR\abootSet\x12%\n" +
 	"\x0ekernel_cmdline\x18\x02 \x01(\tR\rkernelCmdline\"\xd4\x03\n" +
@@ -7666,7 +7689,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x03uid\x18\x03 \x01(\rR\x03uid\x12\x10\n" +
 	"\x03gid\x18\x04 \x01(\rR\x03gid\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x05 \x01(\x04R\tsizeBytes\"\xac\x06\n" +
+	"size_bytes\x18\x05 \x01(\x04R\tsizeBytes\"\xd4\x06\n" +
 	"\x14CreateMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x1d\n" +
@@ -7689,7 +7712,8 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"workingDir\x124\n" +
 	"\x06probes\x18\x10 \x03(\v2\x1c.mvmd.runtime.v1alpha2.ProbeR\x06probes\x126\n" +
 	"\aos_boot\x18\x11 \x01(\v2\x1d.mvmd.runtime.v1alpha2.OsBootR\x06osBoot\x12'\n" +
-	"\x0frouted_prefixes\x18\x12 \x03(\tR\x0eroutedPrefixes\"Q\n" +
+	"\x0frouted_prefixes\x18\x12 \x03(\tR\x0eroutedPrefixes\x12&\n" +
+	"\x0frestart_on_boot\x18\x13 \x01(\bR\rrestartOnBoot\"Q\n" +
 	"\x15CreateMachineResponse\x128\n" +
 	"\amachine\x18\x01 \x01(\v2\x1e.mvmd.runtime.v1alpha2.MachineR\amachine\"o\n" +
 	"\tRunUpdate\x12/\n" +

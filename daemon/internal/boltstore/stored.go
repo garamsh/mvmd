@@ -37,6 +37,10 @@ type storedMachine struct {
 	BootMemoryBytes uint64 `json:"BootMemoryBytes"`
 	// KernelDigest is empty in a record written before it existed.
 	KernelDigest string `json:"KernelDigest"`
+	// StartedInBoot and RestartPending are absent from a record written before
+	// they existed (ADR 0062), and from one that holds neither.
+	StartedInBoot  string `json:"StartedInBoot,omitempty"`
+	RestartPending bool   `json:"RestartPending,omitempty"`
 }
 
 type storedSpec struct {
@@ -69,6 +73,9 @@ type storedSpec struct {
 	// RoutedPrefixes is absent from a record written before routed prefixes
 	// existed (ADR 0061), and from one whose Machine has none.
 	RoutedPrefixes []netip.Prefix `json:"RoutedPrefixes,omitempty"`
+	// RestartOnBoot is absent from a record written before it existed (ADR
+	// 0062), and from one whose Machine does not have it.
+	RestartOnBoot bool `json:"RestartOnBoot,omitempty"`
 }
 
 // storedOS is the OS form of a Machine as it is written.
@@ -340,6 +347,7 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		Probes:         probes,
 		OS:             storeOS(s.OS),
 		RoutedPrefixes: s.RoutedPrefixes,
+		RestartOnBoot:  s.RestartOnBoot,
 	}, nil
 }
 
@@ -429,6 +437,7 @@ func (s storedSpec) load() (machine.Spec, error) {
 		Probes:         probes,
 		OS:             loadOS(s.OS),
 		RoutedPrefixes: s.RoutedPrefixes,
+		RestartOnBoot:  s.RestartOnBoot,
 	}, nil
 }
 
@@ -461,6 +470,7 @@ func storeMachine(m *machine.Machine) (*storedMachine, error) {
 		User:          storedUser{UID: m.User.UID, GID: m.User.GID},
 		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers, RoutedPrefixes: m.Network.RoutedPrefixes},
 		FailureReason: m.FailureReason, BootMemoryBytes: m.BootMemoryBytes, KernelDigest: m.KernelDigest,
+		StartedInBoot: m.StartedInBoot, RestartPending: m.RestartPending,
 	}, nil
 }
 
@@ -491,6 +501,7 @@ func (s *storedMachine) load() (*machine.Machine, error) {
 		Network:       machine.NetworkIdentity{MAC: s.Network.MAC, Addresses: s.Network.Addresses, Gateways: s.Network.Gateways, Resolvers: s.Network.Resolvers, RoutedPrefixes: s.Network.RoutedPrefixes},
 		FailureReason: s.FailureReason,
 		KernelDigest:  s.KernelDigest,
+		StartedInBoot: s.StartedInBoot, RestartPending: s.RestartPending,
 	}, nil
 }
 

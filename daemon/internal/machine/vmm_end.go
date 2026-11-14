@@ -6,22 +6,62 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Watch looks for the end of each Running or Paused Machine's VMM every
 // vmmEndPoll, until ctx ends. The supervisor exits with its VMM (ADR 0003), so
-// a Machine with no supervisor has no VMM.
+// a Machine with no supervisor has no VMM. It also starts the Machines Restore
+// marked for a restart once the Start Permitter permits starts, which is when
+// the fencing deadline is first armed in the boot (ADR 0062), and it returns
+// when those starts have ended.
 func (s *service) Watch(ctx context.Context) {
+	defer s.restarts.Wait()
 	tick := time.NewTicker(s.vmmEndPoll)
 	defer tick.Stop()
 	for {
 		s.observeEnds(ctx)
+		s.restartDue(ctx, false)
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
 		}
+	}
+}
+
+// restartDue starts each Machine marked for a restart if the Start Permitter
+// permits starts, which it does not before the fencing deadline is armed; a
+// mark that stands is found again by a later pass. The starts run side by side,
+// each under its Machine's lock; wait says whether to return only when they
+// have ended.
+func (s *service) restartDue(ctx context.Context, wait bool) {
+	s.mu.Lock()
+	var due []MachineID
+	for id, rec := range s.records {
+		if m := rec.Machine; m != nil && rec.Unreadable == "" && m.RestartPending && m.RestartOnBoot && (m.State == StateCreated || m.State == StateStopped) {
+			due = append(due, id)
+		}
+	}
+	s.mu.Unlock()
+	if len(due) == 0 || s.permitter.PermitStart(ctx, due[0]) != nil {
+		return
+	}
+	slices.Sort(due)
+	var started sync.WaitGroup
+	for _, id := range due {
+		started.Add(1)
+		s.restarts.Add(1)
+		go func() {
+			defer started.Done()
+			defer s.restarts.Done()
+			// A refusal or a failure is recorded on the Machine by start.
+			_ = s.start(ctx, id, nil, true)
+		}()
+	}
+	if wait {
+		started.Wait()
 	}
 }
 

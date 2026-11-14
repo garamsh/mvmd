@@ -81,17 +81,25 @@ func (s *service) Restore(ctx context.Context) error {
 		live[id] = true
 	}
 	for _, rec := range records {
-		if m := rec.Machine; rec.Unreadable == "" && m != nil && (m.State == StateRunning || m.State == StatePaused) {
-			stored, _ := s.lookup(rec.ID)
+		m := rec.Machine
+		if rec.Unreadable != "" || m == nil {
+			continue
+		}
+		stored, _ := s.lookup(rec.ID)
+		switch {
+		case m.State == StateRunning || m.State == StatePaused:
 			switch {
 			case liveErr != nil:
-				err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr))
+				err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr), false)
 			case !live[rec.ID]:
-				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded+": "+s.endCause(ctx, rec.ID))
+				// Only a Running Machine is restarted: a Paused one was asked to pause.
+				err = s.settleRestored(ctx, stored, StateStopped, reasonVMMEnded+": "+s.endCause(ctx, rec.ID), m.State == StateRunning && s.bootChanged(*m))
 			}
-			if err != nil {
-				return err
-			}
+		case m.StartedInBoot != "" && (m.State == StateCreated || m.State == StateStopped):
+			err = s.settleInterruptedStart(ctx, stored)
+		}
+		if err != nil {
+			return err
 		}
 	}
 
@@ -301,9 +309,37 @@ func (s *service) endUnclaimed(ctx context.Context, id MachineID, rec *Record, r
 	return nil
 }
 
+// bootChanged states whether the host's boot is not the one m began its last
+// start in: its VMM ended with that boot (ADR 0062). It is false for a Machine
+// without RestartOnBoot and where the boot is not known.
+func (s *service) bootChanged(m Machine) bool {
+	boot := s.bootID()
+	return m.RestartOnBoot && m.StartedInBoot != "" && boot != "" && m.StartedInBoot != boot
+}
+
+// settleInterruptedStart settles a Machine whose record says a start began and
+// no state followed: mvmd or its host went down during the start. A Machine
+// with RestartOnBoot whose host's boot has changed is marked for a restart; the
+// record's commit clears the boot the start began in either way.
+func (s *service) settleInterruptedStart(ctx context.Context, rec *Record) error {
+	next := rec.Machine.clone()
+	if s.bootChanged(next) {
+		next.RestartPending = true
+		next.State = StateStopped
+		next.FailureReason = reasonVMMEnded + ": the host's boot changed during the start"
+	}
+	if err := s.commit(ctx, rec, next); err != nil {
+		s.setMachine(rec, &next)
+		return fmt.Errorf("record the restored state of %q: %w", rec.ID, err)
+	}
+	return nil
+}
+
 // settleRestored records the state a restored Machine was found in. A VMM that
-// has ended no longer holds its tap, so it goes with the state change.
-func (s *service) settleRestored(ctx context.Context, rec *Record, state State, reason string) error {
+// has ended no longer holds its tap, so it goes with the state change. A
+// Machine that ends Stopped with restart set is marked for the restart ADR 0062
+// describes.
+func (s *service) settleRestored(ctx context.Context, rec *Record, state State, reason string, restart bool) error {
 	next := rec.Machine.clone()
 	next.State, next.FailureReason = state, reason
 	if state == StateStopped {
@@ -312,6 +348,7 @@ func (s *service) settleRestored(ctx context.Context, rec *Record, state State, 
 			next.FailureReason += fmt.Sprintf("; the network could not be removed: %v", err)
 		}
 	}
+	next.RestartPending = restart && next.State == StateStopped
 	if err := s.commit(ctx, rec, next); err != nil {
 		// The record could not be updated: hold the finding in memory.
 		s.setMachine(rec, &next)

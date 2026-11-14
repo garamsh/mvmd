@@ -107,6 +107,7 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 	for _, d := range req.GetDisks() {
 		spec.Disks = append(spec.Disks, machine.DiskAttachment{Disk: machine.DiskID(d.GetDiskId()), ReadOnly: d.GetReadOnly(), MountPath: d.GetMountPath()})
 	}
+	spec.RestartOnBoot = req.GetRestartOnBoot()
 	var err error
 	if spec.RoutedPrefixes, err = routedOf(req.GetRoutedPrefixes()); err != nil {
 		return spec, err
@@ -163,6 +164,7 @@ func machineToWire(m machine.Machine) *v1alpha2.Machine {
 		ImageDigest:       string(m.Image),
 		WorkingDir:        m.WorkingDir,
 		Probes:            probeResultsToWire(m.ProbeResults),
+		RestartOnBoot:     m.RestartOnBoot,
 		NetworkPolicy: &v1alpha2.NetworkPolicy{
 			Egress:  rulesToWire(m.Policy.Egress),
 			Ingress: rulesToWire(m.Policy.Ingress),

@@ -63,7 +63,7 @@ Decisions:
 - [ADR 0030](./adr/0030-the-guest-agent-and-converter-initrds-are-pinned-by-digest-as-the-kernel-is.md) — the Guest Agent and converter initrds are pinned by digest, as the kernel is (extends ADR 0010's pin from the kernel to the initrd, and ADR 0027's restore binding)
 - [ADR 0031](./adr/0031-the-snapshot-store-publishes-a-snapshots-state-files-owned-by-mvmd-and-read-only.md) — the Snapshot Store publishes a snapshot's state files owned by mvmd and read-only
 - [ADR 0032](./adr/0032-the-guest-agent-ends-the-machine-by-the-method-the-kernel-command-line-names.md) — the Guest Agent ends the Machine by the method the kernel command line names
-- [ADR 0033](./adr/0033-a-vmm-that-ends-on-its-own-moves-its-machine-to-stopped-with-the-reason.md) — a VMM that ends on its own moves its Machine to Stopped with the reason (the daemon finds it through the supervisors it lists)
+- [ADR 0033](./adr/0033-a-vmm-that-ends-on-its-own-moves-its-machine-to-stopped-with-the-reason.md) — a VMM that ends on its own moves its Machine to Stopped with the reason (the daemon finds it through the supervisors it lists; "Restart policy is not mvmd's" is amended by ADR 0062)
 - [ADR 0034](./adr/0034-the-node-reclaims-nothing-by-its-own-policy-and-the-runtime-api-lists-and-removes-what-it-holds.md) — the node reclaims nothing by its own policy, and the runtime API lists and removes the snapshots and images it holds
 - [ADR 0035](./adr/0035-the-runtime-api-streams-listings-and-searches-and-serves-one-alpha-version-at-a-time.md) — the runtime API streams listings and searches and serves one alpha version at a time (`v1alpha2`)
 - [ADR 0036](./adr/0036-the-runtime-api-creates-lists-and-deletes-a-node-local-disk-through-the-disk-adapter.md) — the runtime API creates, lists and deletes a node-local disk through the Disk adapter
@@ -92,5 +92,6 @@ Decisions:
 - [ADR 0059](./adr/0059-each-driver-boots-an-os-form-machine-with-its-own-parameters-before-the-clients-command-line-and-refuses-a-line-the-kernel-would-cut.md) — each Driver boots an OS-form Machine with its own parameters before the client's command line, and refuses a line the kernel would cut (it amends the interim refusal of ADR 0058)
 - [ADR 0060](./adr/0060-create-disk-takes-up-to-1-mib-of-contents-for-a-raw-disk.md) — Create disk takes up to 1 MiB of contents for a raw disk
 - [ADR 0061](./adr/0061-a-machine-owns-routed-prefixes-accepted-as-source-only-from-its-tap-and-governed-by-its-policy.md) — a Machine owns routed prefixes accepted as source only from its tap and governed by its policy (it amends ADR 0011 and ADR 0012)
+- [ADR 0062](./adr/0062-a-machine-created-with-restart-on-boot-that-was-running-when-its-host-went-down-is-started-again-at-the-first-arming-in-the-new-boot.md) — a Machine created with `restart_on_boot` that was Running when its host went down is started again at the first arming in the new boot (it amends ADR 0033)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

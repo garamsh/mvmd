@@ -44,6 +44,10 @@ type node struct {
 	// credentialsFile is the registry.credentials_file the node's configuration names, or "".
 	credentialsFile string
 
+	// bootIDFile is the file the daemon sees as the host's boot identity, or "" when it sees the
+	// host's own.
+	bootIDFile string
+
 	socket     string
 	configFile string
 	logFile    *os.File
@@ -184,6 +188,14 @@ func startNodeWith(t *testing.T, options ...nodeOption) *node {
 func (n *node) startDaemon() {
 	n.t.Helper()
 	cmd := exec.Command(os.Getenv(envMvmd), "-config", n.configFile)
+	if n.bootIDFile != "" {
+		// A mount namespace of the daemon's own in which only /proc is private, so that the bind
+		// reaches no other process while every other mount propagates as it does without it. The
+		// supervisors the daemon starts inherit the namespace.
+		cmd = exec.Command("unshare", "--mount", "--propagation", "unchanged", "sh", "-c",
+			`mount --make-private /proc && mount --bind "$1" /proc/sys/kernel/random/boot_id && shift && exec "$@"`,
+			"sh", n.bootIDFile, os.Getenv(envMvmd), "-config", n.configFile)
+	}
 	// The daemon trusts the fixture registry's authority and no other.
 	cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+n.registry.caFile)
 	cmd.Stdout, cmd.Stderr = n.logFile, n.logFile
@@ -194,6 +206,14 @@ func (n *node) startDaemon() {
 	go func() { exited <- cmd.Wait(); close(exited) }()
 	n.cmd, n.exited = cmd, exited
 	n.client = n.dial(n.socket, exited)
+	if n.bootIDFile != "" {
+		// The bind took: the daemon reads the boot identity the test set, not the host's.
+		seen, err := os.ReadFile(fmt.Sprintf("/proc/%d/root/proc/sys/kernel/random/boot_id", cmd.Process.Pid))
+		require.NoError(n.t, err)
+		want, err := os.ReadFile(n.bootIDFile)
+		require.NoError(n.t, err)
+		require.Equal(n.t, string(want), string(seen), "the boot identity the daemon reads")
+	}
 }
 
 // restartDaemon ends the daemon the way a service manager does and starts it again. The
