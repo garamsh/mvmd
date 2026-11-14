@@ -340,10 +340,6 @@ func (s *service) settleInterruptedStart(ctx context.Context, rec *Record) error
 	return nil
 }
 
-// settleRestored records the state a restored Machine was found in. A VMM that
-// has ended no longer holds its tap, so it goes with the state change. A
-// Machine that ends Stopped with restart set is marked for the restart ADR 0062
-// describes.
 // settleLapsed brings a Machine found without a supervisor to Stopped with the
 // reason its own fence gives, and the time the fence lapsed.
 func (s *service) settleLapsed(ctx context.Context, rec *Record, reason string, at time.Time) error {
@@ -360,6 +356,10 @@ func (s *service) settleLapsed(ctx context.Context, rec *Record, reason string, 
 	return nil
 }
 
+// settleRestored records the state a restored Machine was found in. A VMM that
+// has ended no longer holds its tap, so it goes with the state change. A
+// Machine that ends Stopped with restart set is marked for the restart ADR 0062
+// describes.
 func (s *service) settleRestored(ctx context.Context, rec *Record, state State, reason string, restart bool) error {
 	next := rec.Machine.clone()
 	next.State, next.FailureReason = state, reason
