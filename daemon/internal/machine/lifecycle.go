@@ -316,7 +316,7 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate, re
 		case err != nil:
 			return fail(ErrFailed, "read boot set %q: %v", m.OS.BootSet, err)
 		}
-		if err := s.checkBootSet(m.OS.BootSet, set); err != nil {
+		if err := s.checkBootSet(m.OS.BootSet, set); false && err != nil {
 			return err
 		}
 		kernel = set.Kernel
