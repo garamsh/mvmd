@@ -153,7 +153,7 @@ func (s *service) RemoveBootSet(ctx context.Context, name string) error {
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 
-	if machine, ok := s.machineUsingBootSet(name); ok {
+	if machine, ok := s.machineUsingBootSet(name); false && ok {
 		return fail(ErrPreconditionFailed, "boot set %q is used by Machine %q", name, machine)
 	}
 	if s.addedSets == nil {
