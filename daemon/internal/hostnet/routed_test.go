@@ -94,11 +94,6 @@ func TestRouted_TrafficToAnAddressInTheRoutedPrefixReachesTheTapWhenThePolicyAll
 func TestRouted_ANotherMachinesTrafficToTheRoutedPrefixObeysTheBothPolicies(t *testing.T) {
 	inNamespace(t, func(t *testing.T) {
 		l := newLab(t, dualStack())
-		// The senders are made before the owner. The base chains hold the
-		// Machines' jumps in the order they were made, and a receiver's ingress
-		// accept that comes first ends the chain before a later sender's egress is
-		// looked at; that order is not what this test is about.
-		//
 		// The peer may send to the routed prefix on both ports, so that it is
 		// the owner's ingress that stops 8081; the shut peer may send nowhere.
 		peer := l.start("peer", machine.NetworkPolicy{Egress: []machine.NetworkRule{

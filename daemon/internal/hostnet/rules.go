@@ -140,12 +140,10 @@ func (t tables) plan(m machineNet) (*machinePlan, error) {
 		rules  []machine.NetworkRule
 		egress bool
 	}{{eg, m.policy.Egress, true}, {in, m.policy.Ingress, false}} {
-		matched := verdict(expr.VerdictAccept)
-		if side.egress {
-			// A packet the policy allows leaves the chain and goes on to
-			// the receiver's ingress check.
-			matched = verdict(expr.VerdictReturn)
-		}
+		// A packet the policy allows leaves the chain and the jump that
+		// reached it, so the other Machine's chain in the forward chain is
+		// still looked at whichever jump comes first; the base chains accept it.
+		matched := verdict(expr.VerdictReturn)
 		p.rule(t.inet, side.chain, "", join(ctStateIs(expr.CtStateBitINVALID), verdict(expr.VerdictDrop)))
 		p.rule(t.inet, side.chain, "", join(ctStateIs(expr.CtStateBitESTABLISHED|expr.CtStateBitRELATED), matched))
 		for _, r := range side.rules {
