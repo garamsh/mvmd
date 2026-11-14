@@ -186,8 +186,10 @@ type service struct {
 	clock      WallClock
 	store      StateStore
 	permitter  StartPermitter
-	uids       *UIDs
-	events     Events
+	// fences is nil where the node keeps no fences of Machines.
+	fences Fences
+	uids   *UIDs
+	events Events
 	// kernels are the guest kernels the node offers.
 	kernels Kernels
 	// bootSets are the boot sets the node offers an OS-form Machine, and

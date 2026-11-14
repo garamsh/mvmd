@@ -45,12 +45,14 @@ func (s *service) restartDue(ctx context.Context, wait bool) {
 		}
 	}
 	s.mu.Unlock()
-	if len(due) == 0 || s.permitter.PermitStart(ctx, due[0]) != nil {
-		return
-	}
 	slices.Sort(due)
 	var started sync.WaitGroup
 	for _, id := range due {
+		// Each Machine is asked, since a Machine's own fence may be unarmed
+		// while another's start is permitted (ADR 0064).
+		if s.permitter.PermitStart(ctx, id) != nil {
+			continue
+		}
 		started.Add(1)
 		s.restarts.Add(1)
 		go func() {
@@ -112,6 +114,23 @@ func (s *service) settleEnd(ctx context.Context, id MachineID) {
 		return
 	}
 	if live, err := s.supervisor.Live(ctx); err != nil || slices.Contains(live, id) {
+		return
+	}
+	// A VMM that ended after the Machine's own fence lapsed was ended by it,
+	// and is settled before the permission is asked, which a lapsed fence
+	// refuses (ADR 0064).
+	if reason, at, lapsed := s.fenceLapse(ctx, m); lapsed {
+		ctx, cancel := s.accepted(ctx, 0)
+		defer cancel()
+		next := m.clone()
+		next.State, next.FailureReason, next.FenceLapsedAt = StateStopped, reason, at
+		if err := s.network.Withdraw(ctx, id); err != nil {
+			next.State = StateFaulted
+			next.FailureReason = fmt.Sprintf("%s; the network could not be removed: %v", reason, err)
+		}
+		if err := s.commit(ctx, rec, next); err != nil {
+			s.unrecorded(rec, err)
+		}
 		return
 	}
 	// A Machine whose start the fencing deadline refuses is not one the VMM

@@ -186,3 +186,19 @@ func (s *Supervisors) User(id machine.MachineID) (machine.User, bool) {
 	h, ok := s.live[id]
 	return h.user, ok
 }
+
+// EndExpired ends every supervisor whose expiry is at or before now, as each
+// supervisor's own count does when the clock reaches it, whether or not mvmd
+// runs. It returns the Machines it ended.
+func (s *Supervisors) EndExpired(now fencing.BootTime) []machine.MachineID {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ended []machine.MachineID
+	for id, h := range s.live {
+		if h.expiry <= now {
+			delete(s.live, id)
+			ended = append(ended, id)
+		}
+	}
+	return ended
+}

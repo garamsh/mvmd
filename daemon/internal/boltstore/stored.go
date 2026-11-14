@@ -41,6 +41,9 @@ type storedMachine struct {
 	// they existed (ADR 0062), and from one that holds neither.
 	StartedInBoot  string `json:"StartedInBoot,omitempty"`
 	RestartPending bool   `json:"RestartPending,omitempty"`
+	// FenceLapsedAt is absent from a record written before it existed (ADR
+	// 0064), and from one whose Machine's fence has not ended its VMM.
+	FenceLapsedAt time.Time `json:"FenceLapsedAt,omitzero"`
 }
 
 type storedSpec struct {
@@ -76,6 +79,9 @@ type storedSpec struct {
 	// RestartOnBoot is absent from a record written before it existed (ADR
 	// 0062), and from one whose Machine does not have it.
 	RestartOnBoot bool `json:"RestartOnBoot,omitempty"`
+	// Fenced is absent from a record written before it existed (ADR 0064), and
+	// from one whose Machine has no fence of its own.
+	Fenced bool `json:"Fenced,omitempty"`
 }
 
 // storedOS is the OS form of a Machine as it is written.
@@ -348,6 +354,7 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		OS:             storeOS(s.OS),
 		RoutedPrefixes: s.RoutedPrefixes,
 		RestartOnBoot:  s.RestartOnBoot,
+		Fenced:         s.Fenced,
 	}, nil
 }
 
@@ -438,6 +445,7 @@ func (s storedSpec) load() (machine.Spec, error) {
 		OS:             loadOS(s.OS),
 		RoutedPrefixes: s.RoutedPrefixes,
 		RestartOnBoot:  s.RestartOnBoot,
+		Fenced:         s.Fenced,
 	}, nil
 }
 
@@ -471,6 +479,7 @@ func storeMachine(m *machine.Machine) (*storedMachine, error) {
 		Network:       storedNetwork{MAC: m.Network.MAC, Addresses: m.Network.Addresses, Gateways: m.Network.Gateways, Resolvers: m.Network.Resolvers, RoutedPrefixes: m.Network.RoutedPrefixes},
 		FailureReason: m.FailureReason, BootMemoryBytes: m.BootMemoryBytes, KernelDigest: m.KernelDigest,
 		StartedInBoot: m.StartedInBoot, RestartPending: m.RestartPending,
+		FenceLapsedAt: m.FenceLapsedAt,
 	}, nil
 }
 
@@ -502,6 +511,7 @@ func (s *storedMachine) load() (*machine.Machine, error) {
 		FailureReason: s.FailureReason,
 		KernelDigest:  s.KernelDigest,
 		StartedInBoot: s.StartedInBoot, RestartPending: s.RestartPending,
+		FenceLapsedAt: s.FenceLapsedAt,
 	}, nil
 }
 

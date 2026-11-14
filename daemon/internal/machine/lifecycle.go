@@ -144,10 +144,25 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, nil, err.Error())))
 	}
+	if spec.Fenced {
+		if s.fences == nil {
+			s.release(disks...)
+			return s.failCreate(ctx, id, request, spec, fail(ErrUnsupported, "the node keeps no fences of Machines"))
+		}
+		if err := s.fences.Enrol(ctx, id); err != nil {
+			s.release(disks...)
+			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, attached, fmt.Sprintf("make the Machine's fence: %v", err))))
+		}
+	}
 	m := Machine{ID: id, State: StateCreated, Spec: held, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
 	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
 		reason := fmt.Sprintf("record the Machine: %v", err)
+		if spec.Fenced {
+			if err := s.fences.Release(ctx, id); err != nil {
+				reason += fmt.Sprintf("; the Machine's fence could not be removed: %v", err)
+			}
+		}
 		s.release(disks...)
 		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, attached, reason)))
 	}
@@ -419,6 +434,7 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate, re
 	next.BootMemoryBytes = m.Resources.MemoryBytes
 	next.KernelDigest = res.kernelDigest
 	next.FailureReason = ""
+	next.FenceLapsedAt = time.Time{}
 	if err := s.commit(ctx, rec, next); err != nil {
 		return s.unrecorded(rec, err)
 	}
@@ -739,5 +755,12 @@ func (s *service) Delete(ctx context.Context, id MachineID) error {
 	// The Machine's lock is still held, so this follows every event of its
 	// states, and a watcher that sees it finds the Machine gone from List.
 	s.events.Deleted(id)
+	if rec.Machine.Fenced && s.fences != nil {
+		// After the record: a failure here leaves a fence no Machine has,
+		// which a Machine created under the name replaces (Enrol).
+		if err := s.fences.Release(ctx, id); err != nil {
+			return fail(ErrFailed, "the Machine is deleted; its fence could not be removed: %v", err)
+		}
+	}
 	return nil
 }
