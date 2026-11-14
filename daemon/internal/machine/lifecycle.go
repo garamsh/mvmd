@@ -33,7 +33,10 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	}
 	held := spec
 	if spec.OS != nil {
-		if _, failure := s.bootSet(*spec.OS); failure != nil {
+		// Shared from resolving the name until the record is set, so
+		// RemoveBootSet cannot pass between the two (ADR 0063).
+		defer s.bootSetLocks.lock(spec.OS.BootSet, false)()
+		if _, failure := s.bootSet(ctx, *spec.OS); failure != nil {
 			return failure
 		}
 	} else {
@@ -306,9 +309,12 @@ func (s *service) start(ctx context.Context, id MachineID, update *RunUpdate, re
 		if update != nil {
 			return fail(ErrInvalid, "a run update sets env and files, and an OS-form Machine has none")
 		}
-		var ok bool
-		if set, ok = s.bootSets[m.OS.BootSet]; !ok {
+		var err error
+		switch set, _, err = s.resolveBootSet(ctx, m.OS.BootSet); {
+		case errors.Is(err, ErrBootSetAbsent):
 			return fail(ErrPreconditionFailed, "boot set %q is not offered by the node", m.OS.BootSet)
+		case err != nil:
+			return fail(ErrFailed, "read boot set %q: %v", m.OS.BootSet, err)
 		}
 		if err := s.checkBootSet(m.OS.BootSet, set); err != nil {
 			return err

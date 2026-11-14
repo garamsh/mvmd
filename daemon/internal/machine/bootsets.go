@@ -1,6 +1,8 @@
 package machine
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -105,10 +107,13 @@ func (m Machine) requireBootTime(call string) error {
 }
 
 // bootSet resolves the name an OS-form Machine records.
-func (s *service) bootSet(o OSBoot) (BootSet, *Error) {
-	set, ok := s.bootSets[o.BootSet]
-	if !ok {
+func (s *service) bootSet(ctx context.Context, o OSBoot) (BootSet, *Error) {
+	set, _, err := s.resolveBootSet(ctx, o.BootSet)
+	switch {
+	case errors.Is(err, ErrBootSetAbsent):
 		return BootSet{}, fail(ErrInvalid, "boot set %q is not offered by the node", o.BootSet)
+	case err != nil:
+		return BootSet{}, fail(ErrFailed, "read boot set %q: %v", o.BootSet, err)
 	}
 	return set, nil
 }

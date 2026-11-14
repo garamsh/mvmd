@@ -56,6 +56,8 @@ const (
 	RuntimeService_PullImage_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/PullImage"
 	RuntimeService_ListImages_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/ListImages"
 	RuntimeService_RemoveImage_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/RemoveImage"
+	RuntimeService_AddBootSet_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/AddBootSet"
+	RuntimeService_RemoveBootSet_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/RemoveBootSet"
 	RuntimeService_ListSnapshots_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/ListSnapshots"
 	RuntimeService_DeleteSnapshot_FullMethodName     = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteSnapshot"
 	RuntimeService_RenewDeadline_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/RenewDeadline"
@@ -109,6 +111,9 @@ type RuntimeServiceClient interface {
 	PullImage(ctx context.Context, in *PullImageRequest, opts ...grpc.CallOption) (*PullImageResponse, error)
 	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
 	RemoveImage(ctx context.Context, in *RemoveImageRequest, opts ...grpc.CallOption) (*RemoveImageResponse, error)
+	// Boot sets (ADR 0063).
+	AddBootSet(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[AddBootSetRequest, AddBootSetResponse], error)
+	RemoveBootSet(ctx context.Context, in *RemoveBootSetRequest, opts ...grpc.CallOption) (*RemoveBootSetResponse, error)
 	// Snapshots.
 	ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error)
 	DeleteSnapshot(ctx context.Context, in *DeleteSnapshotRequest, opts ...grpc.CallOption) (*DeleteSnapshotResponse, error)
@@ -516,6 +521,29 @@ func (c *runtimeServiceClient) RemoveImage(ctx context.Context, in *RemoveImageR
 	return out, nil
 }
 
+func (c *runtimeServiceClient) AddBootSet(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[AddBootSetRequest, AddBootSetResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[7], RuntimeService_AddBootSet_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[AddBootSetRequest, AddBootSetResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_AddBootSetClient = grpc.ClientStreamingClient[AddBootSetRequest, AddBootSetResponse]
+
+func (c *runtimeServiceClient) RemoveBootSet(ctx context.Context, in *RemoveBootSetRequest, opts ...grpc.CallOption) (*RemoveBootSetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveBootSetResponse)
+	err := c.cc.Invoke(ctx, RuntimeService_RemoveBootSet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *runtimeServiceClient) ListSnapshots(ctx context.Context, in *ListSnapshotsRequest, opts ...grpc.CallOption) (*ListSnapshotsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListSnapshotsResponse)
@@ -603,6 +631,9 @@ type RuntimeServiceServer interface {
 	PullImage(context.Context, *PullImageRequest) (*PullImageResponse, error)
 	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
 	RemoveImage(context.Context, *RemoveImageRequest) (*RemoveImageResponse, error)
+	// Boot sets (ADR 0063).
+	AddBootSet(grpc.ClientStreamingServer[AddBootSetRequest, AddBootSetResponse]) error
+	RemoveBootSet(context.Context, *RemoveBootSetRequest) (*RemoveBootSetResponse, error)
 	// Snapshots.
 	ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error)
 	DeleteSnapshot(context.Context, *DeleteSnapshotRequest) (*DeleteSnapshotResponse, error)
@@ -720,6 +751,12 @@ func (UnimplementedRuntimeServiceServer) ListImages(context.Context, *ListImages
 }
 func (UnimplementedRuntimeServiceServer) RemoveImage(context.Context, *RemoveImageRequest) (*RemoveImageResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveImage not implemented")
+}
+func (UnimplementedRuntimeServiceServer) AddBootSet(grpc.ClientStreamingServer[AddBootSetRequest, AddBootSetResponse]) error {
+	return status.Error(codes.Unimplemented, "method AddBootSet not implemented")
+}
+func (UnimplementedRuntimeServiceServer) RemoveBootSet(context.Context, *RemoveBootSetRequest) (*RemoveBootSetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveBootSet not implemented")
 }
 func (UnimplementedRuntimeServiceServer) ListSnapshots(context.Context, *ListSnapshotsRequest) (*ListSnapshotsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSnapshots not implemented")
@@ -1309,6 +1346,31 @@ func _RuntimeService_RemoveImage_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RuntimeService_AddBootSet_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RuntimeServiceServer).AddBootSet(&grpc.GenericServerStream[AddBootSetRequest, AddBootSetResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_AddBootSetServer = grpc.ClientStreamingServer[AddBootSetRequest, AddBootSetResponse]
+
+func _RuntimeService_RemoveBootSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveBootSetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeServiceServer).RemoveBootSet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeService_RemoveBootSet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeServiceServer).RemoveBootSet(ctx, req.(*RemoveBootSetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RuntimeService_ListSnapshots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListSnapshotsRequest)
 	if err := dec(in); err != nil {
@@ -1497,6 +1559,10 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RuntimeService_RemoveImage_Handler,
 		},
 		{
+			MethodName: "RemoveBootSet",
+			Handler:    _RuntimeService_RemoveBootSet_Handler,
+		},
+		{
 			MethodName: "ListSnapshots",
 			Handler:    _RuntimeService_ListSnapshots_Handler,
 		},
@@ -1548,6 +1614,11 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Console",
 			Handler:       _RuntimeService_Console_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "AddBootSet",
+			Handler:       _RuntimeService_AddBootSet_Handler,
 			ClientStreams: true,
 		},
 	},

@@ -23,6 +23,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/api"
 	"github.com/garamsh/mvmd/daemon/internal/boltstore"
 	"github.com/garamsh/mvmd/daemon/internal/bootclock"
+	"github.com/garamsh/mvmd/daemon/internal/bootsetstore"
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	fencingmemory "github.com/garamsh/mvmd/daemon/internal/fencing/memory"
@@ -184,8 +185,13 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	kernels := machinememory.Kernels()
 	bootSets := machinememory.BootSets()
 	var bootFiles machine.BootFileChecker = &machinememory.BootFiles{}
+	var addedSets machine.BootSetStore = machinememory.NewBootSetStore()
 	if f, ok := cfg.vmm(); ok {
 		kernels, bootSets, bootFiles = f.offered(), f.bootSets(), pinnedBootFiles{}
+		if addedSets, err = bootsetstore.New(filepath.Join(cfg.StateDir, "boot-sets")); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
 		d, err := f.driver(cfg.Driver, supervisors)
 		if err != nil {
 			_ = db.Close()
@@ -229,7 +235,7 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log)
-	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithAddedBootSets(addedSets), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock))
 
 	machinesHeld := func() (uint32, error) {
 		all, err := machines.List(context.Background())
@@ -241,7 +247,7 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithBootSets(bootSets), api.WithMachinePrefixes(prefixes...)),
+		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithBootSets(machines.ListBootSets), api.WithMachinePrefixes(prefixes...)),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil
