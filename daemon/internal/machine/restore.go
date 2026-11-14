@@ -94,7 +94,7 @@ func (s *service) Restore(ctx context.Context) error {
 				err = s.settleRestored(ctx, stored, StateFaulted, fmt.Sprintf("the supervisors could not be listed: %v", liveErr), false)
 			case !live[rec.ID]:
 				// Only a Running Machine is restarted: a Paused one was asked to pause.
-				if reason, at, lapsed := s.fenceLapse(ctx, *m); lapsed {
+				if reason, at, lapsed := s.fenceLapse(ctx, *m); false && lapsed {
 					err = s.settleLapsed(ctx, stored, reason, at)
 					break
 				}
