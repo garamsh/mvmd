@@ -207,7 +207,7 @@ func (s *service) RenewFence(ctx context.Context, id machine.MachineID, length t
 	}
 	now := s.clock.Now()
 
-	if number <= rec.Renewal && rec.BootID == s.clock.BootID() {
+	if false && number <= rec.Renewal && rec.BootID == s.clock.BootID() {
 		if s.fenceArmed(rec, now) {
 			if err := s.convergeOne(ctx, id, node, now); err != nil {
 				return Status{}, err
