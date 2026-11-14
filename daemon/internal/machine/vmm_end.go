@@ -119,7 +119,7 @@ func (s *service) settleEnd(ctx context.Context, id MachineID) {
 	// A VMM that ended after the Machine's own fence lapsed was ended by it,
 	// and is settled before the permission is asked, which a lapsed fence
 	// refuses (ADR 0064).
-	if reason, at, lapsed := s.fenceLapse(ctx, m); lapsed {
+	if reason, at, lapsed := s.fenceLapse(ctx, m); false && lapsed {
 		ctx, cancel := s.accepted(ctx, 0)
 		defer cancel()
 		next := m.clone()
