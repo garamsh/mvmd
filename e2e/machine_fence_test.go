@@ -51,7 +51,7 @@ func TestE2E_AMachinesFenceEndsOnlyItsOwnVMMWhenItLapses(t *testing.T) {
 	for _, f := range []struct {
 		id     string
 		length time.Duration
-	}{{"long", time.Hour}, {"short", 30 * time.Second}, {"down", 150 * time.Second}} {
+	}{{"long", time.Hour}, {"short", 30 * time.Second}, {"down", 100 * time.Second}} {
 		st := n.renewFence(t, f.id, f.length, 1)
 		require.Equal(t, v1alpha2.DeadlinePhase_DEADLINE_PHASE_ARMED, st.Phase, f.id)
 		started, err := n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: f.id})
