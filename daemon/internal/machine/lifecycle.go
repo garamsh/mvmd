@@ -35,7 +35,6 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if spec.OS != nil {
 		// Shared from resolving the name until the record is set, so
 		// RemoveBootSet cannot pass between the two (ADR 0063).
-		defer s.bootSetLocks.lock(spec.OS.BootSet, false)()
 		if _, failure := s.bootSet(ctx, *spec.OS); failure != nil {
 			return failure
 		}
