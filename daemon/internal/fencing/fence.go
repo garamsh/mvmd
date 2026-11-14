@@ -89,10 +89,11 @@ func (s *service) fenceStatus(rec Record, now BootTime) Status {
 // node's and the Machine's own, so that either one ends the VMM (ADR 0064).
 func (s *service) effective(id machine.MachineID, node BootTime) BootTime {
 	s.mu.Lock()
-	rec, ok := s.fences[id]
-	s.mu.Unlock()
-	if ok && rec.Renewal > 0 && rec.BootID == s.clock.BootID() && rec.Expiry < node {
-		return rec.Expiry
+	defer s.mu.Unlock()
+	for _, rec := range s.fences {
+		if rec.Renewal > 0 && rec.BootID == s.clock.BootID() && rec.Expiry < node {
+			node = rec.Expiry
+		}
 	}
 	return node
 }
