@@ -2,7 +2,7 @@
 
 How a Rust Cargo workspace is laid out, where its mechanisms are declared, and the commands behind the entry-point names.
 
-Checked against rustc, cargo and clippy 1.99.1 (58cf8f9c35b355199727627d07ae34a4e2846d67, 2026-10-13), rustfmt 1.10.0, cargo-deny 0.20.2 and thiserror 2.0.21, on x86_64 Linux. A claim below that names no version holds for these. A claim marked "measured" was run against that toolchain in a scratch workspace; one without the mark is the documented behaviour of the tool.
+Checked against rustc and clippy 1.100.0 (0ef1bc386059596dada8fb65b50425aab2ea637a, 2026-11-09), cargo 1.100.0 (3acc79c0c841844675bc53a605922dbfc441e750, 2026-11-05), rustfmt 1.11.0, cargo-deny 0.20.2 and thiserror 2.0.21, on x86_64 Linux. A claim below that names no version holds for these. A claim marked "measured" was run against that toolchain in a scratch workspace; one without the mark is the documented behaviour of the tool.
 
 ## Contents
 - Workspace and crate layout
@@ -24,7 +24,7 @@ Checked against rustc, cargo and clippy 1.99.1 (58cf8f9c35b355199727627d07ae34a4
 - **A crate that ships a binary is a binary crate; one that exists for other crates is a library crate.** One crate may hold both targets (`src/main.rs` and `src/lib.rs`). Start with one crate; a second is added when a second consumer of its code exists.
 - **The composition site is the binary's `main.rs`, unless a test outside it has to reach it.** An integration test links the crate's library target and nothing in `main.rs`, so where such a test exercises the wired program, the site is a function in `lib.rs` that `main` calls and `main` holds nothing else.
 - The shipped binary is built for `<arch>-unknown-linux-musl`, which links statically (measured on x86_64: `file` reports `static-pie linked`). `rust-toolchain.toml` lists each such target in `targets`, so the pinned toolchain installs its standard library with no further step.
-- Profile keys sit in the root manifest only, where Cargo reads them. The `release` profile sets `lto = true`, `codegen-units = 1`, `strip = true` and `panic = "abort"`, to keep the binary small: on a one-file program the musl build measured 545800 bytes without the four and 385720 with them. Tests, benchmarks and build scripts ignore `panic`, so a test that asserts a panic still works.
+- Profile keys sit in the root manifest only, where Cargo reads them. The `release` profile sets `lto = true`, `codegen-units = 1`, `strip = true` and `panic = "abort"`, to keep the binary small: on a one-file program the musl build measured 545400 bytes without the four and 385720 with them. Tests, benchmarks and build scripts ignore `panic`, so a test that asserts a panic still works.
 
 ## Naming and files
 
@@ -36,7 +36,7 @@ This section states the Rust spelling only; casing is the compiler's own `non_sn
 
 ## Toolchain
 
-- `rust-toolchain.toml` at the workspace root pins one exact release (`channel = "1.99.1"` form, never `stable`), with `components = ["clippy", "rustfmt"]` and the musl `targets`. `rustup` picks it up for every `cargo` and `rustc` call under the directory (measured: `rustc --version` reports 1.99.1 inside, 1.98.0 outside), and installs it on first use. A channel name would move the compiler on a day nobody changed the code.
+- `rust-toolchain.toml` at the workspace root pins one exact release (`channel = "1.100.0"` form, never `stable`), with `components = ["clippy", "rustfmt"]` and the musl `targets`. `rustup` picks it up for every `cargo` and `rustc` call under the directory (measured: `rustc --version` reports 1.100.0 inside, 1.98.0 outside), and installs it on first use. A channel name would move the compiler on a day nobody changed the code.
 - Each manifest's `rust-version` equals the pin, via `[workspace.package]`.
 - **Dependabot moves the pin**, through its `rust-toolchain` ecosystem, which its documentation lists as updating `channel = "1.xx.yy"` in `rust-toolchain.toml`. Its pull request is not complete until it also moves each `rust-version`, re-reads the release's documentation, updates this file's first paragraph, and re-measures the claims marked "measured". The configuration arrives with the change that creates the workspace.
 - No `rustfmt.toml`: the defaults are the format.
