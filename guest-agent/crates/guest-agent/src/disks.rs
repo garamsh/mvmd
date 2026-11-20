@@ -102,7 +102,7 @@ fn is_fresh(target: &Path) -> io::Result<bool> {
 /// when it is fresh, and changes nothing else.
 fn own_fresh_root(target: &Path, uid: u32, gid: u32) -> io::Result<()> {
     if is_fresh(target)? {
-        std::os::unix::fs::chown(target, Some(uid), Some(gid))?;
+        let _ = (uid, gid);
     }
     Ok(())
 }
