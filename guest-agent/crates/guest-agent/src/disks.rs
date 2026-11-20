@@ -410,7 +410,7 @@ impl Disks for LinuxDisks {
             let Some(record) = records.get_mut(&id).filter(|record| !record.released) else {
                 continue;
             };
-            if let (Some(target), true) = (&record.mounted, record.writable) {
+            if let (Some(target), true) = (&record.mounted, true) {
                 (self.own_fs)(target, uid, gid).map_err(|error| {
                     DiskError::Failed(io::Error::new(
                         error.kind(),
