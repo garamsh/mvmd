@@ -1,0 +1,24 @@
+name: Set up the toolchains
+description: Installs the Go and Rust toolchains every CI job builds with. The caller checks the repository out first, because a local action is read from the checkout.
+
+inputs:
+  cache-dependency-path:
+    description: The go.sum files setup-go keys its module cache on, one per line.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Moved by Dependabot (.github/dependabot.yml), which proposes the bump of each pinned
+    # action SHA here as it does in the workflows.
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.work
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+    # Installs what guest-agent/rust-toolchain.toml pins. Caching is off, so a run reads only the
+    # pinned inputs; build-warnings is empty so CI sets no cargo flag that a local run lacks.
+    - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+      with:
+        rust-src-dir: guest-agent
+        cache: false
+        build-warnings: ""

@@ -1,0 +1,22 @@
+name: Prepare a KVM runner
+description: Records what the runner label and the Go toolchain resolved to, then makes /dev/kvm usable by every user. It fails when /dev/kvm cannot be used. Run it after the setup action.
+
+runs:
+  using: composite
+  steps:
+    - name: Record what the runner label and the toolchain resolved to
+      shell: bash
+      run: |
+        echo "runner image: $ImageOS $ImageVersion"
+        uname -r
+        go version
+    # Gives every user access to /dev/kvm, the udev rule the runner images' KVM support documents,
+    # then records what the runner has.
+    - name: Make /dev/kvm usable
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+        ls -l /dev/kvm
+        test -r /dev/kvm -a -w /dev/kvm
