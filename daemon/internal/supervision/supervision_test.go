@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
@@ -429,6 +430,17 @@ func TestCgroup_ASupervisorStartedAfterCgroupKillRuns(t *testing.T) {
 		return true
 	}, 10*time.Second, 10*time.Millisecond, "setup: cgroup.kill ends every process of both cgroups")
 
+	if conn, err := net.Dial("unix", filepath.Join(cfg.Dir, "killed", "supervisor.sock")); err == nil {
+		raw, _ := conn.(*net.UnixConn).SyscallConn()
+		_ = raw.Control(func(fd uintptr) {
+			cred, _ := unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
+			pid := strconv.Itoa(int(cred.Pid))
+			cg, _ := os.ReadFile("/proc/" + pid + "/cgroup")
+			st, _ := os.ReadFile("/proc/" + pid + "/status")
+			t.Logf("DIAG the socket answers: pid %s cgroup %q status %q", pid, cg, st)
+		})
+		conn.Close()
+	}
 	require.NoError(t, start(), "a Start after cgroup.kill runs the Machine")
 	a, err := supervision.New(cfg)
 	require.NoError(t, err)
