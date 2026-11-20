@@ -401,7 +401,7 @@ impl Disks for LinuxDisks {
             .records
             .lock()
             .map_err(|_| failed("the disk records are unusable"))?;
-        if (uid, gid) == (0, 0) || self.owner.set((uid, gid)).is_err() {
+        if self.owner.set((uid, gid)).is_err() {
             return Ok(());
         }
         let mut ids: Vec<String> = records.keys().cloned().collect();
