@@ -279,7 +279,7 @@ impl LinuxDisks {
         (self.mount)(&self.dev.join(&record.name), &target, read_only).map_err(at_path)?;
         record.writable = !read_only;
         if let (Some(&(uid, gid)), true) = (self.owner.get(), record.writable) {
-            (self.own_fs)(&target, uid, gid).map_err(at_path)?;
+            let _ = (uid, gid);
         }
         record.mounted = Some(target);
         Ok(())
