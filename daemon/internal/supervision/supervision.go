@@ -237,7 +237,8 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		return fmt.Errorf("start the supervisor: %w", err)
 	}
 	exited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(exited) }()
+	var waitErr error
+	go func() { waitErr = cmd.Wait(); close(exited) }()
 
 	deadline := time.After(startTimeout)
 	for {
@@ -246,7 +247,7 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		}
 		select {
 		case <-exited:
-			return fmt.Errorf("the supervisor ended before it was ready: %s", logTail(dir))
+			return fmt.Errorf("the supervisor ended before it was ready (%s): %s", exitReason(waitErr), logTail(dir))
 		case <-deadline:
 			_ = cmd.Process.Kill()
 			return fmt.Errorf("the supervisor was not ready within %v: %s", startTimeout, logTail(dir))
@@ -499,6 +500,15 @@ func toProcess(p machine.ProcessDescription) *pb.Process {
 		out.BootFiles = append(out.BootFiles, &pb.BlockDevice{Path: f.Host, InPath: f.In, ReadOnly: f.ReadOnly, Sha256: f.SHA256})
 	}
 	return out
+}
+
+// exitReason says how the supervisor ended, which its log does not when the
+// kernel ended it: a signal names itself here and in no file.
+func exitReason(err error) string {
+	if err == nil {
+		return "exit status 0"
+	}
+	return err.Error()
 }
 
 // logTail returns what the supervisor wrote to its log, for an error.
