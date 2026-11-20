@@ -88,10 +88,6 @@ fn grow_ext4(target: &Path, device_bytes: u64) -> io::Result<()> {
 /// Whether the root of the mounted filesystem is as `mkfs.ext4` leaves it: owned by 0:0, mode
 /// 0755, holding only `lost+found`.
 fn is_fresh(target: &Path) -> io::Result<bool> {
-    let root = fs::metadata(target)?;
-    if root.uid() != 0 || root.gid() != 0 || root.mode() & 0o7777 != 0o755 {
-        return Ok(false);
-    }
     let names = fs::read_dir(target)?
         .map(|entry| entry.map(|entry| entry.file_name()))
         .collect::<io::Result<Vec<_>>>()?;
