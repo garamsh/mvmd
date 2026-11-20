@@ -140,6 +140,12 @@ pub trait Disks: Send + Sync {
     /// placed.
     fn mount_recorded(&self) -> Result<(), DiskError>;
 
+    /// Give the root of each filesystem the agent mounts read-write, as `mkfs.ext4` left it, to
+    /// `uid` and `gid`: those already mounted now, and every one mounted afterwards. A root
+    /// directory the workload has used is left as it is, as is a read-only mount, and 0:0 changes
+    /// nothing. Called once, by the boot, with the identity of the entrypoint.
+    fn set_owner(&self, uid: u32, gid: u32) -> Result<(), DiskError>;
+
     /// Unmount what the agent mounted for `disk_id`, then remove the device unless it is in use,
     /// and keep the record as released, so a repeat succeeds. A `disk_id` never found is
     /// `Unknown`; a busy mount is `MountBusy`.
