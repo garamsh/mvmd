@@ -20,11 +20,11 @@ import (
 // Reproduction of #743: stop with grace, start, console, N times; counts the sessions that end in an error.
 func TestE2E_Repro743(t *testing.T) {
 	const diskBytes = 32 << 20
-	const rounds = 40
+	const rounds = 100
 	token := randomToken(t)
 	n := startNodeWith(t, withOSFormBootSet(osFormSet))
 	n.arm(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
 	defer cancel()
 	_, err := n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "os-ro", RequestId: "create-os-ro", SizeBytes: diskBytes, Filesystem: v1alpha2.Filesystem_FILESYSTEM_EXT4})
 	require.NoError(t, err)
