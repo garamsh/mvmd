@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -219,26 +220,50 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 	defer logFile.Close()
 
-	cmd := exec.Command(a.cfg.Binary,
-		"--socket", sock,
-		"--machine", string(id),
-		fmt.Sprintf("--expiry-boottime-ns=%d", int64(expiry)))
-	cmd.Stdout, cmd.Stderr = logFile, logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWPID, Setpgid: true}
-	if a.cfg.Cgroup != "" {
-		fd, err := os.Open(a.cfg.Cgroup)
-		if err != nil {
-			return fmt.Errorf("open the supervisor cgroup: %w", err)
+	// begin starts a supervisor. It is created inside the supervisors'
+	// cgroup, so that it is never in another. The kernel ends every process
+	// created into a cgroup that cgroup.kill was written to (#745), so the
+	// retry moves the started process there through cgroup.procs instead.
+	type child struct {
+		cmd    *exec.Cmd
+		exited chan struct{}
+		err    error // set before exited closes
+	}
+	begin := func(moveIn bool) (*child, error) {
+		cmd := exec.Command(a.cfg.Binary,
+			"--socket", sock,
+			"--machine", string(id),
+			fmt.Sprintf("--expiry-boottime-ns=%d", int64(expiry)))
+		cmd.Stdout, cmd.Stderr = logFile, logFile
+		cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWPID, Setpgid: true}
+		if a.cfg.Cgroup != "" && !moveIn {
+			fd, err := os.Open(a.cfg.Cgroup)
+			if err != nil {
+				return nil, fmt.Errorf("open the supervisor cgroup: %w", err)
+			}
+			defer fd.Close()
+			cmd.SysProcAttr.UseCgroupFD, cmd.SysProcAttr.CgroupFD = true, int(fd.Fd())
 		}
-		defer fd.Close()
-		cmd.SysProcAttr.UseCgroupFD, cmd.SysProcAttr.CgroupFD = true, int(fd.Fd())
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("start the supervisor: %w", err)
+		}
+		c := &child{cmd: cmd, exited: make(chan struct{})}
+		go func() { c.err = cmd.Wait(); close(c.exited) }()
+		if moveIn {
+			procs := filepath.Join(a.cfg.Cgroup, "cgroup.procs")
+			if err := os.WriteFile(procs, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
+				_ = cmd.Process.Kill()
+				<-c.exited
+				return nil, fmt.Errorf("move the supervisor into its cgroup: %w", err)
+			}
+		}
+		return c, nil
 	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start the supervisor: %w", err)
+	c, err := begin(false)
+	if err != nil {
+		return err
 	}
-	exited := make(chan struct{})
-	var waitErr error
-	go func() { waitErr = cmd.Wait(); close(exited) }()
+	retried := false
 
 	deadline := time.After(startTimeout)
 	for {
@@ -246,13 +271,24 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 			break
 		}
 		select {
-		case <-exited:
-			return fmt.Errorf("the supervisor ended before it was ready (%s): %s", exitReason(waitErr), logTail(dir))
+		case <-c.exited:
+			var ee *exec.ExitError
+			if a.cfg.Cgroup != "" && !retried && errors.As(c.err, &ee) && ee.Sys().(syscall.WaitStatus).Signal() == syscall.SIGKILL {
+				// A supervisor killed before it was ready may have been
+				// created into a cgroup with cgroup.kill written to it. One
+				// that is killed again is reported as it ended.
+				retried = true
+				if c, err = begin(true); err != nil {
+					return err
+				}
+				continue
+			}
+			return fmt.Errorf("the supervisor ended before it was ready (%s): %s", exitReason(c.err), logTail(dir))
 		case <-deadline:
-			_ = cmd.Process.Kill()
+			_ = c.cmd.Process.Kill()
 			return fmt.Errorf("the supervisor was not ready within %v: %s", startTimeout, logTail(dir))
 		case <-ctx.Done():
-			_ = cmd.Process.Kill()
+			_ = c.cmd.Process.Kill()
 			return ctx.Err()
 		case <-time.After(2 * time.Millisecond):
 		}
