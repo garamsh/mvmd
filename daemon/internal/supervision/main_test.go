@@ -43,6 +43,10 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "__probe__" {
+		probeClone(os.Args[2:])
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "__mvmd__" {
 		mvmd(os.Args[2:])
 		return
