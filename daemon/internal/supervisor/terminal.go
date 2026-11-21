@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync/atomic"
 
 	"golang.org/x/sys/unix"
 )
@@ -14,6 +15,7 @@ import (
 // writes and writes what the VMM reads.
 type terminal struct {
 	master *os.File
+	eio    atomic.Bool
 }
 
 // openTerminal opens a pseudo-terminal pair, sets it to raw mode and opens its
@@ -91,10 +93,15 @@ func makeRaw(fd int) error {
 func (t *terminal) Read(p []byte) (int, error) {
 	n, err := t.master.Read(p)
 	if errors.Is(err, unix.EIO) {
+		t.eio.Store(true)
 		err = io.EOF
 	}
 	return n, err
 }
+
+// endedByEIO reports whether Read ended the output on the controlling side's
+// EIO and not on an end of file.
+func (t *terminal) endedByEIO() bool { return t.eio.Load() }
 
 // Write writes what the VMM is to read.
 func (t *terminal) Write(p []byte) (int, error) { return t.master.Write(p) }

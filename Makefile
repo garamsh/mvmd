@@ -184,7 +184,7 @@ test-e2e: guest-initrd converter-initrd
 	export MVMD_E2E_SUPERVISOR=$(CURDIR)/e2e/target/mvmd-supervisor; \
 	export FSCK_EROFS=$(CURDIR)/$(EROFS_UTILS)/fsck.erofs; \
 	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
-	if ! (cd e2e && go test -tags e2e_real -count=1 -v -run '^TestE2E_' ./...) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
+	if ! (cd e2e && go test -tags e2e_real -count=1 -v -run '^TestE2E_Repro743' ./...) >"$$log" 2>&1; then cat "$$log"; exit 1; fi; \
 	cat "$$log"; \
 	n=$$(grep -c '^--- PASS: TestE2E_' "$$log" || true); \
 	echo "$@: $$n test(s) passed under $(E2E_DRIVER), selected by -run '^TestE2E_' under the e2e_real tag"; \

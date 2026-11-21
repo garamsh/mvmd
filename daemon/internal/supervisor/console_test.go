@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -45,9 +48,27 @@ type vmm struct {
 	in   *os.File
 	log  *syncBuffer
 	c    *Console
+
+	// events is what the console logged about why a session or its output ended.
+	events *syncBuffer
+}
+
+func eventLogger(b *syncBuffer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(b, &slog.HandlerOptions{ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.TimeKey {
+			return slog.Attr{}
+		}
+		return a
+	}}))
 }
 
 func newVMM(t *testing.T) *vmm {
+	t.Helper()
+	return newVMMReadingThrough(t, func(r io.Reader) io.Reader { return r })
+}
+
+// newVMMReadingThrough is newVMM with the console reading the VMM's output through wrap.
+func newVMMReadingThrough(t *testing.T, wrap func(io.Reader) io.Reader) *vmm {
 	t.Helper()
 	// A directory whose path is over the 107 bytes a Unix socket address holds:
 	// the socket is bound and connected through a descriptor of the directory.
@@ -63,8 +84,8 @@ func newVMM(t *testing.T) *vmm {
 	require.NoError(t, err)
 	outR, outW, err := os.Pipe()
 	require.NoError(t, err)
-	v := &vmm{sock: sock, out: outW, in: inR, log: &syncBuffer{}}
-	v.c = ServeConsole(l, inW, outR, v.log)
+	v := &vmm{sock: sock, out: outW, in: inR, log: &syncBuffer{}, events: &syncBuffer{}}
+	v.c = serveConsole(l, inW, wrap(outR), v.log, eventLogger(v.events))
 	t.Cleanup(func() { _ = outW.Close(); _ = inR.Close(); _ = inW.Close() })
 	return v
 }
@@ -162,7 +183,7 @@ func TestConsole_ASessionThatReadsNothingIsDroppedAndHoldsBackNoOneElse(t *testi
 	// line at a time so that the live session, which reads each as it comes, is
 	// never behind.
 	line := strings.Repeat("x", chunkSize-1) + "\n"
-	const lines = 3 * sessionBacklog
+	const lines = 3 * sessionBacklog / chunkSize
 	for i := 0; i < lines; i++ {
 		v.write(t, line)
 		require.Equal(t, line, read(t, live, len(line)), "the live session has line %d", i)
@@ -194,4 +215,110 @@ func TestConsole_EndsItsSessionsWhenTheVMMsOutputEnds(t *testing.T) {
 	v.c.Wait()
 	_, err = unixsock.DialContext(context.Background(), v.sock)
 	assert.Error(t, err, "and no session opens once the output has ended")
+}
+
+func TestConsole_LogsThatASessionFarBehindWasDroppedForItsBacklog(t *testing.T) {
+	v := newVMM(t)
+	stuck := v.session(t)
+	live := v.session(t)
+	for _, s := range []net.Conn{stuck, live} {
+		_, err := s.Write([]byte("."))
+		require.NoError(t, err)
+	}
+	require.NoError(t, v.in.SetReadDeadline(time.Now().Add(time.Second)))
+	_, err := io.ReadFull(v.in, make([]byte, 2))
+	require.NoError(t, err)
+
+	line := strings.Repeat("x", chunkSize-1) + "\n"
+	for i := 0; i < 3*sessionBacklog/chunkSize; i++ {
+		v.write(t, line)
+		require.Equal(t, line, read(t, live, len(line)))
+	}
+	assert.Contains(t, v.events.String(), `msg="console session dropped" reason=backlog`)
+	assert.Equal(t, 1, strings.Count(v.events.String(), "reason=backlog"), "control: the session that read was not dropped")
+}
+
+func TestConsole_ASessionBehindByManyTinyPiecesIsNotDropped(t *testing.T) {
+	// The terminal gives the output in pieces as small as the VMM writes them, one byte here, and
+	// a socket whose reader has not started takes few of those before it blocks.
+	v := newVMMReadingThrough(t, iotest.OneByteReader)
+	s := v.session(t)
+	_, err := s.Write([]byte("."))
+	require.NoError(t, err)
+	require.NoError(t, v.in.SetReadDeadline(time.Now().Add(time.Second)))
+	_, err = io.ReadFull(v.in, make([]byte, 1))
+	require.NoError(t, err)
+
+	want := strings.Repeat("0123456789", 200)
+	require.Less(t, len(want), sessionBacklog, "setup: well within the bytes a session may be behind")
+	v.write(t, want)
+	require.NoError(t, v.out.Close())
+	v.c.Wait()
+	require.Equal(t, want, v.log.String(), "setup: the console read all of it")
+
+	got, err := io.ReadAll(s)
+	require.NoError(t, err)
+	assert.Equal(t, want, string(got), "the session that had read nothing has all of the output")
+	assert.NotContains(t, v.events.String(), "reason=backlog")
+}
+
+func TestConsole_LogsThatTheClientClosedItsSession(t *testing.T) {
+	v := newVMM(t)
+	s := v.session(t)
+	_, err := s.Write([]byte("."))
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(v.events.String(), `msg="console session ended" reason="the client closed the session"`)
+	}, time.Second, time.Millisecond, "the log: %q", v.events.String())
+}
+
+func TestConsole_LogsHowTheVMMsOutputEnded(t *testing.T) {
+	t.Run("at its end", func(t *testing.T) {
+		v := newVMM(t)
+		s := v.session(t)
+		_, err := s.Write([]byte("."))
+		require.NoError(t, err)
+		require.NoError(t, v.in.SetReadDeadline(time.Now().Add(time.Second)))
+		_, err = io.ReadFull(v.in, make([]byte, 1))
+		require.NoError(t, err)
+		v.write(t, "abc")
+		require.NoError(t, v.out.Close())
+		v.c.Wait()
+		assert.Contains(t, v.events.String(), `msg="console output ended" reason="end of the output" bytes=3 sessions_ended=`)
+	})
+	t.Run("in a read error with its errno", func(t *testing.T) {
+		events := &syncBuffer{}
+		dir, err := os.MkdirTemp("", "cs")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		l, err := listenConsole(filepath.Join(dir, "c.sock"))
+		require.NoError(t, err)
+		c := serveConsole(l, io.Discard, failingReader{syscall.ECONNRESET}, io.Discard, eventLogger(events))
+		c.Wait()
+		assert.Contains(t, events.String(), `reason="read error"`)
+		assert.Contains(t, events.String(), "errno=104", "ECONNRESET")
+		assert.NotContains(t, events.String(), "end of the output", "control: a read error is not named the end")
+	})
+	t.Run("in EIO on the terminal", func(t *testing.T) {
+		events := &syncBuffer{}
+		dir, err := os.MkdirTemp("", "cs")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		l, err := listenConsole(filepath.Join(dir, "c.sock"))
+		require.NoError(t, err)
+		tm := closedTerminal(t, "raw\n")
+		c := serveConsole(l, io.Discard, tm, io.Discard, eventLogger(events))
+		c.Wait()
+		assert.Contains(t, events.String(), "reason=\"eio on the terminal")
+		assert.Contains(t, events.String(), "bytes=4")
+	})
+}
+
+// failingReader fails every read with err.
+type failingReader struct{ err error }
+
+func (f failingReader) Read([]byte) (int, error) {
+	return 0, &os.PathError{Op: "read", Path: "/dev/ptmx", Err: f.err}
 }
