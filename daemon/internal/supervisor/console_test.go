@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -63,6 +64,12 @@ func eventLogger(b *syncBuffer) *slog.Logger {
 
 func newVMM(t *testing.T) *vmm {
 	t.Helper()
+	return newVMMReadingThrough(t, func(r io.Reader) io.Reader { return r })
+}
+
+// newVMMReadingThrough is newVMM with the console reading the VMM's output through wrap.
+func newVMMReadingThrough(t *testing.T, wrap func(io.Reader) io.Reader) *vmm {
+	t.Helper()
 	// A directory whose path is over the 107 bytes a Unix socket address holds:
 	// the socket is bound and connected through a descriptor of the directory.
 	root, err := os.MkdirTemp("", "cs")
@@ -78,7 +85,7 @@ func newVMM(t *testing.T) *vmm {
 	outR, outW, err := os.Pipe()
 	require.NoError(t, err)
 	v := &vmm{sock: sock, out: outW, in: inR, log: &syncBuffer{}, events: &syncBuffer{}}
-	v.c = serveConsole(l, inW, outR, v.log, eventLogger(v.events))
+	v.c = serveConsole(l, inW, wrap(outR), v.log, eventLogger(v.events))
 	t.Cleanup(func() { _ = outW.Close(); _ = inR.Close(); _ = inW.Close() })
 	return v
 }
@@ -176,7 +183,7 @@ func TestConsole_ASessionThatReadsNothingIsDroppedAndHoldsBackNoOneElse(t *testi
 	// line at a time so that the live session, which reads each as it comes, is
 	// never behind.
 	line := strings.Repeat("x", chunkSize-1) + "\n"
-	const lines = 3 * sessionBacklog
+	const lines = 3 * sessionBacklog / chunkSize
 	for i := 0; i < lines; i++ {
 		v.write(t, line)
 		require.Equal(t, line, read(t, live, len(line)), "the live session has line %d", i)
@@ -223,12 +230,36 @@ func TestConsole_LogsThatASessionFarBehindWasDroppedForItsBacklog(t *testing.T) 
 	require.NoError(t, err)
 
 	line := strings.Repeat("x", chunkSize-1) + "\n"
-	for i := 0; i < 3*sessionBacklog; i++ {
+	for i := 0; i < 3*sessionBacklog/chunkSize; i++ {
 		v.write(t, line)
 		require.Equal(t, line, read(t, live, len(line)))
 	}
 	assert.Contains(t, v.events.String(), `msg="console session dropped" reason=backlog`)
 	assert.Equal(t, 1, strings.Count(v.events.String(), "reason=backlog"), "control: the session that read was not dropped")
+}
+
+func TestConsole_ASessionBehindByManyTinyPiecesIsNotDropped(t *testing.T) {
+	// The terminal gives the output in pieces as small as the VMM writes them, one byte here, and
+	// a socket whose reader has not started takes few of those before it blocks.
+	v := newVMMReadingThrough(t, iotest.OneByteReader)
+	s := v.session(t)
+	_, err := s.Write([]byte("."))
+	require.NoError(t, err)
+	require.NoError(t, v.in.SetReadDeadline(time.Now().Add(time.Second)))
+	_, err = io.ReadFull(v.in, make([]byte, 1))
+	require.NoError(t, err)
+
+	want := strings.Repeat("0123456789", 200)
+	require.Less(t, len(want), sessionBacklog, "setup: well within the bytes a session may be behind")
+	v.write(t, want)
+	require.NoError(t, v.out.Close())
+	v.c.Wait()
+	require.Equal(t, want, v.log.String(), "setup: the console read all of it")
+
+	got, err := io.ReadAll(s)
+	require.NoError(t, err)
+	assert.Equal(t, want, string(got), "the session that had read nothing has all of the output")
+	assert.NotContains(t, v.events.String(), "reason=backlog")
 }
 
 func TestConsole_LogsThatTheClientClosedItsSession(t *testing.T) {
@@ -288,4 +319,6 @@ func TestConsole_LogsHowTheVMMsOutputEnded(t *testing.T) {
 // failingReader fails every read with err.
 type failingReader struct{ err error }
 
-func (f failingReader) Read([]byte) (int, error) { return 0, &os.PathError{Op: "read", Path: "/dev/ptmx", Err: f.err} }
+func (f failingReader) Read([]byte) (int, error) {
+	return 0, &os.PathError{Op: "read", Path: "/dev/ptmx", Err: f.err}
+}
