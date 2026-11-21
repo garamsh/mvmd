@@ -50,3 +50,26 @@ func (a *Adapter) removeVMMCgroup(id machine.MachineID) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// recreateCgroup makes an empty cgroup again with the mode and owner it had.
+// A cgroup that cgroup.kill was written to ends every process created into it
+// afterwards, and only a new cgroup clears that. A cgroup that holds processes
+// or child cgroups is not removed.
+func recreateCgroup(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove %s: %w", path, err)
+	}
+	if err := os.Mkdir(path, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("make %s again: %w", path, err)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		if err := os.Chown(path, int(st.Uid), int(st.Gid)); err != nil {
+			return fmt.Errorf("give %s its owner back: %w", path, err)
+		}
+	}
+	return nil
+}
