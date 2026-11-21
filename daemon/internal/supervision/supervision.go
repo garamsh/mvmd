@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -220,23 +219,21 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 	}
 	defer logFile.Close()
 
-	// begin starts a supervisor. It is created inside the supervisors'
-	// cgroup, so that it is never in another. The kernel ends every process
-	// created into a cgroup that cgroup.kill was written to (#745), so the
-	// retry moves the started process there through cgroup.procs instead.
+	// begin starts a supervisor, created inside the supervisors' cgroup so
+	// that it is never in another.
 	type child struct {
 		cmd    *exec.Cmd
 		exited chan struct{}
 		err    error // set before exited closes
 	}
-	begin := func(moveIn bool) (*child, error) {
+	begin := func() (*child, error) {
 		cmd := exec.Command(a.cfg.Binary,
 			"--socket", sock,
 			"--machine", string(id),
 			fmt.Sprintf("--expiry-boottime-ns=%d", int64(expiry)))
 		cmd.Stdout, cmd.Stderr = logFile, logFile
 		cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWPID, Setpgid: true}
-		if a.cfg.Cgroup != "" && !moveIn {
+		if a.cfg.Cgroup != "" {
 			fd, err := os.Open(a.cfg.Cgroup)
 			if err != nil {
 				return nil, fmt.Errorf("open the supervisor cgroup: %w", err)
@@ -249,17 +246,9 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		}
 		c := &child{cmd: cmd, exited: make(chan struct{})}
 		go func() { c.err = cmd.Wait(); close(c.exited) }()
-		if moveIn {
-			procs := filepath.Join(a.cfg.Cgroup, "cgroup.procs")
-			if err := os.WriteFile(procs, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
-				_ = cmd.Process.Kill()
-				<-c.exited
-				return nil, fmt.Errorf("move the supervisor into its cgroup: %w", err)
-			}
-		}
 		return c, nil
 	}
-	c, err := begin(false)
+	c, err := begin()
 	if err != nil {
 		return err
 	}
@@ -274,11 +263,15 @@ func (a *Adapter) Start(ctx context.Context, id machine.MachineID, process machi
 		case <-c.exited:
 			var ee *exec.ExitError
 			if a.cfg.Cgroup != "" && !retried && errors.As(c.err, &ee) && ee.Sys().(syscall.WaitStatus).Signal() == syscall.SIGKILL {
-				// A supervisor killed before it was ready may have been
-				// created into a cgroup with cgroup.kill written to it. One
-				// that is killed again is reported as it ended.
+				// The kernel ends every process created into, or cloning
+				// into another cgroup from, a cgroup that cgroup.kill was
+				// written to (#745). The cgroup is made again if nothing is
+				// in it; a supervisor killed again is reported as it ended.
 				retried = true
-				if c, err = begin(true); err != nil {
+				if err := recreateCgroup(a.cfg.Cgroup); err != nil {
+					return fmt.Errorf("the supervisor was killed before it was ready, and its cgroup is not made again: %w", err)
+				}
+				if c, err = begin(); err != nil {
 					return err
 				}
 				continue

@@ -2,7 +2,6 @@ package supervision_test
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -439,17 +438,7 @@ func TestCgroup_ASupervisorStartedAfterCgroupKillRuns(t *testing.T) {
 		return err != nil
 	}, 10*time.Second, 10*time.Millisecond, "setup: no process answers the first supervisor's socket")
 
-	if err := start(); err != nil {
-		var dump strings.Builder
-		_ = filepath.Walk(filepath.Join(cfg.Dir, "killed"), func(p string, info os.FileInfo, werr error) error {
-			if werr == nil && info.Mode().IsRegular() {
-				raw, _ := os.ReadFile(p)
-				fmt.Fprintf(&dump, "--- %s\n%s\n", p, raw)
-			}
-			return nil
-		})
-		t.Fatalf("DIAG %v\n%s", err, dump.String())
-	}
+	require.NoError(t, start(), "a Start after cgroup.kill runs the Machine")
 	a, err := supervision.New(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Terminate(ctx, "killed") })
