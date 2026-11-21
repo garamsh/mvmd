@@ -19,7 +19,7 @@ import (
 
 // Reproduction of #743, round 2. Throwaway: never merged.
 
-const repro743Rounds = 30
+const repro743Rounds = 60
 
 func tailOf(b []byte, n int) []byte {
 	if len(b) > n {
