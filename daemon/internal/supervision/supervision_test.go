@@ -398,3 +398,48 @@ func TestStart_AFailedStartRemovesTheVMMCgroup(t *testing.T) {
 		assert.NoDirExists(t, filepath.Join(vmmCgroup, c.id), "%s: the VMM cgroup is removed", name)
 	}
 }
+
+// A supervisor started in the supervisors' cgroup after cgroup.kill was
+// written to it, and to the VMM's cgroup, runs the Machine again: the
+// supervisors' cgroup outlives mvmd, and an operator may end its processes
+// that way (#745).
+func TestCgroup_ASupervisorStartedAfterCgroupKillRuns(t *testing.T) {
+	supervisors := filepath.Join("/sys/fs/cgroup", "mvmd-test-kill-"+strconv.Itoa(os.Getpid()))
+	require.NoError(t, os.Mkdir(supervisors, 0o755), "the test creates a cgroup, which needs a writable cgroup v2 mount")
+	t.Cleanup(func() { _ = os.Remove(supervisors) })
+
+	cfg := adapterConfig(shortDir(t))
+	cfg.Cgroup = supervisors
+	start := func() error {
+		a, err := supervision.New(cfg)
+		require.NoError(t, err)
+		return a.Start(ctx, "killed", vmmProcess(runDir(cfg.Dir, "killed")), vmmUser, fencing.BootTime(boottime(t)+int64(time.Hour)))
+	}
+	require.NoError(t, start(), "setup: the first start")
+	vmm := filepath.Join(vmmCgroup, "killed")
+	for _, dir := range []string{supervisors, vmm} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "cgroup.kill"), []byte("1"), 0o644))
+	}
+	require.Eventually(t, func() bool {
+		for _, dir := range []string{supervisors, vmm} {
+			if raw, _ := os.ReadFile(filepath.Join(dir, "cgroup.procs")); len(strings.TrimSpace(string(raw))) > 0 {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 10*time.Millisecond, "setup: cgroup.kill ends every process of both cgroups")
+
+	sock := filepath.Join(cfg.Dir, "killed", "supervisor.sock")
+	require.Eventually(t, func() bool {
+		conn, err := net.Dial("unix", sock)
+		if err == nil {
+			conn.Close()
+		}
+		return err != nil
+	}, 10*time.Second, 10*time.Millisecond, "setup: no process answers the first supervisor's socket")
+
+	require.NoError(t, start(), "a Start after cgroup.kill runs the Machine")
+	a, err := supervision.New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Terminate(ctx, "killed") })
+}
