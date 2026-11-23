@@ -51,7 +51,7 @@ Here the last bullet is taken as follows: the inside is not divided into rings, 
 - **Every other unit receives what it depends on and constructs none of it**, whatever the shape makes the unit — a domain, a layer, or an adapter.
 - **The composition site stays thin.** It constructs and passes; it decides nothing else.
 
-In mvmd the composition site is in the daemon, placed as `docs/convention/stack-go.md` §1 "Project envelope" places it.
+In mvmd the composition site is in the daemon, placed as `docs/convention/stack-go.md` §1 "Project envelope" places it. It chooses each port's adapter in one function, `build` of `daemon/internal/app/`, and the configuration's sections are checked together, before anything is built ([ADR 0068](./adr/0068-the-composition-site-chooses-each-ports-adapter-in-one-function-and-checks-the-sections-before-it-builds.md)).
 
 ## Ports
 
