@@ -54,6 +54,12 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		return err
 	}
 
+	// A fence is made after the UID, the network and the disks are taken, so the
+	// node that keeps none refuses before any of them is.
+	if spec.Fenced && s.fences == nil {
+		return fail(ErrUnsupported, "the node keeps no fences of Machines")
+	}
+
 	// An OS-form Machine's disks are drives of its boot, so it needs no hot-plug.
 	if spec.OS == nil && len(spec.Disks) > 0 && !s.driver.Info().has(CapabilityDiskHotplug) {
 		return fail(ErrUnsupported, "the Driver cannot hot-plug, so it cannot start a Machine with a disk")
@@ -97,33 +103,34 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if spec.OS == nil {
 		disks = append(disks, RootDiskID(id))
 	}
-	if taken, holder, ok := s.claim(id, disks...); !ok {
-		return fail(ErrPreconditionFailed, "disk %q is %s", taken, holderIs(holder))
+	if busy, holder, ok := s.claim(id, disks...); !ok {
+		return fail(ErrPreconditionFailed, "disk %q is %s", busy, holderIs(holder))
 	}
+	t := &taken{id: id, slots: disks}
 
 	uid, err := s.uids.AllocateMachine(id)
 	if err != nil {
-		s.release(disks...)
+		s.giveUp(ctx, t, "")
 		return err
 	}
+	t.uid = true
 
 	identity, err := s.network.Allocate(ctx, id, "", spec.RoutedPrefixes...)
 	if errors.Is(err, ErrNoFreeAddress) {
-		s.release(disks...)
-		s.uids.ReleaseMachine(id)
-		return fail(ErrPreconditionFailed, "allocate network: %v", err)
+		return fail(ErrPreconditionFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("allocate network: %v", err)))
 	}
 	// A routed prefix the node refuses is the request's fault, not a failure of
 	// the node, so it is answered as it is and not recorded under the request.
 	if refusal := (*Error)(nil); errors.As(err, &refusal) && (refusal.Kind == ErrInvalid || refusal.Kind == ErrConflict) {
-		s.release(disks...)
-		s.uids.ReleaseMachine(id)
+		if reason := s.giveUp(ctx, t, refusal.Reason); reason != refusal.Reason {
+			return fail(ErrFailed, "%s", reason)
+		}
 		return refusal
 	}
 	if err != nil {
-		s.release(disks...)
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "allocate network: %v", err))
+		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("allocate network: %v", err))))
 	}
+	t.network = true
 	owner := DiskOwner{ID: id, UID: uid, GID: uid}
 	var root DiskID
 	var uuid string
@@ -131,40 +138,28 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if spec.OS == nil {
 		root, uuid, err = s.disks.CreateRoot(ctx, owner, spec.RootDiskBytes)
 		if err != nil {
-			reason := fmt.Sprintf("create root disk: %v", err)
-			s.release(disks...)
-			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, "", nil, reason)))
+			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("create root disk: %v", err))))
 		}
+		t.root = root
 		// The root disk was made the Machine's own, so only the others are given.
 		attached = disks[:len(disks)-1]
 	}
 	// The attached disks are the Machine's before any Driver opens them
-	// (ADR 0038).
+	// (ADR 0038). A give that fails has given its own back.
 	if err := s.give(ctx, owner, attached...); err != nil {
-		s.release(disks...)
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, nil, err.Error())))
+		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.giveUp(ctx, t, err.Error())))
 	}
+	t.given = attached
 	if spec.Fenced {
-		if s.fences == nil {
-			s.release(disks...)
-			return s.failCreate(ctx, id, request, spec, fail(ErrUnsupported, "the node keeps no fences of Machines"))
-		}
 		if err := s.fences.Enrol(ctx, id); err != nil {
-			s.release(disks...)
-			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, attached, fmt.Sprintf("make the Machine's fence: %v", err))))
+			return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("make the Machine's fence: %v", err))))
 		}
+		t.fence = true
 	}
 	m := Machine{ID: id, State: StateCreated, Spec: held, RootDisk: root, RootDiskUUID: uuid, User: User{UID: uid, GID: uid}, Network: identity}
 	rec := &Record{ID: id, Request: Request{ID: request, Spec: spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
-		reason := fmt.Sprintf("record the Machine: %v", err)
-		if spec.Fenced {
-			if err := s.fences.Release(ctx, id); err != nil {
-				reason += fmt.Sprintf("; the Machine's fence could not be removed: %v", err)
-			}
-		}
-		s.release(disks...)
-		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.undoCreate(ctx, id, root, attached, reason)))
+		return s.failCreate(ctx, id, request, spec, fail(ErrFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("record the Machine: %v", err))))
 	}
 	s.mu.Lock()
 	s.records[id] = rec
@@ -224,27 +219,6 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 		return nil
 	}
 	return spec.validateRun()
-}
-
-// undoCreate releases what a failed Create made and returns the failure's
-// reason, extended by anything that could not be undone. It also releases the
-// UID allocated for id and gives the attached disks back to mvmd.
-func (s *service) undoCreate(ctx context.Context, id MachineID, root DiskID, attached []DiskID, reason string) string {
-	ctx, cancel := s.compensating(ctx)
-	defer cancel()
-	if err := s.reclaim(ctx, attached...); err != nil {
-		reason += fmt.Sprintf("; %v", err)
-	}
-	if root != "" {
-		if err := s.disks.Remove(ctx, root); err != nil {
-			reason += fmt.Sprintf("; the root disk could not be removed: %v", err)
-		}
-	}
-	if err := s.network.Release(ctx, id); err != nil {
-		reason += fmt.Sprintf("; the network could not be released: %v", err)
-	}
-	s.uids.ReleaseMachine(id)
-	return reason
 }
 
 // failCreate records a failed Create under its request ID, so that a repeat

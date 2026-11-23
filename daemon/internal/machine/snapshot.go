@@ -218,27 +218,28 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	if err != nil {
 		return err
 	}
+	t := &taken{id: id, slots: disks}
 	uid, err := s.uids.AllocateMachine(id)
 	if err != nil {
-		s.release(disks...)
+		s.giveUp(ctx, t, "")
 		return err
 	}
+	t.uid = true
 	identity, err := s.network.Allocate(ctx, id, held.MAC, routed...)
 	if errors.Is(err, ErrNoFreeAddress) {
-		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("allocate network: %v", err))
-		return fail(ErrPreconditionFailed, "%s", reason)
+		return fail(ErrPreconditionFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("allocate network: %v", err)))
 	}
 	// A routed prefix the node refuses is the request's fault, as in Create.
 	if refusal := (*Error)(nil); errors.As(err, &refusal) && (refusal.Kind == ErrInvalid || refusal.Kind == ErrConflict) {
-		if reason := s.undoRestore(ctx, id, "", disks, refusal.Reason); reason != refusal.Reason {
+		if reason := s.giveUp(ctx, t, refusal.Reason); reason != refusal.Reason {
 			return fail(ErrFailed, "%s", reason)
 		}
 		return refusal
 	}
 	if err != nil {
-		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("allocate network: %v", err))
-		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
+		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("allocate network: %v", err))))
 	}
+	t.network = true
 	spec := Spec{
 		Image: held.Spec.Image, Resources: held.Spec.Resources, Ceiling: held.Spec.Ceiling, RootDiskBytes: held.Spec.RootDiskBytes, Kernel: kernel, Policy: policy.clone(),
 		Command: cloneNonEmpty(held.Spec.Command), Args: cloneNonEmpty(held.Spec.Args), Env: cloneNonEmpty(held.Spec.Env), User: held.Spec.User, Files: cloneFiles(held.Spec.Files), WorkingDir: held.Spec.WorkingDir, Probes: cloneProbes(held.Spec.Probes),
@@ -246,32 +247,32 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	}
 	// The root disk's name is held before its file is published, so Delete
 	// disk cannot remove it between the two.
-	if taken, holder, ok := s.claim(id, RootDiskID(id)); !ok {
-		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("disk %q is %s", taken, holderIs(holder)))
-		return fail(ErrPreconditionFailed, "%s", reason)
+	if busy, holder, ok := s.claim(id, RootDiskID(id)); !ok {
+		return fail(ErrPreconditionFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("disk %q is %s", busy, holderIs(holder))))
 	}
+	t.slots = append(t.slots, RootDiskID(id))
 	root, err := s.disks.CreateRootFrom(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, files.RootDisk)
 	if err != nil {
-		reason := s.undoRestore(ctx, id, "", disks, fmt.Sprintf("create root disk: %v", err))
-		s.release(RootDiskID(id))
-		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
+		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("create root disk: %v", err))))
 	}
-	// The disks are the Machine's before any Driver opens them (ADR 0038).
+	t.root = root
+	// The disks are the Machine's before any Driver opens them (ADR 0038). A
+	// give that fails has given its own back.
 	if err := s.give(ctx, DiskOwner{ID: id, UID: uid, GID: uid}, disks...); err != nil {
-		reason := s.undoRestore(ctx, id, root, disks, err.Error())
-		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", reason))
+		return s.failRestore(ctx, id, asked, fail(ErrFailed, "%s", s.giveUp(ctx, t, err.Error())))
 	}
+	t.given = disks
 	spec.Disks = attachments(held.Disks)
 	m := Machine{ID: id, State: StateRunning, Spec: spec, BootMemoryBytes: held.Spec.BootMemoryBytes, RootDisk: root, RootDiskUUID: held.RootDiskUUID, KernelDigest: held.Compat.KernelDigest, User: User{UID: uid, GID: uid}, Network: identity}
 
 	res := s.bringUp(ctx, s.restorePlan(m, request, files))
 	if res.failure != nil {
-		return s.restoreFailed(ctx, m, root, asked, res)
+		return s.restoreFailed(ctx, m, t, asked, res)
 	}
 
 	rec := &Record{ID: id, Request: Request{ID: request, Snapshot: snapshot, Spec: asked.Spec}}
 	if err := s.store.Save(ctx, Record{ID: id, Machine: &m, Request: rec.Request}); err != nil {
-		return s.restoreFailed(ctx, m, root, asked, s.unwind(ctx, id, res.begun, fail(ErrFailed, "record the Machine: %v", err)))
+		return s.restoreFailed(ctx, m, t, asked, s.unwind(ctx, id, res.begun, fail(ErrFailed, "record the Machine: %v", err)))
 	}
 	s.mu.Lock()
 	s.records[id] = rec
@@ -288,8 +289,8 @@ func (s *service) takeDisks(ctx context.Context, id MachineID, recorded []Snapsh
 	for _, d := range recorded {
 		disks = append(disks, d.Disk)
 	}
-	if taken, holder, ok := s.claim(id, disks...); !ok {
-		return nil, fail(ErrPreconditionFailed, "disk %q is %s", taken, holderIs(holder))
+	if busy, holder, ok := s.claim(id, disks...); !ok {
+		return nil, fail(ErrPreconditionFailed, "disk %q is %s", busy, holderIs(holder))
 	}
 	for _, d := range recorded {
 		file, err := s.disks.Stat(ctx, d.Disk)
@@ -365,43 +366,18 @@ func (s *service) restorePlan(m Machine, request RequestID, files SnapshotFiles)
 // restoreFailed ends a failed restore, whose VMM the pipeline has already
 // ended: the Machine does not exist, or is Faulted if its VMM could not be
 // ended.
-func (s *service) restoreFailed(ctx context.Context, m Machine, root DiskID, asked Request, res bootResult) error {
+func (s *service) restoreFailed(ctx context.Context, m Machine, t *taken, asked Request, res bootResult) error {
 	reason := res.reason()
 	if res.endErr != nil {
 		return s.faultedRestore(ctx, m, asked, reason+"; nothing it holds was released")
 	}
-	reason = s.undoRestore(ctx, m.ID, root, diskIDs(m.Disks), reason)
+	reason = s.giveUp(ctx, t, reason)
 	if res.failure.Kind == ErrPreconditionFailed {
 		// Nothing was begun that a repeat could not begin again, so the
 		// refusal is not remembered, as Start's is not.
 		return fail(ErrPreconditionFailed, "%s", reason)
 	}
 	return s.failRestore(ctx, m.ID, asked, fail(res.failure.Kind, "%s", reason))
-}
-
-// undoRestore releases what a failed restore allocated and returns the
-// failure's reason, extended by anything that could not be undone. It is not
-// called for a VMM that could not be ended: its tap, disk and UID stay held,
-// since taking them from a running VMM is worse than keeping them, and the
-// caller makes the Machine Faulted, which Delete releases.
-func (s *service) undoRestore(ctx context.Context, id MachineID, root DiskID, disks []DiskID, reason string) string {
-	ctx, cancel := s.compensating(ctx)
-	defer cancel()
-	if err := s.reclaim(ctx, disks...); err != nil {
-		reason += fmt.Sprintf("; %v", err)
-	}
-	s.release(disks...)
-	if err := s.network.Release(ctx, id); err != nil {
-		reason += fmt.Sprintf("; the network could not be released: %v", err)
-	}
-	if root != "" {
-		if err := s.disks.Remove(ctx, root); err != nil {
-			reason += fmt.Sprintf("; the root disk could not be removed: %v", err)
-		}
-		s.release(root)
-	}
-	s.uids.ReleaseMachine(id)
-	return reason
 }
 
 // faultedRestore is the outcome of a failed restore whose VMM could not be
