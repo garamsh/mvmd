@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
-use globset::GlobBuilder;
+use globset::{GlobBuilder, GlobMatcher};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -356,14 +356,20 @@ pub(crate) async fn list(path: &str) -> Result<Vec<FileEntry>, Error> {
     .await
 }
 
-/// The entries under a directory whose path relative to it matches the glob, sorted by path.
-pub(crate) async fn search(path: &str, pattern: &str) -> Result<Vec<FileEntry>, Error> {
-    let root = absolute(path)?.to_path_buf();
-    let glob = GlobBuilder::new(pattern)
+/// The matcher of a Search pattern: globset with a literal separator, so a star stays within a
+/// path segment.
+fn matcher(pattern: &str) -> Result<GlobMatcher, Error> {
+    Ok(GlobBuilder::new(pattern)
         .literal_separator(true)
         .build()
         .map_err(|e| Error::Invalid(format!("pattern {pattern:?}: {e}")))?
-        .compile_matcher();
+        .compile_matcher())
+}
+
+/// The entries under a directory whose path relative to it matches the glob, sorted by path.
+pub(crate) async fn search(path: &str, pattern: &str) -> Result<Vec<FileEntry>, Error> {
+    let root = absolute(path)?.to_path_buf();
+    let glob = matcher(pattern)?;
     blocking(move || {
         let mut matches = Vec::new();
         let mut pending = vec![root.clone()];
@@ -417,4 +423,50 @@ async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(work)
         .await
         .unwrap_or_else(|_| unreachable!("a blocking file task panicked"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The cases the in-memory Guest of the daemon is held to as well: one copy of this file is
+    /// there, and `make test` fails unless the two are the same file.
+    const CASES: &str = include_str!("../testdata/glob_cases.tsv");
+
+    fn paths(column: &str) -> Vec<&str> {
+        column.split('|').filter(|p| !p.is_empty()).collect()
+    }
+
+    #[test]
+    fn the_glob_matches_what_the_cases_say() {
+        let mut checked = 0;
+        for line in CASES
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+        {
+            let columns: Vec<&str> = line.split('\t').collect();
+            assert_eq!(columns.len(), 4, "a case has four columns: {line:?}");
+            let (name, pattern) = (columns[0], columns[1]);
+            if columns[2] == "!" {
+                assert!(matcher(pattern).is_err(), "{name}: {pattern:?} is refused");
+                checked += 1;
+                continue;
+            }
+            let glob = matcher(pattern).unwrap_or_else(|e| panic!("{name}: {pattern:?}: {e:?}"));
+            for found in paths(columns[2]) {
+                assert!(
+                    glob.is_match(found),
+                    "{name}: {pattern:?} matches {found:?}"
+                );
+            }
+            for missed in paths(columns[3]) {
+                assert!(
+                    !glob.is_match(missed),
+                    "{name}: {pattern:?} does not match {missed:?}"
+                );
+            }
+            checked += 1;
+        }
+        assert!(checked >= 50, "the cases were read: {checked}");
+    }
 }

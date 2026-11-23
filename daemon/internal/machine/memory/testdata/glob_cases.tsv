@@ -1,0 +1,61 @@
+# What the Guest Agent's glob matches: globset 0.4.21 with a literal separator. Each line is
+# name, pattern, the paths that must match and the paths that must not, tab-separated, the paths of
+# a column separated by "|". A line whose paths columns are "!" is a pattern that must be refused.
+# The paths are relative to the directory searched. The Guest Agent's tests and the in-memory
+# Guest's tests read one copy each, and `make test` fails unless the two are the same file.
+a literal is the whole path, not a substring	a	a	x/a/y|a/y|ax|xa
+star stays within a segment	*.go	b.go|.go	a/b.go|b.gox|b.txt
+star matches nothing at all	a*b	ab|axxb	a/b|a/x/b
+question mark is one character of a segment	a?b	axb	a/b|ab|axxb
+question mark is one byte, so not a two-byte character	?.go	a.go	é.go|ab.go
+two question marks match a two-byte character	??.go	é.go	a.go
+star matches a multi-byte character	*.go	é.go	é.gox
+double star at the start crosses segments	**/*.go	b.go|a/b.go|a/c/b.go	b.txt|a/b.txt
+double star at the start matches a whole segment name	**/b	b|a/b	a/xb|ab
+double star in the middle crosses zero or more segments	a/**/b	a/b|a/x/b|a/x/y/b	a/xb|ab|x/a/b
+double star at the end matches what is below	a/**	a/b|a/b/c	ab/c|b/a/c
+double star alone matches every path	**	a|a/b/c	
+double star and a separator alone match every path	**/	a|a/b/c	
+double star that ends a name is two stars	a**	a|ab	a/b
+double star inside a name is two stars	a**b	ab|axxb	a/b|a/x/b
+double star that starts a name is two stars	**a	xa	x/a
+double star after a separator and before a name is two stars	a/**b	a/xb	a/x/b
+alternates choose between literals	{a,b}.go	a.go|b.go	c.go|ab.go|a/b.go
+alternates nest	{a,{b,c}}	a|b|c	d|bc
+an alternate may hold a separator	{a,b/c}.go	a.go|b/c.go	b.go|c.go
+an alternate may hold a star, which stays within a segment	{a,*.x}	a|z.x	a/z.x
+an alternate may start with a double star	{**/a,b}	a|x/a|b	x/b
+an alternate may end with a double star	{a/**,b}	a/x|b	b/x|a
+a double star after an alternate opens crosses segments	x/{**/a,b}	x/a|x/y/a|x/b	x/y/b
+an empty alternate at the end is dropped	{a,}x	ax	x
+an empty alternate at the start is dropped	{,a}x	ax	x
+a nested empty alternate is dropped	{a,{b,}}x	ax|bx	x
+a group of no alternate is no pattern at all	{}x	x	ax
+an escaped comma is a literal in an alternate	{a\,b,c}	a,b|c	a|b
+a comma outside alternates is a literal	a,b	a,b	a|xa,by
+a closing brace in a class is a literal	[}]	}	a
+a class matches one of its characters	[ab].go	a.go|b.go	c.go|ab.go
+a class holds a range	[a-c]	a|b|c	d
+a class negates with an exclamation mark	[!a]	b	a|ab
+a class negates with a caret	[^a]	b	a
+a negated class matches a separator	a[!a]b	acb|a/b	aab
+a negated class is one byte, so not a two-byte character	[!a]	b	é|a
+a class may hold a separator	a[/]b	a/b	ab
+a first closing bracket is a literal	[]a]	]|a	b
+a first closing bracket after a negation is a literal	[!]a]	b	]|a
+a trailing dash is a literal	[a-]	-|a	b
+a leading dash is a literal	[-a]	-|a	b
+a dash after a range extends the range	[a-c-e]	a|d|e	-|f
+a class holds a two-byte character as bytes	[é]		é
+a closing bracket outside a class is a literal	a]	a]	a|xa]y
+a backslash makes a star a literal	\*.go	*.go	a.go
+a backslash makes a question mark a literal	\?	?	a
+a backslash makes a bracket a literal	\[a]	[a]	a
+a backslash before an ordinary character is that character	\a	a	\a
+a double backslash is one backslash	\\	\	\\
+an escaped separator is a separator	a\/b	a/b	ab
+an unclosed alternate group	{a,b	!	!
+an unopened alternate group	a}	!	!
+a dangling backslash	a\	!	!
+an unclosed class	[a	!	!
+an invalid range	[b-a]	!	!
