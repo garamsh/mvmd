@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/statedir"
 	"github.com/garamsh/mvmd/daemon/internal/supervision"
 	"github.com/garamsh/mvmd/daemon/internal/supervisor"
@@ -50,7 +51,7 @@ func TestSpeaks_TheVersionOfItsOwnReleaseAndOneThatReportedNone(t *testing.T) {
 // A start finds, before it changes anything, a supervisor that reports an API this mvmd does
 // not speak, and names its Machine and the version; one that reports none, and one that reports
 // this release's, are spoken to.
-func TestCheckCompatible_NamesTheFirstSupervisorItDoesNotSpeakTo(t *testing.T) {
+func TestIncompatible_NamesTheFirstSupervisorItDoesNotSpeakTo(t *testing.T) {
 	dir, err := os.MkdirTemp("", "sv")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
@@ -58,15 +59,32 @@ func TestCheckCompatible_NamesTheFirstSupervisorItDoesNotSpeakTo(t *testing.T) {
 	require.NoError(t, err)
 	serveSupervisor(t, dir, "a-old", "")
 	serveSupervisor(t, dir, "b-current", supervisor.APIVersion)
-	require.NoError(t, a.CheckCompatible(context.Background()), "control: the supervisors it speaks to are accepted")
+	require.NoError(t, supervision.Incompatible(live(t, a)), "control: the supervisors it speaks to are accepted")
 
 	serveSupervisor(t, dir, "d-future", "v1alpha2")
 	serveSupervisor(t, dir, "c-future", "v2")
-	err = a.CheckCompatible(context.Background())
+	err = supervision.Incompatible(live(t, a))
 
 	var incompatible *supervision.IncompatibleError
 	require.ErrorAs(t, err, &incompatible)
 	assert.Equal(t, "c-future", string(incompatible.Machine), "the first by Machine identifier")
 	assert.Equal(t, "v2", incompatible.APIVersion)
 	assert.ErrorContains(t, err, "nothing was changed")
+}
+
+// live is what the adapter lists of the supervisors on the sockets.
+func live(t *testing.T, a *supervision.Adapter) []fencing.Supervisor {
+	t.Helper()
+	listed, err := a.Live(context.Background())
+	require.NoError(t, err)
+	return listed
+}
+
+func TestIncompatible_IsAFunctionOfTheListAlone(t *testing.T) {
+	assert.NoError(t, supervision.Incompatible(nil))
+	assert.NoError(t, supervision.Incompatible([]fencing.Supervisor{{Machine: "a"}, {Machine: "b", APIVersion: supervisor.APIVersion}}))
+	err := supervision.Incompatible([]fencing.Supervisor{{Machine: "z", APIVersion: "v9"}, {Machine: "m", APIVersion: "v2"}})
+	var incompatible *supervision.IncompatibleError
+	require.ErrorAs(t, err, &incompatible)
+	assert.Equal(t, "m", string(incompatible.Machine), "the first by Machine identifier")
 }

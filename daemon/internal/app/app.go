@@ -279,10 +279,12 @@ func (a *App) Serve(ctx context.Context) error {
 	}
 	// A supervisor this mvmd does not speak to is found before anything is
 	// changed, and the start is refused (ADR 0070).
-	if c, ok := a.supervisors.(interface{ CheckCompatible(context.Context) error }); ok {
-		if err := c.CheckCompatible(ctx); err != nil {
-			return err
-		}
+	live, err := a.supervisors.Live(ctx)
+	if err != nil {
+		return fmt.Errorf("list the supervisors: %w", err)
+	}
+	if err := supervision.Incompatible(live); err != nil {
+		return err
 	}
 	// The conversions go first: the sweep removes the staging area of one
 	// whose VMM has ended, and no pull is running, so none is mistaken for a

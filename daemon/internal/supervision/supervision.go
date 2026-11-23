@@ -471,7 +471,7 @@ func Speaks(apiVersion string) bool {
 	return apiVersion == "" || apiVersion == supervisor.APIVersion
 }
 
-// IncompatibleError is what CheckCompatible returns for a supervisor this mvmd
+// IncompatibleError is what Incompatible returns for a supervisor this mvmd
 // does not speak to.
 type IncompatibleError struct {
 	Machine    machine.MachineID
@@ -482,16 +482,12 @@ func (e *IncompatibleError) Error() string {
 	return fmt.Sprintf("the supervisor of Machine %q speaks supervisor API %q, which this mvmd (%q) does not: nothing was changed; stop that Machine with the mvmd that started it, or wait for its fencing expiry, and start again", e.Machine, e.APIVersion, supervisor.APIVersion)
 }
 
-// CheckCompatible lists the supervisors and returns an *IncompatibleError for
-// the first, by Machine identifier, that reports an API version this mvmd does
-// not speak, or nil. It only reads: no supervisor is changed or ended.
-func (a *Adapter) CheckCompatible(ctx context.Context) error {
-	live, err := a.Live(ctx)
-	if err != nil {
-		return err
-	}
-	slices.SortFunc(live, func(x, y fencing.Supervisor) int { return cmp.Compare(x.Machine, y.Machine) })
-	for _, sv := range live {
+// Incompatible returns an *IncompatibleError for the first, by Machine
+// identifier, of the supervisors that reports an API version this mvmd does not
+// speak, or nil. It only reads.
+func Incompatible(live []fencing.Supervisor) error {
+	sorted := slices.SortedFunc(slices.Values(live), func(x, y fencing.Supervisor) int { return cmp.Compare(x.Machine, y.Machine) })
+	for _, sv := range sorted {
 		if !Speaks(sv.APIVersion) {
 			return &IncompatibleError{Machine: sv.Machine, APIVersion: sv.APIVersion}
 		}
