@@ -11,6 +11,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/unixsock"
+	"github.com/garamsh/mvmd/daemon/internal/vmmboot"
 	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
@@ -27,7 +28,7 @@ func (d *Driver) Boot(ctx context.Context, id machine.MachineID, spec machine.Bo
 		body any
 	}
 	steps := []put{
-		{"/machine-config", map[string]any{"vcpu_count": spec.Resources.VCPUs, "mem_size_mib": spec.Resources.MemoryBytes / mib}},
+		{"/machine-config", map[string]any{"vcpu_count": spec.Resources.VCPUs, "mem_size_mib": spec.Resources.MemoryBytes / vmmboot.MiB}},
 		{"/boot-source", map[string]any{"kernel_image_path": machine.InKernel, "initrd_path": machine.InInitrd, "boot_args": kernelArgs(runtime.GOARCH, spec)}},
 	}
 	for i, dev := range spec.Devices {

@@ -12,6 +12,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/guestaccess"
 	"github.com/garamsh/mvmd/daemon/internal/hostcpu"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmboot"
 	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
@@ -74,7 +75,7 @@ func New(cfg Config) (*Driver, error) {
 // one: v1.17.0 has no resize this Driver can reach (Resize says why).
 func (d *Driver) Info() machine.DriverInfo {
 	return machine.DriverInfo{Name: "firecracker", Version: Version, CPUModel: d.cpuModel,
-		Limits:       machine.DriverLimits{MaxVCPUs: maxVCPUs, MaxCommandLine: machine.MaxClientCommandLine(bootParams(d.goarch))},
+		Limits:       machine.DriverLimits{MaxVCPUs: vmmboot.MaxVCPUs, MaxCommandLine: machine.MaxClientCommandLine(bootParams(d.goarch))},
 		Capabilities: []machine.Capability{machine.CapabilityConsole, machine.CapabilitySnapshot, machine.CapabilityDiskHotplug}}
 }
 
