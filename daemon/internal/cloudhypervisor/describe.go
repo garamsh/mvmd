@@ -3,28 +3,18 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"runtime"
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmboot"
 	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
 const (
-	mib = 1 << 20
-	// maxVCPUs bounds a Machine's vCPUs; v54.0 accepts more, and the limit is
-	// the one the Machines of every Driver share.
-	maxVCPUs = 32
-	// overheadMemory is added to the guest's memory for the VMM's cgroup. It is
-	// the figure the Firecracker Driver measured, not one measured for Cloud
-	// Hypervisor (ADR 0015: the peak, not the average).
-	overheadMemory = 128 * mib
 	// overheadTasks is an estimate of the VMM's tasks beside its vCPUs, not
 	// measured for Cloud Hypervisor.
 	overheadTasks = 16
-	// overheadCPUs is the CPU the main thread takes for device emulation.
-	overheadCPUs = 1.0
 	// tapDescriptor is the descriptor the supervisor passes the tap as.
 	tapDescriptor = 3
 	// netID names the network device, so that a restore's net_fds says which
@@ -52,9 +42,9 @@ var rebootingEvent = []byte(`"event": "rebooting"`)
 // reboots on a reset, which the supervisor ends (ADR 0026, ADR 0032).
 func cmdline(goarch string) string {
 	if goarch == "arm64" {
-		return "console=ttyAMA0 reboot=k panic=1 mvmd.end=poweroff"
+		return osParams(goarch) + " mvmd.end=poweroff"
 	}
-	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd memhp_default_state=online memory_hotplug.online_policy=auto-movable mvmd.end=poweroff"
+	return osParams(goarch) + " memhp_default_state=online memory_hotplug.online_policy=auto-movable mvmd.end=poweroff"
 }
 
 // osCmdline is the kernel command line of an OS-form boot: the serial console
@@ -69,9 +59,9 @@ func osCmdline(goarch, client string) string {
 // osParams is the Driver's part of an OS-form boot's command line.
 func osParams(goarch string) string {
 	if goarch == "arm64" {
-		return "console=ttyAMA0 reboot=k panic=1"
+		return "console=ttyAMA0 " + vmmboot.ResetParams(goarch)
 	}
-	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+	return "console=ttyS0 " + vmmboot.ResetParams(goarch)
 }
 
 // kernelCmdline is the command line a boot gives the guest.
@@ -90,16 +80,12 @@ func (d *Driver) Describe(_ context.Context, _ machine.MachineID, spec machine.B
 	if err := validate(spec); err != nil {
 		return machine.ProcessDescription{}, err
 	}
-	if n := len(kernelCmdline(d.goarch, spec)); n > machine.MaxKernelCommandLine {
-		return machine.ProcessDescription{}, fmt.Errorf("the kernel command line is %d bytes with the Driver's parameters, over the %d a guest kernel takes", n, machine.MaxKernelCommandLine)
-	}
-	initrd := d.initrd()
-	if spec.OSForm() {
-		initrd = machine.File{Host: spec.Initrd.Path, In: machine.InInitrd, ReadOnly: true, SHA256: spec.Initrd.SHA256}
+	if err := vmmboot.CheckCommandLine(kernelCmdline(d.goarch, spec)); err != nil {
+		return machine.ProcessDescription{}, err
 	}
 	boot := []machine.File{
 		{Host: spec.Kernel.Path, In: machine.InKernel, ReadOnly: true, SHA256: spec.Kernel.SHA256},
-		initrd,
+		vmmboot.Initrd(spec, d.cfg.Initrd, d.cfg.InitrdSHA256),
 	}
 	return d.process(spec, args(spec, d.goarch), boot), nil
 }
@@ -117,16 +103,16 @@ func (d *Driver) process(spec machine.BootSpec, args []string, boot []machine.Fi
 		ExecutableSHA256: d.cfg.BinarySHA256,
 		Args:             args,
 		BootFiles:        append(boot, machine.DeviceFiles(spec.Devices)...),
-		ReadFiles:        cpuReadFiles(runtime.GOARCH),
+		ReadFiles:        vmmboot.CPUCacheFiles(runtime.GOARCH),
 		// /dev/urandom is the source of the virtio-rng device Cloud Hypervisor
 		// adds by default; without it the VM does not boot.
 		DeviceNodes:     []string{"/dev/kvm", "/dev/urandom"},
 		TapByDescriptor: spec.Network.Tap != "",
 		EndOn:           machine.PipeTrigger{FD: eventDescriptor, Match: rebootingEvent},
 		Overhead: machine.ProcessOverhead{
-			MemoryBytes: overheadMemory,
+			MemoryBytes: vmmboot.OverheadMemory,
 			Tasks:       ceiling(spec).VCPUs + overheadTasks + uint32(len(spec.Devices)),
-			CPUs:        overheadCPUs,
+			CPUs:        vmmboot.OverheadCPUs,
 		},
 	}
 }
@@ -188,48 +174,25 @@ func cpusArg(spec machine.BootSpec, goarch string) string {
 // difference, which a resize plugs into and out of. A ceiling equal to the
 // resources adds no device.
 func memoryArg(spec machine.BootSpec, goarch string) string {
-	a := fmt.Sprintf("size=%dM", spec.Resources.MemoryBytes/mib)
+	a := fmt.Sprintf("size=%dM", spec.Resources.MemoryBytes/vmmboot.MiB)
 	if extra := ceiling(spec).MemoryBytes - spec.Resources.MemoryBytes; extra > 0 && resizeCapable(goarch) {
-		a += fmt.Sprintf(",hotplug_method=virtio-mem,hotplug_size=%dM", extra/mib)
+		a += fmt.Sprintf(",hotplug_method=virtio-mem,hotplug_size=%dM", extra/vmmboot.MiB)
 	}
 	return a
 }
 
-// cpuReadFiles are the host files the VMM reads beyond the boot files: on
-// aarch64 the CPU cache description (ADR 0015).
-func cpuReadFiles(goarch string) []string {
-	if goarch != "arm64" {
-		return nil
-	}
-	return []string{"/sys/devices/system/cpu/cpu0/cache"}
-}
-
-// maxTapName is the longest interface name Linux holds: IFNAMSIZ less the NUL.
-const maxTapName = 15
-
 // validate refuses what v54.0 or the kernel would, before a process exists for
-// it.
+// it: what no VMM runs, and a ceiling that is not above the resources or not
+// within what a Machine may hold.
 func validate(spec machine.BootSpec) error {
-	switch {
-	case len(spec.Network.Tap) > maxTapName:
-		return fmt.Errorf("the tap name %q is %d bytes, over the %d an interface name holds", spec.Network.Tap, len(spec.Network.Tap), maxTapName)
-	case !filepath.IsAbs(spec.RunDir):
-		return fmt.Errorf("the run directory %q is not an absolute path", spec.RunDir)
-	case spec.Resources.VCPUs < 1 || spec.Resources.VCPUs > maxVCPUs:
-		return fmt.Errorf("%d vCPUs is outside 1 to %d", spec.Resources.VCPUs, maxVCPUs)
-	case spec.Resources.MemoryBytes == 0 || spec.Resources.MemoryBytes%mib != 0:
-		return fmt.Errorf("%d bytes of memory is not a whole number of MiB", spec.Resources.MemoryBytes)
-	case ceiling(spec).VCPUs < spec.Resources.VCPUs || ceiling(spec).VCPUs > maxVCPUs:
-		return fmt.Errorf("a ceiling of %d vCPUs is outside %d to %d", ceiling(spec).VCPUs, spec.Resources.VCPUs, maxVCPUs)
-	case ceiling(spec).MemoryBytes < spec.Resources.MemoryBytes || ceiling(spec).MemoryBytes%mib != 0:
-		return fmt.Errorf("a ceiling of %d bytes of memory is below the resources or not a whole number of MiB", ceiling(spec).MemoryBytes)
-	case len(spec.Devices) == 0 && !spec.OSForm():
-		return fmt.Errorf("a Machine boots with at least one block device")
+	if err := vmmboot.Validate(spec); err != nil {
+		return err
 	}
-	for _, dev := range spec.Devices {
-		if !filepath.IsAbs(dev.Path) {
-			return fmt.Errorf("the block device path %q is not absolute", dev.Path)
-		}
+	switch {
+	case ceiling(spec).VCPUs < spec.Resources.VCPUs || ceiling(spec).VCPUs > vmmboot.MaxVCPUs:
+		return fmt.Errorf("a ceiling of %d vCPUs is outside %d to %d", ceiling(spec).VCPUs, spec.Resources.VCPUs, vmmboot.MaxVCPUs)
+	case ceiling(spec).MemoryBytes < spec.Resources.MemoryBytes || ceiling(spec).MemoryBytes%vmmboot.MiB != 0:
+		return fmt.Errorf("a ceiling of %d bytes of memory is below the resources or not a whole number of MiB", ceiling(spec).MemoryBytes)
 	}
 	return nil
 }

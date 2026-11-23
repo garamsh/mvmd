@@ -11,6 +11,7 @@ import (
 	"github.com/garamsh/mvmd/daemon/internal/guestaccess"
 	"github.com/garamsh/mvmd/daemon/internal/hostcpu"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
+	"github.com/garamsh/mvmd/daemon/internal/vmmboot"
 	"github.com/garamsh/mvmd/daemon/internal/vmmconfig"
 )
 
@@ -77,7 +78,7 @@ func (d *Driver) Info() machine.DriverInfo {
 		caps = append(caps, machine.CapabilityCPUResize, machine.CapabilityMemoryResize)
 	}
 	return machine.DriverInfo{Name: "cloud-hypervisor", Version: Version, CPUModel: d.cpuModel, Capabilities: caps,
-		Limits: machine.DriverLimits{MaxVCPUs: maxVCPUs, MaxCommandLine: machine.MaxClientCommandLine(osParams(d.goarch))}}
+		Limits: machine.DriverLimits{MaxVCPUs: vmmboot.MaxVCPUs, MaxCommandLine: machine.MaxClientCommandLine(osParams(d.goarch))}}
 }
 
 // Observe implements machine.Driver. It raises no event; see docs/architecture/driver.md.
