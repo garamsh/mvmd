@@ -29,6 +29,8 @@ Responsibility documents:
 - [image.md](./image.md) — image pull and conversion, MachineImage, node image cache, integrity
 - [guest.md](./guest.md) — the Guest Agent, guest boot order, guest kernel scope
 
+The steps an operator runs to install, upgrade and recover mvmd are in [../operations/README.md](../operations/README.md); they follow these documents and decide nothing in them.
+
 Decisions:
 
 - [ADR 0001](./adr/0001-mvmd-is-a-containerd-like-microvm-runtime-that-does-not-know-gaon.md) — mvmd is a containerd-like microVM runtime that does not know gaon
