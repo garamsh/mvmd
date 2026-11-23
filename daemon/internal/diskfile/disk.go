@@ -56,6 +56,10 @@ func NewDisk(dir, mkfs string) (*Disk, error) {
 	return &Disk{dir: dir, mkfs: mkfs}, nil
 }
 
+// CheckMKFS runs mkfs.ext4 -V and returns ErrBadMKFS if it fails. It makes no
+// file and no directory.
+func CheckMKFS(path string) error { return checkMKFS(path) }
+
 // checkMKFS runs mkfs.ext4 -V and returns ErrBadMKFS if it fails.
 func checkMKFS(path string) error {
 	cmd := exec.Command(path, "-V")

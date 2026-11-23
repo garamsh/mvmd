@@ -344,6 +344,7 @@ func Main(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mvmd", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	path := fs.String("config", "", "path of the configuration file")
+	check := fs.Bool("check", false, "check the configuration and the host, print what was checked, and exit without starting")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -355,6 +356,15 @@ func Main(args []string, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "mvmd:", err)
 		return 1
+	}
+	if *check {
+		covered, err := cfg.CheckHost()
+		if err != nil {
+			fmt.Fprintln(stderr, "mvmd:", err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "mvmd: the configuration is valid; %s\n", covered)
+		return 0
 	}
 	a, err := New(cfg)
 	if err != nil {

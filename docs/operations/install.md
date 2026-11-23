@@ -155,7 +155,7 @@ systemctl enable --now mvmd
 
 (read) mvmd does these before it serves a call, in this order: ends the converter VMs a previous mvmd left, sweeps the image cache, restores the Machines from the state directory and reconciles each against the live supervisors, then reconciles the fencing deadline, and only then opens the socket (`daemon/internal/app/app.go:267`). So the socket's existence is the readiness: wait for it.
 
-A refused configuration or host ends the process with exit code 1 and one line on standard error, `mvmd: <reason>`, which the journal holds; a missing `-config` is exit code 2 (`daemon/internal/app/app.go:338`, run on the `memory` Driver). On the `memory` Driver, `SIGTERM` ended the process with exit code 0 and removed the socket (run).
+`mvmd -check -config <file>` checks the configuration, the digest of each pinned file, the Landlock ABI and `mkfs.ext4` without starting anything (see [upgrade.md](./upgrade.md) §Before you stop mvmd for what it leaves out). A refused configuration or host ends the process with exit code 1 and one line on standard error, `mvmd: <reason>`, which the journal holds; a missing `-config` is exit code 2 (`daemon/internal/app/app.go:338`, run on the `memory` Driver). On the `memory` Driver, `SIGTERM` ended the process with exit code 0 and removed the socket (run).
 
 To confirm what the node offers, ask it for runtime info with the Go client of `lib/runtimeapi/`: it lists the Drivers, the kernels, the boot sets with their origins, the capacity and the prefixes. There is no command line client yet ([README.md](./README.md) §What an operator cannot do today).
 
