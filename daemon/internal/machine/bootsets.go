@@ -42,16 +42,19 @@ type OSBoot struct {
 	CommandLine string
 }
 
-// maxCommandLine is the longest kernel command line a client may give, the
-// size both kernels' architectures accept.
-const maxCommandLine = 2048
-
-func (o OSBoot) validate() error {
+// validate refuses an OS form with no boot set or a command line the Driver
+// could not boot. A Driver that states no bound is held to what the guest
+// kernel takes.
+func (o OSBoot) validate(limits DriverLimits) error {
+	most := int(limits.MaxCommandLine)
+	if most == 0 {
+		most = MaxKernelCommandLine
+	}
 	switch {
 	case o.BootSet == "":
 		return fail(ErrInvalid, "os_boot.boot_set is empty")
-	case len(o.CommandLine) > maxCommandLine:
-		return fail(ErrInvalid, "os_boot.kernel_cmdline is longer than %d bytes", maxCommandLine)
+	case len(o.CommandLine) > most:
+		return fail(ErrInvalid, "os_boot.kernel_cmdline is longer than the %d bytes the Driver leaves the client", most)
 	case strings.ContainsAny(o.CommandLine, "\x00\n"):
 		return fail(ErrInvalid, "os_boot.kernel_cmdline holds a NUL or a newline")
 	}
@@ -60,7 +63,7 @@ func (o OSBoot) validate() error {
 
 // validateOS refuses each field of the image form that an OS-form request
 // sets, naming it, and a mount path, which no agent would act on.
-func (s Spec) validateOS() error {
+func (s Spec) validateOS(limits DriverLimits) error {
 	set := []struct {
 		field string
 		set   bool
@@ -86,7 +89,7 @@ func (s Spec) validateOS() error {
 			return fail(ErrInvalid, "disk %q has a mount path, and an OS-form Machine has no agent to mount it", a.Disk)
 		}
 	}
-	return s.OS.validate()
+	return s.OS.validate(limits)
 }
 
 // requireAgent refuses a call that needs the Guest Agent on an OS-form Machine.

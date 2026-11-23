@@ -63,11 +63,15 @@ func cmdline(goarch string) string {
 // resize needs the Guest Agent, nor mvmd.end, which only the agent reads
 // (ADR 0059).
 func osCmdline(goarch, client string) string {
-	params := "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
+	return machine.OSCommandLine(osParams(goarch), client)
+}
+
+// osParams is the Driver's part of an OS-form boot's command line.
+func osParams(goarch string) string {
 	if goarch == "arm64" {
-		params = "console=ttyAMA0 reboot=k panic=1"
+		return "console=ttyAMA0 reboot=k panic=1"
 	}
-	return machine.OSCommandLine(params, client)
+	return "console=ttyS0 reboot=k panic=1 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd"
 }
 
 // kernelCmdline is the command line a boot gives the guest.

@@ -212,3 +212,20 @@ func TestDescribe_RefusesACommandLineThatWithTheDriversParametersExceedsWhatTheK
 	_, err = n.driver.Describe(context.Background(), "m1", spec)
 	require.ErrorContains(t, err, "command line")
 }
+
+// Info reports the longest client line Describe accepts, so that Create can refuse a longer one
+// before it is stored.
+func TestInfo_ReportsTheLongestCommandLineDescribeAccepts(t *testing.T) {
+	n := newNode(t)
+	most := int(n.driver.Info().Limits.MaxCommandLine)
+	require.NotZero(t, most)
+
+	spec := n.osSpec()
+	spec.CommandLine = strings.Repeat("a", most)
+	_, err := n.driver.Describe(context.Background(), "m1", spec)
+	require.NoError(t, err, "control: the reported length is accepted")
+
+	spec.CommandLine += "a"
+	_, err = n.driver.Describe(context.Background(), "m1", spec)
+	require.ErrorContains(t, err, "command line")
+}
