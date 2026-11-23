@@ -153,14 +153,12 @@ func TestCatalog_LeasesReturnToEmpty(t *testing.T) {
 	n := newNode(t)
 	var wg sync.WaitGroup
 	for range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			release := n.catalog.HoldImage(used)
 			_ = n.catalog.RemoveImage(ctx, used)
 			release()
 			_ = n.catalog.RemoveImage(ctx, "sha256:never-held")
-		}()
+		})
 	}
 	wg.Wait()
 
