@@ -56,6 +56,8 @@ endef
 # The tests of test-firecracker, test-cloud-hypervisor and test-e2e are behind build tags (e2e_real for e2e/), so vet reads them again with them.
 lint:
 	$(call each_module, $(count_packages); (cd "$$dir" && go vet ./... && go vet -tags firecracker_real,cloud_hypervisor_real,e2e_real ./... && \
+	  { fix=$$(go fix -diff -tags firecracker_real,cloud_hypervisor_real,e2e_real ./... 2>&1) || { echo "$$fix" >&2; echo "$@: $$dir: go fix would change the files above; run go fix with the tags" >&2; exit 1; }; } && \
+	  echo "$@: $$dir: go fix -diff over the $$p package(s) of ./... with the build tags found nothing to change" && \
 	  if [ -f buf.yaml ]; then \
 	    lib=$$($(TOOL_ENV) go list -m -f '{{.Version}}' google.golang.org/protobuf); \
 	    gen=$$($(TOOL_ENV) go list -modfile=$(PROTOGEN) -m -f '{{.Version}}' google.golang.org/protobuf); \
