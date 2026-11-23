@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/garamsh/mvmd/daemon/internal/api"
+	"github.com/garamsh/mvmd/daemon/internal/catalog"
 	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
@@ -65,10 +66,10 @@ func TestPullImage_PassesTheReferenceAndMapsTheUseCaseOutcome(t *testing.T) {
 	}
 }
 
-// imager is a machine.Service whose image calls answer fixed values and record
+// imager is a catalog.Service whose image calls answer fixed values and record
 // what they were asked.
 type imager struct {
-	machine.Service
+	catalog.Service
 	listed  []machine.ImageInfo
 	err     error
 	removed []machine.ImageDigest
@@ -85,14 +86,14 @@ func (i *imager) RemoveImage(_ context.Context, digest machine.ImageDigest) erro
 
 func TestListImages_ReportsEveryImageAndMapsTheUseCaseOutcome(t *testing.T) {
 	m := &imager{listed: []machine.ImageInfo{{Digest: pulled}, {Digest: "sha256:b"}}}
-	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
+	resp, err := api.New(nil, nil, nil, machine.DriverInfo{}, nil, nil, api.WithCatalog(m)).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
 	require.NoError(t, err)
 	require.Len(t, resp.Images, 2)
 	assert.Equal(t, pulled, resp.Images[0].Digest)
 	assert.Equal(t, "sha256:b", resp.Images[1].Digest)
 
 	failing := &imager{err: machine.NewError(machine.ErrFailed, "list: boom")}
-	resp, err = api.New(failing, nil, nil, machine.DriverInfo{}, nil, nil).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
+	resp, err = api.New(nil, nil, nil, machine.DriverInfo{}, nil, nil, api.WithCatalog(failing)).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_FAILED, v1alpha2.KindOf(err))
@@ -112,7 +113,7 @@ func TestRemoveImage_PassesTheDigestAndMapsTheUseCaseOutcome(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &imager{err: tt.err}
 
-			_, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).RemoveImage(context.Background(), &v1alpha2.RemoveImageRequest{Digest: pulled})
+			_, err := api.New(nil, nil, nil, machine.DriverInfo{}, nil, nil, api.WithCatalog(m)).RemoveImage(context.Background(), &v1alpha2.RemoveImageRequest{Digest: pulled})
 
 			assert.Equal(t, tt.kind, v1alpha2.KindOf(err))
 			assert.Equal(t, []machine.ImageDigest{pulled}, m.removed)
@@ -122,7 +123,7 @@ func TestRemoveImage_PassesTheDigestAndMapsTheUseCaseOutcome(t *testing.T) {
 
 func TestRemoveImage_RejectsAnEmptyDigestBeforeTheUseCase(t *testing.T) {
 	m := &imager{}
-	server := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil)
+	server := api.New(nil, nil, nil, machine.DriverInfo{}, nil, nil, api.WithCatalog(m))
 
 	_, err := server.RemoveImage(context.Background(), &v1alpha2.RemoveImageRequest{})
 	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_REJECTED, v1alpha2.KindOf(err))
@@ -131,4 +132,13 @@ func TestRemoveImage_RejectsAnEmptyDigestBeforeTheUseCase(t *testing.T) {
 	_, err = server.RemoveImage(context.Background(), &v1alpha2.RemoveImageRequest{Digest: pulled}) // control
 	assert.NoError(t, err)
 	assert.Equal(t, []machine.ImageDigest{pulled}, m.removed)
+}
+
+func TestImageCalls_AreUnsupportedWhereTheNodeKeepsNoCatalog(t *testing.T) {
+	server := api.New(nil, nil, nil, machine.DriverInfo{}, nil, nil)
+
+	_, err := server.ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_UNSUPPORTED, v1alpha2.KindOf(err))
+	_, err = server.RemoveImage(context.Background(), &v1alpha2.RemoveImageRequest{Digest: pulled})
+	assert.Equal(t, v1alpha2.OutcomeKind_OUTCOME_KIND_UNSUPPORTED, v1alpha2.KindOf(err))
 }

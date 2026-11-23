@@ -35,7 +35,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if spec.OS != nil {
 		// Shared from resolving the name until the record is set, so
 		// RemoveBootSet cannot pass between the two (ADR 0063).
-		defer s.bootSetLocks.lock(spec.OS.BootSet, false)()
+		defer s.bootSetLocks.Lock(spec.OS.BootSet, false)()
 		if _, failure := s.bootSet(ctx, *spec.OS); failure != nil {
 			return failure
 		}
@@ -68,7 +68,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	// Shared from Locate until the record is set, so RemoveImage cannot pass
 	// between the two.
 	if spec.OS == nil {
-		defer s.imageLocks.lock(spec.Image, false)()
+		defer s.catalog.HoldImage(spec.Image)()
 		located, err := s.images.Locate(ctx, spec.Image)
 		if err != nil {
 			if errors.Is(err, ErrImageAbsent) {

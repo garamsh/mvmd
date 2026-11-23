@@ -18,11 +18,14 @@ func (s *Server) PullImage(ctx context.Context, req *v1alpha2.PullImageRequest) 
 	return &v1alpha2.PullImageResponse{}, nil
 }
 
-// ListImages and RemoveImage go to the lifecycle, not the image use case: a
-// removal needs the Machine records, the snapshots and the locks Create and
-// restore hold.
+// ListImages and RemoveImage go to the catalog, not the image use case: a
+// removal needs the Machine records, the snapshots and the leases Create and
+// restore hold (ADR 0067).
 func (s *Server) ListImages(ctx context.Context, _ *v1alpha2.ListImagesRequest) (*v1alpha2.ListImagesResponse, error) {
-	all, err := s.machines.ListImages(ctx)
+	if s.catalog == nil {
+		return nil, status(machine.NewError(machine.ErrUnsupported, "the node keeps no catalog of images"))
+	}
+	all, err := s.catalog.ListImages(ctx)
 	if err != nil {
 		return nil, status(err)
 	}
@@ -37,7 +40,10 @@ func (s *Server) RemoveImage(ctx context.Context, req *v1alpha2.RemoveImageReque
 	if req.GetDigest() == "" {
 		return nil, rejected("digest is empty")
 	}
-	if err := s.machines.RemoveImage(ctx, machine.ImageDigest(req.GetDigest())); err != nil {
+	if s.catalog == nil {
+		return nil, status(machine.NewError(machine.ErrUnsupported, "the node keeps no catalog of images"))
+	}
+	if err := s.catalog.RemoveImage(ctx, machine.ImageDigest(req.GetDigest())); err != nil {
 		return nil, status(err)
 	}
 	return &v1alpha2.RemoveImageResponse{}, nil

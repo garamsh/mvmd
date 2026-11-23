@@ -141,7 +141,7 @@ func (s *service) CreateDiskWithContents(ctx context.Context, disk DiskID, reque
 // are any, and answers a repeat of the call that made it.
 func (s *service) createDisk(ctx context.Context, asked DiskEntry, contents []byte) error {
 	disk := asked.ID
-	defer s.diskLocks.lock(disk, true)()
+	defer s.diskLocks.Lock(disk, true)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 	for attempt := 0; ; attempt++ {

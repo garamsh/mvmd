@@ -26,7 +26,7 @@ func (s *service) Snapshot(ctx context.Context, id MachineID, snapshot SnapshotI
 	}
 	// No restore reads the snapshot until this call has finished with it: not
 	// while the guest is still paused, and not if the call then fails.
-	defer s.snapLocks.lock(snapshot, true)()
+	defer s.snapLocks.Lock(snapshot, true)()
 
 	switch held, _, err := s.snapshots.Get(ctx, snapshot); {
 	case err == nil:
@@ -174,7 +174,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	// Shared from the lookup until the files are no longer read, so a Snapshot
 	// of it that is still running or that fails is never restored from, and
 	// restores of one snapshot still run together.
-	defer s.snapLocks.lock(snapshot, false)()
+	defer s.snapLocks.Lock(snapshot, false)()
 	if err := policy.validate(); err != nil {
 		return fail(ErrInvalid, "network policy: %v", err)
 	}
@@ -203,7 +203,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		return fail(ErrPreconditionFailed, "snapshot %q was made with a kernel of digest %q, which the node does not offer", snapshot, held.Compat.KernelDigest)
 	}
 	// Shared until the record is set, as Create holds it.
-	defer s.imageLocks.lock(held.Spec.Image, false)()
+	defer s.catalog.HoldImage(held.Spec.Image)()
 	if _, err := s.images.Locate(ctx, held.Spec.Image); err != nil {
 		return locateFailure(err, ErrImageAbsent, "image %s", held.Spec.Image)
 	}
@@ -440,7 +440,7 @@ func (s *service) DeleteSnapshot(ctx context.Context, snapshot SnapshotID) error
 	// A Snapshot call holds the lock exclusively and a restore holds it shared,
 	// so a delete that cannot take it now is beside a call using the snapshot.
 	// It is refused and not made to wait: the snapshot may be gone by then.
-	unlock, ok := s.snapLocks.tryLockExclusive(snapshot)
+	unlock, ok := s.snapLocks.TryLockExclusive(snapshot)
 	if !ok {
 		return fail(ErrPreconditionFailed, "snapshot %q is in use by a snapshot or restore call", snapshot)
 	}

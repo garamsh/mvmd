@@ -35,7 +35,7 @@ func (s *service) SnapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 	}
 	// No Create disk call reads the snapshot until this call has finished with
 	// it, and none sees one that fails half way.
-	defer s.diskSnapLocks.lock(snapshot, true)()
+	defer s.diskSnapLocks.Lock(snapshot, true)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 	switch held, _, err := s.diskSnaps.Get(ctx, snapshot); {
@@ -164,10 +164,10 @@ func (s *service) CreateDiskFromSnapshot(ctx context.Context, disk DiskID, reque
 	if err := s.requireDiskSnapshots(); err != nil {
 		return err
 	}
-	defer s.diskLocks.lock(disk, true)()
+	defer s.diskLocks.Lock(disk, true)()
 	// Shared from the lookup until the copy is made, so a delete of the
 	// snapshot and a SnapshotDisk still writing it both wait.
-	defer s.diskSnapLocks.lock(snapshot, false)()
+	defer s.diskSnapLocks.Lock(snapshot, false)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 	for attempt := 0; ; attempt++ {
@@ -229,7 +229,7 @@ func (s *service) DeleteDiskSnapshot(ctx context.Context, snapshot DiskSnapshotI
 	}
 	// A call using the snapshot holds the lock; refuse rather than wait, since the
 	// snapshot may be gone by then.
-	unlock, ok := s.diskSnapLocks.tryLockExclusive(snapshot)
+	unlock, ok := s.diskSnapLocks.TryLockExclusive(snapshot)
 	if !ok {
 		return fail(ErrPreconditionFailed, "disk snapshot %q is in use by a snapshot or create disk call", snapshot)
 	}
