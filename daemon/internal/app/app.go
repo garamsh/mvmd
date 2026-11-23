@@ -123,6 +123,14 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The database stays open only for an App that is returned, so every exit
+	// below closes it without saying so.
+	built := false
+	defer func() {
+		if !built {
+			_ = db.Close()
+		}
+	}()
 
 	sub := &Substitutes{
 		Driver: machinememory.NewDriver(machine.DriverInfo{
@@ -156,7 +164,6 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 			}
 		}
 		if err != nil {
-			_ = db.Close()
 			return nil, err
 		}
 		sub.Network = nil
@@ -171,7 +178,6 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 		runDirs = dir
 		real, err := supervision.New(supervision.Config{Binary: s.Binary, Dir: dir, Cgroup: s.Cgroup, VMMCgroup: s.VMMCgroup})
 		if err != nil {
-			_ = db.Close()
 			return nil, err
 		}
 		supervisors, sub.Supervisors = real, nil
@@ -189,12 +195,10 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	if f, ok := cfg.vmm(); ok {
 		kernels, bootSets, bootFiles = f.offered(), f.bootSets(), pinnedBootFiles{}
 		if addedSets, err = bootsetstore.New(filepath.Join(cfg.StateDir, "boot-sets")); err != nil {
-			_ = db.Close()
 			return nil, err
 		}
 		d, err := f.driver(cfg.Driver, supervisors)
 		if err != nil {
-			_ = db.Close()
 			return nil, err
 		}
 		driver, guest = d, guestchannel.NewGuest(d)
@@ -213,7 +217,6 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 		var store machine.ImageStore
 		imgs, store, err = realImages(cfg, clock, uids, pullTimeout)
 		if err != nil {
-			_ = db.Close()
 			return nil, err
 		}
 		located, sub.Images = store, nil
@@ -228,7 +231,6 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	if cfg.Disk != nil {
 		disks, snapshots, diskSnapshots, err = realStorage(cfg, runDirs)
 		if err != nil {
-			_ = db.Close()
 			return nil, err
 		}
 		sub.Disks, sub.Snapshots, sub.DiskSnapshots = nil, nil, nil
@@ -241,6 +243,7 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 		all, err := machines.List(context.Background())
 		return uint32(len(all)), err
 	}
+	built = true
 	return &App{
 		cfg:         cfg,
 		db:          db,
