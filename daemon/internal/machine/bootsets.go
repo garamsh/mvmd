@@ -111,7 +111,7 @@ func (m Machine) requireBootTime(call string) error {
 
 // bootSet resolves the name an OS-form Machine records.
 func (s *service) bootSet(ctx context.Context, o OSBoot) (BootSet, *Error) {
-	set, _, err := s.resolveBootSet(ctx, o.BootSet)
+	set, err := s.catalog.ResolveBootSet(ctx, o.BootSet)
 	switch {
 	case errors.Is(err, ErrBootSetAbsent):
 		return BootSet{}, fail(ErrInvalid, "boot set %q is not offered by the node", o.BootSet)

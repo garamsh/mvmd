@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/api"
+	"github.com/garamsh/mvmd/daemon/internal/catalog"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 	"github.com/garamsh/mvmd/daemon/internal/nodecapacity"
@@ -20,10 +21,12 @@ import (
 // offers the memory Driver's boot set "os".
 func osServer() *api.Server {
 	info := machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu"}
-	svc := machine.NewService(memory.NewDriver(info), memory.NewSupervision(), memory.NewNetwork(), memory.NewDisk(), memory.NewImageStore(), memory.NewSnapshotStore(),
-		memory.NewGuest(0), memory.NewWallClock(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)), memory.NewStateStore(), memory.NewStartPermitter(),
-		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents(), machine.WithKernels(memory.Kernels()), machine.WithBootSets(memory.BootSets(), &memory.BootFiles{}), machine.WithAddedBootSets(memory.NewBootSetStore()))
-	return api.New(svc, nil, nil, info, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, api.WithBootSets(svc.ListBootSets))
+	images, snapshots, store := memory.NewImageStore(), memory.NewSnapshotStore(), memory.NewStateStore()
+	nodeCatalog := catalog.NewService(images, snapshots, store, catalog.WithBootSets(memory.BootSets()), catalog.WithAddedBootSets(memory.NewBootSetStore()))
+	svc := machine.NewService(memory.NewDriver(info), memory.NewSupervision(), memory.NewNetwork(), memory.NewDisk(), images, snapshots,
+		memory.NewGuest(0), memory.NewWallClock(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)), store, memory.NewStartPermitter(),
+		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents(), machine.WithKernels(memory.Kernels()), machine.WithBootFiles(&memory.BootFiles{}), machine.WithCatalog(nodeCatalog))
+	return api.New(svc, nil, nil, info, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, api.WithBootSets(nodeCatalog.ListBootSets), api.WithCatalog(nodeCatalog))
 }
 
 func osRequest(id string) *v1alpha2.CreateMachineRequest {

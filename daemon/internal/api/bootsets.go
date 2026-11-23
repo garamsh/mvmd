@@ -115,7 +115,10 @@ func (s *Server) AddBootSet(stream grpc.ClientStreamingServer[v1alpha2.AddBootSe
 		return rejected("the first message carries the name and the digests")
 	}
 	chunks := &bootSetChunks{stream: stream}
-	info, err := s.machines.AddBootSet(stream.Context(), start.GetName(), machine.BootUpload{
+	if s.catalog == nil {
+		return status(machine.NewError(machine.ErrUnsupported, "the node keeps no catalog of boot sets"))
+	}
+	info, err := s.catalog.AddBootSet(stream.Context(), start.GetName(), machine.BootUpload{
 		Kernel: machine.BootContent{SHA256: start.GetKernelDigest(), Content: &bootSetFile{chunks: chunks}},
 		Initrd: machine.BootContent{SHA256: start.GetInitrdDigest(), Content: &bootSetFile{chunks: chunks, initrd: true}},
 	})
@@ -131,7 +134,10 @@ func (s *Server) AddBootSet(stream grpc.ClientStreamingServer[v1alpha2.AddBootSe
 }
 
 func (s *Server) RemoveBootSet(ctx context.Context, req *v1alpha2.RemoveBootSetRequest) (*v1alpha2.RemoveBootSetResponse, error) {
-	if err := s.machines.RemoveBootSet(ctx, req.GetName()); err != nil {
+	if s.catalog == nil {
+		return nil, status(machine.NewError(machine.ErrUnsupported, "the node keeps no catalog of boot sets"))
+	}
+	if err := s.catalog.RemoveBootSet(ctx, req.GetName()); err != nil {
 		return nil, status(err)
 	}
 	return &v1alpha2.RemoveBootSetResponse{}, nil

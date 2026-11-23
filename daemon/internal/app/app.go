@@ -238,8 +238,8 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log, fencing.WithFences(db.Fences()))
-	nodeCatalog := catalog.NewService(located, snapshots, db.Machines(), catalog.WithCallTimeout(callTimeout))
-	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCatalog(nodeCatalog), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootSets(bootSets, bootFiles), machine.WithAddedBootSets(addedSets), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock), machine.WithFences(deadline))
+	nodeCatalog := catalog.NewService(located, snapshots, db.Machines(), catalog.WithCallTimeout(callTimeout), catalog.WithBootSets(bootSets), catalog.WithAddedBootSets(addedSets))
+	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCatalog(nodeCatalog), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootFiles(bootFiles), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock), machine.WithFences(deadline))
 
 	machinesHeld := func() (uint32, error) {
 		all, err := machines.List(context.Background())
@@ -252,7 +252,7 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 		machines:    machines,
 		deadline:    deadline,
 		images:      imgs,
-		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithCatalog(nodeCatalog), api.WithBootSets(machines.ListBootSets), api.WithMachinePrefixes(prefixes...)),
+		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithCatalog(nodeCatalog), api.WithBootSets(nodeCatalog.ListBootSets), api.WithMachinePrefixes(prefixes...)),
 		Substitutes: sub,
 		ready:       make(chan struct{}),
 	}, nil
