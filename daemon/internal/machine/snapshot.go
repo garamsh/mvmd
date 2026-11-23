@@ -171,6 +171,9 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 	case snapshot == "":
 		return fail(ErrInvalid, "the snapshot identifier is empty")
 	}
+	if err := s.refuseOrphan(ctx, id); err != nil {
+		return err
+	}
 	// Shared from the lookup until the files are no longer read, so a Snapshot
 	// of it that is still running or that fails is never restored from, and
 	// restores of one snapshot still run together.

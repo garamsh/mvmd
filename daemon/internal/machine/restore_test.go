@@ -225,3 +225,28 @@ func TestRestore_AnOrphanIsListedUntilItsSupervisorEnds(t *testing.T) {
 	assert.Empty(t, again.Orphans(ctx), "a start that finds none lists none")
 	assert.False(t, e.sup.HasState("ghost"), "and the state directory it left is swept, as for any Machine with no record")
 }
+
+// Create and RestoreSnapshot refuse an identifier an orphan holds: a record of it would claim a
+// supervisor no call started, and the next start would end it (ADR 0071). Once the orphan's
+// supervisor has ended, the identifier is free.
+func TestCreate_RefusesTheIdentifierOfAnOrphanAndRecordsNothing(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(snapshotCaps...)
+	e.snapshotted(t, "src", machine.StateRunning)
+	require.NoError(t, e.sup.Start(ctx, "ghost", someProcess, someUser))
+	svc := e.reopened(t)
+	require.Equal(t, []machine.MachineID{"ghost"}, svc.Orphans(ctx))
+
+	requireKind(t, svc.Create(ctx, "ghost", request("ghost"), baseSpec()), machine.ErrPreconditionFailed)
+	requireKind(t, svc.RestoreSnapshot(ctx, "ghost", "r-ghost", "snap", narrowPolicy), machine.ErrPreconditionFailed)
+	_, recorded := e.store.Record("ghost")
+	assert.False(t, recorded, "nothing was recorded for it")
+	_, alive := e.sup.Running("ghost")
+	assert.True(t, alive, "so the next start has no record to find it unclaimed, and it is left running")
+	assert.Equal(t, []machine.MachineID{"ghost"}, e.reopened(t).Orphans(ctx), "it is still an orphan at the next start")
+
+	require.NoError(t, svc.Create(ctx, "other", request("other"), baseSpec()), "control: another identifier is made")
+	require.NoError(t, e.sup.Terminate(ctx, "ghost"))
+	require.NoError(t, svc.Create(ctx, "ghost", request("ghost"), baseSpec()), "control: once its supervisor has ended the identifier is free")
+	assert.Empty(t, svc.Orphans(ctx))
+}

@@ -31,6 +31,9 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if err := validateCreate(id, request, spec, s.driver.Info().Limits); err != nil {
 		return err
 	}
+	if err := s.refuseOrphan(ctx, id); err != nil {
+		return err
+	}
 	held := spec
 	if spec.OS != nil {
 		// Shared from resolving the name until the record is set, so

@@ -147,6 +147,23 @@ func (s *service) markOrphan(id MachineID) {
 	s.events.Orphaned(id)
 }
 
+// refuseOrphan is the refusal of a call that would make a Machine of an
+// identifier an orphan holds: a record of it would claim a supervisor that no
+// call started, and the next start would end it (ADR 0071). An orphan whose
+// supervisor has ended since is forgotten, and the call goes on.
+func (s *service) refuseOrphan(ctx context.Context, id MachineID) error {
+	if !s.isOrphan(id) {
+		return nil
+	}
+	if live, err := s.supervisor.Live(ctx); err == nil {
+		s.forgetEndedOrphans(live)
+		if !s.isOrphan(id) {
+			return nil
+		}
+	}
+	return fail(ErrPreconditionFailed, "a supervisor of %q runs with no record of it, an orphan the node left running at its start: end it on the host, or wait for its fencing expiry, before a Machine of this identifier is made", id)
+}
+
 func (s *service) isOrphan(id MachineID) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
