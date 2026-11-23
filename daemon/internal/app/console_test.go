@@ -124,7 +124,8 @@ func TestAPI_ConsoleIgnoresAMachineNamedByALaterMessage(t *testing.T) {
 	require.NoError(t, control.CloseSend())
 	_, err = control.Recv()
 	require.Equal(t, io.EOF, err)
-	require.Equal(t, "to-b", recorded())
+	// The end of the session says the session ended, not that the recorder has read the input.
+	require.Eventually(t, func() bool { return recorded() == "to-b" }, 10*time.Second, 10*time.Millisecond, "the input sent in a session on b reaches b's console; recorded %q", recorded())
 
 	s, err := n.client.Console(ctx)
 	require.NoError(t, err)
