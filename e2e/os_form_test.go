@@ -34,6 +34,9 @@ const osFormSet = "os-test"
 func TestE2E_AnOSFormMachineBootsItsBootSetKeepsItsDataDiskAndIsStoppedAndDeleted(t *testing.T) {
 	const diskBytes = 32 << 20
 	token := randomToken(t)
+	seedBytes := make([]byte, seedLength)
+	_, err := rand.Read(seedBytes)
+	require.NoError(t, err)
 	n := startNodeWith(t, withOSFormBootSet(osFormSet))
 	n.arm(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -52,18 +55,24 @@ func TestE2E_AnOSFormMachineBootsItsBootSetKeepsItsDataDiskAndIsStoppedAndDelete
 	require.NoError(t, err)
 	_, err = n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "os-rw", RequestId: "create-os-rw", SizeBytes: diskBytes, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE})
 	require.NoError(t, err)
+	// The third disk is created from contents and attached read-only, as a NoCloud seed is.
+	_, err = n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "os-seed", RequestId: "create-os-seed", SizeBytes: diskBytes, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE, Contents: seedBytes})
+	require.NoError(t, err)
 	created, err := n.client.CreateMachine(ctx, &v1alpha2.CreateMachineRequest{
 		MachineId: "os",
 		RequestId: "create-os",
 		Resources: &v1alpha2.Resources{CpuCount: 1, MemoryBytes: 256 << 20},
-		OsBoot:    &v1alpha2.OsBoot{BootSet: osFormSet, KernelCmdline: "mvmd.token=" + token},
-		Disks:     []*v1alpha2.DiskAttachment{{DiskId: "os-ro", ReadOnly: true}, {DiskId: "os-rw"}},
+		OsBoot:    &v1alpha2.OsBoot{BootSet: osFormSet, KernelCmdline: fmt.Sprintf("mvmd.token=%s mvmd.seed=%d", token, seedLength)},
+		Disks:     []*v1alpha2.DiskAttachment{{DiskId: "os-ro", ReadOnly: true}, {DiskId: "os-rw"}, {DiskId: "os-seed", ReadOnly: true}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, osFormSet, created.Machine.GetOsBoot().GetBootSet(), "the Machine is the OS form of the boot set")
-	require.Len(t, created.Machine.Disks, 2)
+	require.Len(t, created.Machine.Disks, 3)
 	assert.True(t, created.Machine.Disks[0].ReadOnly, "the first disk is attached read-only")
 	assert.False(t, created.Machine.Disks[1].ReadOnly, "the second disk is attached read-write")
+
+	assert.True(t, created.Machine.Disks[2].ReadOnly, "the seed disk is attached read-only")
+	wantSeed := osFormSeed{ReadOnly: "1", Bytes: hex.EncodeToString(seedBytes)}
 
 	start := func() osFormReport {
 		started, err := n.client.StartMachine(ctx, &v1alpha2.StartMachineRequest{MachineId: "os"})
@@ -74,6 +83,7 @@ func TestE2E_AnOSFormMachineBootsItsBootSetKeepsItsDataDiskAndIsStoppedAndDelete
 	first := start()
 	assert.Equal(t, osFormReport{Token: token, ReadOnly0: "1", ReadOnly1: "0", Magic: "53ef", ROWrite: "refused", Before: "empty", Written: token}, first,
 		"the first boot: the guest's command line holds the token, its first disk is read-only and holds an ext4 superblock, a write to it is refused, and the second disk was empty and took the token")
+	assert.Equal(t, wantSeed, n.osFormSeed(t, ctx, "os"), "the guest reads at offset 0 the bytes the disk was created from, on a read-only disk")
 
 	stopped, err := n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "os", GracePeriod: durationpb.New(3 * time.Second)})
 	require.NoError(t, err)
@@ -83,6 +93,7 @@ func TestE2E_AnOSFormMachineBootsItsBootSetKeepsItsDataDiskAndIsStoppedAndDelete
 	second := start()
 	assert.Equal(t, osFormReport{Token: token, ReadOnly0: "1", ReadOnly1: "0", Magic: "53ef", ROWrite: "refused", Before: token, Written: "none"}, second,
 		"the second boot finds the token the first wrote, and writes none")
+	assert.Equal(t, wantSeed, n.osFormSeed(t, ctx, "os"), "the second boot reads the same bytes")
 
 	_, err = n.client.StopMachine(ctx, &v1alpha2.StopMachineRequest{MachineId: "os", GracePeriod: durationpb.New(3 * time.Second)})
 	require.NoError(t, err)
@@ -91,7 +102,7 @@ func TestE2E_AnOSFormMachineBootsItsBootSetKeepsItsDataDiskAndIsStoppedAndDelete
 	require.NoError(t, err)
 
 	assert.NotContains(t, n.listed(t, ctx), "os", "the Machine is gone")
-	assert.Equal(t, map[string]string{"os-ro": "", "os-rw": ""}, n.holders(t, ctx), "its disks are given back to the node")
+	assert.Equal(t, map[string]string{"os-ro": "", "os-rw": "", "os-seed": ""}, n.holders(t, ctx), "its disks are given back to the node")
 }
 
 // osFormReport is the line the OS-form guest's init writes to the console.
@@ -117,6 +128,35 @@ func (n *node) osFormReport(t *testing.T, ctx context.Context, machine string) o
 		seen.Write(part.GetOutput())
 		if m := osFormLine.FindSubmatch(seen.Bytes()); m != nil {
 			return osFormReport{string(m[1]), string(m[2]), string(m[3]), string(m[4]), string(m[5]), string(m[6]), string(m[7])}
+		}
+	}
+}
+
+// seedLength is how many bytes the disk created from contents holds and the guest reads.
+const seedLength = 16
+
+// osFormSeed is the line the OS-form guest's init writes about the disk created from contents.
+type osFormSeed struct {
+	ReadOnly, Bytes string
+}
+
+var osFormSeedLine = regexp.MustCompile(`os-form-e2e-seed: ro=(\S+) bytes=(\S+) end\r?\n`)
+
+// osFormSeed opens a Console session and returns the first whole seed line the guest's init writes.
+func (n *node) osFormSeed(t *testing.T, ctx context.Context, machine string) osFormSeed {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	stream, err := n.client.Console(ctx)
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&v1alpha2.ConsoleRequest{MachineId: machine}))
+	var seen bytes.Buffer
+	for {
+		part, err := stream.Recv()
+		require.NoError(t, err, "the console of %s gave no seed line of the init; the output so far: %q", machine, seen.String())
+		seen.Write(part.GetOutput())
+		if m := osFormSeedLine.FindSubmatch(seen.Bytes()); m != nil {
+			return osFormSeed{string(m[1]), string(m[2])}
 		}
 	}
 }
