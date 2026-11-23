@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/garamsh/mvmd/daemon/internal/catalog"
 	"github.com/garamsh/mvmd/daemon/internal/events"
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
 	"github.com/garamsh/mvmd/daemon/internal/image"
@@ -30,6 +31,8 @@ type Server struct {
 	// here fails the build instead of answering codes.Unimplemented.
 	v1alpha2.UnsafeRuntimeServiceServer
 	machines machine.Service
+	// catalog answers the calls on what a Machine names; nil where the node keeps none.
+	catalog  catalog.Service
 	deadline fencing.Service
 	images   image.Service
 	driver   machine.DriverInfo
@@ -69,6 +72,13 @@ func WithKernels(k machine.Kernels) Option {
 // configured and the added (ADR 0058, ADR 0063). Without it the node lists none.
 func WithBootSets(b func(context.Context) ([]machine.BootSetInfo, error)) Option {
 	return func(s *Server) { s.bootSets = b }
+}
+
+// WithCatalog gives the server the node's catalog, which answers the calls that
+// list and remove what a Machine names (ADR 0067). Without it those calls are
+// unsupported.
+func WithCatalog(c catalog.Service) Option {
+	return func(s *Server) { s.catalog = c }
 }
 
 // WithMachinePrefixes sets the prefixes runtime info reports as the ones the

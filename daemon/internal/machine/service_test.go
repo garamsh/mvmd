@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/catalog"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
@@ -40,6 +41,8 @@ type env struct {
 	store  *memory.StateStore
 	permit *memory.StartPermitter
 	events *memory.Events
+	// catalog lists and removes the images, and holds the leases Create and restore take.
+	catalog catalog.Service
 	// ceiling is the ceiling created gives a Machine, none by default.
 	ceiling machine.Resources
 }
@@ -65,7 +68,8 @@ func newEnvWith(caps []machine.Capability, opts ...machine.Option) *env {
 		events: memory.NewEvents(),
 	}
 	e.images.Provide(image)
-	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, append([]machine.Option{machine.WithKernels(memory.Kernels()), machine.WithDiskSnapshots(e.dsnaps)}, opts...)...)
+	e.catalog = catalog.NewService(e.images, e.snaps, e.store)
+	e.svc = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, append([]machine.Option{machine.WithKernels(memory.Kernels()), machine.WithDiskSnapshots(e.dsnaps), machine.WithCatalog(e.catalog)}, opts...)...)
 	return e
 }
 

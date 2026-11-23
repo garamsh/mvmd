@@ -39,7 +39,7 @@ func TestListImages_ReportsTheSizeAndTheTimeItWasStored(t *testing.T) {
 		{Digest: "sha256:earlier", SizeBytes: 4096},
 	}}
 
-	resp, err := api.New(m, nil, nil, machine.DriverInfo{}, nil, nil).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
+	resp, err := api.New(nil, nil, nil, machine.DriverInfo{}, nil, nil, api.WithCatalog(m)).ListImages(context.Background(), &v1alpha2.ListImagesRequest{})
 
 	require.NoError(t, err)
 	require.Len(t, resp.Images, 2)

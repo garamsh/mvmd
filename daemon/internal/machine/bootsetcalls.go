@@ -145,7 +145,7 @@ func (s *service) RemoveBootSet(ctx context.Context, name string) error {
 	// Machine's record, so a removal that cannot take it now is beside one that
 	// is about to name the set. It is refused and not made to wait: the set may
 	// be in use by then.
-	unlock, ok := s.bootSetLocks.tryLockExclusive(name)
+	unlock, ok := s.bootSetLocks.TryLockExclusive(name)
 	if !ok {
 		return fail(ErrPreconditionFailed, "boot set %q is being resolved by a create call", name)
 	}

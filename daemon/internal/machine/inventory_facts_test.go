@@ -37,7 +37,7 @@ func TestListImages_CarriesTheSizeAndTheTimeTheStoreReports(t *testing.T) {
 	stored := epoch.Add(-time.Hour)
 	e.images.SetFacts(spare, 12345, stored)
 
-	got, err := e.svc.ListImages(context.Background())
+	got, err := e.catalog.ListImages(context.Background())
 
 	require.NoError(t, err)
 	require.Len(t, got, 2)

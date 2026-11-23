@@ -25,7 +25,7 @@ func (e *env) withSpare(t *testing.T) {
 
 func (e *env) requireImages(t *testing.T, want ...machine.ImageDigest) {
 	t.Helper()
-	got, err := e.svc.ListImages(context.Background())
+	got, err := e.catalog.ListImages(context.Background())
 	require.NoError(t, err)
 	digests := make([]machine.ImageDigest, 0, len(got))
 	for _, info := range got {
@@ -40,7 +40,7 @@ func TestListImages_ReportsWhatTheNodeHoldsOrderedByDigest(t *testing.T) {
 	e.images.Provide("sha256:zzz")
 	e.images.Provide("sha256:aaa")
 
-	got, err := e.svc.ListImages(context.Background())
+	got, err := e.catalog.ListImages(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, []machine.ImageInfo{{Digest: "sha256:aaa"}, {Digest: image}, {Digest: "sha256:zzz"}}, got)
@@ -51,7 +51,7 @@ func TestListImages_StoreFailure(t *testing.T) {
 	e := newEnv()
 	e.images.FailAt("list", errBoom)
 
-	_, err := e.svc.ListImages(context.Background())
+	_, err := e.catalog.ListImages(context.Background())
 
 	requireKind(t, err, machine.ErrFailed)
 	e.images.Heal("list")
@@ -64,14 +64,14 @@ func TestRemoveImage_RemovesTheImageAndRepeatSucceeds(t *testing.T) {
 	e := newEnv()
 	e.withSpare(t)
 
-	require.NoError(t, e.svc.RemoveImage(ctx, spare))
+	require.NoError(t, e.catalog.RemoveImage(ctx, spare))
 	e.requireImages(t, image)
 
-	require.NoError(t, e.svc.RemoveImage(ctx, spare), "an image that is already gone is removed")
-	require.NoError(t, e.svc.RemoveImage(ctx, "sha256:never-held"), "so is one the node never held")
+	require.NoError(t, e.catalog.RemoveImage(ctx, spare), "an image that is already gone is removed")
+	require.NoError(t, e.catalog.RemoveImage(ctx, "sha256:never-held"), "so is one the node never held")
 	e.requireImages(t, image)
 
-	requireKind(t, e.svc.RemoveImage(ctx, ""), machine.ErrInvalid)
+	requireKind(t, e.catalog.RemoveImage(ctx, ""), machine.ErrInvalid)
 }
 
 // Row "Remove image", column Needs: no Machine references the image.
@@ -83,15 +83,15 @@ func TestRemoveImage_RefusesAnImageAMachineReferencesInAnyState(t *testing.T) {
 			e.withSpare(t)
 			e.inState(t, "m", state)
 
-			require.NoError(t, e.svc.RemoveImage(ctx, spare), "the near miss: an unused image goes")
-			err := e.svc.RemoveImage(ctx, image)
+			require.NoError(t, e.catalog.RemoveImage(ctx, spare), "the near miss: an unused image goes")
+			err := e.catalog.RemoveImage(ctx, image)
 
 			requireKind(t, err, machine.ErrPreconditionFailed)
 			e.requireImages(t, image)
 			e.requireState(t, "m", state)
 
 			e.deleted(t, "m")
-			require.NoError(t, e.svc.RemoveImage(ctx, image), "once the Machine is deleted nothing uses the image")
+			require.NoError(t, e.catalog.RemoveImage(ctx, image), "once the Machine is deleted nothing uses the image")
 			e.requireImages(t)
 		})
 	}
@@ -107,15 +107,15 @@ func TestRemoveImage_RefusesAnImageASnapshotReferences(t *testing.T) {
 	e.deleted(t, "src")
 	e.requireNoMachine(t, "src")
 
-	require.NoError(t, e.svc.RemoveImage(ctx, spare), "the near miss: an unused image goes")
-	err := e.svc.RemoveImage(ctx, image)
+	require.NoError(t, e.catalog.RemoveImage(ctx, spare), "the near miss: an unused image goes")
+	err := e.catalog.RemoveImage(ctx, image)
 
 	requireKind(t, err, machine.ErrPreconditionFailed)
 	e.requireImages(t, image)
 	assert.Equal(t, []machine.SnapshotID{"snap"}, e.snaps.Held())
 
 	require.NoError(t, e.svc.DeleteSnapshot(ctx, "snap"))
-	require.NoError(t, e.svc.RemoveImage(ctx, image), "once the snapshot is deleted nothing uses the image")
+	require.NoError(t, e.catalog.RemoveImage(ctx, image), "once the snapshot is deleted nothing uses the image")
 	e.requireImages(t)
 }
 
@@ -131,8 +131,8 @@ func TestRemoveImage_RefusesAnImageACallIsLocating(t *testing.T) {
 		go func() { creating <- e.svc.Create(ctx, "m", request("m"), baseSpec()) }()
 		<-entered
 
-		require.NoError(t, e.svc.RemoveImage(ctx, spare), "the near miss: another image goes")
-		err := e.svc.RemoveImage(ctx, image)
+		require.NoError(t, e.catalog.RemoveImage(ctx, spare), "the near miss: another image goes")
+		err := e.catalog.RemoveImage(ctx, image)
 		release()
 
 		requireKind(t, err, machine.ErrPreconditionFailed)
@@ -154,8 +154,8 @@ func TestRemoveImage_RefusesAnImageACallIsLocating(t *testing.T) {
 		go func() { restoring <- e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy) }()
 		<-entered
 
-		require.NoError(t, e.svc.RemoveImage(ctx, spare), "the near miss: another image goes")
-		err := e.svc.RemoveImage(ctx, image)
+		require.NoError(t, e.catalog.RemoveImage(ctx, spare), "the near miss: another image goes")
+		err := e.catalog.RemoveImage(ctx, image)
 		release()
 
 		requireKind(t, err, machine.ErrPreconditionFailed)
@@ -171,10 +171,10 @@ func TestRemoveImage_StoreFailure(t *testing.T) {
 	e.withSpare(t)
 	e.images.FailAt("remove", errBoom)
 
-	requireKind(t, e.svc.RemoveImage(ctx, spare), machine.ErrFailed)
+	requireKind(t, e.catalog.RemoveImage(ctx, spare), machine.ErrFailed)
 
 	e.images.Heal("remove")
-	require.NoError(t, e.svc.RemoveImage(ctx, spare), "a repeat after the failure removes it")
+	require.NoError(t, e.catalog.RemoveImage(ctx, spare), "a repeat after the failure removes it")
 	e.requireImages(t, image)
 }
 
@@ -184,11 +184,11 @@ func TestRemoveImage_AFailureToListSnapshotsRemovesNothing(t *testing.T) {
 	e.withSpare(t)
 	e.snaps.FailAt("list", errBoom)
 
-	requireKind(t, e.svc.RemoveImage(ctx, spare), machine.ErrFailed)
+	requireKind(t, e.catalog.RemoveImage(ctx, spare), machine.ErrFailed)
 	e.requireImages(t, image, spare)
 
 	e.snaps.Heal("list")
-	require.NoError(t, e.svc.RemoveImage(ctx, spare))
+	require.NoError(t, e.catalog.RemoveImage(ctx, spare))
 }
 
 // deleted stops the Machine unless it is already down, and deletes it.
@@ -203,27 +203,25 @@ func (e *env) deleted(t *testing.T, id machine.MachineID) {
 	require.NoError(t, e.svc.Delete(ctx, id))
 }
 
-// The keyed locks of snapshots and of image digests do not accumulate.
+// The keyed locks of snapshots do not accumulate.
 func TestService_KeyedLocksReturnToEmpty(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(snapshotCaps...)
 	e.snapshotted(t, "src", machine.StateRunning)
 	require.NoError(t, e.svc.RestoreSnapshot(ctx, "new", "r-new", "snap", narrowPolicy))
 	_ = e.svc.DeleteSnapshot(ctx, "never-held")
-	_ = e.svc.RemoveImage(ctx, "sha256:never-held")
+	_ = e.catalog.RemoveImage(ctx, "sha256:never-held")
 
 	var wg sync.WaitGroup
 	for i := range 20 {
 		wg.Go(func() {
 			id := machine.MachineID(fmt.Sprintf("c%d", i))
 			_ = e.svc.Create(ctx, id, request(id), baseSpec())
-			_ = e.svc.RemoveImage(ctx, image)
+			_ = e.catalog.RemoveImage(ctx, image)
 			_ = e.svc.DeleteSnapshot(ctx, "snap")
 		})
 	}
 	wg.Wait()
 
-	snapshots, images := machine.KeyedLockCount(e.svc)
-	assert.Zero(t, snapshots, "snapshot locks")
-	assert.Zero(t, images, "image locks")
+	assert.Zero(t, machine.SnapshotLockCount(e.svc), "snapshot locks")
 }

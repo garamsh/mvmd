@@ -7,6 +7,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/garamsh/mvmd/daemon/internal/keyedlock"
 )
 
 // Service is what the Machine lifecycle offers a driving adapter. Every call
@@ -147,8 +149,6 @@ type Service interface {
 	// ErrPreconditionFailed. The disk it was taken of is not touched.
 	DeleteDiskSnapshot(ctx context.Context, snapshot DiskSnapshotID) error
 
-	// ListImages returns every image the node holds, ordered by digest.
-	ListImages(ctx context.Context) ([]ImageInfo, error)
 	// AddBootSet reads the two files of the upload into the node's store under
 	// the name (ADR 0063). A name that is offered with the same digests is
 	// success with no change, with other digests ErrConflict; a file whose
@@ -161,11 +161,6 @@ type Service interface {
 	// record names and one a Create call is resolving are
 	// ErrPreconditionFailed; an absent name is success.
 	RemoveBootSet(ctx context.Context, name string) error
-	// RemoveImage unlists the image and reclaims its blobs. An absent image
-	// succeeds. An image a Machine record references, a snapshot references,
-	// or a Create or restore call is locating is refused with
-	// ErrPreconditionFailed.
-	RemoveImage(ctx context.Context, image ImageDigest) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which
@@ -225,23 +220,22 @@ type service struct {
 	execs *execLedger
 	// snapLocks serializes Snapshot against the restores of the same snapshot.
 	// A call takes a Machine's lock before a snapshot's, and a snapshot's
-	// before an image's.
-	snapLocks keyedLocks[SnapshotID]
-	// imageLocks serializes the removal of an image against the Create and
-	// restore calls that locate it: they hold it shared from Locate until the
-	// Machine's record is set.
-	imageLocks keyedLocks[ImageDigest]
+	// before a lease on an image from the catalog (ADR 0067).
+	snapLocks keyedlock.Locks[SnapshotID]
+	// catalog holds the resources a Create or a restore names until it has
+	// set the Machine's record (ADR 0067).
+	catalog Catalog
 	// bootSetLocks serializes the removal of a boot set against the Create
 	// calls that resolve it: they hold it shared from resolving the name until
 	// the Machine's record is set (ADR 0063).
-	bootSetLocks keyedLocks[string]
+	bootSetLocks keyedlock.Locks[string]
 	// diskLocks serializes the Create disk calls for one disk identifier, so a
 	// repeat waits for the first call and answers from the lookup.
-	diskLocks keyedLocks[DiskID]
+	diskLocks keyedlock.Locks[DiskID]
 	// diskSnapLocks serializes SnapshotDisk, exclusive, against the Create disk
 	// calls that read the same disk snapshot, shared. A call takes a disk's lock
 	// before a disk snapshot's, and a disk snapshot's before a Machine's.
-	diskSnapLocks keyedLocks[DiskSnapshotID]
+	diskSnapLocks keyedlock.Locks[DiskSnapshotID]
 	// diskSnaps are the disk snapshots the node holds, or nil where it offers none.
 	diskSnaps DiskSnapshotStore
 	// held maps each disk to its one holder (ADR 0009).
@@ -398,6 +392,7 @@ func NewService(driver Driver, supervisor Supervision, network Network, disks Di
 		callTimeout:   DefaultCallTimeout,
 		vmmEndPoll:    DefaultVMMEndPoll,
 		resizeTimeout: DefaultResizeTimeout,
+		catalog:       noCatalog{},
 		callContext:   detached,
 		compensate:    detached,
 		driver:        driver,
