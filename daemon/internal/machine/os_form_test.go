@@ -10,16 +10,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/catalog"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/daemon/internal/machine/memory"
 )
+
+// withBootSets gives the node the boot sets the memory Driver offers, the store the sets a client
+// adds go to (none where nil), and the check Start makes of their files, in a catalog of its own and
+// a lifecycle over it.
+func (e *env) withBootSets(t *testing.T, added machine.BootSetStore, files machine.BootFileChecker) {
+	t.Helper()
+	e.catalog = catalog.NewService(e.images, e.snaps, e.store, catalog.WithBootSets(memory.BootSets()), catalog.WithAddedBootSets(added))
+	e.svc = e.reopenedWith(t, machine.WithCatalog(e.catalog), machine.WithBootFiles(files))
+}
 
 // osEnv is an env whose node offers the memory Driver's boot set "os".
 func osEnv(t *testing.T, caps ...machine.Capability) (*env, *memory.BootFiles) {
 	t.Helper()
 	e := newEnv(caps...)
 	files := &memory.BootFiles{}
-	e.svc = e.reopenedWith(t, machine.WithBootSets(memory.BootSets(), files))
+	e.withBootSets(t, nil, files)
 	return e, files
 }
 
@@ -345,7 +355,7 @@ func TestCreate_OSFormRefusesACommandLineLongerThanTheDriverLeavesTheClient(t *t
 	const most = 100
 	e, _ := osEnv(t)
 	e.driver = memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Limits: machine.DriverLimits{MaxCommandLine: most}})
-	e.svc = e.reopenedWith(t, machine.WithBootSets(memory.BootSets(), &memory.BootFiles{}))
+	e.withBootSets(t, nil, &memory.BootFiles{})
 	create := func(id machine.MachineID, line string) error {
 		spec := osSpec()
 		spec.OS.CommandLine = line

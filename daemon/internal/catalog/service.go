@@ -1,6 +1,6 @@
 // Package catalog is the node's catalog of the resources a Machine record
-// names and does not own: the images it was made from, today, and the boot sets
-// and the disk snapshots as they move here (ADR 0067). Listing and removing one
+// names and does not own: the images it was made from and the boot sets, and the
+// disk snapshots as they move here (ADR 0067). Listing and removing one
 // is the catalog's call, with a lock of its own; the lifecycle takes a lease on
 // the one it is about to name through the machine.Catalog port.
 //
@@ -29,10 +29,34 @@ type Service interface {
 	// or a Create or restore call is locating is refused with
 	// ErrPreconditionFailed.
 	RemoveImage(ctx context.Context, image machine.ImageDigest) error
+	// AddBootSet reads the two files of the upload into the node's store under
+	// the name (ADR 0063). A name that is offered with the same digests is
+	// success with no change, with other digests ErrConflict; a file whose
+	// contents do not have its digest is ErrInvalid, naming it.
+	AddBootSet(ctx context.Context, name string, upload machine.BootUpload) (machine.BootSetInfo, error)
+	// ListBootSets returns the configured and the added boot sets, ordered by
+	// name.
+	ListBootSets(ctx context.Context) ([]machine.BootSetInfo, error)
+	// RemoveBootSet removes an added boot set. A configured one, one a Machine's
+	// record names and one a Create call is resolving are
+	// ErrPreconditionFailed; an absent name is success.
+	RemoveBootSet(ctx context.Context, name string) error
 }
 
 // Option changes how the catalog behaves from its defaults.
 type Option func(*service)
+
+// WithBootSets sets the boot sets the node's configuration names (ADR 0058).
+// Without it the node configures none.
+func WithBootSets(sets machine.BootSets) Option {
+	return func(s *service) { s.bootSets = sets }
+}
+
+// WithAddedBootSets sets the store of the boot sets a client adds (ADR 0063).
+// Without it the node keeps none, and Add boot set is ErrUnsupported.
+func WithAddedBootSets(b machine.BootSetStore) Option {
+	return func(s *service) { s.addedSets = b }
+}
 
 // WithCallTimeout bounds how long a removal runs, whatever the caller's context
 // says. A bound that is not positive is ignored.
@@ -55,6 +79,14 @@ type service struct {
 	// restore calls that locate it: they hold it shared from Locate until the
 	// Machine's record is set.
 	imageLocks keyedlock.Locks[machine.ImageDigest]
+	// bootSets are the boot sets the node's configuration names, and addedSets
+	// the store of the ones a client added, or nil where the node keeps none.
+	bootSets  machine.BootSets
+	addedSets machine.BootSetStore
+	// bootSetLocks serializes the removal of a boot set against the Create
+	// calls that resolve it: they hold it shared from resolving the name until
+	// the Machine's record is set (ADR 0063).
+	bootSetLocks keyedlock.Locks[string]
 }
 
 // NewService returns the catalog over the node's image cache and snapshots,

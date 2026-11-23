@@ -148,19 +148,6 @@ type Service interface {
 	// SnapshotDisk or CreateDiskFromSnapshot call is using is refused with
 	// ErrPreconditionFailed. The disk it was taken of is not touched.
 	DeleteDiskSnapshot(ctx context.Context, snapshot DiskSnapshotID) error
-
-	// AddBootSet reads the two files of the upload into the node's store under
-	// the name (ADR 0063). A name that is offered with the same digests is
-	// success with no change, with other digests ErrConflict; a file whose
-	// contents do not have its digest is ErrInvalid, naming it.
-	AddBootSet(ctx context.Context, name string, upload BootUpload) (BootSetInfo, error)
-	// ListBootSets returns the configured and the added boot sets, ordered by
-	// name.
-	ListBootSets(ctx context.Context) ([]BootSetInfo, error)
-	// RemoveBootSet removes an added boot set. A configured one, one a Machine's
-	// record names and one a Create call is resolving are
-	// ErrPreconditionFailed; an absent name is success.
-	RemoveBootSet(ctx context.Context, name string) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which
@@ -187,12 +174,9 @@ type service struct {
 	events Events
 	// kernels are the guest kernels the node offers.
 	kernels Kernels
-	// bootSets are the boot sets the node offers an OS-form Machine, and
-	// bootFiles states whether a set's files still have their digests.
-	bootSets  BootSets
+	// bootFiles states whether the files of a boot set still have their
+	// digests.
 	bootFiles BootFileChecker
-	// addedSets are the boot sets a client added, or nil where the node keeps none.
-	addedSets BootSetStore
 	// bootTimeout bounds the wait for the guest's boot in Start.
 	bootTimeout time.Duration
 	// resizeTimeout bounds the wait for the guest to bring the target's vCPUs
@@ -225,10 +209,6 @@ type service struct {
 	// catalog holds the resources a Create or a restore names until it has
 	// set the Machine's record (ADR 0067).
 	catalog Catalog
-	// bootSetLocks serializes the removal of a boot set against the Create
-	// calls that resolve it: they hold it shared from resolving the name until
-	// the Machine's record is set (ADR 0063).
-	bootSetLocks keyedlock.Locks[string]
 	// diskLocks serializes the Create disk calls for one disk identifier, so a
 	// repeat waits for the first call and answers from the lookup.
 	diskLocks keyedlock.Locks[DiskID]
@@ -362,17 +342,10 @@ func WithKernels(k Kernels) Option {
 	return func(s *service) { s.kernels = k }
 }
 
-// WithBootSets sets the boot sets the node offers an OS-form Machine (ADR
-// 0058) and the check that Start makes of each set's files. Without it the node
-// offers none, and Create refuses an OS-form Machine.
-func WithBootSets(sets BootSets, check BootFileChecker) Option {
-	return func(s *service) { s.bootSets, s.bootFiles = sets, check }
-}
-
-// WithAddedBootSets sets the store of the boot sets a client adds (ADR 0063).
-// Without it the node keeps none, and Add boot set is ErrUnsupported.
-func WithAddedBootSets(b BootSetStore) Option {
-	return func(s *service) { s.addedSets = b }
+// WithBootFiles sets the check that Start makes of the files of the boot set an
+// OS-form Machine names (ADR 0058). Without it the files are not checked.
+func WithBootFiles(check BootFileChecker) Option {
+	return func(s *service) { s.bootFiles = check }
 }
 
 // WithDiskSnapshots sets the store of disk snapshots (ADR 0056). Without it

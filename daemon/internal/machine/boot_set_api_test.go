@@ -33,7 +33,7 @@ func addEnv(t *testing.T) (*env, *memory.BootFiles) {
 	t.Helper()
 	e := newEnv()
 	files := &memory.BootFiles{}
-	e.svc = e.reopenedWith(t, machine.WithBootSets(memory.BootSets(), files), machine.WithAddedBootSets(memory.NewBootSetStore()))
+	e.withBootSets(t, memory.NewBootSetStore(), files)
 	return e, files
 }
 
@@ -47,13 +47,13 @@ func TestAddBootSet_AddsASetListedWithItsDigestsAndOrigin(t *testing.T) {
 	ctx := context.Background()
 	e, _ := addEnv(t)
 
-	info, err := e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+	info, err := e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 	require.NoError(t, err)
 	assert.Equal(t, machine.BootSetAdded, info.Origin)
 	assert.Equal(t, hexSum("kernel-a"), info.Set.Kernel.SHA256)
 	assert.Equal(t, hexSum("initrd-a"), info.Set.Initrd.SHA256)
 
-	listed, err := e.svc.ListBootSets(ctx)
+	listed, err := e.catalog.ListBootSets(ctx)
 	require.NoError(t, err)
 	require.Len(t, listed, 2)
 	assert.Equal(t, "mine", listed[0].Name, "by name: m before o")
@@ -76,14 +76,14 @@ func TestAddBootSet_RefusesAFileWhoseBytesAreNotItsDigestAndNamesIt(t *testing.T
 			e, _ := addEnv(t)
 			upload := bytesUpload("kernel-a", "initrd-a")
 			tc.change(&upload)
-			_, err := e.svc.AddBootSet(ctx, "mine", upload)
+			_, err := e.catalog.AddBootSet(ctx, "mine", upload)
 			requireKind(t, err, machine.ErrInvalid)
 			assert.ErrorContains(t, err, tc.file)
 
-			listed, err := e.svc.ListBootSets(ctx)
+			listed, err := e.catalog.ListBootSets(ctx)
 			require.NoError(t, err)
 			assert.Len(t, listed, 1, "nothing was published")
-			_, err = e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+			_, err = e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 			require.NoError(t, err, "control: the same files with their own digests are accepted")
 		})
 	}
@@ -105,10 +105,10 @@ func TestAddBootSet_RefusesAMalformedNameOrDigest(t *testing.T) {
 			e, _ := addEnv(t)
 			upload := bytesUpload("k", "i")
 			tc.edit(&upload)
-			_, err := e.svc.AddBootSet(ctx, tc.name, upload)
+			_, err := e.catalog.AddBootSet(ctx, tc.name, upload)
 			requireKind(t, err, machine.ErrInvalid)
 			assert.ErrorContains(t, err, tc.field)
-			_, err = e.svc.AddBootSet(ctx, "mine", bytesUpload("k", "i"))
+			_, err = e.catalog.AddBootSet(ctx, "mine", bytesUpload("k", "i"))
 			require.NoError(t, err, "control: a well-formed add is accepted")
 		})
 	}
@@ -119,41 +119,41 @@ func TestAddBootSet_ATakenName(t *testing.T) {
 
 	t.Run("with the same digests is success and changes nothing", func(t *testing.T) {
 		e, _ := addEnv(t)
-		first, err := e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+		first, err := e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 		require.NoError(t, err)
-		again, err := e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+		again, err := e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 		require.NoError(t, err)
 		assert.Equal(t, first, again)
-		listed, err := e.svc.ListBootSets(ctx)
+		listed, err := e.catalog.ListBootSets(ctx)
 		require.NoError(t, err)
 		assert.Len(t, listed, 2)
 	})
 
 	t.Run("with other digests is a conflict and keeps the set", func(t *testing.T) {
 		e, _ := addEnv(t)
-		first, err := e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+		first, err := e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 		require.NoError(t, err)
-		_, err = e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-b", "initrd-a"))
+		_, err = e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-b", "initrd-a"))
 		requireKind(t, err, machine.ErrConflict)
-		_, err = e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-b"))
+		_, err = e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-b"))
 		requireKind(t, err, machine.ErrConflict)
-		listed, err := e.svc.ListBootSets(ctx)
+		listed, err := e.catalog.ListBootSets(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, first, listed[0], "the set under the name is the first one")
 	})
 
 	t.Run("a configured name is not taken over", func(t *testing.T) {
 		e, _ := addEnv(t)
-		_, err := e.svc.AddBootSet(ctx, "os", bytesUpload("kernel-a", "initrd-a"))
+		_, err := e.catalog.AddBootSet(ctx, "os", bytesUpload("kernel-a", "initrd-a"))
 		requireKind(t, err, machine.ErrConflict)
-		_, err = e.svc.AddBootSet(ctx, "os2", bytesUpload("kernel-a", "initrd-a"))
+		_, err = e.catalog.AddBootSet(ctx, "os2", bytesUpload("kernel-a", "initrd-a"))
 		require.NoError(t, err, "control: a free name is accepted")
 	})
 }
 
 func TestAddBootSet_ANodeThatKeepsNoAddedSetRefuses(t *testing.T) {
 	e, _ := osEnv(t)
-	_, err := e.svc.AddBootSet(context.Background(), "mine", bytesUpload("k", "i"))
+	_, err := e.catalog.AddBootSet(context.Background(), "mine", bytesUpload("k", "i"))
 	requireKind(t, err, machine.ErrUnsupported)
 }
 
@@ -165,7 +165,7 @@ func TestAddedBootSet_ARunnableMachineIsCreatedAndStartedOnIt(t *testing.T) {
 	requireKind(t, err, machine.ErrInvalid)
 	assert.ErrorContains(t, err, "mine")
 
-	_, err = e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+	_, err = e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 	require.NoError(t, err)
 	require.NoError(t, e.svc.Create(ctx, "m", request("m"), addedSpec("mine")))
 	require.NoError(t, e.svc.Start(ctx, "m"))
@@ -175,7 +175,7 @@ func TestAddedBootSet_ARunnableMachineIsCreatedAndStartedOnIt(t *testing.T) {
 func TestStart_AnAddedSetsFileChangedAfterTheAddFailsTheCheck(t *testing.T) {
 	ctx := context.Background()
 	e, files := addEnv(t)
-	info, err := e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+	info, err := e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 	require.NoError(t, err)
 	require.NoError(t, e.svc.Create(ctx, "m", request("m"), addedSpec("mine")))
 
@@ -191,45 +191,45 @@ func TestRemoveBootSet(t *testing.T) {
 
 	t.Run("succeeds for a set no Machine names", func(t *testing.T) {
 		e, _ := addEnv(t)
-		_, err := e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+		_, err := e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 		require.NoError(t, err)
-		require.NoError(t, e.svc.RemoveBootSet(ctx, "mine"))
-		listed, err := e.svc.ListBootSets(ctx)
+		require.NoError(t, e.catalog.RemoveBootSet(ctx, "mine"))
+		listed, err := e.catalog.ListBootSets(ctx)
 		require.NoError(t, err)
 		assert.Len(t, listed, 1)
-		require.NoError(t, e.svc.RemoveBootSet(ctx, "mine"), "an absent name is success")
+		require.NoError(t, e.catalog.RemoveBootSet(ctx, "mine"), "an absent name is success")
 	})
 
 	t.Run("is refused while a Machine's record names the set and succeeds once none does", func(t *testing.T) {
 		for _, start := range []bool{false, true} {
 			e, _ := addEnv(t)
-			_, err := e.svc.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
+			_, err := e.catalog.AddBootSet(ctx, "mine", bytesUpload("kernel-a", "initrd-a"))
 			require.NoError(t, err)
-			_, err = e.svc.AddBootSet(ctx, "other", bytesUpload("kernel-b", "initrd-b"))
+			_, err = e.catalog.AddBootSet(ctx, "other", bytesUpload("kernel-b", "initrd-b"))
 			require.NoError(t, err)
 			require.NoError(t, e.svc.Create(ctx, "m", request("m"), addedSpec("mine")))
 			if start {
 				require.NoError(t, e.svc.Start(ctx, "m"))
 			}
 
-			require.NoError(t, e.svc.RemoveBootSet(ctx, "other"), "the near miss: a set no Machine names goes")
-			err = e.svc.RemoveBootSet(ctx, "mine")
+			require.NoError(t, e.catalog.RemoveBootSet(ctx, "other"), "the near miss: a set no Machine names goes")
+			err = e.catalog.RemoveBootSet(ctx, "mine")
 			requireKind(t, err, machine.ErrPreconditionFailed)
 			assert.ErrorContains(t, err, `"m"`)
-			listed, err := e.svc.ListBootSets(ctx)
+			listed, err := e.catalog.ListBootSets(ctx)
 			require.NoError(t, err)
 			require.Len(t, listed, 2, "the set stays")
 
 			e.deleted(t, "m")
-			require.NoError(t, e.svc.RemoveBootSet(ctx, "mine"))
+			require.NoError(t, e.catalog.RemoveBootSet(ctx, "mine"))
 		}
 	})
 
 	t.Run("refuses a configured set", func(t *testing.T) {
 		e, _ := addEnv(t)
-		err := e.svc.RemoveBootSet(ctx, "os")
+		err := e.catalog.RemoveBootSet(ctx, "os")
 		requireKind(t, err, machine.ErrPreconditionFailed)
-		listed, err := e.svc.ListBootSets(ctx)
+		listed, err := e.catalog.ListBootSets(ctx)
 		require.NoError(t, err)
 		assert.Len(t, listed, 1, "the configured set stays")
 	})
@@ -263,9 +263,9 @@ func TestRemoveBootSet_RefusesASetACreateIsResolving(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv()
 	store := &holdingStore{BootSetStore: memory.NewBootSetStore(), entered: make(chan struct{}), release: make(chan struct{})}
-	e.svc = e.reopenedWith(t, machine.WithBootSets(memory.BootSets(), &memory.BootFiles{}), machine.WithAddedBootSets(store))
+	e.withBootSets(t, store, &memory.BootFiles{})
 	for _, name := range []string{"mine", "other"} {
-		_, err := e.svc.AddBootSet(ctx, name, bytesUpload("kernel-"+name, "initrd-"+name))
+		_, err := e.catalog.AddBootSet(ctx, name, bytesUpload("kernel-"+name, "initrd-"+name))
 		require.NoError(t, err)
 	}
 
@@ -274,8 +274,8 @@ func TestRemoveBootSet_RefusesASetACreateIsResolving(t *testing.T) {
 	go func() { creating <- e.svc.Create(ctx, "m", request("m"), addedSpec("mine")) }()
 	<-store.entered
 
-	require.NoError(t, e.svc.RemoveBootSet(ctx, "other"), "the near miss: another set goes")
-	err := e.svc.RemoveBootSet(ctx, "mine")
+	require.NoError(t, e.catalog.RemoveBootSet(ctx, "other"), "the near miss: another set goes")
+	err := e.catalog.RemoveBootSet(ctx, "mine")
 	close(store.release)
 
 	requireKind(t, err, machine.ErrPreconditionFailed)
