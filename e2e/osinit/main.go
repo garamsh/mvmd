@@ -1,7 +1,8 @@
 // Command osinit is the init of the OS-form guest the end-to-end tests boot. It reads the magic of
 // the read-only disk's ext4 superblock, tries to write that disk, keeps a token from its command
 // line on the read-write disk, and writes what it found to the console as one line, again every
-// half second.
+// half second. Given mvmd.seed=N on its command line, it also reads the first N bytes of a third,
+// read-only disk and writes them in hex on a line of their own, as a guest reads a NoCloud seed.
 package main
 
 import (
@@ -20,7 +21,11 @@ const (
 	magicOffset = 1080
 	tokenPrefix = "mvmd-e2e-token:"
 	tokenField  = "mvmd.token="
-	diskWait    = 30 * time.Second
+	// seedDisk is the third disk, which holds the seed, and seedField names how many of its first
+	// bytes the init reads.
+	seedDisk  = "vdc"
+	seedField = "mvmd.seed="
+	diskWait  = 30 * time.Second
 )
 
 func main() {
@@ -44,21 +49,51 @@ func main() {
 		"data-written=" + written,
 		"end",
 	}, " ")
+	seedLine := ""
+	if n := commandLineField(seedField); n != "" {
+		seedLine = seed(device(seedDisk), n)
+	}
 	for {
 		fmt.Println(line)
+		if seedLine != "" {
+			fmt.Println(seedLine)
+		}
 		time.Sleep(500 * time.Millisecond)
 	}
 }
 
 // commandLineToken is the value of mvmd.token on the kernel's command line, or "".
-func commandLineToken() string {
+func commandLineToken() string { return commandLineField(tokenField) }
+
+// commandLineField is the value of the field, which ends in "=", on the kernel's command line, or "".
+func commandLineField(name string) string {
 	raw, _ := os.ReadFile("/proc/cmdline")
 	for field := range strings.FieldsSeq(string(raw)) {
-		if v, ok := strings.CutPrefix(field, tokenField); ok {
+		if v, ok := strings.CutPrefix(field, name); ok {
 			return v
 		}
 	}
 	return ""
+}
+
+// seed is the line that reports whether the disk at path is read-only and its first n bytes, read
+// at offset 0, in hex, or the reason they were not read.
+func seed(path, n string) string {
+	var size int
+	if _, err := fmt.Sscanf(n, "%d", &size); err != nil || size <= 0 {
+		return "os-form-e2e-seed: ro=bad-size bytes=none end"
+	}
+	read := "open-failed"
+	if f, err := os.Open(path); err == nil {
+		b := make([]byte, size)
+		if _, err := f.ReadAt(b, 0); err != nil {
+			read = "read-failed"
+		} else {
+			read = fmt.Sprintf("%x", b)
+		}
+		f.Close()
+	}
+	return "os-form-e2e-seed: ro=" + sysfs(seedDisk, "ro") + " bytes=" + read + " end"
 }
 
 func sysfs(disk, name string) string {
