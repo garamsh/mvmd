@@ -214,14 +214,12 @@ func TestService_KeyedLocksReturnToEmpty(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id := machine.MachineID(fmt.Sprintf("c%d", i))
 			_ = e.svc.Create(ctx, id, request(id), baseSpec())
 			_ = e.svc.RemoveImage(ctx, image)
 			_ = e.svc.DeleteSnapshot(ctx, "snap")
-		}()
+		})
 	}
 	wg.Wait()
 

@@ -167,9 +167,7 @@ func TestService_ConcurrentCallsAreSerialized(t *testing.T) {
 	var wg sync.WaitGroup
 	attached := make(chan machine.MachineID, 40)
 	for i := range 40 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id := machine.MachineID([]string{"a", "b"}[i%2])
 			if e.svc.AttachDisk(ctx, id, machine.DiskAttachment{Disk: "shared"}) == nil {
 				attached <- id
@@ -177,7 +175,7 @@ func TestService_ConcurrentCallsAreSerialized(t *testing.T) {
 			other := machine.MachineID(fmt.Sprintf("m%d", i))
 			_ = e.svc.Create(ctx, other, request(other), baseSpec())
 			_, _ = e.svc.List(ctx)
-		}()
+		})
 	}
 	wg.Wait()
 	close(attached)
@@ -265,13 +263,11 @@ func TestService_LocksReturnToEmpty(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id := machine.MachineID(fmt.Sprintf("c%d", i%4))
 			_ = e.svc.Create(ctx, id, request(id), baseSpec())
 			_ = e.svc.Delete(ctx, id)
-		}()
+		})
 	}
 	wg.Wait()
 	assert.Zero(t, machine.LockCount(e.svc), "after concurrent churn")

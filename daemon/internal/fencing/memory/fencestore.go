@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/fencing"
@@ -31,9 +32,7 @@ func (s *FenceStore) Load(context.Context) (map[machine.MachineID]fencing.Record
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make(map[machine.MachineID]fencing.Record, len(s.recs))
-	for id, r := range s.recs {
-		out[id] = r
-	}
+	maps.Copy(out, s.recs)
 	return out, nil
 }
 

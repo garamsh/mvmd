@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/garamsh/mvmd/daemon/internal/diskdevice"
@@ -91,12 +92,7 @@ func (d *Driver) DescribeRestore(_ context.Context, _ machine.MachineID, spec ma
 }
 
 func isSnapshotName(name string) bool {
-	for _, n := range snapshotNames {
-		if n == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(snapshotNames, name)
 }
 
 // restoreArgs is the command line that restores the VM: the snapshot's own

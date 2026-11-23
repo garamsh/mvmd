@@ -21,13 +21,13 @@ func allowedCPUs(t *testing.T) uint32 {
 	t.Helper()
 	raw, err := os.ReadFile("/proc/self/status")
 	require.NoError(t, err)
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		list, ok := strings.CutPrefix(line, "Cpus_allowed_list:")
 		if !ok {
 			continue
 		}
 		var n uint32
-		for _, part := range strings.Split(strings.TrimSpace(list), ",") {
+		for part := range strings.SplitSeq(strings.TrimSpace(list), ",") {
 			lo, hi, isRange := strings.Cut(part, "-")
 			first, err := strconv.Atoi(lo)
 			require.NoError(t, err)
@@ -49,7 +49,7 @@ func memTotalBytes(t *testing.T) uint64 {
 	t.Helper()
 	raw, err := os.ReadFile("/proc/meminfo")
 	require.NoError(t, err)
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		rest, ok := strings.CutPrefix(line, "MemTotal:")
 		if !ok {
 			continue

@@ -238,7 +238,7 @@ func (c confinement) failures(o observed) map[string]string {
 
 	uid := strconv.FormatUint(uint64(c.uid), 10)
 	for _, ids := range []string{o.status["Uid"], o.status["Gid"]} {
-		for _, id := range strings.Fields(ids) {
+		for id := range strings.FieldsSeq(ids) {
 			if id != uid {
 				fail("uid and gid", "Uid %q, Gid %q, the Machine's %s", o.status["Uid"], o.status["Gid"], uid)
 			}
@@ -352,7 +352,7 @@ func vmmProcessOf(t *testing.T, cgroupDir string) int {
 func cgroupProcs(dir string) []int {
 	raw, _ := os.ReadFile(filepath.Join(dir, "cgroup.procs"))
 	var pids []int
-	for _, field := range strings.Fields(string(raw)) {
+	for field := range strings.FieldsSeq(string(raw)) {
 		if pid, err := strconv.Atoi(field); err == nil {
 			pids = append(pids, pid)
 		}
@@ -365,7 +365,7 @@ func statusOf(t *testing.T, pid int) map[string]string {
 	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	require.NoError(t, err)
 	status := map[string]string{}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if key, value, ok := strings.Cut(line, ":"); ok {
 			status[key] = strings.TrimSpace(value)
 		}
@@ -392,7 +392,7 @@ func cgroupOf(t *testing.T, pid int) string {
 	t.Helper()
 	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
 	require.NoError(t, err)
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if path, ok := strings.CutPrefix(line, "0::"); ok {
 			return path
 		}

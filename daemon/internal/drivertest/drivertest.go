@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -124,12 +125,7 @@ func (s Subject) check(t *testing.T, at Checkpoint, m Machine) {
 }
 
 func has(d machine.Driver, c machine.Capability) bool {
-	for _, have := range d.Info().Capabilities {
-		if have == c {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(d.Info().Capabilities, c)
 }
 
 // resources are the size of every Machine of the suite.

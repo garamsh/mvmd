@@ -53,7 +53,7 @@ func main() {
 // commandLineToken is the value of mvmd.token on the kernel's command line, or "".
 func commandLineToken() string {
 	raw, _ := os.ReadFile("/proc/cmdline")
-	for _, field := range strings.Fields(string(raw)) {
+	for field := range strings.FieldsSeq(string(raw)) {
 		if v, ok := strings.CutPrefix(field, tokenField); ok {
 			return v
 		}

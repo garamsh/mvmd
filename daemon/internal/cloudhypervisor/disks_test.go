@@ -461,17 +461,18 @@ func TestDetachDisk_FindsADiskGivenAtBoot(t *testing.T) {
 // infoWith makes the VMM answer GET /vm.info with the disks given as id and
 // path pairs.
 func infoWith(f *fakeAPI, disks ...[2]string) {
-	body := `{"state":"Running","config":{"disks":[`
+	var body strings.Builder
+	body.WriteString(`{"state":"Running","config":{"disks":[`)
 	for i, d := range disks {
 		if i > 0 {
-			body += ","
+			body.WriteString(",")
 		}
-		body += `{"id":"` + d[0] + `","path":"` + d[1] + `","readonly":false}`
+		body.WriteString(`{"id":"` + d[0] + `","path":"` + d[1] + `","readonly":false}`)
 	}
-	body += `]}}`
+	body.WriteString(`]}}`)
 	f.answer = func(r request) (int, string) {
 		if r.Method == "GET" && r.Path == "/vm.info" {
-			return http.StatusOK, body
+			return http.StatusOK, body.String()
 		}
 		return http.StatusNoContent, ""
 	}

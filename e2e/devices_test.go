@@ -237,7 +237,7 @@ func (n *node) guestFile(t *testing.T, ctx context.Context, machine, id, path st
 // guestMemoryBytes is the memory the guest's kernel reports as its own.
 func (n *node) guestMemoryBytes(t *testing.T, ctx context.Context, machine, id string) uint64 {
 	t.Helper()
-	for _, line := range strings.Split(n.guestFile(t, ctx, machine, id, "/proc/meminfo"), "\n") {
+	for line := range strings.SplitSeq(n.guestFile(t, ctx, machine, id, "/proc/meminfo"), "\n") {
 		if fields := strings.Fields(line); len(fields) == 3 && fields[0] == "MemTotal:" {
 			kib, err := strconv.ParseUint(fields[1], 10, 64)
 			require.NoError(t, err)

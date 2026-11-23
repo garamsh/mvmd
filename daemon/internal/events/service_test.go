@@ -165,14 +165,12 @@ func TestWatch_ManyConcurrentWritersAreOneConsecutiveSequence(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range writers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id := machine.MachineID(fmt.Sprint("m", i))
 			for range each {
 				s.StateChanged(id, machine.StateRunning)
 			}
-		}()
+		})
 	}
 	for want := uint64(1); want <= writers*each; want++ {
 		assert.Equal(t, want, next(t, w).Sequence)

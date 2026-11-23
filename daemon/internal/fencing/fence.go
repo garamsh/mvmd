@@ -264,10 +264,7 @@ func (s *service) pushFence(ctx context.Context, id machine.MachineID, node *Rec
 		if sv.Machine != id {
 			continue
 		}
-		expiry := node.Expiry
-		if fence.Expiry < expiry {
-			expiry = fence.Expiry
-		}
+		expiry := min(fence.Expiry, node.Expiry)
 		return s.sup.SetExpiry(ctx, id, expiry)
 	}
 	return nil
