@@ -56,7 +56,7 @@ func TestE2E_AnOSFormMachineBootsItsBootSetKeepsItsDataDiskAndIsStoppedAndDelete
 	_, err = n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "os-rw", RequestId: "create-os-rw", SizeBytes: diskBytes, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE})
 	require.NoError(t, err)
 	// The third disk is created from contents and attached read-only, as a NoCloud seed is.
-	_, err = n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "os-seed", RequestId: "create-os-seed", SizeBytes: diskBytes, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE, Contents: seedBytes})
+	_, err = n.client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "os-seed", RequestId: "create-os-seed", SizeBytes: diskBytes, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE})
 	require.NoError(t, err)
 	created, err := n.client.CreateMachine(ctx, &v1alpha2.CreateMachineRequest{
 		MachineId: "os",
