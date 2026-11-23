@@ -96,5 +96,6 @@ Decisions:
 - [ADR 0063](./adr/0063-a-client-adds-a-boot-set-by-streaming-its-two-files-to-the-node-which-keeps-them-read-only-and-refuses-to-remove-one-a-machine-names.md) — a client adds a boot set by streaming its two files to the node, which keeps them read-only and refuses to remove one a Machine names (it amends ADR 0058)
 - [ADR 0064](./adr/0064-a-machine-created-fenced-has-a-fence-of-its-own-that-ends-only-its-vmm-when-it-lapses.md) — a Machine created fenced has a fence of its own that ends only its VMM when it lapses (it adds to the fencing deadline of ADR 0003 and to ADR 0062)
 - [ADR 0068](./adr/0068-the-composition-site-chooses-each-ports-adapter-in-one-function-and-checks-the-sections-before-it-builds.md) — the composition site chooses each port's adapter in one function and checks the sections before it builds
+- [ADR 0069](./adr/0069-a-client-asks-for-a-machines-address-at-create-and-the-node-gives-it-or-refuses-naming-it.md) — a client asks for a Machine's address at Create, and the node gives it or refuses naming it (it adds to the addressing of ADR 0011)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

@@ -221,3 +221,95 @@ func TestConfig_MachineAddressesIsHowManyMachinesAllocateServes(t *testing.T) {
 		assert.Equal(t, uint32(1<<24-3), c.MachineAddresses(), "2^24 addresses less the network, the broadcast and the gateway")
 	})
 }
+
+// kindOf is the kind of the *machine.Error err is, or nil for none.
+func kindOf(t *testing.T, err error) error {
+	t.Helper()
+	var failure *machine.Error
+	require.ErrorAs(t, err, &failure)
+	return failure.Kind
+}
+
+func TestAllocate_GivesTheAddressesAMachineAsksForAndChoosesTheRest(t *testing.T) {
+	n, err := New(nodeConfig())
+	require.NoError(t, err)
+	ctx := context.Background()
+	asked4, asked6 := netip.MustParseAddr("10.77.0.6"), netip.MustParseAddr("fd77::beef")
+
+	both, err := n.Allocate(ctx, "both", machine.Want{Addresses: []netip.Addr{asked4, asked6}})
+	require.NoError(t, err)
+	assert.Equal(t, []netip.Addr{asked4, asked6}, both.Addresses, "each family has the address asked for")
+
+	only4, err := n.Allocate(ctx, "only4", machine.Want{Addresses: []netip.Addr{netip.MustParseAddr("10.77.0.5")}})
+	require.NoError(t, err)
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.77.0.5"), netip.MustParseAddr("fd77::1")}, only4.Addresses,
+		"a family not asked for is chosen as before: the lowest free address")
+
+	none, err := n.Allocate(ctx, "none", machine.Want{})
+	require.NoError(t, err)
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.77.0.3"), netip.MustParseAddr("fd77::2")}, none.Addresses,
+		"control: with nothing asked for the choice is the node's, skipping what the others hold")
+
+	again, err := n.Allocate(ctx, "both", machine.Want{Addresses: []netip.Addr{asked4, asked6}})
+	require.NoError(t, err)
+	assert.Equal(t, both, again, "a Machine that holds an identity is given it again")
+}
+
+func TestAllocate_RefusesAnAddressItCannotGiveAndTakesNothing(t *testing.T) {
+	n, err := New(nodeConfig())
+	require.NoError(t, err)
+	ctx := context.Background()
+	held, err := n.Allocate(ctx, "holder", machine.Want{Addresses: []netip.Addr{netip.MustParseAddr("10.77.0.4"), netip.MustParseAddr("fd77::4")}})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		asked  string
+		kind   error
+		reason string
+	}{
+		{"an IPv4 address outside the node's prefix", "192.0.2.9", machine.ErrInvalid, "outside the node's Machine prefix 10.77.0.0/29"},
+		{"an IPv6 address outside the node's prefix", "fd78::1", machine.ErrInvalid, "outside the node's Machine prefix fd77::/64"},
+		{"the network address", "10.77.0.0", machine.ErrInvalid, "the network address of 10.77.0.0/29"},
+		{"the IPv6 network address", "fd77::", machine.ErrInvalid, "the network address of fd77::/64"},
+		{"the broadcast address", "10.77.0.7", machine.ErrInvalid, "the broadcast address of 10.77.0.0/29"},
+		{"the gateway", "10.77.0.1", machine.ErrConflict, "the gateway"},
+		{"a resolver", "10.77.0.2", machine.ErrConflict, "a resolver"},
+		{"an IPv4 address another Machine holds", "10.77.0.4", machine.ErrConflict, `held by Machine "holder"`},
+		{"an IPv6 address another Machine holds", "fd77::4", machine.ErrConflict, `held by Machine "holder"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := netip.MustParseAddr(tt.asked)
+			_, err := n.Allocate(ctx, "asker", machine.Want{Addresses: []netip.Addr{a}})
+			require.Error(t, err)
+			assert.Equal(t, tt.kind, kindOf(t, err))
+			assert.ErrorContains(t, err, tt.asked, "the refusal names the address")
+			assert.ErrorContains(t, err, tt.reason)
+			_, took := n.held["asker"]
+			assert.False(t, took, "a refused Machine holds nothing")
+		})
+	}
+
+	// The control: the neighbours of every refused address are given.
+	free, err := n.Allocate(ctx, "free", machine.Want{Addresses: []netip.Addr{netip.MustParseAddr("10.77.0.6"), netip.MustParseAddr("fd77::6")}})
+	require.NoError(t, err)
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.77.0.6"), netip.MustParseAddr("fd77::6")}, free.Addresses)
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.77.0.4"), netip.MustParseAddr("fd77::4")}, held.Addresses, "the holder keeps its own")
+}
+
+func TestAllocate_RefusesAnAddressOfAFamilyTheNodeDoesNotServe(t *testing.T) {
+	cfg := nodeConfig()
+	cfg.IPv6Prefix = netip.Prefix{}
+	n, err := New(cfg)
+	require.NoError(t, err)
+
+	_, err = n.Allocate(context.Background(), "m", machine.Want{Addresses: []netip.Addr{netip.MustParseAddr("fd77::5")}})
+	require.Error(t, err)
+	assert.Equal(t, machine.ErrInvalid, kindOf(t, err))
+	assert.ErrorContains(t, err, "fd77::5")
+
+	ok, err := n.Allocate(context.Background(), "m", machine.Want{Addresses: []netip.Addr{netip.MustParseAddr("10.77.0.5")}})
+	require.NoError(t, err, "control: the served family is given")
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.77.0.5")}, ok.Addresses)
+}
