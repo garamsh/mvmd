@@ -17,6 +17,7 @@ It contains no container runtime, and it does not decide when a Machine runs.
 ## Where to read
 
 - `docs/architecture/README.md` — the index of the architecture documents and decisions
+- `docs/operations/README.md` — installing mvmd on a host, upgrading it with Machines running, and recovering it
 - `docs/architecture/structure.md` — the shape, the repository layout and the boundaries
 - `docs/convention/README.md` — the conventions every change follows
 - `AGENTS.md` — the contribution contract: who may change what
@@ -26,6 +27,7 @@ It contains no container runtime, and it does not decide when a Machine runs.
 - `AGENTS.md` — the contribution contract
 - `docs/convention/` — conventions for code, reviews and documentation
 - `docs/architecture/` — responsibility documents (current truth) and ADRs (append-only decision log)
+- `docs/operations/` — what an operator runs to install, upgrade and recover mvmd
 - `docs/procedure/` — procedures for this repository's recurring acts
 - `.github/` — PR and issue templates, and CODEOWNERS
 
