@@ -73,7 +73,7 @@ func (s *Server) SnapshotDisk(ctx context.Context, req *v1alpha2.SnapshotDiskReq
 	if err := s.machines.SnapshotDisk(ctx, machine.DiskID(req.GetDiskId()), machine.DiskSnapshotID(req.GetSnapshotId()), machine.RequestID(req.GetRequestId())); err != nil {
 		return nil, status(err)
 	}
-	all, err := s.machines.ListDiskSnapshots(ctx)
+	all, err := s.diskSnapshots(ctx)
 	if err != nil {
 		return nil, status(err)
 	}
@@ -86,7 +86,7 @@ func (s *Server) SnapshotDisk(ctx context.Context, req *v1alpha2.SnapshotDiskReq
 }
 
 func (s *Server) ListDiskSnapshots(ctx context.Context, _ *v1alpha2.ListDiskSnapshotsRequest) (*v1alpha2.ListDiskSnapshotsResponse, error) {
-	all, err := s.machines.ListDiskSnapshots(ctx)
+	all, err := s.diskSnapshots(ctx)
 	if err != nil {
 		return nil, status(err)
 	}
@@ -101,10 +101,21 @@ func (s *Server) DeleteDiskSnapshot(ctx context.Context, req *v1alpha2.DeleteDis
 	if req.GetSnapshotId() == "" {
 		return nil, rejected("snapshot_id is empty")
 	}
-	if err := s.machines.DeleteDiskSnapshot(ctx, machine.DiskSnapshotID(req.GetSnapshotId())); err != nil {
+	if s.catalog == nil {
+		return nil, status(machine.NewError(machine.ErrUnsupported, "the node keeps no catalog of disk snapshots"))
+	}
+	if err := s.catalog.DeleteDiskSnapshot(ctx, machine.DiskSnapshotID(req.GetSnapshotId())); err != nil {
 		return nil, status(err)
 	}
 	return &v1alpha2.DeleteDiskSnapshotResponse{}, nil
+}
+
+// diskSnapshots lists the disk snapshots the node holds, which the catalog answers.
+func (s *Server) diskSnapshots(ctx context.Context) ([]machine.DiskSnapshotInfo, error) {
+	if s.catalog == nil {
+		return nil, machine.NewError(machine.ErrUnsupported, "the node keeps no catalog of disk snapshots")
+	}
+	return s.catalog.ListDiskSnapshots(ctx)
 }
 
 func diskSnapshotToWire(d machine.DiskSnapshotInfo) *v1alpha2.DiskSnapshot {

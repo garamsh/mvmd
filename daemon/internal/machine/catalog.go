@@ -13,6 +13,10 @@ type Catalog interface {
 	// HoldBootSet keeps the boot set of the name from being removed until the
 	// returned release is called.
 	HoldBootSet(name string) (release func())
+	// HoldDiskSnapshot keeps the disk snapshot from being removed, and from being
+	// held by a call of the other kind, until the returned release is called:
+	// exclusive for the call that writes it, shared for one that reads it.
+	HoldDiskSnapshot(snapshot DiskSnapshotID, exclusive bool) (release func())
 	// ResolveBootSet finds the set the name offers, a configured one before an
 	// added one, or returns ErrBootSetAbsent.
 	ResolveBootSet(ctx context.Context, name string) (BootSet, error)
@@ -25,6 +29,8 @@ type noCatalog struct{}
 func (noCatalog) HoldImage(ImageDigest) func() { return func() {} }
 
 func (noCatalog) HoldBootSet(string) func() { return func() {} }
+
+func (noCatalog) HoldDiskSnapshot(DiskSnapshotID, bool) func() { return func() {} }
 
 func (noCatalog) ResolveBootSet(context.Context, string) (BootSet, error) {
 	return BootSet{}, ErrBootSetAbsent

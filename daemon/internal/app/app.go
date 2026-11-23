@@ -238,7 +238,7 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 	}
 	log := events.NewService(eventsKept)
 	deadline := fencing.NewService(clock, db.Deadline(), supervisors, log, fencing.WithFences(db.Fences()))
-	nodeCatalog := catalog.NewService(located, snapshots, db.Machines(), catalog.WithCallTimeout(callTimeout), catalog.WithBootSets(bootSets), catalog.WithAddedBootSets(addedSets))
+	nodeCatalog := catalog.NewService(located, snapshots, db.Machines(), catalog.WithCallTimeout(callTimeout), catalog.WithBootSets(bootSets), catalog.WithAddedBootSets(addedSets), catalog.WithDiskSnapshots(diskSnapshots))
 	machines := machine.NewService(driver, deadline, network, disks, located, snapshots, guest, wallClock{}, db.Machines(), deadline, uids, log, machine.WithBootTimeout(bootTimeout), machine.WithCatalog(nodeCatalog), machine.WithCallTimeout(callTimeout), machine.WithKernels(kernels), machine.WithBootFiles(bootFiles), machine.WithDiskSnapshots(diskSnapshots), machine.WithBootIdentity(clock), machine.WithFences(deadline))
 
 	machinesHeld := func() (uint32, error) {

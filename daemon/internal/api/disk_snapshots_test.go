@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/garamsh/mvmd/daemon/internal/api"
+	"github.com/garamsh/mvmd/daemon/internal/catalog"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 	"github.com/garamsh/mvmd/lib/runtimeapi/v1alpha2"
 )
@@ -33,13 +34,20 @@ func (k *snapKeeper) SnapshotDisk(_ context.Context, disk machine.DiskID, snapsh
 	return k.err
 }
 
-func (k *snapKeeper) ListDiskSnapshots(context.Context) ([]machine.DiskSnapshotInfo, error) {
-	return k.snapshots, k.err
+// snapCatalog is the catalog that answers for a snapKeeper: the calls on disk snapshots the
+// catalog serves, with the same fixed answers.
+type snapCatalog struct {
+	catalog.Service
+	k *snapKeeper
 }
 
-func (k *snapKeeper) DeleteDiskSnapshot(_ context.Context, snapshot machine.DiskSnapshotID) error {
-	k.deleted = append(k.deleted, snapshot)
-	return k.err
+func (c snapCatalog) ListDiskSnapshots(context.Context) ([]machine.DiskSnapshotInfo, error) {
+	return c.k.snapshots, c.k.err
+}
+
+func (c snapCatalog) DeleteDiskSnapshot(_ context.Context, snapshot machine.DiskSnapshotID) error {
+	c.k.deleted = append(c.k.deleted, snapshot)
+	return c.k.err
 }
 
 func (k *snapKeeper) CreateDisk(context.Context, machine.DiskID, machine.RequestID, uint64, machine.Filesystem) error {
@@ -56,7 +64,11 @@ func (k *snapKeeper) CreateDiskFromSnapshot(_ context.Context, _ machine.DiskID,
 func (k *snapKeeper) ListDisks(context.Context) ([]machine.DiskInfo, error) { return k.disks, nil }
 
 func serverOf(m machine.Service) *api.Server {
-	return api.New(m, nil, nil, machine.DriverInfo{}, nil, nil)
+	var options []api.Option
+	if k, ok := m.(*snapKeeper); ok {
+		options = append(options, api.WithCatalog(snapCatalog{k: k}))
+	}
+	return api.New(m, nil, nil, machine.DriverInfo{}, nil, nil, options...)
 }
 
 func TestSnapshotDisk_PassesTheIdentifiersAndReportsTheSnapshot(t *testing.T) {
