@@ -78,10 +78,12 @@ type Substitutes struct {
 
 // App is the wired daemon.
 type App struct {
-	cfg         Config
-	db          *boltstore.DB
-	machines    machine.Service
-	deadline    fencing.Service
+	cfg      Config
+	db       *boltstore.DB
+	machines machine.Service
+	deadline fencing.Service
+	// supervisors are the Machines' supervisors.
+	supervisors fencing.Supervisors
 	images      images
 	server      *api.Server
 	Substitutes *Substitutes
@@ -251,6 +253,7 @@ func build(cfg Config, newClock func() (fencing.Clock, error)) (*App, error) {
 		db:          db,
 		machines:    machines,
 		deadline:    deadline,
+		supervisors: supervisors,
 		images:      imgs,
 		server:      api.New(machines, deadline, imgs.service, driver.Info(), held.New(capacity, machineLimit, machinesHeld), log, api.WithKernels(kernels), api.WithCatalog(nodeCatalog), api.WithBootSets(nodeCatalog.ListBootSets), api.WithMachinePrefixes(prefixes...)),
 		Substitutes: sub,
@@ -273,6 +276,13 @@ func (a *App) Serve(ctx context.Context) error {
 	defer a.db.Close()
 	if a.beforeReconcile != nil {
 		a.beforeReconcile()
+	}
+	// A supervisor this mvmd does not speak to is found before anything is
+	// changed, and the start is refused (ADR 0070).
+	if c, ok := a.supervisors.(interface{ CheckCompatible(context.Context) error }); ok {
+		if err := c.CheckCompatible(ctx); err != nil {
+			return err
+		}
 	}
 	// The conversions go first: the sweep removes the staging area of one
 	// whose VMM has ended, and no pull is running, so none is mistaken for a

@@ -10,6 +10,10 @@ import (
 type Supervisor struct {
 	Machine machine.MachineID
 	Expiry  BootTime
+	// APIVersion is the supervisor API the supervisor says it speaks (ADR 0070),
+	// empty for a supervisor of a release that did not say, or that did not
+	// answer.
+	APIVersion string
 }
 
 // Supervisors is the conversation with the per-Machine supervisors, as the
