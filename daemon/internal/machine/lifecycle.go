@@ -119,8 +119,9 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	if errors.Is(err, ErrNoFreeAddress) {
 		return fail(ErrPreconditionFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("allocate network: %v", err)))
 	}
-	// A routed prefix the node refuses is the request's fault, not a failure of
-	// the node, so it is answered as it is and not recorded under the request.
+	// A routed prefix or a requested address the node refuses is the request's
+	// fault, not a failure of the node, so it is answered as it is and not
+	// recorded under the request (ADR 0061, ADR 0069).
 	if refusal := (*Error)(nil); errors.As(err, &refusal) && (refusal.Kind == ErrInvalid || refusal.Kind == ErrConflict) {
 		if reason := s.giveUp(ctx, t, refusal.Reason); reason != refusal.Reason {
 			return fail(ErrFailed, "%s", reason)
