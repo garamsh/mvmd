@@ -105,7 +105,13 @@ test: export GUEST_AGENT_CHANNEL := $(CURDIR)/guest-agent/target/debug/guest-age
 # The daemon's Converter channel tests run the host-side converter binary, built and named the same
 # way.
 test: export CONVERTER_CHANNEL := $(CURDIR)/converter/target/debug/converter-channel
+# The glob cases the Guest Agent and the daemon's in-memory Guest are each held to are one file in
+# two places, since a unit reads only its own files. The first step of test fails unless the two are
+# equal.
+GLOB_CASES := guest-agent/crates/guest-agent/testdata/glob_cases.tsv daemon/internal/machine/memory/testdata/glob_cases.tsv
 test: erofs-utils
+	@cmp $(GLOB_CASES)
+	@echo "$@: the glob cases of the Guest Agent and of the in-memory Guest are one file of $$(grep -vc '^#' $(firstword $(GLOB_CASES))) case(s)"
 	$(call each_rust, $(count_members); $(CARGO) test --workspace --locked)
 	cd guest-agent && $(CARGO) build --locked -p guest-agent --bin guest-agent-channel
 	cd converter && $(CARGO) build --locked -p converter --bin converter-channel
