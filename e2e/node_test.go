@@ -501,17 +501,24 @@ var errFirstLineIn = errors.New("the first line is in")
 // output until the first line is in.
 func (n *node) entrypointOutput(t *testing.T, ctx context.Context, machine string) string {
 	t.Helper()
+	return n.firstLineOf(t, ctx, machine, "entrypoint")
+}
+
+// firstLineOf reads what the command execID of the Machine has written so far, from the start of
+// its output until the first line is in.
+func (n *node) firstLineOf(t *testing.T, ctx context.Context, machine, execID string) string {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	var out strings.Builder
-	_, err := v1alpha2.ReadExecOutput(ctx, n.client, machine, "entrypoint", 0, func(c *v1alpha2.OutputChunk) error {
+	_, err := v1alpha2.ReadExecOutput(ctx, n.client, machine, execID, 0, func(c *v1alpha2.OutputChunk) error {
 		out.Write(c.GetData())
 		if strings.Contains(out.String(), "\n") {
 			return errFirstLineIn
 		}
 		return nil
 	})
-	require.ErrorIs(t, err, errFirstLineIn, "the entrypoint's output so far: %q", out.String())
+	require.ErrorIs(t, err, errFirstLineIn, "the output of %s so far: %q", execID, out.String())
 	return out.String()
 }
 
