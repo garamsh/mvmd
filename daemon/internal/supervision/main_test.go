@@ -200,7 +200,7 @@ func describeHost() {
 	_ = unix.Uname(&u)
 	cpu := "unknown"
 	if raw, err := os.ReadFile("/proc/cpuinfo"); err == nil {
-		for _, line := range strings.Split(string(raw), "\n") {
+		for line := range strings.SplitSeq(string(raw), "\n") {
 			if strings.HasPrefix(line, "model name") {
 				if _, v, ok := strings.Cut(line, ":"); ok {
 					cpu = strings.TrimSpace(v)
@@ -236,7 +236,7 @@ func inCgroup(id string, words ...string) []int {
 		return nil
 	}
 	var out []int
-	for _, field := range strings.Fields(string(raw)) {
+	for field := range strings.FieldsSeq(string(raw)) {
 		pid, err := strconv.Atoi(field)
 		if err != nil {
 			continue
@@ -308,7 +308,7 @@ func members(ns string) map[int]int {
 		}
 		uid := -1
 		if st, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid)); err == nil {
-			for _, line := range strings.Split(string(st), "\n") {
+			for line := range strings.SplitSeq(string(st), "\n") {
 				if f := strings.Fields(line); len(f) > 1 && f[0] == "Uid:" {
 					uid, _ = strconv.Atoi(f[1])
 				}

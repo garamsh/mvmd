@@ -90,7 +90,7 @@ func statusOf(t *testing.T, pid int) map[string]string {
 	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
 	require.NoError(t, err)
 	out := map[string]string{}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if k, v, ok := strings.Cut(line, ":"); ok {
 			out[k] = strings.TrimSpace(v)
 		}
@@ -429,7 +429,7 @@ func newRaw(t *testing.T, name, cgroupParent string) *raw {
 func removeCgroup(t *testing.T, dir string) {
 	t.Helper()
 	var err error
-	for i := 0; i < 80; i++ {
+	for range 80 {
 		if err = os.Remove(dir); err == nil || os.IsNotExist(err) {
 			return
 		}

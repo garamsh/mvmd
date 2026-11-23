@@ -184,7 +184,7 @@ func TestConsole_ASessionThatReadsNothingIsDroppedAndHoldsBackNoOneElse(t *testi
 	// never behind.
 	line := strings.Repeat("x", chunkSize-1) + "\n"
 	const lines = 3 * sessionBacklog / chunkSize
-	for i := 0; i < lines; i++ {
+	for i := range lines {
 		v.write(t, line)
 		require.Equal(t, line, read(t, live, len(line)), "the live session has line %d", i)
 	}
@@ -230,7 +230,7 @@ func TestConsole_LogsThatASessionFarBehindWasDroppedForItsBacklog(t *testing.T) 
 	require.NoError(t, err)
 
 	line := strings.Repeat("x", chunkSize-1) + "\n"
-	for i := 0; i < 3*sessionBacklog/chunkSize; i++ {
+	for range 3 * sessionBacklog / chunkSize {
 		v.write(t, line)
 		require.Equal(t, line, read(t, live, len(line)))
 	}

@@ -41,7 +41,7 @@ func TestSearchFiles_MatchesTheAgentsGlob(t *testing.T) {
 	require.NoError(t, err)
 	paths := func(column string) []string {
 		var out []string
-		for _, p := range strings.Split(column, "|") {
+		for p := range strings.SplitSeq(column, "|") {
 			if p != "" {
 				out = append(out, p)
 			}
@@ -49,7 +49,7 @@ func TestSearchFiles_MatchesTheAgentsGlob(t *testing.T) {
 		return out
 	}
 	checked := 0
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

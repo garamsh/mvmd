@@ -42,7 +42,7 @@ func (a *Adapter) createVMMCgroup(id machine.MachineID) (string, error) {
 // for the next start of the Machine to remove.
 func (a *Adapter) removeVMMCgroup(id machine.MachineID) {
 	path := filepath.Join(a.cfg.VMMCgroup, string(id))
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		err := os.Remove(path)
 		if err == nil || errors.Is(err, fs.ErrNotExist) || !errors.Is(err, syscall.EBUSY) {
 			return

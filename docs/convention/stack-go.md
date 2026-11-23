@@ -3,9 +3,13 @@
 > How a Go module is laid out and where each kind of code belongs:
 > directories, naming, errors, logging, comments, tests, imports.
 >
-> Checked against go1.21.13, mockery v3.7.4, goimports
-> (golang.org/x/tools) v0.49.0 and golangci-lint v2.13.2. A claim below
-> that names no version holds for these.
+> Checked against go1.26.10 and goimports (golang.org/x/tools) v0.49.0:
+> the claims about what `go build`, `go test`, `go vet`, `go list` and
+> `gofmt` print and exit with, which sets `./...` selects, and how
+> `goimports` groups imports were re-run on those, and mockery v3.7.3 and
+> v3.7.4 each declare `go 1.25.5`. mockery's other claims (v3.7.4) and
+> golangci-lint (v2.13.2) were not re-run: this repository configures
+> neither. A claim below that names no version holds for go1.26.10.
 
 ## Contents
 - 0. Folder & file naming — strict

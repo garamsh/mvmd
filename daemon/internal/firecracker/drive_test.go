@@ -3,6 +3,7 @@ package firecracker_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,17 +17,18 @@ const dataDrive = "disk_3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb
 // configWith makes the VMM answer GET /vm/config with the drives given as
 // drive_id and path_on_host pairs.
 func configWith(f *fakeAPI, drives ...[2]string) {
-	body := `{"drives":[`
+	var body strings.Builder
+	body.WriteString(`{"drives":[`)
 	for i, d := range drives {
 		if i > 0 {
-			body += ","
+			body.WriteString(",")
 		}
-		body += `{"drive_id":"` + d[0] + `","path_on_host":"` + d[1] + `","is_read_only":false}`
+		body.WriteString(`{"drive_id":"` + d[0] + `","path_on_host":"` + d[1] + `","is_read_only":false}`)
 	}
-	body += `]}`
+	body.WriteString(`]}`)
 	f.answer = func(r request) (int, string) {
 		if r.Method == "GET" && r.Path == "/vm/config" {
-			return http.StatusOK, body
+			return http.StatusOK, body.String()
 		}
 		return http.StatusNoContent, ""
 	}

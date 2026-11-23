@@ -284,9 +284,7 @@ func TestEvents_ConcurrentStateChangesAreOneOrderedSequence(t *testing.T) {
 	const machines, perMachine = 8, 5
 	var wg sync.WaitGroup
 	for i := range machines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			id := fmt.Sprint("m", i)
 			for _, call := range []func() error{
 				func() error { _, err := n.client.CreateMachine(ctx, create(id)); return err },
@@ -309,7 +307,7 @@ func TestEvents_ConcurrentStateChangesAreOneOrderedSequence(t *testing.T) {
 			} {
 				assert.NoError(t, call())
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

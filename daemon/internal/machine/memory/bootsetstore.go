@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"maps"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -66,9 +67,7 @@ func (b *BootSetStore) List(context.Context) (machine.BootSets, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	out := make(machine.BootSets, len(b.sets))
-	for n, s := range b.sets {
-		out[n] = s
-	}
+	maps.Copy(out, b.sets)
 	return out, nil
 }
 

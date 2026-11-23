@@ -102,7 +102,7 @@ func (e *dialError) GRPCStatus() *status.Status {
 // from what it has already passed on.
 func (g *Guest) run(ctx context.Context, id machine.MachineID, op operation, f func(guestv1alpha1.GuestServiceClient) error) error {
 	var err error
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		err = g.once(ctx, id, op, f)
 		if err == nil || ctx.Err() != nil || !reset(err) {
 			break

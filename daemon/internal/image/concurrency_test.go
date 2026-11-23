@@ -46,11 +46,9 @@ func TestPull_ConcurrentPullsOfDifferentDigestsAreSeparatePulls(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range callers {
 		ref := r.add(string(rune('a' + i)))
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			assert.NoError(t, r.pull(ref))
-		}()
+		})
 	}
 	wg.Wait()
 

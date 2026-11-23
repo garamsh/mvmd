@@ -258,7 +258,7 @@ func (s *service) ResizeDisk(ctx context.Context, disk DiskID, sizeBytes uint64)
 	}
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
-	for attempt := 0; attempt < resizeAttempts; attempt++ {
+	for range resizeAttempts {
 		if done, err := s.resizeDisk(ctx, disk, sizeBytes); done {
 			return err
 		}

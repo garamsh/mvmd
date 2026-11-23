@@ -319,7 +319,7 @@ func (n *node) remove() {
 	}
 	mount := filepath.Join(n.work, "mnt")
 	if _, err := os.Stat(mount); err == nil {
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			if err := exec.Command("umount", mount).Run(); err == nil {
 				break
 			}
@@ -416,7 +416,7 @@ func removeCgroup(path string) {
 		return nil
 	})
 	for i := len(dirs) - 1; i >= 0; i-- {
-		for try := 0; try < 40; try++ {
+		for range 40 {
 			err := os.Remove(dirs[i])
 			if err == nil || errors.Is(err, fs.ErrNotExist) {
 				break

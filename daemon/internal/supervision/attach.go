@@ -104,7 +104,7 @@ func stillTheChild(pid, supervisor, inner int) bool {
 	}
 	var ppid int
 	var nspid []string
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		switch {
 		case strings.HasPrefix(line, "PPid:"):
 			ppid, _ = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PPid:")))

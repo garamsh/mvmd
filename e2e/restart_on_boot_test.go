@@ -148,7 +148,7 @@ func (n *node) killSupervisorsAndVMMs() {
 				return nil
 			}
 			raw, _ := os.ReadFile(p)
-			for _, f := range strings.Fields(string(raw)) {
+			for f := range strings.FieldsSeq(string(raw)) {
 				if pid, err := strconv.Atoi(f); err == nil {
 					_ = syscall.Kill(pid, syscall.SIGKILL)
 				}

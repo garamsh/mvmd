@@ -226,8 +226,7 @@ func TestExpiry_KillFailureIsReported(t *testing.T) {
 	e.running(t, "a")
 	e.sup.FailAt("terminate:a", errBoom)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan error, 1)
 	go func() { done <- e.svc.Run(ctx) }()
 	e.clock.Advance(time.Minute)
@@ -397,23 +396,19 @@ func TestStartsAndRenewalsAreSerialized(t *testing.T) {
 	number.Store(1)
 	var wg sync.WaitGroup
 	for i := range machines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			require.NoError(t, e.m.Start(ctx, machine.MachineID(fmt.Sprintf("m%d", i))))
-		}()
+		})
 	}
 	for i := range 12 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			length := time.Hour
 			if i%2 == 0 {
 				length = time.Minute // alternating extensions and shortenings
 			}
 			_, err := e.svc.Renew(ctx, length, number.Add(1))
 			require.NoError(t, err)
-		}()
+		})
 	}
 	wg.Wait()
 

@@ -47,7 +47,7 @@ func (s *service) SnapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 	case !errors.Is(err, ErrDiskSnapshotAbsent):
 		return fail(ErrFailed, "look up disk snapshot %q: %v", snapshot, err)
 	}
-	for attempt := 0; attempt < resizeAttempts; attempt++ {
+	for range resizeAttempts {
 		if done, err := s.snapshotDisk(ctx, disk, snapshot, request); done {
 			return err
 		}

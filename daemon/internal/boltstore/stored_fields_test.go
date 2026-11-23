@@ -41,21 +41,21 @@ func (f *filler) number() int {
 func (f *filler) fill(v reflect.Value) {
 	typ := v.Type()
 	switch typ {
-	case reflect.TypeOf(netip.Addr{}):
+	case reflect.TypeFor[netip.Addr]():
 		v.Set(reflect.ValueOf(netip.AddrFrom4([4]byte{10, 0, byte(f.number() / 256), byte(f.number())})))
 		return
-	case reflect.TypeOf(netip.Prefix{}):
+	case reflect.TypeFor[netip.Prefix]():
 		v.Set(reflect.ValueOf(netip.PrefixFrom(netip.AddrFrom4([4]byte{10, byte(f.number()), 0, 0}), 16)))
 		return
-	case reflect.TypeOf(time.Time{}):
+	case reflect.TypeFor[time.Time]():
 		// A time is an instant in UTC, as the store reads one back.
 		v.Set(reflect.ValueOf(time.Date(2026, 11, 11, 12, 34, 56, f.number(), time.UTC)))
 		return
-	case reflect.TypeOf(machine.State(0)), reflect.TypeOf(machine.Protocol(0)), reflect.TypeOf(machine.ExecStatus(0)), reflect.TypeOf(machine.ProbeKind(0)):
+	case reflect.TypeFor[machine.State](), reflect.TypeFor[machine.Protocol](), reflect.TypeFor[machine.ExecStatus](), reflect.TypeFor[machine.ProbeKind]():
 		// An enum holds one of its own values; 2 is one of each.
 		v.SetInt(2)
 		return
-	case reflect.TypeOf(&machine.Error{}):
+	case reflect.TypeFor[*machine.Error]():
 		v.Set(reflect.ValueOf(machine.NewError(machine.ErrConflict, "reason %d", f.number())))
 		return
 	}
@@ -160,7 +160,7 @@ func assertNoZero(t *testing.T, v reflect.Value, path string) {
 	typ := v.Type()
 	switch typ.Kind() {
 	case reflect.Struct:
-		if typ == reflect.TypeOf(netip.Addr{}) || typ == reflect.TypeOf(netip.Prefix{}) || typ == reflect.TypeOf(time.Time{}) {
+		if typ == reflect.TypeFor[netip.Addr]() || typ == reflect.TypeFor[netip.Prefix]() || typ == reflect.TypeFor[time.Time]() {
 			assert.False(t, v.IsZero(), path)
 			return
 		}

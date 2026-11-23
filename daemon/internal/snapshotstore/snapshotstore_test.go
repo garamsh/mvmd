@@ -286,11 +286,9 @@ func TestPut_PutsOfOneIdentifierAtOnceKeepExactlyOne(t *testing.T) {
 	errs := make([]error, n)
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs[i] = s.Put(ctx, snapshot("same"), all[i])
-		}()
+		})
 	}
 	wg.Wait()
 	won := 0

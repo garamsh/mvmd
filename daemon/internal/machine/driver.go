@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -370,10 +371,5 @@ type Driver interface {
 }
 
 func (i DriverInfo) has(c Capability) bool {
-	for _, have := range i.Capabilities {
-		if have == c {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(i.Capabilities, c)
 }
