@@ -95,9 +95,9 @@ func TestAllocate_GivesEachMachineItsOwnAddressesAndMAC(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 
-	a, err := n.Allocate(ctx, "a", "")
+	a, err := n.Allocate(ctx, "a", machine.Want{})
 	require.NoError(t, err)
-	b, err := n.Allocate(ctx, "b", "")
+	b, err := n.Allocate(ctx, "b", machine.Want{})
 	require.NoError(t, err)
 
 	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.77.0.3"), netip.MustParseAddr("fd77::1")}, a.Addresses,
@@ -112,7 +112,7 @@ func TestAllocate_GivesEachMachineItsOwnAddressesAndMAC(t *testing.T) {
 	assert.NotZero(t, hw[0]&0x02, "locally administered")
 	assert.Zero(t, hw[0]&0x01, "unicast")
 
-	again, err := n.Allocate(ctx, "a", "")
+	again, err := n.Allocate(ctx, "a", machine.Want{})
 	require.NoError(t, err)
 	assert.Equal(t, a, again, "a Machine that holds an identity is given it again")
 }
@@ -120,11 +120,11 @@ func TestAllocate_GivesEachMachineItsOwnAddressesAndMAC(t *testing.T) {
 func TestAllocate_KeepsTheMACItIsGivenAndRefusesAnother(t *testing.T) {
 	n, err := New(nodeConfig())
 	require.NoError(t, err)
-	kept, err := n.Allocate(context.Background(), "restored", "52:54:00:12:34:56")
+	kept, err := n.Allocate(context.Background(), "restored", machine.Want{MAC: "52:54:00:12:34:56"})
 	require.NoError(t, err)
 	assert.Equal(t, "52:54:00:12:34:56", kept.MAC)
 	for _, bad := range []string{"not-a-mac", "52:54:00:12:34", "52:54:00:12:34:56:78:9a"} {
-		_, err := n.Allocate(context.Background(), machine.MachineID(bad), bad)
+		_, err := n.Allocate(context.Background(), machine.MachineID(bad), machine.Want{MAC: bad})
 		assert.Error(t, err, bad)
 	}
 }
@@ -134,10 +134,10 @@ func TestAllocate_RunsOutOfAddressesAndSaysSo(t *testing.T) {
 	require.NoError(t, err)
 	// 10.77.0.0/29 holds .1 to .6; .1 and .2 belong to the node.
 	for _, id := range []machine.MachineID{"a", "b", "c", "d"} {
-		_, err := n.Allocate(context.Background(), id, "")
+		_, err := n.Allocate(context.Background(), id, machine.Want{})
 		require.NoError(t, err, id)
 	}
-	_, err = n.Allocate(context.Background(), "e", "")
+	_, err = n.Allocate(context.Background(), "e", machine.Want{})
 	assert.ErrorIs(t, err, machine.ErrNoFreeAddress)
 	assert.ErrorContains(t, err, "10.77.0.0/29")
 	_, held := n.held["e"]
@@ -199,7 +199,7 @@ func TestConfig_MachineAddressesIsHowManyMachinesAllocateServes(t *testing.T) {
 			require.NoError(t, err)
 			served := uint32(0)
 			for {
-				_, err := n.Allocate(context.Background(), machine.MachineID(fmt.Sprintf("m%d", served)), "")
+				_, err := n.Allocate(context.Background(), machine.MachineID(fmt.Sprintf("m%d", served)), machine.Want{})
 				if err != nil {
 					require.ErrorIs(t, err, machine.ErrNoFreeAddress)
 					break

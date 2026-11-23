@@ -113,11 +113,42 @@ func specOf(req *v1alpha2.CreateMachineRequest) (machine.Spec, error) {
 	if spec.RoutedPrefixes, err = routedOf(req.GetRoutedPrefixes()); err != nil {
 		return spec, err
 	}
+	if spec.RequestedAddresses, err = requestedOf(req.GetRequestedIpv4(), req.GetRequestedIpv6()); err != nil {
+		return spec, err
+	}
 	if spec.Policy.Egress, err = rulesOf(req.GetNetworkPolicy().GetEgress()); err != nil {
 		return spec, err
 	}
 	spec.Policy.Ingress, err = rulesOf(req.GetNetworkPolicy().GetIngress())
 	return spec, err
+}
+
+// requestedOf parses the addresses a request asks for, one per family, in the
+// family its field names (ADR 0069). What an address may be on the node is the
+// inside's to say, so only its form is checked here.
+func requestedOf(v4, v6 string) ([]netip.Addr, error) {
+	var out []netip.Addr
+	for _, f := range []struct {
+		field, value string
+		is           func(netip.Addr) bool
+		family       string
+	}{
+		{"requested_ipv4", v4, netip.Addr.Is4, "IPv4"},
+		{"requested_ipv6", v6, func(a netip.Addr) bool { return a.Is6() && !a.Is4In6() }, "IPv6"},
+	} {
+		if f.value == "" {
+			continue
+		}
+		a, err := netip.ParseAddr(f.value)
+		if err != nil {
+			return nil, fmt.Errorf("%s %q is not an address: %w", f.field, f.value, err)
+		}
+		if !f.is(a) {
+			return nil, fmt.Errorf("%s %q is not an %s address", f.field, f.value, f.family)
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // routedOf parses the routed prefixes of a request, in CIDR form. What a

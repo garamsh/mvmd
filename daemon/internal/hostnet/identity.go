@@ -32,16 +32,21 @@ func tapName(id machine.MachineID) string {
 // linkLocalGateway is the host's only IPv6 address on a tap (ADR 0011).
 var linkLocalGateway = netip.MustParseAddr("fe80::1")
 
-// allocate chooses the identity of a Machine that holds none. A non-empty mac
-// is kept. Callers hold n.mu.
-func (n *Network) allocate(mac string) (machine.NetworkIdentity, error) {
-	hw, err := n.chooseMAC(mac)
+// allocate chooses the identity of a Machine that holds none. A MAC of want is
+// kept, and so is an address of it, which takes the place of the one the node
+// would choose for its family. Callers hold n.mu.
+func (n *Network) allocate(want machine.Want) (machine.NetworkIdentity, error) {
+	asked, err := n.checkRequested(want.Addresses)
+	if err != nil {
+		return machine.NetworkIdentity{}, err
+	}
+	hw, err := n.chooseMAC(want.MAC)
 	if err != nil {
 		return machine.NetworkIdentity{}, err
 	}
 	identity := machine.NetworkIdentity{MAC: hw.String(), Resolvers: slices.Clone(n.cfg.Resolvers)}
 	if p := n.cfg.IPv4Prefix; p.IsValid() {
-		a, err := n.freeAddress(p)
+		a, err := n.addressIn(p, asked[4])
 		if err != nil {
 			return machine.NetworkIdentity{}, err
 		}
@@ -49,7 +54,7 @@ func (n *Network) allocate(mac string) (machine.NetworkIdentity, error) {
 		identity.Gateways = append(identity.Gateways, n.cfg.IPv4Gateway)
 	}
 	if p := n.cfg.IPv6Prefix; p.IsValid() {
-		a, err := n.freeAddress(p)
+		a, err := n.addressIn(p, asked[6])
 		if err != nil {
 			return machine.NetworkIdentity{}, err
 		}
@@ -57,6 +62,56 @@ func (n *Network) allocate(mac string) (machine.NetworkIdentity, error) {
 		identity.Gateways = append(identity.Gateways, linkLocalGateway)
 	}
 	return identity, nil
+}
+
+// checkRequested refuses the requested addresses the node cannot give, before
+// anything is chosen, and returns them by family (4 or 6). An address in a
+// family the node does not serve, outside the node's Machine prefix of its
+// family, or that is the prefix's network or broadcast address is
+// machine.ErrInvalid, and one that is the gateway, a resolver, or an address
+// another Machine holds is machine.ErrConflict. Each names the address, and the
+// Machine that holds it. Callers hold n.mu.
+func (n *Network) checkRequested(addrs []netip.Addr) (map[int]netip.Addr, error) {
+	asked := make(map[int]netip.Addr, len(addrs))
+	for _, a := range addrs {
+		family, p := 4, n.cfg.IPv4Prefix
+		if a.Is6() {
+			family, p = 6, n.cfg.IPv6Prefix
+		}
+		if !p.IsValid() {
+			return nil, machine.NewError(machine.ErrInvalid, "requested address %s is in a family the node does not serve", a)
+		}
+		p = p.Masked()
+		switch {
+		case !p.Contains(a):
+			return nil, machine.NewError(machine.ErrInvalid, "requested address %s is outside the node's Machine prefix %s", a, p)
+		case a == p.Addr():
+			return nil, machine.NewError(machine.ErrInvalid, "requested address %s is the network address of %s", a, p)
+		case a.Is4() && !p.Contains(a.Next()):
+			return nil, machine.NewError(machine.ErrInvalid, "requested address %s is the broadcast address of %s", a, p)
+		case a == n.cfg.IPv4Gateway:
+			return nil, machine.NewError(machine.ErrConflict, "requested address %s is the gateway", a)
+		case slices.Contains(n.cfg.Resolvers, a):
+			return nil, machine.NewError(machine.ErrConflict, "requested address %s is a resolver", a)
+		}
+		for other, held := range n.held {
+			if slices.Contains(held.Addresses, a) {
+				return nil, machine.NewError(machine.ErrConflict, "requested address %s is held by Machine %q", a, other)
+			}
+		}
+		asked[family] = a
+	}
+	return asked, nil
+}
+
+// addressIn is the address a Machine takes from the prefix: the one it asked for
+// when it asked for one, which checkRequested has found free, and otherwise the
+// lowest free one.
+func (n *Network) addressIn(p netip.Prefix, asked netip.Addr) (netip.Addr, error) {
+	if asked.IsValid() {
+		return asked, nil
+	}
+	return n.freeAddress(p)
 }
 
 // checkRouted refuses the routed prefixes the node cannot give the Machine id

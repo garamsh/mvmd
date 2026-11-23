@@ -450,6 +450,21 @@ message CreateMachineRequest {
   // Machine. It is not armed at creation, and the Machine is refused Start
   // until it is. When it lapses mvmd ends this Machine's VMM and no other.
   bool fenced = 20;
+  // Optional (ADR 0069). The IPv4 address the Machine is to have, in place of
+  // the one the node would choose, so that a client can know it before it
+  // creates the Machine. It is an IPv4 address in dotted form. It must lie
+  // inside the node's Machine prefix for IPv4, and must not be that prefix's
+  // network or broadcast address: otherwise the request is REJECTED, naming the
+  // address, and so it is on a node that serves no IPv4. An address another
+  // Machine holds, the gateway or a resolver is CONFLICT naming it and, where
+  // a Machine holds it, the Machine. Empty leaves the choice to the node, as
+  // before. The address is fixed for the Machine's life and released at Delete
+  // Machine.
+  string requested_ipv4 = 21;
+  // Optional (ADR 0069). The same for IPv6: an IPv6 address, inside the node's
+  // Machine prefix for IPv6 and not its network address, with the same
+  // outcomes. Empty leaves the choice to the node.
+  string requested_ipv6 = 22;
 }
 
 message CreateMachineResponse {

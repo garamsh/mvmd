@@ -115,7 +115,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	}
 	t.uid = true
 
-	identity, err := s.network.Allocate(ctx, id, "", spec.RoutedPrefixes...)
+	identity, err := s.network.Allocate(ctx, id, Want{Addresses: spec.RequestedAddresses}, spec.RoutedPrefixes...)
 	if errors.Is(err, ErrNoFreeAddress) {
 		return fail(ErrPreconditionFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("allocate network: %v", err)))
 	}
@@ -190,6 +190,9 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 		}
 	}
 	if err := ValidateRoutedPrefixes(spec.RoutedPrefixes); err != nil {
+		return err
+	}
+	if err := ValidateRequestedAddresses(spec.RequestedAddresses); err != nil {
 		return err
 	}
 	seen := make(map[DiskID]bool)

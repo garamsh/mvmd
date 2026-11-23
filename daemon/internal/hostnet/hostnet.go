@@ -124,12 +124,13 @@ func usablePrefix(p netip.Prefix) error {
 	return nil
 }
 
-// Allocate implements machine.Network. It chooses the MAC and one address per
-// family the node serves, and returns what it chose before for the same
-// Machine. It holds routed (ADR 0061) with them, after refusing a family the
-// node does not serve (machine.ErrInvalid) and an overlap with the node's
-// Machine prefix or what another Machine holds (machine.ErrConflict).
-func (n *Network) Allocate(ctx context.Context, id machine.MachineID, mac string, routed ...netip.Prefix) (machine.NetworkIdentity, error) {
+// Allocate implements machine.Network. It takes the MAC and the addresses want
+// names (ADR 0069) and chooses the rest: one address per family the node serves.
+// It returns what it chose before for the same Machine. It holds routed (ADR
+// 0061) with them, after refusing a family the node does not serve
+// (machine.ErrInvalid) and an overlap with the node's Machine prefix or what
+// another Machine holds (machine.ErrConflict).
+func (n *Network) Allocate(ctx context.Context, id machine.MachineID, want machine.Want, routed ...netip.Prefix) (machine.NetworkIdentity, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if have, ok := n.held[id]; ok {
@@ -138,7 +139,7 @@ func (n *Network) Allocate(ctx context.Context, id machine.MachineID, mac string
 	if err := n.checkRouted(id, routed); err != nil {
 		return machine.NetworkIdentity{}, err
 	}
-	identity, err := n.allocate(mac)
+	identity, err := n.allocate(want)
 	if err != nil {
 		return machine.NetworkIdentity{}, err
 	}

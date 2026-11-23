@@ -162,7 +162,7 @@ func TestApply_AFailureAtAnyStepLeavesNoTapAndNoRules(t *testing.T) {
 		stays := l.start("stays", egressTo(5000))
 
 		try := func(id machine.MachineID, policy machine.NetworkPolicy) error {
-			_, err := l.net.Allocate(ctx, id, "")
+			_, err := l.net.Allocate(ctx, id, machine.Want{})
 			require.NoError(t, err)
 			_, err = l.net.Apply(ctx, id, vmmUser, policy)
 			return err
@@ -195,7 +195,7 @@ func TestApply_AFailureAtAnyStepLeavesNoTapAndNoRules(t *testing.T) {
 		})
 		t.Run("the route is refused", func(t *testing.T) {
 			tap := tapOf(t, l, "route")
-			identity, err := l.net.Allocate(ctx, "route", "")
+			identity, err := l.net.Allocate(ctx, "route", machine.Want{})
 			require.NoError(t, err)
 			// The address is already routed elsewhere, so routing it to the tap fails
 			// after the link is up.
@@ -253,17 +253,17 @@ func TestWithdrawAndRelease_RemoveTheMachinesRulesAndTap(t *testing.T) {
 		require.NoError(t, l.net.Withdraw(ctx, "gone"), "withdrawing a Machine with no tap succeeds")
 
 		// Withdraw keeps the addresses, so the Machine is applied again with the same ones.
-		again, err := l.net.Allocate(ctx, "gone", "")
+		again, err := l.net.Allocate(ctx, "gone", machine.Want{})
 		require.NoError(t, err)
 		assert.Equal(t, gone.identity, again)
-		other, err := l.net.Allocate(ctx, "other", "")
+		other, err := l.net.Allocate(ctx, "other", machine.Want{})
 		require.NoError(t, err)
 		assert.NotContains(t, other.Addresses, gone.ip4, "control: while it holds them, no one else gets them")
 
 		// Release frees them.
 		require.NoError(t, l.net.Release(ctx, "gone"))
 		require.NoError(t, l.net.Release(ctx, "other"))
-		third, err := l.net.Allocate(ctx, "third", "")
+		third, err := l.net.Allocate(ctx, "third", machine.Want{})
 		require.NoError(t, err)
 		assert.Equal(t, gone.identity.Addresses, third.Addresses, "the addresses it held are free again")
 		require.NoError(t, l.net.Release(ctx, "never-existed"), "releasing a Machine that holds nothing succeeds")
