@@ -35,6 +35,9 @@ func TestE2E_SignalExecEndsTheCommandItNamesAndNoOther(t *testing.T) {
 		require.Equal(t, v1alpha2.ExecStatus_EXEC_STATUS_STARTED, started.Record.Status, started.Record.Reason)
 	}
 
+	// The victim's line is in before the signal, so the signal never races the program's start-up.
+	assert.Equal(t, "hello from the entrypoint\n", n.firstLineOf(t, ctx, "signalled", "victim"), "the command ran before the signal")
+
 	_, err := n.client.SignalExec(ctx, &v1alpha2.SignalExecRequest{MachineId: "signalled", ExecId: "victim", Signal: sigkill})
 	require.NoError(t, err)
 
