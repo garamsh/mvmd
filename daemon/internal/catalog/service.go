@@ -1,6 +1,6 @@
 // Package catalog is the node's catalog of the resources a Machine record
-// names and does not own: the images it was made from and the boot sets, and the
-// disk snapshots as they move here (ADR 0067). Listing and removing one
+// names and does not own: the images it was made from, the boot sets and the
+// disk snapshots (ADR 0067). Listing and removing one
 // is the catalog's call, with a lock of its own; the lifecycle takes a lease on
 // the one it is about to name through the machine.Catalog port.
 //
@@ -41,6 +41,13 @@ type Service interface {
 	// record names and one a Create call is resolving are
 	// ErrPreconditionFailed; an absent name is success.
 	RemoveBootSet(ctx context.Context, name string) error
+	// ListDiskSnapshots returns every disk snapshot the node holds, ordered by
+	// identifier.
+	ListDiskSnapshots(ctx context.Context) ([]machine.DiskSnapshotInfo, error)
+	// DeleteDiskSnapshot removes the disk snapshot. An absent one succeeds; one a
+	// SnapshotDisk or CreateDiskFromSnapshot call is using is refused with
+	// ErrPreconditionFailed. The disk it was taken of is not touched.
+	DeleteDiskSnapshot(ctx context.Context, snapshot machine.DiskSnapshotID) error
 }
 
 // Option changes how the catalog behaves from its defaults.
@@ -50,6 +57,12 @@ type Option func(*service)
 // Without it the node configures none.
 func WithBootSets(sets machine.BootSets) Option {
 	return func(s *service) { s.bootSets = sets }
+}
+
+// WithDiskSnapshots sets the store of disk snapshots (ADR 0056). Without it the
+// node offers none, and the calls on them are ErrUnsupported.
+func WithDiskSnapshots(d machine.DiskSnapshotStore) Option {
+	return func(s *service) { s.diskSnaps = d }
 }
 
 // WithAddedBootSets sets the store of the boot sets a client adds (ADR 0063).
@@ -87,6 +100,11 @@ type service struct {
 	// calls that resolve it: they hold it shared from resolving the name until
 	// the Machine's record is set (ADR 0063).
 	bootSetLocks keyedlock.Locks[string]
+	// diskSnaps are the disk snapshots the node holds, or nil where it offers none.
+	diskSnaps machine.DiskSnapshotStore
+	// diskSnapLocks serializes SnapshotDisk, exclusive, against the Create disk
+	// calls that read the same disk snapshot, shared (ADR 0056).
+	diskSnapLocks keyedlock.Locks[machine.DiskSnapshotID]
 }
 
 // NewService returns the catalog over the node's image cache and snapshots,

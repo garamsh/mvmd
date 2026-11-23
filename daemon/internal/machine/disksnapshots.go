@@ -6,9 +6,9 @@ import (
 	"fmt"
 )
 
-// invalidDiskSnapshot is the outcome of a call that names a disk snapshot
+// InvalidDiskSnapshot is the outcome of a call that names a disk snapshot
 // identifier no file can have; it obeys the rules of a disk identifier.
-func invalidDiskSnapshot(snapshot DiskSnapshotID) error {
+func InvalidDiskSnapshot(snapshot DiskSnapshotID) error {
 	return fail(ErrInvalid, "%q is not a disk snapshot identifier: it must obey the rules of a disk identifier (must not be empty, ., .., start with %s, contain / or a NUL, or exceed %d bytes)", snapshot, TempDiskPrefix, maxNameBytes)
 }
 
@@ -26,7 +26,7 @@ func (s *service) SnapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 	case !ValidDiskID(disk):
 		return invalidDisk(disk)
 	case !ValidDiskID(DiskID(snapshot)):
-		return invalidDiskSnapshot(snapshot)
+		return InvalidDiskSnapshot(snapshot)
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
 	}
@@ -35,7 +35,7 @@ func (s *service) SnapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 	}
 	// No Create disk call reads the snapshot until this call has finished with
 	// it, and none sees one that fails half way.
-	defer s.diskSnapLocks.Lock(snapshot, true)()
+	defer s.catalog.HoldDiskSnapshot(snapshot, true)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 	switch held, _, err := s.diskSnaps.Get(ctx, snapshot); {
@@ -153,7 +153,7 @@ func (s *service) CreateDiskFromSnapshot(ctx context.Context, disk DiskID, reque
 	case !ValidDiskID(disk):
 		return invalidDisk(disk)
 	case !ValidDiskID(DiskID(snapshot)):
-		return invalidDiskSnapshot(snapshot)
+		return InvalidDiskSnapshot(snapshot)
 	case request == "":
 		return fail(ErrInvalid, "the request ID is empty")
 	case sizeBytes == 0:
@@ -167,7 +167,7 @@ func (s *service) CreateDiskFromSnapshot(ctx context.Context, disk DiskID, reque
 	defer s.diskLocks.Lock(disk, true)()
 	// Shared from the lookup until the copy is made, so a delete of the
 	// snapshot and a SnapshotDisk still writing it both wait.
-	defer s.diskSnapLocks.Lock(snapshot, false)()
+	defer s.catalog.HoldDiskSnapshot(snapshot, false)()
 	ctx, cancel := s.accepted(ctx, 0)
 	defer cancel()
 	for attempt := 0; ; attempt++ {
@@ -207,37 +207,4 @@ func (s *service) CreateDiskFromSnapshot(ctx context.Context, disk DiskID, reque
 			return fail(ErrFailed, "create disk %q from disk snapshot %q: %v", disk, snapshot, err)
 		}
 	}
-}
-
-func (s *service) ListDiskSnapshots(ctx context.Context) ([]DiskSnapshotInfo, error) {
-	if err := s.requireDiskSnapshots(); err != nil {
-		return nil, err
-	}
-	all, err := s.diskSnaps.List(ctx)
-	if err != nil {
-		return nil, fail(ErrFailed, "list the disk snapshots: %v", err)
-	}
-	return all, nil
-}
-
-func (s *service) DeleteDiskSnapshot(ctx context.Context, snapshot DiskSnapshotID) error {
-	if !ValidDiskID(DiskID(snapshot)) {
-		return invalidDiskSnapshot(snapshot)
-	}
-	if err := s.requireDiskSnapshots(); err != nil {
-		return err
-	}
-	// A call using the snapshot holds the lock; refuse rather than wait, since the
-	// snapshot may be gone by then.
-	unlock, ok := s.diskSnapLocks.TryLockExclusive(snapshot)
-	if !ok {
-		return fail(ErrPreconditionFailed, "disk snapshot %q is in use by a snapshot or create disk call", snapshot)
-	}
-	defer unlock()
-	ctx, cancel := s.accepted(ctx, 0)
-	defer cancel()
-	if err := s.diskSnaps.Remove(ctx, snapshot); err != nil {
-		return fail(ErrFailed, "remove disk snapshot %q: %v", snapshot, err)
-	}
-	return nil
 }

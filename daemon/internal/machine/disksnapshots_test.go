@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/catalog"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -40,7 +41,7 @@ func TestSnapshotDisk_CopiesTheDiskAndRecordsWhatItIs(t *testing.T) {
 	assert.Equal(t, machine.DiskSnapshot{ID: "s", Disk: "d", Request: "r-s", SizeBytes: diskBytes, Filesystem: machine.FilesystemNone, CreatedAt: epoch}, got)
 	source, _ := e.dsnaps.Source("s")
 	assert.Equal(t, "/disks/d", source, "the copy is of the disk's file")
-	all, err := e.svc.ListDiskSnapshots(ctx)
+	all, err := e.catalog.ListDiskSnapshots(ctx)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	assert.Equal(t, machine.DiskID("d"), all[0].Disk)
@@ -268,7 +269,7 @@ func TestCreateDiskFromSnapshot_ARepeatSucceedsAndAnythingElseIsAConflict(t *tes
 	require.NoError(t, e.svc.CreateDiskFromSnapshot(ctx, "n", "r-n", grownTo, "", "s"), "a repeat succeeds")
 	require.NoError(t, e.svc.CreateDiskFromSnapshot(ctx, "n", "r-n", grownTo, machine.FilesystemExt4, "s"), "naming the snapshot's filesystem is the same call")
 	assert.Equal(t, 1, e.disks.Calls("create-from"), "nothing was made again")
-	require.NoError(t, e.svc.DeleteDiskSnapshot(ctx, "s"))
+	require.NoError(t, e.catalog.DeleteDiskSnapshot(ctx, "s"))
 	require.NoError(t, e.svc.CreateDiskFromSnapshot(ctx, "n", "r-n", grownTo, "", "s"), "a repeat needs no snapshot")
 
 	requireKind(t, e.svc.CreateDiskFromSnapshot(ctx, "n", "r-other", grownTo, "", "s"), machine.ErrConflict)
@@ -286,13 +287,13 @@ func TestDeleteDiskSnapshot_RemovesTheSnapshotAndAnAbsentOneSucceeds(t *testing.
 	require.NoError(t, e.svc.CreateDisk(ctx, "d", "r-d", diskBytes, machine.FilesystemExt4))
 	require.NoError(t, snapshotOf(e))
 
-	require.NoError(t, e.svc.DeleteDiskSnapshot(ctx, "s"))
+	require.NoError(t, e.catalog.DeleteDiskSnapshot(ctx, "s"))
 	assert.False(t, e.dsnaps.Holds("s"))
 	_, held := e.disks.Holds("d")
 	assert.True(t, held, "the disk is left")
 
-	require.NoError(t, e.svc.DeleteDiskSnapshot(ctx, "s"), "an absent snapshot succeeds")
-	requireKind(t, e.svc.DeleteDiskSnapshot(ctx, "a/b"), machine.ErrInvalid)
+	require.NoError(t, e.catalog.DeleteDiskSnapshot(ctx, "s"), "an absent snapshot succeeds")
+	requireKind(t, e.catalog.DeleteDiskSnapshot(ctx, "a/b"), machine.ErrInvalid)
 }
 
 // A snapshot a SnapshotDisk call is writing or a Create disk call is reading
@@ -309,12 +310,12 @@ func TestDeleteDiskSnapshot_IsRefusedWhileACallIsUsingTheSnapshot(t *testing.T) 
 		go func() { done <- snapshotOf(e) }()
 		<-entered
 
-		requireKind(t, e.svc.DeleteDiskSnapshot(ctx, "s"), machine.ErrPreconditionFailed)
+		requireKind(t, e.catalog.DeleteDiskSnapshot(ctx, "s"), machine.ErrPreconditionFailed)
 		release()
 		require.NoError(t, awaitOutcome(t, done))
 
 		assert.True(t, e.dsnaps.Holds("s"), "the refused delete removed nothing")
-		require.NoError(t, e.svc.DeleteDiskSnapshot(ctx, "s"))
+		require.NoError(t, e.catalog.DeleteDiskSnapshot(ctx, "s"))
 	})
 
 	t.Run("a Create disk call", func(t *testing.T) {
@@ -326,12 +327,12 @@ func TestDeleteDiskSnapshot_IsRefusedWhileACallIsUsingTheSnapshot(t *testing.T) 
 		go func() { done <- e.svc.CreateDiskFromSnapshot(ctx, "n", "r-n", diskBytes, "", "s") }()
 		<-entered
 
-		requireKind(t, e.svc.DeleteDiskSnapshot(ctx, "s"), machine.ErrPreconditionFailed)
+		requireKind(t, e.catalog.DeleteDiskSnapshot(ctx, "s"), machine.ErrPreconditionFailed)
 		release()
 		require.NoError(t, awaitOutcome(t, done))
 
 		assert.True(t, e.dsnaps.Holds("s"))
-		require.NoError(t, e.svc.DeleteDiskSnapshot(ctx, "s"))
+		require.NoError(t, e.catalog.DeleteDiskSnapshot(ctx, "s"))
 	})
 }
 
@@ -369,7 +370,8 @@ func TestDiskSnapshots_ANodeWithNoStoreIsUnsupported(t *testing.T) {
 
 	requireKind(t, svc.SnapshotDisk(ctx, "d", "s", "r"), machine.ErrUnsupported)
 	requireKind(t, svc.CreateDiskFromSnapshot(ctx, "n", "r", diskBytes, "", "s"), machine.ErrUnsupported)
-	_, err := svc.ListDiskSnapshots(ctx)
+	bare := catalog.NewService(e.images, e.snaps, e.store)
+	_, err := bare.ListDiskSnapshots(ctx)
 	requireKind(t, err, machine.ErrUnsupported)
-	requireKind(t, svc.DeleteDiskSnapshot(ctx, "s"), machine.ErrUnsupported)
+	requireKind(t, bare.DeleteDiskSnapshot(ctx, "s"), machine.ErrUnsupported)
 }

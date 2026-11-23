@@ -141,13 +141,6 @@ type Service interface {
 	// snapshot's. An unknown snapshot is ErrNotFound. The snapshot joins the
 	// request ID, size and filesystem a repeat is compared against.
 	CreateDiskFromSnapshot(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem, snapshot DiskSnapshotID) error
-	// ListDiskSnapshots returns every disk snapshot the node holds, ordered by
-	// identifier.
-	ListDiskSnapshots(ctx context.Context) ([]DiskSnapshotInfo, error)
-	// DeleteDiskSnapshot removes the disk snapshot. An absent one succeeds; one a
-	// SnapshotDisk or CreateDiskFromSnapshot call is using is refused with
-	// ErrPreconditionFailed. The disk it was taken of is not touched.
-	DeleteDiskSnapshot(ctx context.Context, snapshot DiskSnapshotID) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which
@@ -212,10 +205,6 @@ type service struct {
 	// diskLocks serializes the Create disk calls for one disk identifier, so a
 	// repeat waits for the first call and answers from the lookup.
 	diskLocks keyedlock.Locks[DiskID]
-	// diskSnapLocks serializes SnapshotDisk, exclusive, against the Create disk
-	// calls that read the same disk snapshot, shared. A call takes a disk's lock
-	// before a disk snapshot's, and a disk snapshot's before a Machine's.
-	diskSnapLocks keyedlock.Locks[DiskSnapshotID]
 	// diskSnaps are the disk snapshots the node holds, or nil where it offers none.
 	diskSnaps DiskSnapshotStore
 	// held maps each disk to its one holder (ADR 0009).
