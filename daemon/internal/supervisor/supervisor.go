@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
@@ -138,6 +139,7 @@ func (s *server) reap(ctx context.Context) {
 			console := s.console
 			s.mu.Unlock()
 			if ended {
+				slog.Info("the VMM ended", "pid", pid, "status", waitReason(ws))
 				// What the VMM wrote before it ended is still in the terminal: the
 				// log is complete once the console has read it to its end.
 				console.Wait()
@@ -149,6 +151,18 @@ func (s *server) reap(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+// waitReason says how a process ended, as its wait status reports it.
+func waitReason(ws syscall.WaitStatus) string {
+	switch {
+	case ws.Exited():
+		return fmt.Sprintf("exit status %d", ws.ExitStatus())
+	case ws.Signaled():
+		return "signal: " + ws.Signal().String()
+	default:
+		return fmt.Sprintf("wait status %#x", uint32(ws))
 	}
 }
 
