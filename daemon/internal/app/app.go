@@ -279,10 +279,9 @@ func (a *App) Serve(ctx context.Context) error {
 	}
 	// A supervisor this mvmd does not speak to is found before anything is
 	// changed, and the start is refused (ADR 0070).
-	live, err := a.supervisors.Live(ctx)
-	if err != nil {
-		return fmt.Errorf("list the supervisors: %w", err)
-	}
+	// A listing that fails is no list: the stage checks what it can list, and
+	// Restore and the deadline's Reconcile list again and fault as they did.
+	live, _ := a.supervisors.Live(ctx)
 	if err := supervision.Incompatible(live); err != nil {
 		return err
 	}
