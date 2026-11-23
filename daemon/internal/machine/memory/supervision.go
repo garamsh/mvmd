@@ -35,6 +35,10 @@ func (s *Supervision) Start(_ context.Context, id machine.MachineID, process mac
 		return err
 	}
 	s.mu.Lock()
+	if _, ok := s.running[id]; ok {
+		s.mu.Unlock()
+		return fmt.Errorf("a supervisor of Machine %q already runs", id)
+	}
 	s.running[id] = started{process, user}
 	s.state[id] = true
 	s.mu.Unlock()

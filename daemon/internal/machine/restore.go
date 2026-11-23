@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 )
@@ -121,12 +122,71 @@ func (s *service) Restore(ctx context.Context) error {
 			// Its state is unknown and it is Faulted; Delete ends its VMM.
 			continue
 		}
+		if !recorded {
+			// No record holds it: nothing promised it and nothing can say it is
+			// not wanted, so it is left running and reported (ADR 0071).
+			s.markOrphan(id)
+			continue
+		}
 		if err := s.endUnclaimed(ctx, id, stored, recorded); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	s.refollowProbes()
 	return errors.Join(append(errs, s.sweepState(ctx), s.reconcileDisks(ctx), s.reconcileOwners(ctx), s.reconcileNetwork(ctx))...)
+}
+
+// markOrphan records a live supervisor no record holds and reports it.
+func (s *service) markOrphan(id MachineID) {
+	s.mu.Lock()
+	if s.orphans == nil {
+		s.orphans = make(map[MachineID]bool)
+	}
+	s.orphans[id] = true
+	s.mu.Unlock()
+	s.events.Orphaned(id)
+}
+
+// refuseOrphan is the refusal of a call that would make a Machine of an
+// identifier an orphan holds: a record of it would claim a supervisor that no
+// call started, and the next start would end it (ADR 0071). An orphan whose
+// supervisor has ended since is forgotten, and the call goes on.
+func (s *service) refuseOrphan(ctx context.Context, id MachineID) error {
+	if !s.isOrphan(id) {
+		return nil
+	}
+	if live, err := s.supervisor.Live(ctx); err == nil {
+		s.forgetEndedOrphans(live)
+		if !s.isOrphan(id) {
+			return nil
+		}
+	}
+	return fail(ErrPreconditionFailed, "a supervisor of %q runs with no record of it, an orphan the node left running at its start: end it on the host, or wait for its fencing expiry, before a Machine of this identifier is made", id)
+}
+
+func (s *service) isOrphan(id MachineID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.orphans[id]
+}
+
+// Orphans implements Service.
+func (s *service) Orphans(context.Context) []MachineID {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Sorted(maps.Keys(s.orphans))
+}
+
+// forgetEndedOrphans drops the orphans no supervisor lists any more: a
+// supervisor ends with its VMM.
+func (s *service) forgetEndedOrphans(live []MachineID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.orphans {
+		if !slices.Contains(live, id) {
+			delete(s.orphans, id)
+		}
+	}
 }
 
 // sweepState removes the state kept for each Machine the State Store does not
@@ -139,7 +199,7 @@ func (s *service) sweepState(ctx context.Context) error {
 	}
 	var errs []error
 	for _, id := range ids {
-		if _, recorded := s.lookup(id); recorded {
+		if _, recorded := s.lookup(id); recorded || s.isOrphan(id) {
 			continue
 		}
 		if err := s.supervisor.RemoveState(ctx, id); err != nil {

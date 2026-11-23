@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -297,6 +298,9 @@ func (a *App) Serve(ctx context.Context) error {
 	if err := a.machines.Restore(ctx); err != nil {
 		return fmt.Errorf("restore the Machines: %w", err)
 	}
+	for _, id := range a.machines.Orphans(ctx) {
+		slog.Warn("a supervisor no record holds was found and left running", "machine", id)
+	}
 	if err := a.deadline.Reconcile(ctx, a.machines); err != nil {
 		return fmt.Errorf("reconcile the fencing deadline: %w", err)
 	}
@@ -356,6 +360,7 @@ func Main(args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	path := fs.String("config", "", "path of the configuration file")
 	check := fs.Bool("check", false, "check the configuration and the host, print what was checked, and exit without starting")
+	backup := fs.String("backup", "", "copy the state directory's database to this file, which must not exist, and exit; mvmd must be stopped")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -375,6 +380,15 @@ func Main(args []string, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stderr, "mvmd: the configuration is valid; %s\n", covered)
+		return 0
+	}
+	if *backup != "" {
+		n, err := boltstore.Backup(cfg.StateDir, *backup)
+		if err != nil {
+			fmt.Fprintln(stderr, "mvmd:", err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "mvmd: wrote %d bytes of %s to %s\n", n, filepath.Join(cfg.StateDir, "mvmd.db"), *backup)
 		return 0
 	}
 	a, err := New(cfg)

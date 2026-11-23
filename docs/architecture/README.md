@@ -102,5 +102,6 @@ Decisions:
 - [ADR 0068](./adr/0068-the-composition-site-chooses-each-ports-adapter-in-one-function-and-checks-the-sections-before-it-builds.md) — the composition site chooses each port's adapter in one function and checks the sections before it builds
 - [ADR 0069](./adr/0069-a-client-asks-for-a-machines-address-at-create-and-the-node-gives-it-or-refuses-naming-it.md) — a client asks for a Machine's address at Create, and the node gives it or refuses naming it (it adds to the addressing of ADR 0011)
 - [ADR 0070](./adr/0070-mvmd-speaks-the-supervisor-api-of-its-own-release-and-refuses-to-start-beside-a-supervisor-that-speaks-another.md) — mvmd speaks the supervisor API of its own release, and refuses to start beside a supervisor that speaks another (it answers the open question of ADR 0003's upgrade)
+- [ADR 0071](./adr/0071-a-start-reconciles-what-it-finds-and-leaves-a-supervisor-no-record-holds-running-as-an-orphan.md) — a start reconciles what it finds, and leaves a supervisor no record holds running as an orphan (it amends ADR 0003's and ADR 0033's end of an unclaimed supervisor)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

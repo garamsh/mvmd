@@ -839,6 +839,18 @@ message GetRuntimeInfoResponse {
   // The boot sets the node offers an OS-form Machine, ordered by name. Empty
   // when the node offers none.
   repeated BootSet boot_sets = 6;
+  // The supervisors the node found at its start that no Machine record claims,
+  // each left running (ADR 0071), ordered by machine_id. A supervisor ends with
+  // its VMM, and it leaves this list when it has ended. Empty when there is
+  // none.
+  repeated OrphanedSupervisor orphaned_supervisors = 7;
+}
+
+// OrphanedSupervisor is a supervisor, and with it a VMM, that runs under a
+// Machine identifier the node holds no record of. The node does not end it and
+// serves no call on it: the operator decides.
+message OrphanedSupervisor {
+  string machine_id = 1;
 }
 
 message InspectMachineRequest {
@@ -891,6 +903,11 @@ message ProbeChanged {
   ProbeResult result = 1;
 }
 
+// SupervisorOrphaned says a supervisor was found, at the node's start, under
+// the Machine identifier machine_id, which no record of the node holds, and was
+// left running (ADR 0071). It is sent once for each at the start.
+message SupervisorOrphaned {}
+
 // ResyncRequired says the events after the requested sequence are no longer
 // held; the client lists to resynchronise.
 message ResyncRequired {}
@@ -907,6 +924,7 @@ message WatchEventsResponse {
     ResyncRequired resync_required = 6;
     MachineDeleted machine_deleted = 7;
     ProbeChanged probe_changed = 8;
+    SupervisorOrphaned supervisor_orphaned = 9;
   }
 }
 

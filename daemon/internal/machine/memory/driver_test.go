@@ -89,3 +89,12 @@ func TestDrive_ABootedVMMHoldsEveryDeviceItsDescriptionNamesAsGivenAtBoot(t *tes
 	require.NoError(t, err)
 	assert.Equal(t, machine.DriveAtBoot, got, "control: a device of a boot is given at boot; only a restore's recorded disk is not")
 }
+
+// A Supervision starts one supervisor for an identifier at a time, as the adapter does.
+func TestSupervision_StartRefusesARunningIdentifier(t *testing.T) {
+	s := memory.NewSupervision()
+	require.NoError(t, s.Start(context.Background(), "m", machine.ProcessDescription{}, machine.User{UID: 2000, GID: 2000}))
+	assert.Error(t, s.Start(context.Background(), "m", machine.ProcessDescription{}, machine.User{UID: 2000, GID: 2000}))
+	require.NoError(t, s.Terminate(context.Background(), "m"))
+	assert.NoError(t, s.Start(context.Background(), "m", machine.ProcessDescription{}, machine.User{UID: 2000, GID: 2000}), "control: once ended it is started again")
+}

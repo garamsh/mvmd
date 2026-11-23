@@ -20,6 +20,9 @@ type Events interface {
 	Deleted(id MachineID)
 	// Reported records an event a Driver raised.
 	Reported(event DriverEvent)
+	// Orphaned records that a supervisor was found under the identifier with no
+	// record, and left running (ADR 0071).
+	Orphaned(id MachineID)
 	// ProbeChanged records that a probe of the Machine has a result other
 	// than the one the node held. It is called for a Running or Paused
 	// Machine only.

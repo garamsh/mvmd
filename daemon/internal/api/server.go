@@ -202,6 +202,11 @@ func (s *Server) GetRuntimeInfo(ctx context.Context, _ *v1alpha2.GetRuntimeInfoR
 			resp.BootSets = append(resp.BootSets, wireBootSet(info))
 		}
 	}
+	if s.machines != nil {
+		for _, id := range s.machines.Orphans(ctx) {
+			resp.OrphanedSupervisors = append(resp.OrphanedSupervisors, &v1alpha2.OrphanedSupervisor{MachineId: string(id)})
+		}
+	}
 	d := s.driver
 	info := &v1alpha2.DriverInfo{Driver: &v1alpha2.Driver{Name: d.Name, Version: d.Version}, CpuModel: d.CPUModel}
 	if d.Limits != (machine.DriverLimits{}) {
