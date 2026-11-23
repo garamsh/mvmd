@@ -301,6 +301,23 @@ func TestConsole_LogsHowTheVMMsOutputEnded(t *testing.T) {
 		assert.Contains(t, events.String(), "errno=104", "ECONNRESET")
 		assert.NotContains(t, events.String(), "end of the output", "control: a read error is not named the end")
 	})
+	t.Run("in the supervisor closing it", func(t *testing.T) {
+		events := &syncBuffer{}
+		dir, err := os.MkdirTemp("", "cs")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		l, err := listenConsole(filepath.Join(dir, "c.sock"))
+		require.NoError(t, err)
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = w.Close() })
+		c := serveConsole(l, io.Discard, r, io.Discard, eventLogger(events))
+		c.end = r
+		require.NoError(t, c.Close())
+		c.Wait()
+		assert.Contains(t, events.String(), `reason="closed by the supervisor"`)
+		assert.NotContains(t, events.String(), `reason="read error"`, "control: a close is not a read error")
+	})
 	t.Run("in EIO on the terminal", func(t *testing.T) {
 		events := &syncBuffer{}
 		dir, err := os.MkdirTemp("", "cs")

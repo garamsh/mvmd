@@ -185,19 +185,21 @@ func (c *Console) pump(l net.Listener, out io.Reader) {
 		s.finish()
 	}
 	c.mu.Unlock()
-	c.events.Info("console output ended", append(outputEnd(out, err), "bytes", total, "sessions_ended", open)...)
+	c.events.Info("console output ended", append(outputEnd(err), "bytes", total, "sessions_ended", open)...)
 	close(c.done)
 }
 
 // outputEnd is the log attributes that say why the VMM's output ended: the end
 // of the stream, the controlling side's EIO (which terminal.Read reports as
-// the end), or a read error with its errno.
-func outputEnd(out io.Reader, err error) []any {
-	if errors.Is(err, io.EOF) {
-		if t, ok := out.(interface{ endedByEIO() bool }); ok && t.endedByEIO() {
-			return []any{"reason", "eio on the terminal: no process holds its subordinate side"}
-		}
+// the end), the output closed by Console.Close, or a read error with its errno.
+func outputEnd(err error) []any {
+	switch {
+	case errors.Is(err, errTerminalEIO):
+		return []any{"reason", "eio on the terminal: no process holds its subordinate side"}
+	case errors.Is(err, io.EOF):
 		return []any{"reason", "end of the output"}
+	case errors.Is(err, os.ErrClosed):
+		return []any{"reason", "closed by the supervisor"}
 	}
 	attrs := []any{"reason", "read error", "err", err}
 	var errno syscall.Errno

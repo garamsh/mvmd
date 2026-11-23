@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync/atomic"
 
 	"golang.org/x/sys/unix"
 )
@@ -15,7 +14,6 @@ import (
 // writes and writes what the VMM reads.
 type terminal struct {
 	master *os.File
-	eio    atomic.Bool
 }
 
 // openTerminal opens a pseudo-terminal pair, sets it to raw mode and opens its
@@ -87,21 +85,20 @@ func makeRaw(fd int) error {
 	return unix.IoctlSetTermios(fd, unix.TCSETS, t)
 }
 
+// errTerminalEIO is what Read returns for the controlling side's EIO. It wraps
+// io.EOF, since it is the end of the output, and says that the end was EIO.
+var errTerminalEIO = fmt.Errorf("eio on the terminal: no process holds its subordinate side: %w", io.EOF)
+
 // Read reads what the VMM wrote. The controlling side reports EIO once the last
 // subordinate descriptor has closed and what was written is read, which is the
 // end of the output.
 func (t *terminal) Read(p []byte) (int, error) {
 	n, err := t.master.Read(p)
 	if errors.Is(err, unix.EIO) {
-		t.eio.Store(true)
-		err = io.EOF
+		err = errTerminalEIO
 	}
 	return n, err
 }
-
-// endedByEIO reports whether Read ended the output on the controlling side's
-// EIO and not on an end of file.
-func (t *terminal) endedByEIO() bool { return t.eio.Load() }
 
 // Write writes what the VMM is to read.
 func (t *terminal) Write(p []byte) (int, error) { return t.master.Write(p) }
