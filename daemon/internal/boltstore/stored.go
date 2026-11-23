@@ -76,6 +76,9 @@ type storedSpec struct {
 	// RoutedPrefixes is absent from a record written before routed prefixes
 	// existed (ADR 0061), and from one whose Machine has none.
 	RoutedPrefixes []netip.Prefix `json:"RoutedPrefixes,omitempty"`
+	// RequestedAddresses is absent from a record written before they existed
+	// (ADR 0069), and from one whose Machine asked for none.
+	RequestedAddresses []netip.Addr `json:"RequestedAddresses,omitempty"`
 	// RestartOnBoot is absent from a record written before it existed (ADR
 	// 0062), and from one whose Machine does not have it.
 	RestartOnBoot bool `json:"RestartOnBoot,omitempty"`
@@ -337,24 +340,25 @@ func storeSpec(s machine.Spec) (storedSpec, error) {
 		return storedSpec{}, err
 	}
 	return storedSpec{
-		Image:          s.Image,
-		Resources:      storedResources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
-		Ceiling:        storedResources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
-		RootDiskBytes:  s.RootDiskBytes,
-		Disks:          disks,
-		Policy:         storedPolicy{Egress: egress, Ingress: ingress},
-		Kernel:         s.Kernel,
-		Command:        s.Command,
-		Args:           s.Args,
-		Env:            env,
-		User:           s.User,
-		Files:          files,
-		WorkingDir:     s.WorkingDir,
-		Probes:         probes,
-		OS:             storeOS(s.OS),
-		RoutedPrefixes: s.RoutedPrefixes,
-		RestartOnBoot:  s.RestartOnBoot,
-		Fenced:         s.Fenced,
+		Image:              s.Image,
+		Resources:          storedResources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
+		Ceiling:            storedResources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
+		RootDiskBytes:      s.RootDiskBytes,
+		Disks:              disks,
+		Policy:             storedPolicy{Egress: egress, Ingress: ingress},
+		Kernel:             s.Kernel,
+		Command:            s.Command,
+		Args:               s.Args,
+		Env:                env,
+		User:               s.User,
+		Files:              files,
+		WorkingDir:         s.WorkingDir,
+		Probes:             probes,
+		OS:                 storeOS(s.OS),
+		RoutedPrefixes:     s.RoutedPrefixes,
+		RequestedAddresses: s.RequestedAddresses,
+		RestartOnBoot:      s.RestartOnBoot,
+		Fenced:             s.Fenced,
 	}, nil
 }
 
@@ -428,24 +432,25 @@ func (s storedSpec) load() (machine.Spec, error) {
 		return machine.Spec{}, err
 	}
 	return machine.Spec{
-		Image:          s.Image,
-		Resources:      machine.Resources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
-		Ceiling:        machine.Resources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
-		RootDiskBytes:  s.RootDiskBytes,
-		Disks:          disks,
-		Policy:         machine.NetworkPolicy{Egress: egress, Ingress: ingress},
-		Kernel:         s.Kernel,
-		Command:        s.Command,
-		Args:           s.Args,
-		Env:            env,
-		User:           s.User,
-		Files:          files,
-		WorkingDir:     s.WorkingDir,
-		Probes:         probes,
-		OS:             loadOS(s.OS),
-		RoutedPrefixes: s.RoutedPrefixes,
-		RestartOnBoot:  s.RestartOnBoot,
-		Fenced:         s.Fenced,
+		Image:              s.Image,
+		Resources:          machine.Resources{VCPUs: s.Resources.VCPUs, MemoryBytes: s.Resources.MemoryBytes},
+		Ceiling:            machine.Resources{VCPUs: s.Ceiling.VCPUs, MemoryBytes: s.Ceiling.MemoryBytes},
+		RootDiskBytes:      s.RootDiskBytes,
+		Disks:              disks,
+		Policy:             machine.NetworkPolicy{Egress: egress, Ingress: ingress},
+		Kernel:             s.Kernel,
+		Command:            s.Command,
+		Args:               s.Args,
+		Env:                env,
+		User:               s.User,
+		Files:              files,
+		WorkingDir:         s.WorkingDir,
+		Probes:             probes,
+		OS:                 loadOS(s.OS),
+		RoutedPrefixes:     s.RoutedPrefixes,
+		RequestedAddresses: s.RequestedAddresses,
+		RestartOnBoot:      s.RestartOnBoot,
+		Fenced:             s.Fenced,
 	}, nil
 }
 

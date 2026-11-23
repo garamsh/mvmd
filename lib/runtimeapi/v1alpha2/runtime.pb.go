@@ -2225,7 +2225,22 @@ type CreateMachineRequest struct {
 	// deadline of its own that the client renews with RenewDeadline naming the
 	// Machine. It is not armed at creation, and the Machine is refused Start
 	// until it is. When it lapses mvmd ends this Machine's VMM and no other.
-	Fenced        bool `protobuf:"varint,20,opt,name=fenced,proto3" json:"fenced,omitempty"`
+	Fenced bool `protobuf:"varint,20,opt,name=fenced,proto3" json:"fenced,omitempty"`
+	// Optional (ADR 0069). The IPv4 address the Machine is to have, in place of
+	// the one the node would choose, so that a client can know it before it
+	// creates the Machine. It is an IPv4 address in dotted form. It must lie
+	// inside the node's Machine prefix for IPv4, and must not be that prefix's
+	// network or broadcast address: otherwise the request is REJECTED, naming the
+	// address, and so it is on a node that serves no IPv4. An address another
+	// Machine holds, the gateway or a resolver is CONFLICT naming it and, where
+	// a Machine holds it, the Machine. Empty leaves the choice to the node, as
+	// before. The address is fixed for the Machine's life and released at Delete
+	// Machine.
+	RequestedIpv4 string `protobuf:"bytes,21,opt,name=requested_ipv4,json=requestedIpv4,proto3" json:"requested_ipv4,omitempty"`
+	// Optional (ADR 0069). The same for IPv6: an IPv6 address, inside the node's
+	// Machine prefix for IPv6 and not its network address, with the same
+	// outcomes. Empty leaves the choice to the node.
+	RequestedIpv6 string `protobuf:"bytes,22,opt,name=requested_ipv6,json=requestedIpv6,proto3" json:"requested_ipv6,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2398,6 +2413,20 @@ func (x *CreateMachineRequest) GetFenced() bool {
 		return x.Fenced
 	}
 	return false
+}
+
+func (x *CreateMachineRequest) GetRequestedIpv4() string {
+	if x != nil {
+		return x.RequestedIpv4
+	}
+	return ""
+}
+
+func (x *CreateMachineRequest) GetRequestedIpv6() string {
+	if x != nil {
+		return x.RequestedIpv6
+	}
+	return ""
 }
 
 type CreateMachineResponse struct {
@@ -8093,7 +8122,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x03uid\x18\x03 \x01(\rR\x03uid\x12\x10\n" +
 	"\x03gid\x18\x04 \x01(\rR\x03gid\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x05 \x01(\x04R\tsizeBytes\"\xec\x06\n" +
+	"size_bytes\x18\x05 \x01(\x04R\tsizeBytes\"\xba\a\n" +
 	"\x14CreateMachineRequest\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x1d\n" +
@@ -8118,7 +8147,9 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\aos_boot\x18\x11 \x01(\v2\x1d.mvmd.runtime.v1alpha2.OsBootR\x06osBoot\x12'\n" +
 	"\x0frouted_prefixes\x18\x12 \x03(\tR\x0eroutedPrefixes\x12&\n" +
 	"\x0frestart_on_boot\x18\x13 \x01(\bR\rrestartOnBoot\x12\x16\n" +
-	"\x06fenced\x18\x14 \x01(\bR\x06fenced\"Q\n" +
+	"\x06fenced\x18\x14 \x01(\bR\x06fenced\x12%\n" +
+	"\x0erequested_ipv4\x18\x15 \x01(\tR\rrequestedIpv4\x12%\n" +
+	"\x0erequested_ipv6\x18\x16 \x01(\tR\rrequestedIpv6\"Q\n" +
 	"\x15CreateMachineResponse\x128\n" +
 	"\amachine\x18\x01 \x01(\v2\x1e.mvmd.runtime.v1alpha2.MachineR\amachine\"o\n" +
 	"\tRunUpdate\x12/\n" +

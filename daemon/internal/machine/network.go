@@ -28,19 +28,36 @@ func (n NetworkIdentity) guestNetwork() GuestNetwork {
 	return GuestNetwork{Addresses: n.Addresses, Gateways: n.Gateways, Resolvers: n.Resolvers}
 }
 
+// Want is what a Machine asks of the network beside what the node chooses for
+// it.
+type Want struct {
+	// MAC is the guest MAC to assign, which a Machine restored from a snapshot
+	// keeps because its guest does; empty means choose one.
+	MAC string
+	// Addresses are the addresses the Machine is to have in place of the ones the
+	// node would choose, at most one per family, already valid in form
+	// (ValidateRequestedAddresses) (ADR 0069).
+	Addresses []netip.Addr
+}
+
 // Network is the conversation with the node's network: addresses, a tap per
 // Machine, and the enforcement of the Machine's policy at that tap.
 type Network interface {
-	// Allocate assigns the Machine's addresses and its MAC. A non-empty mac is
-	// the one to assign, which a Machine restored from a snapshot keeps because
-	// its guest does; empty means choose one. A prefix with no free address is
-	// ErrNoFreeAddress, and nothing is assigned. routed are the Machine's
+	// Allocate assigns the Machine's addresses and its MAC. The MAC and the
+	// addresses that want names are the ones to assign; what it leaves out the
+	// node chooses. An address of want that is outside the node's Machine prefix
+	// of its family, or in a family the node does not serve, or is the prefix's
+	// network or broadcast address, is an *Error of kind ErrInvalid, and one
+	// that another Machine holds, or that is the gateway or a resolver, is one
+	// of kind ErrConflict, each naming the address, and nothing is assigned. A
+	// prefix with no free address is ErrNoFreeAddress, and nothing is assigned.
+	// routed are the Machine's
 	// routed prefixes (ADR 0061), already valid in form (ValidateRoutedPrefixes);
 	// Allocate holds them with the addresses. A family the node does not serve
 	// is an *Error of kind ErrInvalid, and a prefix that overlaps the node's
 	// Machine prefix or an address or prefix another Machine holds is one of
 	// kind ErrConflict, each naming the prefix, and nothing is assigned.
-	Allocate(ctx context.Context, id MachineID, mac string, routed ...netip.Prefix) (NetworkIdentity, error)
+	Allocate(ctx context.Context, id MachineID, want Want, routed ...netip.Prefix) (NetworkIdentity, error)
 	// Apply creates the Machine's tap if absent, owned by the Machine's VMM
 	// user so that the VMM attaches without privilege (ADR 0011), and commits
 	// the policy at it, fail-closed, returning the tap's name. Repeating it

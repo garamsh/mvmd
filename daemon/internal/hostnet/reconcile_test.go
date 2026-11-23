@@ -93,7 +93,7 @@ func TestReconcile_ReplacesTheTableFromTheRecordsAndRemovesTheStale(t *testing.T
 				assert.False(t, running.reaches(t, running.to4(outside4, 5001), outside4, 5001), "what it does not is dropped")
 
 				// What the records hold is held again: no address is given twice.
-				fresh, err := n.Allocate(context.Background(), "fresh", "")
+				fresh, err := n.Allocate(context.Background(), "fresh", machine.Want{})
 				require.NoError(t, err)
 				for _, a := range fresh.Addresses {
 					assert.NotContains(t, running.identity.Addresses, a)
@@ -111,10 +111,10 @@ func TestReconcile_KeepsWhatMayStillHaveAVMMAndReportsWhatIsLost(t *testing.T) {
 		paused := l.start("paused", policy)
 		faulted := l.start("faulted", policy)
 		created := l.start("created", policy)
-		gone, err := l.net.Allocate(context.Background(), "gone", "")
+		gone, err := l.net.Allocate(context.Background(), "gone", machine.Want{})
 		require.NoError(t, err)
 		goneRecord := machine.Machine{ID: "gone", State: machine.StateRunning, Spec: machine.Spec{Policy: policy}, User: vmmUser, Network: gone}
-		noTap, err := l.net.Allocate(context.Background(), "faulted-no-tap", "")
+		noTap, err := l.net.Allocate(context.Background(), "faulted-no-tap", machine.Want{})
 		require.NoError(t, err)
 
 		n := restarted(t, l)

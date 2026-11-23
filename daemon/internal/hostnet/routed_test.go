@@ -226,9 +226,9 @@ func TestRouted_TheRoutesAndTheRulesAreMadeAgainFromTheRecordAfterARestart(t *te
 		assert.False(t, g.reaches(t, udp4(g.hostMAC, g.mac, notRouted4, outside4, 40000, 5000), outside4, 5000), "control: and no other")
 
 		// What the record holds is held again: the prefix is not given twice.
-		_, err = n.Allocate(context.Background(), "late", "", netip.MustParsePrefix("203.0.113.16/29"))
+		_, err = n.Allocate(context.Background(), "late", machine.Want{}, netip.MustParsePrefix("203.0.113.16/29"))
 		assert.NoError(t, err, "control: a prefix next to the held one is free")
-		_, err = n.Allocate(context.Background(), "later", "", netip.MustParsePrefix("203.0.113.0/29"))
+		_, err = n.Allocate(context.Background(), "later", machine.Want{}, netip.MustParsePrefix("203.0.113.0/29"))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, machine.ErrConflict, "a prefix inside the held one is not")
 	})
@@ -293,19 +293,19 @@ func TestAllocate_RefusesARoutedPrefixTheNodeCannotGive(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				l := newLab(t, tc.cfg())
-				_, err := l.net.Allocate(context.Background(), "holder", "", held)
+				_, err := l.net.Allocate(context.Background(), "holder", machine.Want{}, held)
 				require.NoError(t, err, "setup: another Machine holds a routed prefix")
-				before, err := l.net.Allocate(context.Background(), "probe", "")
+				before, err := l.net.Allocate(context.Background(), "probe", machine.Want{})
 				require.NoError(t, err)
 				require.NoError(t, l.net.Release(context.Background(), "probe"))
 
-				_, err = l.net.Allocate(context.Background(), "m", "", netip.MustParsePrefix(tc.prefix))
+				_, err = l.net.Allocate(context.Background(), "m", machine.Want{}, netip.MustParsePrefix(tc.prefix))
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.kind)
 				assert.Contains(t, err.Error(), tc.naming, "the refusal names the prefix")
 
 				// Nothing was assigned: the Machine's addresses are the first free.
-				after, err := l.net.Allocate(context.Background(), "after", "")
+				after, err := l.net.Allocate(context.Background(), "after", machine.Want{})
 				require.NoError(t, err)
 				assert.Equal(t, before.Addresses, after.Addresses, "a refused request holds nothing")
 			})
@@ -313,7 +313,7 @@ func TestAllocate_RefusesARoutedPrefixTheNodeCannotGive(t *testing.T) {
 
 		t.Run("control: a prefix the node can give", func(t *testing.T) {
 			l := newLab(t, dualStack())
-			got, err := l.net.Allocate(context.Background(), "m", "", held, netip.MustParsePrefix("2001:db8:100::/56"))
+			got, err := l.net.Allocate(context.Background(), "m", machine.Want{}, held, netip.MustParsePrefix("2001:db8:100::/56"))
 			require.NoError(t, err)
 			assert.Equal(t, []netip.Prefix{held, netip.MustParsePrefix("2001:db8:100::/56")}, got.RoutedPrefixes)
 		})

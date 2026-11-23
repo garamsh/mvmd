@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"sync"
 
 	"github.com/garamsh/mvmd/daemon/internal/machine"
@@ -33,8 +34,59 @@ func NewNetwork() *Network {
 	}
 }
 
+// The memory Network serves one IPv4 prefix, from which it numbers Machines in
+// the order it sees them, with a gateway and a resolver at its end.
+var (
+	memoryPrefix   = netip.MustParsePrefix("10.0.0.0/16")
+	memoryGateway  = netip.AddrFrom4([4]byte{10, 0, 255, 254})
+	memoryResolver = netip.AddrFrom4([4]byte{10, 0, 255, 253})
+)
+
+// checkRequested refuses a requested address as the real adapter does (ADR
+// 0069): outside the prefix, in a family it does not serve, or the network or
+// broadcast address is machine.ErrInvalid, and the gateway, the resolver or an
+// address another Machine holds is machine.ErrConflict. Callers hold n.mu.
+func (n *Network) checkRequested(a netip.Addr) error {
+	switch {
+	case !a.Is4():
+		return machine.NewError(machine.ErrInvalid, "requested address %s is in a family the node does not serve", a)
+	case !memoryPrefix.Contains(a):
+		return machine.NewError(machine.ErrInvalid, "requested address %s is outside the node's Machine prefix %s", a, memoryPrefix)
+	case a == memoryPrefix.Addr():
+		return machine.NewError(machine.ErrInvalid, "requested address %s is the network address of %s", a, memoryPrefix)
+	case !memoryPrefix.Contains(a.Next()):
+		return machine.NewError(machine.ErrInvalid, "requested address %s is the broadcast address of %s", a, memoryPrefix)
+	case a == memoryGateway:
+		return machine.NewError(machine.ErrConflict, "requested address %s is the gateway", a)
+	case a == memoryResolver:
+		return machine.NewError(machine.ErrConflict, "requested address %s is a resolver", a)
+	}
+	for other, held := range n.allocated {
+		if slices.Contains(held.Addresses, a) {
+			return machine.NewError(machine.ErrConflict, "requested address %s is held by Machine %q", a, other)
+		}
+	}
+	return nil
+}
+
+// unheld is the next address in the numbering that no Machine holds, which a
+// requested address may have taken. Callers hold n.mu.
+func (n *Network) unheld() netip.Addr {
+	for {
+		a := netip.AddrFrom4([4]byte{10, 0, byte(n.next >> 8), byte(n.next)})
+		held := false
+		for _, other := range n.allocated {
+			held = held || slices.Contains(other.Addresses, a)
+		}
+		if !held {
+			return a
+		}
+		n.next++
+	}
+}
+
 // Allocate implements machine.Network.
-func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string, routed ...netip.Prefix) (machine.NetworkIdentity, error) {
+func (n *Network) Allocate(_ context.Context, id machine.MachineID, want machine.Want, routed ...netip.Prefix) (machine.NetworkIdentity, error) {
 	if err := n.Enter("allocate"); err != nil {
 		return machine.NetworkIdentity{}, err
 	}
@@ -55,15 +107,26 @@ func (n *Network) Allocate(_ context.Context, id machine.MachineID, mac string, 
 	if n.limit > 0 && len(n.allocated) >= n.limit {
 		return machine.NetworkIdentity{}, fmt.Errorf("%w: all %d of the Network's addresses are held", machine.ErrNoFreeAddress, n.limit)
 	}
+	address := netip.Addr{}
+	for _, a := range want.Addresses {
+		if err := n.checkRequested(a); err != nil {
+			return machine.NetworkIdentity{}, err
+		}
+		address = a
+	}
 	n.next++
+	mac := want.MAC
 	if mac == "" {
 		mac = fmt.Sprintf("02:00:00:00:00:%02x", n.next)
 	}
+	if !address.IsValid() {
+		address = n.unheld()
+	}
 	identity := machine.NetworkIdentity{
 		MAC:       mac,
-		Addresses: []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 0, byte(n.next)})},
-		Gateways:  []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 255, 254})},
-		Resolvers: []netip.Addr{netip.AddrFrom4([4]byte{10, 0, 255, 253})},
+		Addresses: []netip.Addr{address},
+		Gateways:  []netip.Addr{memoryGateway},
+		Resolvers: []netip.Addr{memoryResolver},
 		// Held as given, so the identity echoes the request as the real adapter's does.
 		RoutedPrefixes: append([]netip.Prefix(nil), routed...),
 	}

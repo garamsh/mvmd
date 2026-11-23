@@ -178,6 +178,10 @@ type Spec struct {
 	// routes each to the Machine's tap, accepts it as a source from that tap
 	// only, and applies the Machine's policy to it as to the Machine's address.
 	RoutedPrefixes []netip.Prefix
+	// RequestedAddresses are the addresses the client asked the Machine to have,
+	// at most one per family (ADR 0069): the node gives the Machine these in
+	// place of the ones it would choose, or refuses Create. Fixed for its life.
+	RequestedAddresses []netip.Addr
 	// RestartOnBoot asks mvmd to start the Machine again at the first arming of
 	// the fencing deadline in a new host boot, when the Machine was Running or
 	// being started as the host went down (ADR 0062).
@@ -310,6 +314,7 @@ func (s Spec) clone() Spec {
 	s.Files = cloneFiles(s.Files)
 	s.Probes = cloneProbes(s.Probes)
 	s.RoutedPrefixes = cloneNonEmpty(s.RoutedPrefixes)
+	s.RequestedAddresses = cloneNonEmpty(s.RequestedAddresses)
 	if s.OS != nil {
 		os := *s.OS
 		s.OS = &os

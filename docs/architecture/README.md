@@ -43,7 +43,7 @@ Decisions:
 - [ADR 0008](./adr/0008-fs-verity-on-the-host-guards-every-read-of-a-machineimage.md) — fs-verity on the host guards every read of a MachineImage
 - [ADR 0009](./adr/0009-a-machines-root-disk-is-a-sparse-raw-file-with-one-holder.md) — a Machine's root disk is a sparse raw file with one holder (the location of the root disk is amended by ADR 0021)
 - [ADR 0010](./adr/0010-a-machine-boots-a-pinned-kernel-and-the-guest-agent-initrd-from-raw-block-devices.md) — a Machine boots a pinned kernel and the Guest Agent initrd from raw block devices (the pin is extended to the initrd by ADR 0030)
-- [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md) — each Machine gets a routed tap and addresses mvmd assigns (the tap's accepted sources are amended by ADR 0061)
+- [ADR 0011](./adr/0011-each-machine-gets-a-routed-tap-and-addresses-mvmd-assigns.md) — each Machine gets a routed tap and addresses mvmd assigns (the tap's accepted sources are amended by ADR 0061, and its choice of a Machine's address by ADR 0069)
 - [ADR 0012](./adr/0012-nftables-on-the-host-enforces-each-machines-policy-at-its-tap.md) — nftables on the host enforces each Machine's policy at its tap (the tap's accepted sources are amended by ADR 0061)
 - [ADR 0013](./adr/0013-a-network-policy-is-an-allow-list-of-address-protocol-and-port-rules.md) — a network policy is an allow-list of address, protocol and port rules
 - [ADR 0014](./adr/0014-the-guest-agent-serves-a-grpc-contract-it-owns-over-vsock.md) — the Guest Agent serves a gRPC contract it owns over vsock
@@ -98,5 +98,6 @@ Decisions:
 - [ADR 0063](./adr/0063-a-client-adds-a-boot-set-by-streaming-its-two-files-to-the-node-which-keeps-them-read-only-and-refuses-to-remove-one-a-machine-names.md) — a client adds a boot set by streaming its two files to the node, which keeps them read-only and refuses to remove one a Machine names (it amends ADR 0058)
 - [ADR 0064](./adr/0064-a-machine-created-fenced-has-a-fence-of-its-own-that-ends-only-its-vmm-when-it-lapses.md) — a Machine created fenced has a fence of its own that ends only its VMM when it lapses (it adds to the fencing deadline of ADR 0003 and to ADR 0062)
 - [ADR 0068](./adr/0068-the-composition-site-chooses-each-ports-adapter-in-one-function-and-checks-the-sections-before-it-builds.md) — the composition site chooses each port's adapter in one function and checks the sections before it builds
+- [ADR 0069](./adr/0069-a-client-asks-for-a-machines-address-at-create-and-the-node-gives-it-or-refuses-naming-it.md) — a client asks for a Machine's address at Create, and the node gives it or refuses naming it (it adds to the addressing of ADR 0011)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

@@ -225,7 +225,7 @@ func (s *service) RestoreSnapshot(ctx context.Context, id MachineID, request Req
 		return err
 	}
 	t.uid = true
-	identity, err := s.network.Allocate(ctx, id, held.MAC, routed...)
+	identity, err := s.network.Allocate(ctx, id, Want{MAC: held.MAC}, routed...)
 	if errors.Is(err, ErrNoFreeAddress) {
 		return fail(ErrPreconditionFailed, "%s", s.giveUp(ctx, t, fmt.Sprintf("allocate network: %v", err)))
 	}

@@ -275,7 +275,7 @@ func (g *guest) allocateAndApply(policy machine.NetworkPolicy) {
 	t := g.l.t
 	t.Helper()
 	var err error
-	g.identity, err = g.l.net.Allocate(context.Background(), g.id, "", g.routed...)
+	g.identity, err = g.l.net.Allocate(context.Background(), g.id, machine.Want{}, g.routed...)
 	require.NoError(t, err)
 	g.tap, err = g.l.net.Apply(context.Background(), g.id, vmmUser, policy)
 	require.NoError(t, err)
