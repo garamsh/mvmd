@@ -34,5 +34,4 @@ Sources: `docs/architecture/runtime.md` §State and stability, §Fencing and §N
 Each is an issue, linked here, and none is worked around in the steps:
 
 - There is no command line client ([#812](https://github.com/garamsh/mvmd/issues/812)). The runtime API is gRPC on a Unix socket, and its Go client is `lib/runtimeapi/`. Every step below that says "ask the node" is a call of that client.
-- The supervisors are not versioned against mvmd, and how many earlier supervisors a new mvmd must speak to is an open question (`docs/architecture/runtime.md` §Open questions), so an upgrade across a change of that conversation is not covered by [upgrade.md](./upgrade.md) ([#813](https://github.com/garamsh/mvmd/issues/813)).
 - Nothing backs up or restores the state directory while mvmd runs, and a lost `mvmd.db` cannot be rebuilt from the files beside it ([recovery.md](./recovery.md) §A state directory that is lost; [#814](https://github.com/garamsh/mvmd/issues/814)).

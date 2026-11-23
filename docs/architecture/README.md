@@ -101,5 +101,6 @@ Decisions:
 - [ADR 0067](./adr/0067-the-catalog-of-the-resources-a-machine-names-is-its-own-module-with-its-own-leases-and-the-lifecycle-holds-a-lease-from-a-port.md) — the catalog of the resources a Machine names is its own module with its own leases, and the lifecycle holds a lease from a port
 - [ADR 0068](./adr/0068-the-composition-site-chooses-each-ports-adapter-in-one-function-and-checks-the-sections-before-it-builds.md) — the composition site chooses each port's adapter in one function and checks the sections before it builds
 - [ADR 0069](./adr/0069-a-client-asks-for-a-machines-address-at-create-and-the-node-gives-it-or-refuses-naming-it.md) — a client asks for a Machine's address at Create, and the node gives it or refuses naming it (it adds to the addressing of ADR 0011)
+- [ADR 0070](./adr/0070-mvmd-speaks-the-supervisor-api-of-its-own-release-and-refuses-to-start-beside-a-supervisor-that-speaks-another.md) — mvmd speaks the supervisor API of its own release, and refuses to start beside a supervisor that speaks another (it answers the open question of ADR 0003's upgrade)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).

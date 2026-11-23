@@ -6,6 +6,7 @@
 package supervision
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -454,11 +456,43 @@ func (a *Adapter) Live(ctx context.Context) ([]fencing.Supervisor, error) {
 				sv.Machine = machine.MachineID(resp.GetMachineId())
 			}
 			sv.Expiry = fencing.BootTime(resp.GetExpiryBoottimeNs())
+			sv.APIVersion = resp.GetApiVersion()
 			return nil
 		})
 		out = append(out, sv)
 	}
 	return out, nil
+}
+
+// Speaks reports whether this mvmd speaks the supervisor API a supervisor
+// reports (ADR 0070): the version of its own release, and the earlier releases'
+// that did not report one, which spoke v1alpha1 as every later release does.
+func Speaks(apiVersion string) bool {
+	return apiVersion == "" || apiVersion == supervisor.APIVersion
+}
+
+// IncompatibleError is what Incompatible returns for a supervisor this mvmd
+// does not speak to.
+type IncompatibleError struct {
+	Machine    machine.MachineID
+	APIVersion string
+}
+
+func (e *IncompatibleError) Error() string {
+	return fmt.Sprintf("the supervisor of Machine %q speaks supervisor API %q, which this mvmd (%q) does not: nothing was changed; stop that Machine with the mvmd that started it, or wait for its fencing expiry, and start again", e.Machine, e.APIVersion, supervisor.APIVersion)
+}
+
+// Incompatible returns an *IncompatibleError for the first, by Machine
+// identifier, of the supervisors that reports an API version this mvmd does not
+// speak, or nil. It only reads.
+func Incompatible(live []fencing.Supervisor) error {
+	sorted := slices.SortedFunc(slices.Values(live), func(x, y fencing.Supervisor) int { return cmp.Compare(x.Machine, y.Machine) })
+	for _, sv := range sorted {
+		if !Speaks(sv.APIVersion) {
+			return &IncompatibleError{Machine: sv.Machine, APIVersion: sv.APIVersion}
+		}
+	}
+	return nil
 }
 
 // isAbsent reports that no process listens on the socket.

@@ -22,7 +22,7 @@ mvmd's Machines run as processes of their own: each VMM runs under its own `mvmd
 | The fencing deadline, which keeps counting while mvmd is down | The event log, which is in memory and holds the last 1024 events (`daemon/internal/app/app.go:42`); a client that watches events starts from what Inspect and List say |
 | The taps, and the nftables table `mvmd`, which mvmd replaces from its records before it serves a call | The results of probes, which the daemon reads again from each guest it follows (`docs/architecture/adr/0057-a-machine-keeps-its-probes-and-the-daemon-follows-the-agents-results-in-memory-and-streams-each-change.md`) |
 
-The supervisor outlives the upgrade. A Machine's supervisor is the binary that started it, and it stays until the Machine is next started. How many earlier supervisors a new mvmd must speak to is not decided (`docs/architecture/runtime.md` §Open questions; [#813](https://github.com/garamsh/mvmd/issues/813)), so an upgrade that changes the conversation between mvmd and its supervisors is not covered by these steps.
+The supervisor outlives the upgrade. A Machine's supervisor is the binary that started it, and it stays until the Machine is next started. A new mvmd speaks to the supervisors of its own release and of earlier releases that reported no API version, and refuses to start, before it changes anything, beside a supervisor that reports another: the error names the Machine and the version, and the operator stops that Machine with the mvmd that started it, or waits for its fencing expiry (`docs/architecture/adr/0070-mvmd-speaks-the-supervisor-api-of-its-own-release-and-refuses-to-start-beside-a-supervisor-that-speaks-another.md`).
 
 ## Before you stop mvmd
 
@@ -47,7 +47,6 @@ A Machine that is stopped and started again now runs under the new supervisor bi
 
 ## What this does not cover
 
-- An upgrade across a change of the conversation between mvmd and its supervisors, for the reason above.
 - A change to the shape of `mvmd.db` between two releases: the repository holds no migration, and whether an older mvmd reads what a newer wrote has not been tried. A record a mvmd cannot read is not discarded: the Machine is Faulted with the reason, and its stored bytes stay (`daemon/internal/machine/restore.go:22`, read).
 - A change of the host's kernel or of the VMM binary under running Machines. A new VMM binary applies to the next start of each Machine, and a new host kernel needs a reboot, which is [recovery.md](./recovery.md) §After the host reboots.
 
