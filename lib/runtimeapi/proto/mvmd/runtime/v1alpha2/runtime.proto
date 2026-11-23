@@ -261,7 +261,8 @@ message OsBoot {
   string boot_set = 1;
   // The kernel command line the client adds. The Driver puts first the
   // parameters its console and stop request need, and this line follows them.
-  // At most 2048 bytes, with no NUL and no newline; a line outside that is
+  // At most the bytes the node's Driver leaves after its own parameters (at
+  // most 2047 in all), with no NUL and no newline; a line outside that is
   // REJECTED.
   string kernel_cmdline = 2;
 }

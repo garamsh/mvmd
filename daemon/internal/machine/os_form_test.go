@@ -3,6 +3,7 @@ package machine_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -336,4 +337,25 @@ func TestStart_OSFormRefusesARunUpdate(t *testing.T) {
 	requireKind(t, e.svc.StartWith(ctx, "m", newRun()), machine.ErrInvalid)
 	e.requireState(t, "m", machine.StateStopped)
 	require.NoError(t, e.svc.Start(ctx, "m"), "control: Stopped, no update")
+}
+
+// ADR 0066: Create refuses, as invalid and naming kernel_cmdline, a line longer than the Driver
+// states it leaves the client, so that no stored Machine fails every Start for its length.
+func TestCreate_OSFormRefusesACommandLineLongerThanTheDriverLeavesTheClient(t *testing.T) {
+	const most = 100
+	e, _ := osEnv(t)
+	e.driver = memory.NewDriver(machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu-a", Limits: machine.DriverLimits{MaxCommandLine: most}})
+	e.svc = e.reopenedWith(t, machine.WithBootSets(memory.BootSets(), &memory.BootFiles{}))
+	create := func(id machine.MachineID, line string) error {
+		spec := osSpec()
+		spec.OS.CommandLine = line
+		return e.svc.Create(context.Background(), id, request(id), spec)
+	}
+
+	err := create("long", strings.Repeat("a", most+1))
+	requireKind(t, err, machine.ErrInvalid)
+	assert.ErrorContains(t, err, "kernel_cmdline")
+	e.requireNoMachine(t, "long")
+
+	require.NoError(t, create("fits", strings.Repeat("a", most)), "control: the longest line the Driver states")
 }

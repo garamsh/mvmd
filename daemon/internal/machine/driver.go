@@ -61,6 +61,10 @@ type DriverInfo struct {
 // resources and ceiling. A zero figure states no bound.
 type DriverLimits struct {
 	MaxVCPUs uint32
+	// MaxCommandLine is the longest kernel command line a client may give an
+	// OS-form Machine: what the guest kernel takes less the Driver's own
+	// parameters and the space before the client's line (ADR 0066).
+	MaxCommandLine uint32
 }
 
 // DriverSnapshot is what a Driver made of a paused Machine: the files it
@@ -145,6 +149,12 @@ func OSCommandLine(params, client string) string {
 		return params
 	}
 	return params + " " + client
+}
+
+// MaxClientCommandLine is the longest client line that OSCommandLine joins to
+// the Driver's parameters within MaxKernelCommandLine.
+func MaxClientCommandLine(params string) uint32 {
+	return uint32(max(MaxKernelCommandLine-len(params)-1, 0))
 }
 
 // The paths a VMM sees its Machine's files at, inside its root (ADR 0019).

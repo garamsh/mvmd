@@ -1467,7 +1467,8 @@ type OsBoot struct {
 	BootSet string `protobuf:"bytes,1,opt,name=boot_set,json=bootSet,proto3" json:"boot_set,omitempty"`
 	// The kernel command line the client adds. The Driver puts first the
 	// parameters its console and stop request need, and this line follows them.
-	// At most 2048 bytes, with no NUL and no newline; a line outside that is
+	// At most the bytes the node's Driver leaves after its own parameters (at
+	// most 2047 in all), with no NUL and no newline; a line outside that is
 	// REJECTED.
 	KernelCmdline string `protobuf:"bytes,2,opt,name=kernel_cmdline,json=kernelCmdline,proto3" json:"kernel_cmdline,omitempty"`
 	unknownFields protoimpl.UnknownFields

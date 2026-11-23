@@ -28,7 +28,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 		// Only a failed attempt is recorded, and no Machine exists: the
 		// identifier is free again.
 	}
-	if err := validateCreate(id, request, spec); err != nil {
+	if err := validateCreate(id, request, spec, s.driver.Info().Limits); err != nil {
 		return err
 	}
 	held := spec
@@ -169,7 +169,7 @@ func (s *service) Create(ctx context.Context, id MachineID, request RequestID, s
 	return nil
 }
 
-func validateCreate(id MachineID, request RequestID, spec Spec) error {
+func validateCreate(id MachineID, request RequestID, spec Spec, limits DriverLimits) error {
 	idErr := CheckMachineID(id)
 	switch {
 	case id == "":
@@ -186,7 +186,7 @@ func validateCreate(id MachineID, request RequestID, spec Spec) error {
 		return fail(ErrInvalid, "the root disk size is zero")
 	}
 	if spec.OS != nil {
-		if err := spec.validateOS(); err != nil {
+		if err := spec.validateOS(limits); err != nil {
 			return err
 		}
 	}
