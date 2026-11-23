@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/garamsh/mvmd/daemon/internal/image"
 	"github.com/garamsh/mvmd/daemon/internal/machine"
 )
 
@@ -52,6 +53,7 @@ func TestPull_FailureAtAStepLeavesNothingVisible(t *testing.T) {
 			assert.Zero(t, r.store.Staging(), "a staging area is left")
 
 			r.heal(step)
+			r.endStuckConverter(t, ref)
 			require.NoError(t, r.pull(ref), "the pull did not succeed once the failure was withdrawn")
 			r.requireListed(t, ref)
 			assert.Zero(t, r.store.Staging())
@@ -93,6 +95,7 @@ func TestPull_ConverterVMEndsWhateverHappened(t *testing.T) {
 
 		// The control: where the VMM ends, the user is released.
 		r.heal("terminate")
+		r.endStuckConverter(t, ref)
 		require.NoError(t, r.pull(ref))
 		assert.Equal(t, 1, r.uids.Held(), "only the first attempt's user is held")
 	})
@@ -167,4 +170,12 @@ func TestPull_FailedRemovalAfterThePublishIsSuccess(t *testing.T) {
 	require.NoError(t, r.svc.Sweep(t.Context()))
 	assert.Zero(t, r.store.Staging())
 	r.requireListed(t, ref)
+}
+
+// endStuckConverter ends the converter VM a failed Terminate left running, as the host's
+// operator would before the pull is tried again: a supervisor of the identifier that still
+// runs is refused a second start, as the real adapter refuses it.
+func (r *rig) endStuckConverter(t *testing.T, ref image.Reference) {
+	t.Helper()
+	require.NoError(t, r.sup.Terminate(t.Context(), conversionID(ref)))
 }
