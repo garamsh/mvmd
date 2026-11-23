@@ -177,3 +177,16 @@ func TestWatch_ManyConcurrentWritersAreOneConsecutiveSequence(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// A supervisor found under an identifier no record holds is one event of that Machine's name
+// (ADR 0071).
+func TestOrphaned_IsAnEventOfTheIdentifier(t *testing.T) {
+	log := events.NewService(8)
+	log.Orphaned("ghost")
+
+	ev, err := log.Watch(0).Next(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, machine.MachineID("ghost"), ev.Machine)
+	assert.Equal(t, events.Orphaned{}, ev.Body)
+}

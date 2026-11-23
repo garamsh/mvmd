@@ -115,8 +115,9 @@ func TestRestore_ANetworkThatCannotBeReconciledFailsTheRestore(t *testing.T) {
 var someProcess = machine.ProcessDescription{Executable: "vmm"}
 var someUser = machine.User{UID: 1000, GID: 1000}
 
-// A supervisor no Running or Paused record claims is ended; the control is the
-// supervisor of a Running record, which is kept.
+// A supervisor a record holds but no Running or Paused record claims is ended; the
+// controls are the supervisor of a Running record, which is kept, and one no
+// record holds at all, which is left running (ADR 0071).
 func TestRestore_EndsSupervisorsNoRunningRecordClaims(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(hotplugAndResize...)
@@ -133,10 +134,15 @@ func TestRestore_EndsSupervisorsNoRunningRecordClaims(t *testing.T) {
 
 	_, alive := e.sup.Running("running")
 	assert.True(t, alive, "control: the supervisor of a Running record is kept")
-	for _, id := range []machine.MachineID{"created", "stopped", "ghost"} {
+	for _, id := range []machine.MachineID{"created", "stopped"} {
 		_, alive := e.sup.Running(id)
 		assert.False(t, alive, "the supervisor of %q is ended", id)
 	}
+	_, ghost := e.sup.Running("ghost")
+	assert.True(t, ghost, "the supervisor no record holds is left running")
+	assert.Equal(t, []machine.MachineID{"ghost"}, svc.Orphans(ctx), "and reported")
+	assert.Equal(t, []machine.MachineID{"ghost"}, e.events.OrphanedMachines(), "with an event")
+	assert.True(t, e.sup.HasState("ghost"), "its state directory is not swept")
 	_, tap := e.net.Applied("created")
 	assert.False(t, tap, "the network of a recorded Machine is withdrawn")
 	for id, want := range map[machine.MachineID]machine.State{
@@ -148,6 +154,7 @@ func TestRestore_EndsSupervisorsNoRunningRecordClaims(t *testing.T) {
 	}
 	_, err = svc.Inspect(ctx, "ghost")
 	require.ErrorIs(t, err, machine.ErrNotFound, "no Machine appears for a supervisor without a record")
+	assert.False(t, e.net.Allocated("ghost"), "nothing was taken for it")
 }
 
 func TestRestore_AnUnclaimedSupervisorThatCannotBeEndedFaultsOrFails(t *testing.T) {
@@ -165,10 +172,9 @@ func TestRestore_AnUnclaimedSupervisorThatCannotBeEndedFaultsOrFails(t *testing.
 	rec, _ := e.store.Record("created")
 	assert.Equal(t, machine.StateFaulted, rec.Machine.State, "the finding is recorded")
 
-	// An unrecorded supervisor is an error, so the daemon does not serve.
+	// An unrecorded supervisor is not ended, so its failure to end is not met: the daemon serves.
 	require.NoError(t, e.sup.Start(ctx, "ghost", someProcess, someUser))
-	err = machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels())).Restore(ctx)
-	require.ErrorIs(t, err, errBoom)
+	require.NoError(t, machine.NewService(e.driver, e.sup, e.net, e.disks, e.images, e.snaps, e.guest, e.clock, e.store, e.permit, machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), e.events, machine.WithKernels(memory.Kernels())).Restore(ctx))
 }
 
 // Delete of a Machine restored from an unreadable record removes the record
@@ -194,4 +200,28 @@ func TestDelete_UnreadableRecordSkipsTheDiskPort(t *testing.T) {
 
 	require.NoError(t, svc.Delete(ctx, "readable"))
 	assert.Equal(t, before+1, e.disks.Calls("remove"), "control: a readable Machine's root disk is removed")
+}
+
+// An orphan is not a Machine: it takes no call, it is listed until its supervisor has ended, and
+// the daemon's look at the supervisors drops it then. Its state directory is not swept while it
+// runs, and is once it has ended and no record holds it (ADR 0071).
+func TestRestore_AnOrphanIsListedUntilItsSupervisorEnds(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(hotplugAndResize...)
+	require.NoError(t, e.sup.Start(ctx, "ghost", someProcess, someUser))
+
+	svc := e.reopened(t)
+	require.Equal(t, []machine.MachineID{"ghost"}, svc.Orphans(ctx))
+	requireKind(t, svc.Start(ctx, "ghost"), machine.ErrNotFound)
+
+	machine.ObserveEnds(ctx, svc)
+	assert.Equal(t, []machine.MachineID{"ghost"}, svc.Orphans(ctx), "control: while its supervisor lives it stays")
+
+	require.NoError(t, e.sup.Terminate(ctx, "ghost"))
+	machine.ObserveEnds(ctx, svc)
+	assert.Empty(t, svc.Orphans(ctx), "once its supervisor has ended it is no longer listed")
+
+	again := e.reopened(t)
+	assert.Empty(t, again.Orphans(ctx), "a start that finds none lists none")
+	assert.False(t, e.sup.HasState("ghost"), "and the state directory it left is swept, as for any Machine with no record")
 }

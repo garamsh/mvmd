@@ -44,6 +44,10 @@ type Service interface {
 	Inspect(ctx context.Context, id MachineID) (Machine, error)
 	// List returns every Machine on the node, ordered by identifier.
 	List(ctx context.Context) ([]Machine, error)
+	// Orphans returns the identifiers, ordered, of the supervisors found at
+	// start under an identifier no record holds (ADR 0071). Each is left
+	// running and untouched; one that has ended is no longer listed.
+	Orphans(ctx context.Context) []MachineID
 	// CreateDisk makes a disk of the size the node holds, at most once per
 	// request ID, so that a Machine can be attached it, formatted as the
 	// filesystem says; empty is ext4, and a value other than none and ext4 is
@@ -209,6 +213,9 @@ type service struct {
 	diskSnaps DiskSnapshotStore
 	// held maps each disk to its one holder (ADR 0009).
 	held map[DiskID]MachineID
+	// orphans are the supervisors found at start under an identifier no record
+	// holds, which are left running (ADR 0071); mu guards it.
+	orphans map[MachineID]bool
 	// following holds the follower of the probes of each Running or Paused
 	// Machine that has probes, and the results it holds. mu guards it.
 	following  map[MachineID]*probeFollow

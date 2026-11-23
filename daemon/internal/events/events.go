@@ -26,8 +26,8 @@ type Event struct {
 	Body    Body
 }
 
-// Body is what an event says: one of StateChanged, Deleted, Deadline,
-// Driver or ProbeChanged.
+// Body is what an event says: one of StateChanged, Deleted, Orphaned,
+// Deadline, Driver or ProbeChanged.
 type Body interface{ body() }
 
 // StateChanged says the Machine's state is now State.
@@ -42,6 +42,10 @@ type Deadline struct{ Event fencing.Event }
 // Driver says a Driver raised an event.
 type Driver struct{ Event machine.DriverEvent }
 
+// Orphaned says a supervisor was found under the Machine identifier with no
+// record, and left running (ADR 0071).
+type Orphaned struct{}
+
 // ProbeChanged says a probe of the Machine has the Result, which differs from
 // the one the node held.
 type ProbeChanged struct{ Result machine.ProbeResult }
@@ -49,5 +53,6 @@ type ProbeChanged struct{ Result machine.ProbeResult }
 func (StateChanged) body() {}
 func (ProbeChanged) body() {}
 func (Deleted) body()      {}
+func (Orphaned) body()     {}
 func (Deadline) body()     {}
 func (Driver) body()       {}

@@ -13,6 +13,7 @@ type Events struct {
 	reported []machine.DriverEvent
 	deleted  []machine.MachineID
 	probes   []ProbeChange
+	orphans  []machine.MachineID
 }
 
 // ProbeChange is one probe result a Machine was reported to have.
@@ -83,6 +84,20 @@ func (e *Events) DriverEvents() []machine.DriverEvent {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]machine.DriverEvent(nil), e.reported...)
+}
+
+// Orphaned implements machine.Events.
+func (e *Events) Orphaned(id machine.MachineID) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.orphans = append(e.orphans, id)
+}
+
+// OrphanedMachines returns the identifiers recorded as orphaned, in order.
+func (e *Events) OrphanedMachines() []machine.MachineID {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]machine.MachineID(nil), e.orphans...)
 }
 
 // ProbeChanged implements machine.Events.

@@ -80,6 +80,11 @@ func (s *service) Reported(event machine.DriverEvent) {
 	s.emit("", Driver{Event: event})
 }
 
+// Orphaned implements machine.Events.
+func (s *service) Orphaned(id machine.MachineID) {
+	s.emit(id, Orphaned{})
+}
+
 // ProbeChanged implements machine.Events.
 func (s *service) ProbeChanged(id machine.MachineID, result machine.ProbeResult) {
 	s.emit(id, ProbeChanged{Result: result})

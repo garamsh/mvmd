@@ -57,6 +57,8 @@ func eventToWire(e events.Event) *v1alpha2.WatchEventsResponse {
 		out.Event = &v1alpha2.WatchEventsResponse_Deadline{
 			Deadline: &v1alpha2.DeadlineEvent{Kind: deadlineEvents[body.Event]},
 		}
+	case events.Orphaned:
+		out.Event = &v1alpha2.WatchEventsResponse_SupervisorOrphaned{SupervisorOrphaned: &v1alpha2.SupervisorOrphaned{}}
 	case events.ProbeChanged:
 		out.Event = &v1alpha2.WatchEventsResponse_ProbeChanged{
 			ProbeChanged: &v1alpha2.ProbeChanged{Result: probeResultToWire(body.Result)},

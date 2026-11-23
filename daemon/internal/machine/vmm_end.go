@@ -78,14 +78,16 @@ func (s *service) observeEnds(ctx context.Context) {
 			running = append(running, id)
 		}
 	}
+	orphans := len(s.orphans)
 	s.mu.Unlock()
-	if len(running) == 0 {
+	if len(running) == 0 && orphans == 0 {
 		return
 	}
 	live, err := s.supervisor.Live(ctx)
 	if err != nil {
 		return
 	}
+	s.forgetEndedOrphans(live)
 	for _, id := range running {
 		if !slices.Contains(live, id) {
 			s.settleEnd(ctx, id)
