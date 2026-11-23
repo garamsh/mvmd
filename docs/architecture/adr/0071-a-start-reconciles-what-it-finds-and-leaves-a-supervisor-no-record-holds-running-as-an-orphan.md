@@ -26,7 +26,7 @@ A start reconciles what it finds, in one stage whose cases are told apart by wha
 
 - A lost or empty `mvmd.db` no longer ends the running Machines at the next start: they run on, listed as orphans, until the operator ends them or their expiry passes.
 - An orphan has no network. The network reconciliation deletes every tap that belongs to no Machine of the records, and replaces the table from them, so an orphan's VMM runs on without its tap.
-- A Machine identifier an orphan holds cannot be created: its state directory is in use, and the Create fails there.
+- A Machine identifier an orphan holds is refused by Create and Restore Machine, as precondition failed naming it, before anything is taken or recorded; it is free once the orphan's supervisor has ended.
 - A copy of `mvmd.db` taken earlier than the files beside it is not known to be consistent with them: its records may name a state the disks and supervisors have left. That case was not tried.
 
 ## Signs the decision was wrong
