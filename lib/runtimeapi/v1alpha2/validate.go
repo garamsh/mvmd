@@ -67,6 +67,44 @@ func (r *CreateDiskRequest) Validate() error {
 	return requireIDs(map[string]string{"disk_id": r.GetDiskId(), "request_id": r.GetRequestId()})
 }
 
+var diskDigestForm = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// Validate refuses a start message without its identifier or request ID, with
+// a size of zero, or with a filesystem other than none and ext4; a digest
+// message whose sha256 is not 64 lowercase hexadecimal digits. An extent is the
+// service's to check against the size.
+func (r *CreateDiskFromStreamRequest) Validate() error {
+	switch part := r.GetPart().(type) {
+	case *CreateDiskFromStreamRequest_Start:
+		start := part.Start
+		if err := requireIDs(map[string]string{"disk_id": start.GetDiskId(), "request_id": start.GetRequestId()}); err != nil {
+			return err
+		}
+		switch {
+		case start.GetSizeBytes() == 0:
+			return fmt.Errorf("size_bytes is zero")
+		case start.GetFilesystem() != Filesystem_FILESYSTEM_NONE && start.GetFilesystem() != Filesystem_FILESYSTEM_EXT4:
+			return fmt.Errorf("filesystem is neither none nor ext4")
+		}
+	case *CreateDiskFromStreamRequest_Digest:
+		if !diskDigestForm.MatchString(part.Digest.GetSha256()) {
+			return fmt.Errorf("sha256 %q is not 64 lowercase hexadecimal digits", part.Digest.GetSha256())
+		}
+	case nil:
+		return fmt.Errorf("the message carries no part")
+	}
+	return nil
+}
+
+// Validate refuses a read that names both a disk and a disk snapshot, or
+// neither.
+func (r *ReadDiskRequest) Validate() error {
+	if (r.GetDiskId() == "") == (r.GetSnapshotId() == "") {
+		return fmt.Errorf("exactly one of disk_id and snapshot_id is set")
+	}
+	return nil
+}
+
 // Validate refuses a creating call without its disk, snapshot identifier or
 // request ID.
 func (r *SnapshotDiskRequest) Validate() error {

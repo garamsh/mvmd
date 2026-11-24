@@ -31,6 +31,8 @@ service RuntimeService {
   rpc ListDiskSnapshots(ListDiskSnapshotsRequest) returns (ListDiskSnapshotsResponse);
   rpc DeleteDiskSnapshot(DeleteDiskSnapshotRequest) returns (DeleteDiskSnapshotResponse);
   rpc DeleteDisk(DeleteDiskRequest) returns (DeleteDiskResponse);
+  rpc ReadDisk(ReadDiskRequest) returns (stream ReadDiskResponse);
+  rpc CreateDiskFromStream(stream CreateDiskFromStreamRequest) returns (CreateDiskFromStreamResponse);
   rpc AttachDisk(AttachDiskRequest) returns (AttachDiskResponse);
   rpc DetachDisk(DetachDiskRequest) returns (DetachDiskResponse);
   rpc SetResources(SetResourcesRequest) returns (SetResourcesResponse);
@@ -674,6 +676,81 @@ message DeleteDiskSnapshotRequest {
 }
 
 message DeleteDiskSnapshotResponse {}
+
+// ReadDiskRequest reads the bytes of a disk, or of a disk snapshot, as a
+// stream (ADR 0072). Exactly one of disk_id and snapshot_id is set; neither or
+// both is rejected. A disk with a Running or Paused Machine as holder, or in
+// any holder state but Created or Stopped, is rejected as a failed
+// precondition, as is a disk another call is changing or reading; an unknown
+// disk or snapshot is not found. A disk snapshot is held for the length of the
+// read, so DeleteDiskSnapshot is rejected meanwhile.
+message ReadDiskRequest {
+  string disk_id = 1;
+  string snapshot_id = 2;
+}
+
+// ReadDiskResponse is one message of a ReadDisk stream: a header, then any
+// number of extents, then the digest, which ends the stream.
+message ReadDiskResponse {
+  oneof part {
+    DiskStreamHeader header = 1;
+    DiskExtent extent = 2;
+    DiskStreamDigest digest = 3;
+  }
+}
+
+message DiskStreamHeader {
+  // The size of the disk's file.
+  uint64 size_bytes = 1;
+  // What the disk holds, as ListDisks reports it.
+  Filesystem filesystem = 2;
+}
+
+// DiskExtent is a run of the disk's bytes. Extents come in ascending order and
+// do not overlap; a byte no extent covers is zero, and the stream leaves out
+// the regions that are holes or hold only zeros.
+message DiskExtent {
+  uint64 offset = 1;
+  bytes data = 2;
+}
+
+message DiskStreamDigest {
+  // The SHA-256, in hex, of the size_bytes bytes of the disk as a reader sees
+  // them: the extents with zeros in between and after.
+  string sha256 = 1;
+}
+
+// CreateDiskFromStreamRequest is one message of a stream: start first, then
+// extents in ascending order, then the digest, then the end of the stream
+// (ADR 0072).
+message CreateDiskFromStreamRequest {
+  oneof part {
+    CreateDiskFromStreamStart start = 1;
+    DiskExtent extent = 2;
+    DiskStreamDigest digest = 3;
+  }
+}
+
+// CreateDiskFromStreamStart is what a disk made from a stream is, as
+// CreateDiskRequest's fields are. The disk is published only when the bytes
+// received are as long as size_bytes, as extents place them, and their SHA-256
+// is the digest the stream ends with; otherwise the call is rejected as invalid
+// and the node holds nothing of it. A repeat with the same disk_id, request_id,
+// size_bytes and filesystem whose bytes have the digest the disk was made with
+// succeeds as CreateDisk's repeat does; the repeat's stream is read to its end.
+message CreateDiskFromStreamStart {
+  string disk_id = 1;
+  string request_id = 2;
+  uint64 size_bytes = 3;
+  // The filesystem the source recorded: FILESYSTEM_NONE or FILESYSTEM_EXT4;
+  // unspecified is rejected.
+  Filesystem filesystem = 4;
+  reserved 5;
+}
+
+message CreateDiskFromStreamResponse {
+  Disk disk = 1;
+}
 
 message DeleteDiskRequest {
   string disk_id = 1;

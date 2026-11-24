@@ -2,6 +2,10 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -10,7 +14,7 @@ import (
 )
 
 // Disk is an in-memory machine.Disk. Its steps are "locate", "create-root",
-// "create-root-from", "create", "create-with-contents", "create-from", "get", "list", "stat", "grow", "give", "reclaim" and "remove".
+// "create-root-from", "create", "create-with-contents", "create-from", "create-from-extents", "read-extents", "get", "list", "stat", "grow", "give", "reclaim" and "remove".
 type Disk struct {
 	Failures
 
@@ -29,11 +33,14 @@ type Disk struct {
 	from map[machine.DiskID]machine.DiskSnapshotID
 	// contents is the digest of what each disk CreateWithContents made holds.
 	contents map[machine.DiskID]string
+	// files is the bytes of each file by path: what Fill put there and what
+	// CreateFromExtents received.
+	files map[string][]byte
 }
 
 // NewDisk returns a Disk that holds no disk.
 func NewDisk() *Disk {
-	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem), from: make(map[machine.DiskID]machine.DiskSnapshotID), contents: make(map[machine.DiskID]string)}
+	return &Disk{disks: make(map[machine.DiskID]uint64), written: make(map[machine.DiskID]time.Time), owner: make(map[machine.DiskID]machine.DiskOwner), source: make(map[machine.DiskID]string), request: make(map[machine.DiskID]machine.RequestID), filesystem: make(map[machine.DiskID]machine.Filesystem), from: make(map[machine.DiskID]machine.DiskSnapshotID), contents: make(map[machine.DiskID]string), files: make(map[string][]byte)}
 }
 
 // Provide makes the node hold a disk, as how one comes to exist is not the
@@ -174,6 +181,86 @@ func (d *Disk) CreateFrom(_ context.Context, entry machine.DiskEntry, source str
 	return nil
 }
 
+// Fill makes the file at path hold data, which ReadExtents reads and the Disk
+// does not otherwise keep: a Disk holds sizes, and this is what a test says the
+// bytes of one file are.
+func (d *Disk) Fill(path string, data []byte) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.files[path] = append([]byte(nil), data...)
+}
+
+// Bytes returns what the file at path holds, as Fill and CreateFromExtents set
+// it.
+func (d *Disk) Bytes(path string) []byte {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]byte(nil), d.files[path]...)
+}
+
+// CreateFromExtents implements machine.Disk: the extents are laid in a file of
+// the entry's size, and the disk is made only when their SHA-256 is the
+// extents' Digest. It returns the digest, also when the disk exists.
+func (d *Disk) CreateFromExtents(ctx context.Context, entry machine.DiskEntry, extents machine.DiskExtents) (string, error) {
+	if err := d.Enter("create-from-extents"); err != nil {
+		return "", err
+	}
+	data := make([]byte, entry.SizeBytes)
+	var next uint64
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		offset, chunk, err := extents.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if offset < next || offset+uint64(len(chunk)) > entry.SizeBytes {
+			return "", machine.ErrDiskStreamMismatch
+		}
+		copy(data[offset:], chunk)
+		next = offset + uint64(len(chunk))
+	}
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+	if digest != extents.Digest() {
+		return "", machine.ErrDiskStreamMismatch
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, held := d.disks[entry.ID]; held {
+		return digest, machine.ErrDiskExists
+	}
+	d.disks[entry.ID] = entry.SizeBytes
+	d.request[entry.ID] = entry.Request
+	d.filesystem[entry.ID] = entry.Filesystem
+	d.contents[entry.ID] = digest
+	d.files["/disks/"+string(entry.ID)] = data
+	return digest, nil
+}
+
+// ReadExtents implements machine.Disk: the whole file is one extent, zero blocks
+// included where the port leaves them out, which a reader of the stream cannot
+// tell apart; and a path nothing was Filled at holds nothing.
+func (d *Disk) ReadExtents(_ context.Context, path string, emit func(uint64, []byte) error) (string, error) {
+	if err := d.Enter("read-extents"); err != nil {
+		return "", err
+	}
+	d.mu.Lock()
+	data := append([]byte(nil), d.files[path]...)
+	d.mu.Unlock()
+	if len(data) > 0 {
+		if err := emit(0, data); err != nil {
+			return "", err
+		}
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // Get implements machine.Disk.
 func (d *Disk) Get(_ context.Context, disk machine.DiskID) (machine.DiskEntry, error) {
 	if err := d.Enter("get"); err != nil {
@@ -284,6 +371,7 @@ func (d *Disk) Remove(ctx context.Context, disk machine.DiskID) error {
 	delete(d.from, disk)
 	delete(d.contents, disk)
 	delete(d.written, disk)
+	delete(d.files, "/disks/"+string(disk))
 	d.mu.Unlock()
 	return nil
 }

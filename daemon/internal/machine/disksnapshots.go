@@ -70,7 +70,7 @@ func (s *service) snapshotDisk(ctx context.Context, disk DiskID, snapshot DiskSn
 		defer s.release(disk)
 		return true, s.putDiskSnapshot(ctx, disk, snapshot, request)
 	}
-	if holder == deleting || holder == resizing || holder == snapshotting {
+	if holder == deleting || holder == resizing || holder == snapshotting || holder == reading {
 		return true, fail(ErrPreconditionFailed, "disk %q is %s", disk, holderIs(holder))
 	}
 	defer s.lock(holder)()

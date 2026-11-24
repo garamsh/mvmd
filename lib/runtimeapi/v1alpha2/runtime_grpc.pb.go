@@ -22,46 +22,48 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RuntimeService_CreateMachine_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/CreateMachine"
-	RuntimeService_StartMachine_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/StartMachine"
-	RuntimeService_StopMachine_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/StopMachine"
-	RuntimeService_PauseMachine_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/PauseMachine"
-	RuntimeService_ResumeMachine_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/ResumeMachine"
-	RuntimeService_SnapshotMachine_FullMethodName    = "/mvmd.runtime.v1alpha2.RuntimeService/SnapshotMachine"
-	RuntimeService_RestoreMachine_FullMethodName     = "/mvmd.runtime.v1alpha2.RuntimeService/RestoreMachine"
-	RuntimeService_DeleteMachine_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteMachine"
-	RuntimeService_CreateDisk_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/CreateDisk"
-	RuntimeService_ListDisks_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/ListDisks"
-	RuntimeService_ResizeDisk_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/ResizeDisk"
-	RuntimeService_SnapshotDisk_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/SnapshotDisk"
-	RuntimeService_ListDiskSnapshots_FullMethodName  = "/mvmd.runtime.v1alpha2.RuntimeService/ListDiskSnapshots"
-	RuntimeService_DeleteDiskSnapshot_FullMethodName = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteDiskSnapshot"
-	RuntimeService_DeleteDisk_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteDisk"
-	RuntimeService_AttachDisk_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/AttachDisk"
-	RuntimeService_DetachDisk_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/DetachDisk"
-	RuntimeService_SetResources_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/SetResources"
-	RuntimeService_GetRuntimeInfo_FullMethodName     = "/mvmd.runtime.v1alpha2.RuntimeService/GetRuntimeInfo"
-	RuntimeService_InspectMachine_FullMethodName     = "/mvmd.runtime.v1alpha2.RuntimeService/InspectMachine"
-	RuntimeService_ListMachines_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/ListMachines"
-	RuntimeService_WatchEvents_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/WatchEvents"
-	RuntimeService_Exec_FullMethodName               = "/mvmd.runtime.v1alpha2.RuntimeService/Exec"
-	RuntimeService_ReadExecOutput_FullMethodName     = "/mvmd.runtime.v1alpha2.RuntimeService/ReadExecOutput"
-	RuntimeService_SignalExec_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/SignalExec"
-	RuntimeService_ReadFile_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/ReadFile"
-	RuntimeService_WriteFile_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/WriteFile"
-	RuntimeService_PatchFile_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/PatchFile"
-	RuntimeService_ListFiles_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/ListFiles"
-	RuntimeService_SearchFiles_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/SearchFiles"
-	RuntimeService_Console_FullMethodName            = "/mvmd.runtime.v1alpha2.RuntimeService/Console"
-	RuntimeService_PullImage_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/PullImage"
-	RuntimeService_ListImages_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/ListImages"
-	RuntimeService_RemoveImage_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/RemoveImage"
-	RuntimeService_AddBootSet_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/AddBootSet"
-	RuntimeService_RemoveBootSet_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/RemoveBootSet"
-	RuntimeService_ListSnapshots_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/ListSnapshots"
-	RuntimeService_DeleteSnapshot_FullMethodName     = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteSnapshot"
-	RuntimeService_RenewDeadline_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/RenewDeadline"
-	RuntimeService_InspectDeadline_FullMethodName    = "/mvmd.runtime.v1alpha2.RuntimeService/InspectDeadline"
+	RuntimeService_CreateMachine_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/CreateMachine"
+	RuntimeService_StartMachine_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/StartMachine"
+	RuntimeService_StopMachine_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/StopMachine"
+	RuntimeService_PauseMachine_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/PauseMachine"
+	RuntimeService_ResumeMachine_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/ResumeMachine"
+	RuntimeService_SnapshotMachine_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/SnapshotMachine"
+	RuntimeService_RestoreMachine_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/RestoreMachine"
+	RuntimeService_DeleteMachine_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteMachine"
+	RuntimeService_CreateDisk_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/CreateDisk"
+	RuntimeService_ListDisks_FullMethodName            = "/mvmd.runtime.v1alpha2.RuntimeService/ListDisks"
+	RuntimeService_ResizeDisk_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/ResizeDisk"
+	RuntimeService_SnapshotDisk_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/SnapshotDisk"
+	RuntimeService_ListDiskSnapshots_FullMethodName    = "/mvmd.runtime.v1alpha2.RuntimeService/ListDiskSnapshots"
+	RuntimeService_DeleteDiskSnapshot_FullMethodName   = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteDiskSnapshot"
+	RuntimeService_DeleteDisk_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteDisk"
+	RuntimeService_ReadDisk_FullMethodName             = "/mvmd.runtime.v1alpha2.RuntimeService/ReadDisk"
+	RuntimeService_CreateDiskFromStream_FullMethodName = "/mvmd.runtime.v1alpha2.RuntimeService/CreateDiskFromStream"
+	RuntimeService_AttachDisk_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/AttachDisk"
+	RuntimeService_DetachDisk_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/DetachDisk"
+	RuntimeService_SetResources_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/SetResources"
+	RuntimeService_GetRuntimeInfo_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/GetRuntimeInfo"
+	RuntimeService_InspectMachine_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/InspectMachine"
+	RuntimeService_ListMachines_FullMethodName         = "/mvmd.runtime.v1alpha2.RuntimeService/ListMachines"
+	RuntimeService_WatchEvents_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/WatchEvents"
+	RuntimeService_Exec_FullMethodName                 = "/mvmd.runtime.v1alpha2.RuntimeService/Exec"
+	RuntimeService_ReadExecOutput_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/ReadExecOutput"
+	RuntimeService_SignalExec_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/SignalExec"
+	RuntimeService_ReadFile_FullMethodName             = "/mvmd.runtime.v1alpha2.RuntimeService/ReadFile"
+	RuntimeService_WriteFile_FullMethodName            = "/mvmd.runtime.v1alpha2.RuntimeService/WriteFile"
+	RuntimeService_PatchFile_FullMethodName            = "/mvmd.runtime.v1alpha2.RuntimeService/PatchFile"
+	RuntimeService_ListFiles_FullMethodName            = "/mvmd.runtime.v1alpha2.RuntimeService/ListFiles"
+	RuntimeService_SearchFiles_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/SearchFiles"
+	RuntimeService_Console_FullMethodName              = "/mvmd.runtime.v1alpha2.RuntimeService/Console"
+	RuntimeService_PullImage_FullMethodName            = "/mvmd.runtime.v1alpha2.RuntimeService/PullImage"
+	RuntimeService_ListImages_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/ListImages"
+	RuntimeService_RemoveImage_FullMethodName          = "/mvmd.runtime.v1alpha2.RuntimeService/RemoveImage"
+	RuntimeService_AddBootSet_FullMethodName           = "/mvmd.runtime.v1alpha2.RuntimeService/AddBootSet"
+	RuntimeService_RemoveBootSet_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/RemoveBootSet"
+	RuntimeService_ListSnapshots_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/ListSnapshots"
+	RuntimeService_DeleteSnapshot_FullMethodName       = "/mvmd.runtime.v1alpha2.RuntimeService/DeleteSnapshot"
+	RuntimeService_RenewDeadline_FullMethodName        = "/mvmd.runtime.v1alpha2.RuntimeService/RenewDeadline"
+	RuntimeService_InspectDeadline_FullMethodName      = "/mvmd.runtime.v1alpha2.RuntimeService/InspectDeadline"
 )
 
 // RuntimeServiceClient is the client API for RuntimeService service.
@@ -89,6 +91,8 @@ type RuntimeServiceClient interface {
 	ListDiskSnapshots(ctx context.Context, in *ListDiskSnapshotsRequest, opts ...grpc.CallOption) (*ListDiskSnapshotsResponse, error)
 	DeleteDiskSnapshot(ctx context.Context, in *DeleteDiskSnapshotRequest, opts ...grpc.CallOption) (*DeleteDiskSnapshotResponse, error)
 	DeleteDisk(ctx context.Context, in *DeleteDiskRequest, opts ...grpc.CallOption) (*DeleteDiskResponse, error)
+	ReadDisk(ctx context.Context, in *ReadDiskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadDiskResponse], error)
+	CreateDiskFromStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse], error)
 	AttachDisk(ctx context.Context, in *AttachDiskRequest, opts ...grpc.CallOption) (*AttachDiskResponse, error)
 	DetachDisk(ctx context.Context, in *DetachDiskRequest, opts ...grpc.CallOption) (*DetachDiskResponse, error)
 	SetResources(ctx context.Context, in *SetResourcesRequest, opts ...grpc.CallOption) (*SetResourcesResponse, error)
@@ -280,6 +284,38 @@ func (c *runtimeServiceClient) DeleteDisk(ctx context.Context, in *DeleteDiskReq
 	return out, nil
 }
 
+func (c *runtimeServiceClient) ReadDisk(ctx context.Context, in *ReadDiskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadDiskResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[0], RuntimeService_ReadDisk_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ReadDiskRequest, ReadDiskResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_ReadDiskClient = grpc.ServerStreamingClient[ReadDiskResponse]
+
+func (c *runtimeServiceClient) CreateDiskFromStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[1], RuntimeService_CreateDiskFromStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_CreateDiskFromStreamClient = grpc.ClientStreamingClient[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse]
+
 func (c *runtimeServiceClient) AttachDisk(ctx context.Context, in *AttachDiskRequest, opts ...grpc.CallOption) (*AttachDiskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AttachDiskResponse)
@@ -342,7 +378,7 @@ func (c *runtimeServiceClient) ListMachines(ctx context.Context, in *ListMachine
 
 func (c *runtimeServiceClient) WatchEvents(ctx context.Context, in *WatchEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchEventsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[0], RuntimeService_WatchEvents_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[2], RuntimeService_WatchEvents_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +407,7 @@ func (c *runtimeServiceClient) Exec(ctx context.Context, in *ExecRequest, opts .
 
 func (c *runtimeServiceClient) ReadExecOutput(ctx context.Context, in *ReadExecOutputRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadExecOutputResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[1], RuntimeService_ReadExecOutput_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[3], RuntimeService_ReadExecOutput_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +436,7 @@ func (c *runtimeServiceClient) SignalExec(ctx context.Context, in *SignalExecReq
 
 func (c *runtimeServiceClient) ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadFileResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[2], RuntimeService_ReadFile_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[4], RuntimeService_ReadFile_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +455,7 @@ type RuntimeService_ReadFileClient = grpc.ServerStreamingClient[ReadFileResponse
 
 func (c *runtimeServiceClient) WriteFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteFileRequest, WriteFileResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[3], RuntimeService_WriteFile_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[5], RuntimeService_WriteFile_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +478,7 @@ func (c *runtimeServiceClient) PatchFile(ctx context.Context, in *PatchFileReque
 
 func (c *runtimeServiceClient) ListFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ListFilesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[4], RuntimeService_ListFiles_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[6], RuntimeService_ListFiles_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +497,7 @@ type RuntimeService_ListFilesClient = grpc.ServerStreamingClient[ListFilesRespon
 
 func (c *runtimeServiceClient) SearchFiles(ctx context.Context, in *SearchFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SearchFilesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[5], RuntimeService_SearchFiles_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[7], RuntimeService_SearchFiles_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +516,7 @@ type RuntimeService_SearchFilesClient = grpc.ServerStreamingClient[SearchFilesRe
 
 func (c *runtimeServiceClient) Console(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConsoleRequest, ConsoleResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[6], RuntimeService_Console_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[8], RuntimeService_Console_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -523,7 +559,7 @@ func (c *runtimeServiceClient) RemoveImage(ctx context.Context, in *RemoveImageR
 
 func (c *runtimeServiceClient) AddBootSet(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[AddBootSetRequest, AddBootSetResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[7], RuntimeService_AddBootSet_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeService_ServiceDesc.Streams[9], RuntimeService_AddBootSet_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -609,6 +645,8 @@ type RuntimeServiceServer interface {
 	ListDiskSnapshots(context.Context, *ListDiskSnapshotsRequest) (*ListDiskSnapshotsResponse, error)
 	DeleteDiskSnapshot(context.Context, *DeleteDiskSnapshotRequest) (*DeleteDiskSnapshotResponse, error)
 	DeleteDisk(context.Context, *DeleteDiskRequest) (*DeleteDiskResponse, error)
+	ReadDisk(*ReadDiskRequest, grpc.ServerStreamingServer[ReadDiskResponse]) error
+	CreateDiskFromStream(grpc.ClientStreamingServer[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse]) error
 	AttachDisk(context.Context, *AttachDiskRequest) (*AttachDiskResponse, error)
 	DetachDisk(context.Context, *DetachDiskRequest) (*DetachDiskResponse, error)
 	SetResources(context.Context, *SetResourcesRequest) (*SetResourcesResponse, error)
@@ -694,6 +732,12 @@ func (UnimplementedRuntimeServiceServer) DeleteDiskSnapshot(context.Context, *De
 }
 func (UnimplementedRuntimeServiceServer) DeleteDisk(context.Context, *DeleteDiskRequest) (*DeleteDiskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteDisk not implemented")
+}
+func (UnimplementedRuntimeServiceServer) ReadDisk(*ReadDiskRequest, grpc.ServerStreamingServer[ReadDiskResponse]) error {
+	return status.Error(codes.Unimplemented, "method ReadDisk not implemented")
+}
+func (UnimplementedRuntimeServiceServer) CreateDiskFromStream(grpc.ClientStreamingServer[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse]) error {
+	return status.Error(codes.Unimplemented, "method CreateDiskFromStream not implemented")
 }
 func (UnimplementedRuntimeServiceServer) AttachDisk(context.Context, *AttachDiskRequest) (*AttachDiskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AttachDisk not implemented")
@@ -1060,6 +1104,24 @@ func _RuntimeService_DeleteDisk_Handler(srv interface{}, ctx context.Context, de
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _RuntimeService_ReadDisk_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ReadDiskRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(RuntimeServiceServer).ReadDisk(m, &grpc.GenericServerStream[ReadDiskRequest, ReadDiskResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_ReadDiskServer = grpc.ServerStreamingServer[ReadDiskResponse]
+
+func _RuntimeService_CreateDiskFromStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RuntimeServiceServer).CreateDiskFromStream(&grpc.GenericServerStream[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeService_CreateDiskFromStreamServer = grpc.ClientStreamingServer[CreateDiskFromStreamRequest, CreateDiskFromStreamResponse]
 
 func _RuntimeService_AttachDisk_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AttachDiskRequest)
@@ -1580,6 +1642,16 @@ var RuntimeService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ReadDisk",
+			Handler:       _RuntimeService_ReadDisk_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "CreateDiskFromStream",
+			Handler:       _RuntimeService_CreateDiskFromStream_Handler,
+			ClientStreams: true,
+		},
 		{
 			StreamName:    "WatchEvents",
 			Handler:       _RuntimeService_WatchEvents_Handler,

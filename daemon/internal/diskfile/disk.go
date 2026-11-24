@@ -53,7 +53,38 @@ func NewDisk(dir, mkfs string) (*Disk, error) {
 	if err := checkMKFS(mkfs); err != nil {
 		return nil, err
 	}
+	if err := removeTemporaries(dir); err != nil {
+		return nil, err
+	}
 	return &Disk{dir: dir, mkfs: mkfs}, nil
+}
+
+// removeTemporaries removes the files a call that did not finish left in dir
+// under the temporary prefix: none is a disk, and only the adapter writes the
+// directory, so none is in use when it is opened. A directory that is not there
+// has none.
+func removeTemporaries(dir string) error {
+	entries, err := os.ReadDir(dir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("list %s: %w", dir, err)
+	}
+	removed := false
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), tempPrefix) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			return fmt.Errorf("remove the unfinished %s: %w", e.Name(), err)
+		}
+		removed = true
+	}
+	if removed {
+		return syncDir(dir)
+	}
+	return nil
 }
 
 // CheckMKFS runs mkfs.ext4 -V and returns ErrBadMKFS if it fails. It makes no
@@ -193,6 +224,21 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 	return d.create(ctx, entry, nil)
 }
 
+// CreateFromExtents is Create for a disk whose bytes the extents are: the
+// file is cut to the entry's size, the extents are written as they come, with
+// the blocks of zeros left as holes, and the SHA-256 of the whole is compared
+// with the entry's ContentsDigest before the file is published. The bytes
+// carry the filesystem, so nothing is formatted.
+func (d *Disk) CreateFromExtents(ctx context.Context, entry machine.DiskEntry, extents machine.DiskExtents) (string, error) {
+	var verified string
+	err := d.create(ctx, entry, func(tmp *os.File) (string, error) {
+		digest, err := fillFromExtents(ctx, tmp, entry, extents)
+		verified = digest
+		return digest, err
+	})
+	return verified, err
+}
+
 // CreateWithContents is Create for a disk with no filesystem that holds
 // contents from offset 0, written and synced before the disk is published, with
 // the entry's ContentsDigest recorded beside the request.
@@ -203,10 +249,16 @@ func (d *Disk) CreateWithContents(ctx context.Context, entry machine.DiskEntry, 
 	case uint64(len(contents)) > entry.SizeBytes:
 		return fmt.Errorf("%w: %d bytes of contents do not fit in %d", machine.ErrDiskInvalid, len(contents), entry.SizeBytes)
 	}
-	return d.create(ctx, entry, contents)
+	return d.create(ctx, entry, func(tmp *os.File) (string, error) {
+		_, err := tmp.WriteAt(contents, 0)
+		return entry.ContentsDigest, err
+	})
 }
 
-func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, contents []byte) error {
+// create makes the disk of the entry in a temporary file and publishes it. A
+// fill, when there is one, puts the disk's bytes in the file in place of a
+// format and returns their SHA-256, which is recorded with them.
+func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, fill func(*os.File) (string, error)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -238,16 +290,17 @@ func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, contents []b
 	if err := tmp.Truncate(int64(entry.SizeBytes)); err != nil {
 		return fail("set size", err)
 	}
-	if fs == machine.FilesystemExt4 {
+	if fs == machine.FilesystemExt4 && fill == nil {
 		if err := runMKFS(d.mkfs, tmpName, uuid); err != nil {
 			return fail("format", err)
 		}
 	}
-	if contents != nil {
-		if _, err := tmp.WriteAt(contents, 0); err != nil {
+	if fill != nil {
+		digest, err := fill(tmp)
+		if err != nil {
 			return fail("write the contents", err)
 		}
-		if err := unix.Fsetxattr(int(tmp.Fd()), contentsAttr, []byte(entry.ContentsDigest), 0); err != nil {
+		if err := unix.Fsetxattr(int(tmp.Fd()), contentsAttr, []byte(digest), 0); err != nil {
 			return fail("record the contents", err)
 		}
 	}

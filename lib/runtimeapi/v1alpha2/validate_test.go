@@ -1,6 +1,7 @@
 package v1alpha2_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,6 +62,38 @@ func TestCreateDiskRequest_Validate_RefusesAMissingIdentifierOrRequestID(t *test
 	assert.NoError(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", RequestId: "r", SizeBytes: 1}).Validate())
 	assert.Error(t, (&v1alpha2.CreateDiskRequest{RequestId: "r", SizeBytes: 1}).Validate())
 	assert.Error(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", SizeBytes: 1}).Validate())
+}
+
+func TestCreateDiskFromStreamRequest_Validate(t *testing.T) {
+	start := func(change func(*v1alpha2.CreateDiskFromStreamStart)) *v1alpha2.CreateDiskFromStreamRequest {
+		s := &v1alpha2.CreateDiskFromStreamStart{DiskId: "d", RequestId: "r", SizeBytes: 1, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE}
+		change(s)
+		return &v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Start{Start: s}}
+	}
+	digest := func(sum string) *v1alpha2.CreateDiskFromStreamRequest {
+		return &v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Digest{Digest: &v1alpha2.DiskStreamDigest{Sha256: sum}}}
+	}
+	assert.NoError(t, start(func(*v1alpha2.CreateDiskFromStreamStart) {}).Validate(), "control: the complete start is accepted")
+	assert.NoError(t, digest(strings.Repeat("a", 64)).Validate(), "control: a digest of 64 lowercase hexadecimal digits is accepted")
+	assert.NoError(t, (&v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Extent{Extent: &v1alpha2.DiskExtent{Offset: 1, Data: []byte("x")}}}).Validate(), "control: an extent is the service's to check")
+	for name, r := range map[string]*v1alpha2.CreateDiskFromStreamRequest{
+		"no disk":            start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.DiskId = "" }),
+		"no request":         start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.RequestId = "" }),
+		"no size":            start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.SizeBytes = 0 }),
+		"no filesystem":      start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.Filesystem = v1alpha2.Filesystem_FILESYSTEM_UNSPECIFIED }),
+		"a short digest":     digest("abc"),
+		"an upper-case hash": digest(strings.Repeat("A", 64)),
+		"no part":            {},
+	} {
+		assert.Error(t, r.Validate(), name)
+	}
+}
+
+func TestReadDiskRequest_Validate_NeedsExactlyOneSource(t *testing.T) {
+	assert.NoError(t, (&v1alpha2.ReadDiskRequest{DiskId: "d"}).Validate())
+	assert.NoError(t, (&v1alpha2.ReadDiskRequest{SnapshotId: "s"}).Validate())
+	assert.Error(t, (&v1alpha2.ReadDiskRequest{}).Validate())
+	assert.Error(t, (&v1alpha2.ReadDiskRequest{DiskId: "d", SnapshotId: "s"}).Validate())
 }
 
 func TestNetworkRule_Validate(t *testing.T) {
