@@ -3,7 +3,6 @@ package machine
 import (
 	"context"
 	"errors"
-	"regexp"
 )
 
 // DiskReadSource names what ReadDisk reads: a disk or a disk snapshot, one of
@@ -22,13 +21,19 @@ type DiskSink interface {
 }
 
 // DiskExtents yields the extents of a disk a client sends: Next returns the
-// next run of bytes with its offset, and io.EOF after the last. The data is
-// valid until the next call.
+// next run of bytes with its offset, and io.EOF after the last, which is also
+// after the digest the sender ends with. The data is valid until the next call.
 type DiskExtents interface {
 	Next() (offset uint64, data []byte, err error)
+	// Digest is the SHA-256, in hex, the sender gave for the bytes of the
+	// extents. It is meaningful once Next has returned io.EOF.
+	Digest() string
 }
 
-var diskDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
+// MaxDiskBytes is the largest disk a stream makes: the largest an ext4
+// filesystem of 4 KiB blocks holds. A larger size is invalid before the stream
+// is read, since the digest of a disk is taken over its whole size.
+const MaxDiskBytes = 16 << 40
 
 func (s *service) ReadDisk(ctx context.Context, source DiskReadSource, sink DiskSink) error {
 	switch {
@@ -141,7 +146,7 @@ func (s *service) stream(ctx context.Context, path string, sizeBytes uint64, fs 
 	return sink.Digest(sum)
 }
 
-func (s *service) CreateDiskFromStream(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem, digest string, extents DiskExtents) error {
+func (s *service) CreateDiskFromStream(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem, extents DiskExtents) error {
 	switch {
 	case !ValidDiskID(disk):
 		return invalidDisk(disk)
@@ -149,36 +154,41 @@ func (s *service) CreateDiskFromStream(ctx context.Context, disk DiskID, request
 		return fail(ErrInvalid, "the request ID is empty")
 	case sizeBytes == 0:
 		return fail(ErrInvalid, "the disk size is zero")
+	case sizeBytes > MaxDiskBytes:
+		return fail(ErrInvalid, "the disk size %d is above the %d a stream makes", sizeBytes, uint64(MaxDiskBytes))
 	case filesystem != FilesystemNone && filesystem != FilesystemExt4:
 		return fail(ErrInvalid, "filesystem %q is neither %q nor %q", filesystem, FilesystemNone, FilesystemExt4)
-	case !diskDigest.MatchString(digest):
-		return fail(ErrInvalid, "the digest %q is not 64 lowercase hexadecimal digits", digest)
 	}
-	asked := DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: filesystem, ContentsDigest: digest}
+	asked := DiskEntry{ID: disk, Request: request, SizeBytes: sizeBytes, Filesystem: filesystem}
 	defer s.diskLocks.Lock(disk, true)()
 	// The caller's own context bounds the upload: a stream that breaks ends the
 	// call with nothing published.
-	for attempt := 0; ; attempt++ {
-		switch have, err := s.disks.Get(ctx, disk); {
-		case err == nil:
-			if have == asked {
-				return nil
-			}
-			return fail(ErrConflict, "disk %q exists under another request ID, size, filesystem or digest", disk)
-		case !errors.Is(err, ErrDiskAbsent):
-			return fail(ErrFailed, "look up disk %q: %v", disk, err)
+	switch have, err := s.disks.Get(ctx, disk); {
+	case err == nil:
+		// What is not the bytes decides before they are read; the bytes are
+		// compared once the stream has ended.
+		if have.Request != request || have.SizeBytes != sizeBytes || have.Filesystem != filesystem || have.FromSnapshot != "" {
+			return fail(ErrConflict, "disk %q exists under another request ID, size or filesystem", disk)
 		}
-		err := s.disks.CreateFromExtents(ctx, asked, extents)
-		switch {
-		case err == nil:
-			return nil
-		case errors.Is(err, ErrDiskInvalid), errors.Is(err, ErrDiskStreamMismatch):
-			return fail(ErrInvalid, "%v", err)
-		case errors.Is(err, ErrDiskExists) && attempt == 0:
-			// A call made the disk between the lookup and the create: what it
-			// made is what the lookup now answers for.
-		default:
-			return fail(ErrFailed, "create disk %q from a stream: %v", disk, err)
-		}
+	case !errors.Is(err, ErrDiskAbsent):
+		return fail(ErrFailed, "look up disk %q: %v", disk, err)
 	}
+	digest, err := s.disks.CreateFromExtents(ctx, asked, extents)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrDiskExists):
+		asked.ContentsDigest = digest
+		have, gerr := s.disks.Get(ctx, disk)
+		switch {
+		case gerr != nil:
+			return fail(ErrFailed, "look up disk %q: %v", disk, gerr)
+		case have == asked:
+			return nil
+		}
+		return fail(ErrConflict, "disk %q exists with other contents than the stream", disk)
+	case errors.Is(err, ErrDiskInvalid), errors.Is(err, ErrDiskStreamMismatch):
+		return fail(ErrInvalid, "%v", err)
+	}
+	return fail(ErrFailed, "create disk %q from a stream: %v", disk, err)
 }

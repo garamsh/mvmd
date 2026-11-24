@@ -199,46 +199,52 @@ func (d *Disk) Bytes(path string) []byte {
 }
 
 // CreateFromExtents implements machine.Disk: the extents are laid in a file of
-// the entry's size, and the disk is made only when their SHA-256 is the entry's
-// ContentsDigest.
-func (d *Disk) CreateFromExtents(_ context.Context, entry machine.DiskEntry, extents machine.DiskExtents) error {
+// the entry's size, and the disk is made only when their SHA-256 is the
+// extents' Digest. It returns the digest, also when the disk exists.
+func (d *Disk) CreateFromExtents(ctx context.Context, entry machine.DiskEntry, extents machine.DiskExtents) (string, error) {
 	if err := d.Enter("create-from-extents"); err != nil {
-		return err
+		return "", err
 	}
 	data := make([]byte, entry.SizeBytes)
 	var next uint64
 	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		offset, chunk, err := extents.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return err
+			return "", err
 		}
 		if offset < next || offset+uint64(len(chunk)) > entry.SizeBytes {
-			return machine.ErrDiskStreamMismatch
+			return "", machine.ErrDiskStreamMismatch
 		}
 		copy(data[offset:], chunk)
 		next = offset + uint64(len(chunk))
 	}
-	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != entry.ContentsDigest {
-		return machine.ErrDiskStreamMismatch
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+	if digest != extents.Digest() {
+		return "", machine.ErrDiskStreamMismatch
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, held := d.disks[entry.ID]; held {
-		return machine.ErrDiskExists
+		return digest, machine.ErrDiskExists
 	}
 	d.disks[entry.ID] = entry.SizeBytes
 	d.request[entry.ID] = entry.Request
 	d.filesystem[entry.ID] = entry.Filesystem
-	d.contents[entry.ID] = entry.ContentsDigest
+	d.contents[entry.ID] = digest
 	d.files["/disks/"+string(entry.ID)] = data
-	return nil
+	return digest, nil
 }
 
-// ReadExtents implements machine.Disk: the whole file is one extent, and a path
-// nothing was Filled at holds nothing.
+// ReadExtents implements machine.Disk: the whole file is one extent, zero blocks
+// included where the port leaves them out, which a reader of the stream cannot
+// tell apart; and a path nothing was Filled at holds nothing.
 func (d *Disk) ReadExtents(_ context.Context, path string, emit func(uint64, []byte) error) (string, error) {
 	if err := d.Enter("read-extents"); err != nil {
 		return "", err

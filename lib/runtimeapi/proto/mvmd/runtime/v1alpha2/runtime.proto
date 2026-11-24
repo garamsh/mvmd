@@ -720,22 +720,24 @@ message DiskStreamDigest {
   string sha256 = 1;
 }
 
-// CreateDiskFromStreamRequest is the first message of a stream carrying start,
-// then messages carrying extents in ascending order (ADR 0072).
+// CreateDiskFromStreamRequest is one message of a stream: start first, then
+// extents in ascending order, then the digest, then the end of the stream
+// (ADR 0072).
 message CreateDiskFromStreamRequest {
   oneof part {
     CreateDiskFromStreamStart start = 1;
     DiskExtent extent = 2;
+    DiskStreamDigest digest = 3;
   }
 }
 
 // CreateDiskFromStreamStart is what a disk made from a stream is, as
 // CreateDiskRequest's fields are. The disk is published only when the bytes
-// received are size_bytes long as extents place them and their SHA-256 is
-// sha256; otherwise the call is rejected as invalid and the node holds nothing
-// of it. A repeat with the same disk_id, request_id, size_bytes, filesystem and
-// sha256 succeeds as CreateDisk's repeat does, whatever the repeat's stream
-// carries.
+// received are as long as size_bytes, as extents place them, and their SHA-256
+// is the digest the stream ends with; otherwise the call is rejected as invalid
+// and the node holds nothing of it. A repeat with the same disk_id, request_id,
+// size_bytes and filesystem whose bytes have the digest the disk was made with
+// succeeds as CreateDisk's repeat does; the repeat's stream is read to its end.
 message CreateDiskFromStreamStart {
   string disk_id = 1;
   string request_id = 2;
@@ -743,8 +745,7 @@ message CreateDiskFromStreamStart {
   // The filesystem the source recorded: FILESYSTEM_NONE or FILESYSTEM_EXT4;
   // unspecified is rejected.
   Filesystem filesystem = 4;
-  // The SHA-256, in hex, of the disk's bytes, as ReadDisk's digest gives it.
-  string sha256 = 5;
+  reserved 5;
 }
 
 message CreateDiskFromStreamResponse {

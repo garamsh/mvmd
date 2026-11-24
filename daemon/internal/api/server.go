@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -41,6 +42,8 @@ type Server struct {
 	kernels  machine.Kernels
 	bootSets func(context.Context) ([]machine.BootSetInfo, error)
 	prefixes []netip.Prefix
+	// diskStreamIdle bounds a disk stream's wait on its peer; zero is the default.
+	diskStreamIdle time.Duration
 	// stopping ends the event streams when Stop is called: a stream has no
 	// end of its own, and a graceful stop of the gRPC server waits for it.
 	stopping context.Context

@@ -152,11 +152,14 @@ type Service interface {
 	// ErrNotFound. The source's own error, or the sink's, ends the call.
 	ReadDisk(ctx context.Context, source DiskReadSource, sink DiskSink) error
 	// CreateDiskFromStream makes a disk of the size and filesystem from the
-	// extents the source yields, at most once per request ID, and publishes it
-	// only when they are the bytes whose SHA-256 is digest (ADR 0072); otherwise
-	// the call is ErrInvalid and no disk is left. The same identifier under
-	// another request ID, size, filesystem or digest is ErrConflict.
-	CreateDiskFromStream(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem, digest string, extents DiskExtents) error
+	// extents the source yields, and publishes it only when they are the bytes
+	// whose SHA-256 is the digest the source ends with (ADR 0072); otherwise the
+	// call is ErrInvalid and no disk is left, as it is for a size of zero or
+	// above MaxDiskBytes. A repeat reads its stream to the end: the same
+	// identifier, request ID, size and filesystem with bytes of the digest the
+	// disk was made with is success, and the identifier under anything else is
+	// ErrConflict.
+	CreateDiskFromStream(ctx context.Context, disk DiskID, request RequestID, sizeBytes uint64, filesystem Filesystem, extents DiskExtents) error
 }
 
 // machineLock is one Machine's lock and the number of calls using it, which

@@ -20,7 +20,7 @@ import (
 
 // streamNode is a runtime API server over the real Machine use case on the
 // in-memory disks, and the disks, whose bytes a test sets and reads.
-func streamNode(t *testing.T) (v1alpha2.RuntimeServiceClient, *memory.Disk) {
+func streamNode(t *testing.T, opts ...api.Option) (v1alpha2.RuntimeServiceClient, *memory.Disk) {
 	t.Helper()
 	info := machine.DriverInfo{Name: "inmem", Version: "1", CPUModel: "cpu"}
 	images, snapshots, store, disks := memory.NewImageStore(), memory.NewSnapshotStore(), memory.NewStateStore(), memory.NewDisk()
@@ -28,7 +28,7 @@ func streamNode(t *testing.T) (v1alpha2.RuntimeServiceClient, *memory.Disk) {
 	svc := machine.NewService(memory.NewDriver(info), memory.NewSupervision(), memory.NewNetwork(), disks, images, snapshots,
 		memory.NewGuest(0), memory.NewWallClock(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)), store, memory.NewStartPermitter(),
 		machine.NewUIDs(machine.UIDRange{First: 1000, Count: 256}), memory.NewEvents(), machine.WithKernels(memory.Kernels()), machine.WithCatalog(nodeCatalog))
-	srv := api.New(svc, nil, nil, info, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, api.WithCatalog(nodeCatalog))
+	srv := api.New(svc, nil, nil, info, capacitymemory.NewReader(nodecapacity.Capacity{}), nil, append([]api.Option{api.WithCatalog(nodeCatalog)}, opts...)...)
 	return dialThroughInterceptors(t, srv), disks
 }
 
@@ -51,10 +51,14 @@ func readDisk(t *testing.T, client v1alpha2.RuntimeServiceClient, req *v1alpha2.
 	}
 }
 
-func streamStart(disk string, size uint64, data []byte) *v1alpha2.CreateDiskFromStreamRequest {
+func streamStart(disk string, size uint64) *v1alpha2.CreateDiskFromStreamRequest {
 	return &v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Start{Start: &v1alpha2.CreateDiskFromStreamStart{
-		DiskId: disk, RequestId: "r-" + disk, SizeBytes: size, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE, Sha256: hexSum(data),
+		DiskId: disk, RequestId: "r-" + disk, SizeBytes: size, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE,
 	}}}
+}
+
+func streamDigest(sum string) *v1alpha2.CreateDiskFromStreamRequest {
+	return &v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Digest{Digest: &v1alpha2.DiskStreamDigest{Sha256: sum}}}
 }
 
 func streamExtent(offset uint64, data []byte) *v1alpha2.CreateDiskFromStreamRequest {
@@ -95,18 +99,19 @@ func TestReadDisk_ThenCreateDiskFromStream_ReachTheService(t *testing.T) {
 
 	to, toDisks := streamNode(t)
 	msgs := []*v1alpha2.CreateDiskFromStreamRequest{{Part: &v1alpha2.CreateDiskFromStreamRequest_Start{Start: &v1alpha2.CreateDiskFromStreamStart{
-		DiskId: "copy", RequestId: "r-c", SizeBytes: parts[0].GetHeader().GetSizeBytes(), Filesystem: parts[0].GetHeader().GetFilesystem(), Sha256: last.GetSha256()}}}}
+		DiskId: "copy", RequestId: "r-c", SizeBytes: parts[0].GetHeader().GetSizeBytes(), Filesystem: parts[0].GetHeader().GetFilesystem()}}}}
 	for _, p := range parts[1 : len(parts)-1] {
 		msgs = append(msgs, streamExtent(p.GetExtent().GetOffset(), p.GetExtent().GetData()))
 	}
+	msgs = append(msgs, streamDigest(last.GetSha256()))
 	resp, err := createFromStream(t, to, msgs...)
 	require.NoError(t, err)
 	assert.Equal(t, "copy", resp.GetDisk().GetId())
 	assert.Equal(t, uint64(4096), resp.GetDisk().GetSizeBytes())
 	assert.Equal(t, data, toDisks.Bytes("/disks/copy"))
 
-	again, err := createFromStream(t, to, msgs[0])
-	require.NoError(t, err, "a repeat succeeds whatever its stream carries")
+	again, err := createFromStream(t, to, msgs...)
+	require.NoError(t, err, "a retry streams again and succeeds")
 	assert.Equal(t, "copy", again.GetDisk().GetId())
 }
 
@@ -137,13 +142,21 @@ func TestReadDisk_RefusalsReachTheCallerWithTheirKind(t *testing.T) {
 
 func TestCreateDiskFromStream_RefusalsReachTheCallerAndLeaveNothing(t *testing.T) {
 	data := []byte("0123456789abcdef")
+	sum := hexSum(data)
+	start, whole, tail := streamStart("n", 16), streamExtent(0, data), streamDigest(sum)
 	for name, msgs := range map[string][]*v1alpha2.CreateDiskFromStreamRequest{
-		"bytes that are not the digest": {streamStart("n", 16, data), streamExtent(0, []byte("0123456789abcdeX"))},
-		"a stream cut short":            {streamStart("n", 16, data), streamExtent(0, data[:8])},
-		"an extent past the size":       {streamStart("n", 16, data), streamExtent(8, data)},
-		"no start":                      {streamExtent(0, data)},
-		"a second start":                {streamStart("n", 16, data), streamStart("n", 16, data)},
-		"no messages":                   nil,
+		"bytes that are not the digest":   {start, streamExtent(0, []byte("0123456789abcdeX")), tail},
+		"a stream cut short":              {start, streamExtent(0, data[:8]), tail},
+		"an extent past the size":         {start, streamExtent(8, data), tail},
+		"no start":                        {whole, tail},
+		"a second start":                  {start, whole, start, tail},
+		"a second start after the digest": {start, whole, tail, start},
+		"an extent after the digest":      {start, whole, tail, whole},
+		"a second digest":                 {start, whole, tail, tail},
+		"no digest":                       {start, whole},
+		"a digest that is not a digest":   {start, whole, streamDigest("abc")},
+		"a digest only":                   {tail},
+		"no messages":                     nil,
 	} {
 		t.Run(name, func(t *testing.T) {
 			client, _ := streamNode(t)
@@ -155,8 +168,59 @@ func TestCreateDiskFromStream_RefusalsReachTheCallerAndLeaveNothing(t *testing.T
 			require.NoError(t, lerr)
 			assert.Empty(t, all.GetDisks(), "nothing was published")
 
-			_, err = createFromStream(t, client, streamStart("n", 16, data), streamExtent(0, data))
+			_, err = createFromStream(t, client, start, whole, tail)
 			require.NoError(t, err, "control: the whole stream in order is accepted")
 		})
 	}
+}
+
+// A sender that stops sending does not hold the disk: after the idle bound the
+// call ends with nothing published, and the disk can be made.
+func TestCreateDiskFromStream_AStalledSenderEndsTheCallAndFreesTheDisk(t *testing.T) {
+	client, _ := streamNode(t, api.WithDiskStreamIdle(200*time.Millisecond))
+	data := []byte("0123456789abcdef")
+	stream, err := client.CreateDiskFromStream(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(streamStart("n", 16)))
+	require.NoError(t, stream.Send(streamExtent(0, data)))
+
+	done := make(chan error, 1)
+	go func() { done <- stream.RecvMsg(&v1alpha2.CreateDiskFromStreamResponse{}) }() // no CloseSend: the sender stalls
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the call did not end though the sender sent nothing more")
+	}
+
+	all, err := client.ListDisks(context.Background(), &v1alpha2.ListDisksRequest{})
+	require.NoError(t, err)
+	assert.Empty(t, all.GetDisks())
+	_, err = createFromStream(t, client, streamStart("n", 16), streamExtent(0, data), streamDigest(hexSum(data)))
+	require.NoError(t, err, "control: the disk is made once the stalled call has ended")
+}
+
+// A reader that stops reading does not hold the disk: after the idle bound the
+// read ends, and the disk can be deleted.
+func TestReadDisk_AStalledReaderEndsTheCallAndFreesTheDisk(t *testing.T) {
+	client, disks := streamNode(t, api.WithDiskStreamIdle(200*time.Millisecond))
+	ctx := context.Background()
+	const size = 8 << 20
+	_, err := client.CreateDisk(ctx, &v1alpha2.CreateDiskRequest{DiskId: "d", RequestId: "r", SizeBytes: size, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE})
+	require.NoError(t, err)
+	big := make([]byte, size)
+	for i := range big {
+		big[i] = byte(i%251 + 1)
+	}
+	disks.Fill("/disks/d", big)
+
+	stream, err := client.ReadDisk(ctx, &v1alpha2.ReadDiskRequest{DiskId: "d"})
+	require.NoError(t, err)
+	_, err = stream.Recv() // the call is running; the reader now reads nothing more
+
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		_, err := client.DeleteDisk(ctx, &v1alpha2.DeleteDiskRequest{DiskId: "d"})
+		return err == nil
+	}, 10*time.Second, 50*time.Millisecond, "the stalled read let go of the disk")
 }

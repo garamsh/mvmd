@@ -83,7 +83,12 @@ type DiskEntry struct {
 	FromSnapshot DiskSnapshotID
 	// ContentsDigest is the SHA-256, in hex, of the bytes the disk was made
 	// holding, or empty for a disk made with none. It is part of what a repeated
-	// create is compared against.
+	// create is compared against. A disk made with contents (ADR 0060) holds
+	// the digest of at most 1 MiB, written at offset 0; a disk made from a
+	// stream (ADR 0072) holds the digest of its whole size as a reader sees it.
+	// A repeat of either kind finds the other's disk by the same identifier, and
+	// the two kinds are equal only when the request ID, size, filesystem and
+	// digest are, which two different kinds of bytes do not give.
 	ContentsDigest string
 }
 
@@ -137,15 +142,19 @@ type Disk interface {
 	// ContentsDigest, all or nothing. It returns ErrDiskExists and ErrDiskInvalid
 	// as Create does, and ErrDiskInvalid for contents longer than the size.
 	CreateWithContents(ctx context.Context, entry DiskEntry, contents []byte) error
-	// CreateFromExtents makes the disk of the entry, which has a filesystem and a
-	// ContentsDigest, from the extents: runs of bytes in ascending order, with
-	// zeros wherever none lies, written sparse where the file system allows. The
-	// SHA-256 of the bytes as a reader sees them must be the entry's
-	// ContentsDigest, and the disk is published, synced and recorded as Create's
-	// is, all or nothing: a mismatch, which is ErrDiskStreamMismatch, or an error
-	// of the extents leaves no disk. It returns ErrDiskExists and ErrDiskInvalid
-	// as Create does.
-	CreateFromExtents(ctx context.Context, entry DiskEntry, extents DiskExtents) error
+	// CreateFromExtents makes the disk of the entry, whose ContentsDigest is
+	// not known yet, from the extents: runs of bytes in ascending order, with
+	// zeros wherever none lies, written sparse where the file system allows. When
+	// the extents have ended (Next returned io.EOF) the SHA-256 of the bytes as a
+	// reader sees them must be the extents' Digest, and the disk is published,
+	// synced and recorded as Create's is, with that digest as its
+	// ContentsDigest, all or nothing: a mismatch, which is ErrDiskStreamMismatch,
+	// or an error of the extents, or the end of ctx, leaves no disk. The context
+	// is checked while the zeros between the extents are hashed. It returns the
+	// digest it verified, with ErrDiskExists and ErrDiskInvalid as Create does;
+	// ErrDiskExists comes after the bytes were verified, so the caller may
+	// compare the digest with the existing disk's.
+	CreateFromExtents(ctx context.Context, entry DiskEntry, extents DiskExtents) (digest string, err error)
 	// ReadExtents calls emit with the runs of bytes of the disk file at path, a
 	// disk's or a disk snapshot's, in ascending order and leaving out holes and
 	// blocks of zeros, and returns the SHA-256, in hex, of the file as a reader

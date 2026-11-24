@@ -64,21 +64,27 @@ func TestCreateDiskRequest_Validate_RefusesAMissingIdentifierOrRequestID(t *test
 	assert.Error(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", SizeBytes: 1}).Validate())
 }
 
-func TestCreateDiskFromStreamStart_Validate(t *testing.T) {
-	ok := func() *v1alpha2.CreateDiskFromStreamStart {
-		return &v1alpha2.CreateDiskFromStreamStart{DiskId: "d", RequestId: "r", SizeBytes: 1, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE, Sha256: strings.Repeat("a", 64)}
+func TestCreateDiskFromStreamRequest_Validate(t *testing.T) {
+	start := func(change func(*v1alpha2.CreateDiskFromStreamStart)) *v1alpha2.CreateDiskFromStreamRequest {
+		s := &v1alpha2.CreateDiskFromStreamStart{DiskId: "d", RequestId: "r", SizeBytes: 1, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE}
+		change(s)
+		return &v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Start{Start: s}}
 	}
-	assert.NoError(t, ok().Validate(), "control: the complete start is accepted")
-	for name, change := range map[string]func(*v1alpha2.CreateDiskFromStreamStart){
-		"no disk":            func(r *v1alpha2.CreateDiskFromStreamStart) { r.DiskId = "" },
-		"no request":         func(r *v1alpha2.CreateDiskFromStreamStart) { r.RequestId = "" },
-		"no size":            func(r *v1alpha2.CreateDiskFromStreamStart) { r.SizeBytes = 0 },
-		"no filesystem":      func(r *v1alpha2.CreateDiskFromStreamStart) { r.Filesystem = v1alpha2.Filesystem_FILESYSTEM_UNSPECIFIED },
-		"a short digest":     func(r *v1alpha2.CreateDiskFromStreamStart) { r.Sha256 = "abc" },
-		"an upper-case hash": func(r *v1alpha2.CreateDiskFromStreamStart) { r.Sha256 = strings.Repeat("A", 64) },
+	digest := func(sum string) *v1alpha2.CreateDiskFromStreamRequest {
+		return &v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Digest{Digest: &v1alpha2.DiskStreamDigest{Sha256: sum}}}
+	}
+	assert.NoError(t, start(func(*v1alpha2.CreateDiskFromStreamStart) {}).Validate(), "control: the complete start is accepted")
+	assert.NoError(t, digest(strings.Repeat("a", 64)).Validate(), "control: a digest of 64 lowercase hexadecimal digits is accepted")
+	assert.NoError(t, (&v1alpha2.CreateDiskFromStreamRequest{Part: &v1alpha2.CreateDiskFromStreamRequest_Extent{Extent: &v1alpha2.DiskExtent{Offset: 1, Data: []byte("x")}}}).Validate(), "control: an extent is the service's to check")
+	for name, r := range map[string]*v1alpha2.CreateDiskFromStreamRequest{
+		"no disk":            start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.DiskId = "" }),
+		"no request":         start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.RequestId = "" }),
+		"no size":            start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.SizeBytes = 0 }),
+		"no filesystem":      start(func(s *v1alpha2.CreateDiskFromStreamStart) { s.Filesystem = v1alpha2.Filesystem_FILESYSTEM_UNSPECIFIED }),
+		"a short digest":     digest("abc"),
+		"an upper-case hash": digest(strings.Repeat("A", 64)),
+		"no part":            {},
 	} {
-		r := ok()
-		change(r)
 		assert.Error(t, r.Validate(), name)
 	}
 }

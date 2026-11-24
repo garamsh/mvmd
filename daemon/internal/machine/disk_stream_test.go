@@ -51,16 +51,31 @@ func (c *collector) Digest(sum string) error {
 	return nil
 }
 
-// extentList yields extents as a client's stream would, then io.EOF.
+// extentList is the extents of a stream.
 type extentList []extent
 
-func (l *extentList) Next() (uint64, []byte, error) {
-	if len(*l) == 0 {
+// streamed is a client's stream: the extents, then io.EOF, with the digest the
+// sender ended with.
+type streamed struct {
+	list   extentList
+	digest string
+}
+
+func (s *streamed) Next() (uint64, []byte, error) {
+	if len(s.list) == 0 {
 		return 0, nil, io.EOF
 	}
-	e := (*l)[0]
-	*l = (*l)[1:]
+	e := s.list[0]
+	s.list = s.list[1:]
 	return e.offset, e.data, nil
+}
+
+func (s *streamed) Digest() string { return s.digest }
+
+// honest is the stream of the extents with the digest of the disk of size bytes
+// they stand for.
+func honest(size uint64, list extentList) *streamed {
+	return &streamed{list: append(extentList(nil), list...), digest: diskSum(logical(size, list))}
 }
 
 func diskSum(b []byte) string {
@@ -123,8 +138,7 @@ func TestReadDisk_ThenCreateDiskFromStream_IsARoundTrip(t *testing.T) {
 	assert.Less(t, sent, streamBytes/2, "the holes were not sent")
 
 	target, targetDisk, targetDir := realStreamService(t)
-	list := extentList(got.extents)
-	require.NoError(t, target.CreateDiskFromStream(ctx, "copy", "r-c", got.size, got.fs, got.digest, &list))
+	require.NoError(t, target.CreateDiskFromStream(ctx, "copy", "r-c", got.size, got.fs, &streamed{list: got.extents, digest: got.digest}))
 
 	made, err := os.ReadFile(filepath.Join(targetDir, "copy"))
 	require.NoError(t, err)
@@ -156,9 +170,8 @@ func TestCreateDiskFromStream_ABadStreamLeavesNothing(t *testing.T) {
 	for name, list := range map[string]extentList{"a changed byte": flipped, "a missing extent": short, "an extent past the size": past, "extents out of order": backwards} {
 		t.Run(name, func(t *testing.T) {
 			svc, _, dir := realStreamService(t)
-			l := list
 
-			err := svc.CreateDiskFromStream(ctx, "n", "r", streamBytes, machine.FilesystemNone, diskSum(want), &l)
+			err := svc.CreateDiskFromStream(ctx, "n", "r", streamBytes, machine.FilesystemNone, &streamed{list: list, digest: diskSum(want)})
 
 			requireKind(t, err, machine.ErrInvalid)
 			entries, rerr := os.ReadDir(dir)
@@ -171,56 +184,51 @@ func TestCreateDiskFromStream_ABadStreamLeavesNothing(t *testing.T) {
 	}
 
 	svc, disk, _ := realStreamService(t)
-	l := good()
-	require.NoError(t, svc.CreateDiskFromStream(ctx, "n", "r", streamBytes, machine.FilesystemNone, diskSum(logical(streamBytes, good())), &l), "control: the stream unchanged makes the disk")
+	require.NoError(t, svc.CreateDiskFromStream(ctx, "n", "r", streamBytes, machine.FilesystemNone, honest(streamBytes, good())), "control: the stream unchanged makes the disk")
 	_, err := disk.Get(ctx, "n")
 	require.NoError(t, err)
 }
 
-// A repeat under the same request ID, size, filesystem and digest succeeds
-// without reading the stream; another of any of them is a conflict; the control
-// is a new identifier, which is made.
-func TestCreateDiskFromStream_ARepeatSucceedsAndAnythingElseIsAConflict(t *testing.T) {
+// A retry streams again: the same request ID, size, filesystem and bytes
+// succeed; the same bytes under another request ID, size or filesystem, and other
+// bytes under the same ones, are a conflict; the control is a new identifier,
+// which is made.
+func TestCreateDiskFromStream_ARetryStreamsAgainAndAnythingElseIsAConflict(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv()
 	data := []byte("abcd")
-	one := func() *extentList { return &extentList{{0, data}} }
 	size := uint64(4)
-	require.NoError(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemNone, diskSum(data), one()))
+	one := func() *streamed { return honest(size, extentList{{0, data}}) }
+	require.NoError(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemNone, one()))
 	require.Equal(t, 1, e.disks.Calls("create-from-extents"))
 
-	empty := extentList{}
-	require.NoError(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemNone, diskSum(data), &empty), "a repeat succeeds")
-	assert.Equal(t, 1, e.disks.Calls("create-from-extents"), "and reads nothing again")
+	require.NoError(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemNone, one()), "a retry succeeds")
+	assert.Equal(t, 2, e.disks.Calls("create-from-extents"), "and the stream was read again")
 
-	other := diskSum([]byte("zzzz"))
-	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r2", size, machine.FilesystemNone, diskSum(data), one()), machine.ErrConflict)
-	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemNone, other, one()), machine.ErrConflict)
-	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemExt4, diskSum(data), one()), machine.ErrConflict)
-	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r", 8, machine.FilesystemNone, diskSum(data), one()), machine.ErrConflict)
+	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r2", size, machine.FilesystemNone, one()), machine.ErrConflict)
+	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemExt4, one()), machine.ErrConflict)
+	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r", 8, machine.FilesystemNone, honest(8, extentList{{0, data}})), machine.ErrConflict)
+	requireKind(t, e.svc.CreateDiskFromStream(ctx, "n", "r", size, machine.FilesystemNone, honest(size, extentList{{0, []byte("zzzz")}})), machine.ErrConflict)
 
-	require.NoError(t, e.svc.CreateDiskFromStream(ctx, "n2", "r", size, machine.FilesystemNone, diskSum(data), one()), "control: a new identifier is made")
+	require.NoError(t, e.svc.CreateDiskFromStream(ctx, "n2", "r", size, machine.FilesystemNone, one()), "control: a new identifier is made")
 }
 
 func TestCreateDiskFromStream_RefusesWhatIsNotACall(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv()
-	sum := diskSum([]byte("a"))
-	call := func(disk machine.DiskID, request machine.RequestID, size uint64, fs machine.Filesystem, digest string) error {
-		l := extentList{{0, []byte("a")}}
-		return e.svc.CreateDiskFromStream(ctx, disk, request, size, fs, digest, &l)
+	call := func(disk machine.DiskID, request machine.RequestID, size uint64, fs machine.Filesystem) error {
+		return e.svc.CreateDiskFromStream(ctx, disk, request, size, fs, honest(1, extentList{{0, []byte("a")}}))
 	}
-	requireKind(t, call("", "r", 1, machine.FilesystemNone, sum), machine.ErrInvalid)
-	requireKind(t, call("tmp-x", "r", 1, machine.FilesystemNone, sum), machine.ErrInvalid)
-	requireKind(t, call("n", "", 1, machine.FilesystemNone, sum), machine.ErrInvalid)
-	requireKind(t, call("n", "r", 0, machine.FilesystemNone, sum), machine.ErrInvalid)
-	requireKind(t, call("n", "r", 1, "", sum), machine.ErrInvalid)
-	requireKind(t, call("n", "r", 1, "btrfs", sum), machine.ErrInvalid)
-	requireKind(t, call("n", "r", 1, machine.FilesystemNone, "abc"), machine.ErrInvalid)
-	requireKind(t, call("n", "r", 1, machine.FilesystemNone, diskSum([]byte("a"))[:63]+"G"), machine.ErrInvalid)
-	assert.Zero(t, e.disks.Calls("create-from-extents"))
+	requireKind(t, call("", "r", 1, machine.FilesystemNone), machine.ErrInvalid)
+	requireKind(t, call("tmp-x", "r", 1, machine.FilesystemNone), machine.ErrInvalid)
+	requireKind(t, call("n", "", 1, machine.FilesystemNone), machine.ErrInvalid)
+	requireKind(t, call("n", "r", 0, machine.FilesystemNone), machine.ErrInvalid)
+	requireKind(t, call("n", "r", 1, ""), machine.ErrInvalid)
+	requireKind(t, call("n", "r", 1, "btrfs"), machine.ErrInvalid)
+	requireKind(t, call("n", "r", machine.MaxDiskBytes+1, machine.FilesystemNone), machine.ErrInvalid)
+	assert.Zero(t, e.disks.Calls("create-from-extents"), "a refused call reads no stream")
 
-	require.NoError(t, call("n", "r", 1, machine.FilesystemNone, sum), "control: the same call, valid")
+	require.NoError(t, call("n", "r", 1, machine.FilesystemNone), "control: the same call, valid")
 }
 
 // A disk is read when no Machine holds it, and when a Created or Stopped one
