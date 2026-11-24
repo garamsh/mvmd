@@ -35,7 +35,7 @@ jobs:
           uname -r
       # Pins cargo-deny at the version stack-rust.md names; the action checks the download
       # against the checksum it records for that version.
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-deny@0.20.2
       # The verified downloads of converter/mkfs-erofs/build.sh, keyed on the digests it pins, so
