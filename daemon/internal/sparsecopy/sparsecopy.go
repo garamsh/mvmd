@@ -29,10 +29,25 @@ func Copy(dst, src *os.File) error {
 	if err != nil {
 		return err
 	}
-	size := info.Size()
-	if err := dst.Truncate(size); err != nil {
+	if err := dst.Truncate(info.Size()); err != nil {
 		return err
 	}
+	return Runs(src, func(off int64, b []byte) error {
+		_, err := dst.WriteAt(b, off)
+		return err
+	})
+}
+
+// Runs calls emit with each run of src's blocks that holds a non-zero byte, in
+// ascending order: only the data extents src reports (SEEK_DATA and SEEK_HOLE)
+// are read, and each block that is all zeros is left out. A run is at most
+// chunk bytes and valid until emit returns. An error of emit ends it.
+func Runs(src *os.File, emit func(off int64, b []byte) error) error {
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	size := info.Size()
 	buf := make([]byte, chunk)
 	for off := int64(0); off < size; {
 		data, err := src.Seek(off, unix.SEEK_DATA)
@@ -46,7 +61,7 @@ func Copy(dst, src *os.File) error {
 		if err != nil {
 			return err
 		}
-		if err := copyExtent(dst, src, buf, data, min(end, size)); err != nil {
+		if err := runsOf(src, buf, data, min(end, size), emit); err != nil {
 			return err
 		}
 		off = end
@@ -54,15 +69,14 @@ func Copy(dst, src *os.File) error {
 	return nil
 }
 
-// copyExtent copies [from, to) of src to the same place in dst, writing runs
-// of blocks that hold a non-zero byte.
-func copyExtent(dst, src *os.File, buf []byte, from, to int64) error {
+// runsOf emits the runs of [from, to) of src.
+func runsOf(src *os.File, buf []byte, from, to int64, emit func(int64, []byte) error) error {
 	for off := from; off < to; {
 		n, err := src.ReadAt(buf[:min(int64(len(buf)), to-off)], off)
 		if err != nil && !(errors.Is(err, io.EOF) && n > 0) {
 			return err
 		}
-		if err := writeNonZero(dst, buf[:n], off); err != nil {
+		if err := WriteNonZero(emit, buf[:n], off); err != nil {
 			return err
 		}
 		off += int64(n)
@@ -70,9 +84,10 @@ func copyExtent(dst, src *os.File, buf []byte, from, to int64) error {
 	return nil
 }
 
-// writeNonZero writes b at off, leaving out every block of it that is all
+// WriteNonZero calls write with each run of b's blocks that holds a non-zero
+// byte, at its place counting from off, leaving out every block that is all
 // zeros.
-func writeNonZero(dst *os.File, b []byte, off int64) error {
+func WriteNonZero(write func(off int64, b []byte) error, b []byte, off int64) error {
 	run := -1
 	for i := 0; i < len(b); i += block {
 		if !isZero(b[i:min(i+block, len(b))]) {
@@ -82,15 +97,14 @@ func writeNonZero(dst *os.File, b []byte, off int64) error {
 			continue
 		}
 		if run >= 0 {
-			if _, err := dst.WriteAt(b[run:i], off+int64(run)); err != nil {
+			if err := write(off+int64(run), b[run:i]); err != nil {
 				return err
 			}
 			run = -1
 		}
 	}
 	if run >= 0 {
-		_, err := dst.WriteAt(b[run:], off+int64(run))
-		return err
+		return write(off+int64(run), b[run:])
 	}
 	return nil
 }

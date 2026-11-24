@@ -67,6 +67,35 @@ func (r *CreateDiskRequest) Validate() error {
 	return requireIDs(map[string]string{"disk_id": r.GetDiskId(), "request_id": r.GetRequestId()})
 }
 
+var diskDigestForm = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// Validate refuses a creating call without its identifier or request ID, with
+// a size of zero, with a filesystem other than none and ext4, or with a sha256
+// that is not 64 lowercase hexadecimal digits.
+func (r *CreateDiskFromStreamStart) Validate() error {
+	if err := requireIDs(map[string]string{"disk_id": r.GetDiskId(), "request_id": r.GetRequestId()}); err != nil {
+		return err
+	}
+	switch {
+	case r.GetSizeBytes() == 0:
+		return fmt.Errorf("size_bytes is zero")
+	case r.GetFilesystem() != Filesystem_FILESYSTEM_NONE && r.GetFilesystem() != Filesystem_FILESYSTEM_EXT4:
+		return fmt.Errorf("filesystem is neither none nor ext4")
+	case !diskDigestForm.MatchString(r.GetSha256()):
+		return fmt.Errorf("sha256 %q is not 64 lowercase hexadecimal digits", r.GetSha256())
+	}
+	return nil
+}
+
+// Validate refuses a read that names both a disk and a disk snapshot, or
+// neither.
+func (r *ReadDiskRequest) Validate() error {
+	if (r.GetDiskId() == "") == (r.GetSnapshotId() == "") {
+		return fmt.Errorf("exactly one of disk_id and snapshot_id is set")
+	}
+	return nil
+}
+
 // Validate refuses a creating call without its disk, snapshot identifier or
 // request ID.
 func (r *SnapshotDiskRequest) Validate() error {

@@ -15,6 +15,11 @@ var ErrDiskAbsent = errors.New("disk not held by the node")
 // an identifier a disk file already has.
 var ErrDiskExists = errors.New("disk already held by the node")
 
+// ErrDiskStreamMismatch is what Disk.CreateFromExtents returns for extents that
+// are not the disk the entry says: past its size, out of order, or of another
+// SHA-256.
+var ErrDiskStreamMismatch = errors.New("the extents are not the disk asked for")
+
 // ErrDiskInvalid is what Disk.Create returns for an identifier that cannot
 // name a disk file.
 var ErrDiskInvalid = errors.New("not a disk identifier")
@@ -132,6 +137,20 @@ type Disk interface {
 	// ContentsDigest, all or nothing. It returns ErrDiskExists and ErrDiskInvalid
 	// as Create does, and ErrDiskInvalid for contents longer than the size.
 	CreateWithContents(ctx context.Context, entry DiskEntry, contents []byte) error
+	// CreateFromExtents makes the disk of the entry, which has a filesystem and a
+	// ContentsDigest, from the extents: runs of bytes in ascending order, with
+	// zeros wherever none lies, written sparse where the file system allows. The
+	// SHA-256 of the bytes as a reader sees them must be the entry's
+	// ContentsDigest, and the disk is published, synced and recorded as Create's
+	// is, all or nothing: a mismatch, which is ErrDiskStreamMismatch, or an error
+	// of the extents leaves no disk. It returns ErrDiskExists and ErrDiskInvalid
+	// as Create does.
+	CreateFromExtents(ctx context.Context, entry DiskEntry, extents DiskExtents) error
+	// ReadExtents calls emit with the runs of bytes of the disk file at path, a
+	// disk's or a disk snapshot's, in ascending order and leaving out holes and
+	// blocks of zeros, and returns the SHA-256, in hex, of the file as a reader
+	// sees it. It never changes the file. An error of emit ends it.
+	ReadExtents(ctx context.Context, path string, emit func(offset uint64, data []byte) error) (sha256 string, err error)
 	// Get returns the disk the node holds, or ErrDiskAbsent.
 	Get(ctx context.Context, disk DiskID) (DiskEntry, error)
 	// List returns every disk the node holds, root disks included, ordered by

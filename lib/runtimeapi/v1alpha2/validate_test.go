@@ -1,6 +1,7 @@
 package v1alpha2_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,6 +62,32 @@ func TestCreateDiskRequest_Validate_RefusesAMissingIdentifierOrRequestID(t *test
 	assert.NoError(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", RequestId: "r", SizeBytes: 1}).Validate())
 	assert.Error(t, (&v1alpha2.CreateDiskRequest{RequestId: "r", SizeBytes: 1}).Validate())
 	assert.Error(t, (&v1alpha2.CreateDiskRequest{DiskId: "d", SizeBytes: 1}).Validate())
+}
+
+func TestCreateDiskFromStreamStart_Validate(t *testing.T) {
+	ok := func() *v1alpha2.CreateDiskFromStreamStart {
+		return &v1alpha2.CreateDiskFromStreamStart{DiskId: "d", RequestId: "r", SizeBytes: 1, Filesystem: v1alpha2.Filesystem_FILESYSTEM_NONE, Sha256: strings.Repeat("a", 64)}
+	}
+	assert.NoError(t, ok().Validate(), "control: the complete start is accepted")
+	for name, change := range map[string]func(*v1alpha2.CreateDiskFromStreamStart){
+		"no disk":            func(r *v1alpha2.CreateDiskFromStreamStart) { r.DiskId = "" },
+		"no request":         func(r *v1alpha2.CreateDiskFromStreamStart) { r.RequestId = "" },
+		"no size":            func(r *v1alpha2.CreateDiskFromStreamStart) { r.SizeBytes = 0 },
+		"no filesystem":      func(r *v1alpha2.CreateDiskFromStreamStart) { r.Filesystem = v1alpha2.Filesystem_FILESYSTEM_UNSPECIFIED },
+		"a short digest":     func(r *v1alpha2.CreateDiskFromStreamStart) { r.Sha256 = "abc" },
+		"an upper-case hash": func(r *v1alpha2.CreateDiskFromStreamStart) { r.Sha256 = strings.Repeat("A", 64) },
+	} {
+		r := ok()
+		change(r)
+		assert.Error(t, r.Validate(), name)
+	}
+}
+
+func TestReadDiskRequest_Validate_NeedsExactlyOneSource(t *testing.T) {
+	assert.NoError(t, (&v1alpha2.ReadDiskRequest{DiskId: "d"}).Validate())
+	assert.NoError(t, (&v1alpha2.ReadDiskRequest{SnapshotId: "s"}).Validate())
+	assert.Error(t, (&v1alpha2.ReadDiskRequest{}).Validate())
+	assert.Error(t, (&v1alpha2.ReadDiskRequest{DiskId: "d", SnapshotId: "s"}).Validate())
 }
 
 func TestNetworkRule_Validate(t *testing.T) {

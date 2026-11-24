@@ -705,7 +705,7 @@ func (x DeadlineEvent_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DeadlineEvent_Kind.Descriptor instead.
 func (DeadlineEvent_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{78, 0}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{86, 0}
 }
 
 // Failure is the status detail of every non-OK call.
@@ -3971,6 +3971,534 @@ func (*DeleteDiskSnapshotResponse) Descriptor() ([]byte, []int) {
 	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{49}
 }
 
+// ReadDiskRequest reads the bytes of a disk, or of a disk snapshot, as a
+// stream (ADR 0072). Exactly one of disk_id and snapshot_id is set; neither or
+// both is rejected. A disk with a Running or Paused Machine as holder, or in
+// any holder state but Created or Stopped, is rejected as a failed
+// precondition, as is a disk another call is changing or reading; an unknown
+// disk or snapshot is not found. A disk snapshot is held for the length of the
+// read, so DeleteDiskSnapshot is rejected meanwhile.
+type ReadDiskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DiskId        string                 `protobuf:"bytes,1,opt,name=disk_id,json=diskId,proto3" json:"disk_id,omitempty"`
+	SnapshotId    string                 `protobuf:"bytes,2,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadDiskRequest) Reset() {
+	*x = ReadDiskRequest{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadDiskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadDiskRequest) ProtoMessage() {}
+
+func (x *ReadDiskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadDiskRequest.ProtoReflect.Descriptor instead.
+func (*ReadDiskRequest) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *ReadDiskRequest) GetDiskId() string {
+	if x != nil {
+		return x.DiskId
+	}
+	return ""
+}
+
+func (x *ReadDiskRequest) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+// ReadDiskResponse is one message of a ReadDisk stream: a header, then any
+// number of extents, then the digest, which ends the stream.
+type ReadDiskResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Part:
+	//
+	//	*ReadDiskResponse_Header
+	//	*ReadDiskResponse_Extent
+	//	*ReadDiskResponse_Digest
+	Part          isReadDiskResponse_Part `protobuf_oneof:"part"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadDiskResponse) Reset() {
+	*x = ReadDiskResponse{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadDiskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadDiskResponse) ProtoMessage() {}
+
+func (x *ReadDiskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadDiskResponse.ProtoReflect.Descriptor instead.
+func (*ReadDiskResponse) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *ReadDiskResponse) GetPart() isReadDiskResponse_Part {
+	if x != nil {
+		return x.Part
+	}
+	return nil
+}
+
+func (x *ReadDiskResponse) GetHeader() *DiskStreamHeader {
+	if x != nil {
+		if x, ok := x.Part.(*ReadDiskResponse_Header); ok {
+			return x.Header
+		}
+	}
+	return nil
+}
+
+func (x *ReadDiskResponse) GetExtent() *DiskExtent {
+	if x != nil {
+		if x, ok := x.Part.(*ReadDiskResponse_Extent); ok {
+			return x.Extent
+		}
+	}
+	return nil
+}
+
+func (x *ReadDiskResponse) GetDigest() *DiskStreamDigest {
+	if x != nil {
+		if x, ok := x.Part.(*ReadDiskResponse_Digest); ok {
+			return x.Digest
+		}
+	}
+	return nil
+}
+
+type isReadDiskResponse_Part interface {
+	isReadDiskResponse_Part()
+}
+
+type ReadDiskResponse_Header struct {
+	Header *DiskStreamHeader `protobuf:"bytes,1,opt,name=header,proto3,oneof"`
+}
+
+type ReadDiskResponse_Extent struct {
+	Extent *DiskExtent `protobuf:"bytes,2,opt,name=extent,proto3,oneof"`
+}
+
+type ReadDiskResponse_Digest struct {
+	Digest *DiskStreamDigest `protobuf:"bytes,3,opt,name=digest,proto3,oneof"`
+}
+
+func (*ReadDiskResponse_Header) isReadDiskResponse_Part() {}
+
+func (*ReadDiskResponse_Extent) isReadDiskResponse_Part() {}
+
+func (*ReadDiskResponse_Digest) isReadDiskResponse_Part() {}
+
+type DiskStreamHeader struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The size of the disk's file.
+	SizeBytes uint64 `protobuf:"varint,1,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// What the disk holds, as ListDisks reports it.
+	Filesystem    Filesystem `protobuf:"varint,2,opt,name=filesystem,proto3,enum=mvmd.runtime.v1alpha2.Filesystem" json:"filesystem,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiskStreamHeader) Reset() {
+	*x = DiskStreamHeader{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiskStreamHeader) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiskStreamHeader) ProtoMessage() {}
+
+func (x *DiskStreamHeader) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiskStreamHeader.ProtoReflect.Descriptor instead.
+func (*DiskStreamHeader) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *DiskStreamHeader) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *DiskStreamHeader) GetFilesystem() Filesystem {
+	if x != nil {
+		return x.Filesystem
+	}
+	return Filesystem_FILESYSTEM_UNSPECIFIED
+}
+
+// DiskExtent is a run of the disk's bytes. Extents come in ascending order and
+// do not overlap; a byte no extent covers is zero, and the stream leaves out
+// the regions that are holes or hold only zeros.
+type DiskExtent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Offset        uint64                 `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiskExtent) Reset() {
+	*x = DiskExtent{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiskExtent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiskExtent) ProtoMessage() {}
+
+func (x *DiskExtent) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiskExtent.ProtoReflect.Descriptor instead.
+func (*DiskExtent) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *DiskExtent) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *DiskExtent) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type DiskStreamDigest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The SHA-256, in hex, of the size_bytes bytes of the disk as a reader sees
+	// them: the extents with zeros in between and after.
+	Sha256        string `protobuf:"bytes,1,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiskStreamDigest) Reset() {
+	*x = DiskStreamDigest{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiskStreamDigest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiskStreamDigest) ProtoMessage() {}
+
+func (x *DiskStreamDigest) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiskStreamDigest.ProtoReflect.Descriptor instead.
+func (*DiskStreamDigest) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *DiskStreamDigest) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+// CreateDiskFromStreamRequest is the first message of a stream carrying start,
+// then messages carrying extents in ascending order (ADR 0072).
+type CreateDiskFromStreamRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Part:
+	//
+	//	*CreateDiskFromStreamRequest_Start
+	//	*CreateDiskFromStreamRequest_Extent
+	Part          isCreateDiskFromStreamRequest_Part `protobuf_oneof:"part"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDiskFromStreamRequest) Reset() {
+	*x = CreateDiskFromStreamRequest{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDiskFromStreamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDiskFromStreamRequest) ProtoMessage() {}
+
+func (x *CreateDiskFromStreamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDiskFromStreamRequest.ProtoReflect.Descriptor instead.
+func (*CreateDiskFromStreamRequest) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *CreateDiskFromStreamRequest) GetPart() isCreateDiskFromStreamRequest_Part {
+	if x != nil {
+		return x.Part
+	}
+	return nil
+}
+
+func (x *CreateDiskFromStreamRequest) GetStart() *CreateDiskFromStreamStart {
+	if x != nil {
+		if x, ok := x.Part.(*CreateDiskFromStreamRequest_Start); ok {
+			return x.Start
+		}
+	}
+	return nil
+}
+
+func (x *CreateDiskFromStreamRequest) GetExtent() *DiskExtent {
+	if x != nil {
+		if x, ok := x.Part.(*CreateDiskFromStreamRequest_Extent); ok {
+			return x.Extent
+		}
+	}
+	return nil
+}
+
+type isCreateDiskFromStreamRequest_Part interface {
+	isCreateDiskFromStreamRequest_Part()
+}
+
+type CreateDiskFromStreamRequest_Start struct {
+	Start *CreateDiskFromStreamStart `protobuf:"bytes,1,opt,name=start,proto3,oneof"`
+}
+
+type CreateDiskFromStreamRequest_Extent struct {
+	Extent *DiskExtent `protobuf:"bytes,2,opt,name=extent,proto3,oneof"`
+}
+
+func (*CreateDiskFromStreamRequest_Start) isCreateDiskFromStreamRequest_Part() {}
+
+func (*CreateDiskFromStreamRequest_Extent) isCreateDiskFromStreamRequest_Part() {}
+
+// CreateDiskFromStreamStart is what a disk made from a stream is, as
+// CreateDiskRequest's fields are. The disk is published only when the bytes
+// received are size_bytes long as extents place them and their SHA-256 is
+// sha256; otherwise the call is rejected as invalid and the node holds nothing
+// of it. A repeat with the same disk_id, request_id, size_bytes, filesystem and
+// sha256 succeeds as CreateDisk's repeat does, whatever the repeat's stream
+// carries.
+type CreateDiskFromStreamStart struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	DiskId    string                 `protobuf:"bytes,1,opt,name=disk_id,json=diskId,proto3" json:"disk_id,omitempty"`
+	RequestId string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	SizeBytes uint64                 `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// The filesystem the source recorded: FILESYSTEM_NONE or FILESYSTEM_EXT4;
+	// unspecified is rejected.
+	Filesystem Filesystem `protobuf:"varint,4,opt,name=filesystem,proto3,enum=mvmd.runtime.v1alpha2.Filesystem" json:"filesystem,omitempty"`
+	// The SHA-256, in hex, of the disk's bytes, as ReadDisk's digest gives it.
+	Sha256        string `protobuf:"bytes,5,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDiskFromStreamStart) Reset() {
+	*x = CreateDiskFromStreamStart{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDiskFromStreamStart) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDiskFromStreamStart) ProtoMessage() {}
+
+func (x *CreateDiskFromStreamStart) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDiskFromStreamStart.ProtoReflect.Descriptor instead.
+func (*CreateDiskFromStreamStart) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *CreateDiskFromStreamStart) GetDiskId() string {
+	if x != nil {
+		return x.DiskId
+	}
+	return ""
+}
+
+func (x *CreateDiskFromStreamStart) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateDiskFromStreamStart) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *CreateDiskFromStreamStart) GetFilesystem() Filesystem {
+	if x != nil {
+		return x.Filesystem
+	}
+	return Filesystem_FILESYSTEM_UNSPECIFIED
+}
+
+func (x *CreateDiskFromStreamStart) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+type CreateDiskFromStreamResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Disk          *Disk                  `protobuf:"bytes,1,opt,name=disk,proto3" json:"disk,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateDiskFromStreamResponse) Reset() {
+	*x = CreateDiskFromStreamResponse{}
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateDiskFromStreamResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateDiskFromStreamResponse) ProtoMessage() {}
+
+func (x *CreateDiskFromStreamResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateDiskFromStreamResponse.ProtoReflect.Descriptor instead.
+func (*CreateDiskFromStreamResponse) Descriptor() ([]byte, []int) {
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *CreateDiskFromStreamResponse) GetDisk() *Disk {
+	if x != nil {
+		return x.Disk
+	}
+	return nil
+}
+
 type DeleteDiskRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DiskId        string                 `protobuf:"bytes,1,opt,name=disk_id,json=diskId,proto3" json:"disk_id,omitempty"`
@@ -3980,7 +4508,7 @@ type DeleteDiskRequest struct {
 
 func (x *DeleteDiskRequest) Reset() {
 	*x = DeleteDiskRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[50]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3992,7 +4520,7 @@ func (x *DeleteDiskRequest) String() string {
 func (*DeleteDiskRequest) ProtoMessage() {}
 
 func (x *DeleteDiskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[50]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4005,7 +4533,7 @@ func (x *DeleteDiskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteDiskRequest.ProtoReflect.Descriptor instead.
 func (*DeleteDiskRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{50}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *DeleteDiskRequest) GetDiskId() string {
@@ -4023,7 +4551,7 @@ type DeleteDiskResponse struct {
 
 func (x *DeleteDiskResponse) Reset() {
 	*x = DeleteDiskResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[51]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4035,7 +4563,7 @@ func (x *DeleteDiskResponse) String() string {
 func (*DeleteDiskResponse) ProtoMessage() {}
 
 func (x *DeleteDiskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[51]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4048,7 +4576,7 @@ func (x *DeleteDiskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteDiskResponse.ProtoReflect.Descriptor instead.
 func (*DeleteDiskResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{51}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{59}
 }
 
 type AttachDiskRequest struct {
@@ -4061,7 +4589,7 @@ type AttachDiskRequest struct {
 
 func (x *AttachDiskRequest) Reset() {
 	*x = AttachDiskRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[52]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4073,7 +4601,7 @@ func (x *AttachDiskRequest) String() string {
 func (*AttachDiskRequest) ProtoMessage() {}
 
 func (x *AttachDiskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[52]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4086,7 +4614,7 @@ func (x *AttachDiskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachDiskRequest.ProtoReflect.Descriptor instead.
 func (*AttachDiskRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{52}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *AttachDiskRequest) GetMachineId() string {
@@ -4112,7 +4640,7 @@ type AttachDiskResponse struct {
 
 func (x *AttachDiskResponse) Reset() {
 	*x = AttachDiskResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[53]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4124,7 +4652,7 @@ func (x *AttachDiskResponse) String() string {
 func (*AttachDiskResponse) ProtoMessage() {}
 
 func (x *AttachDiskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[53]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4137,7 +4665,7 @@ func (x *AttachDiskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachDiskResponse.ProtoReflect.Descriptor instead.
 func (*AttachDiskResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{53}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *AttachDiskResponse) GetMachine() *Machine {
@@ -4157,7 +4685,7 @@ type DetachDiskRequest struct {
 
 func (x *DetachDiskRequest) Reset() {
 	*x = DetachDiskRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[54]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4169,7 +4697,7 @@ func (x *DetachDiskRequest) String() string {
 func (*DetachDiskRequest) ProtoMessage() {}
 
 func (x *DetachDiskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[54]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4182,7 +4710,7 @@ func (x *DetachDiskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetachDiskRequest.ProtoReflect.Descriptor instead.
 func (*DetachDiskRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{54}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *DetachDiskRequest) GetMachineId() string {
@@ -4208,7 +4736,7 @@ type DetachDiskResponse struct {
 
 func (x *DetachDiskResponse) Reset() {
 	*x = DetachDiskResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[55]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4220,7 +4748,7 @@ func (x *DetachDiskResponse) String() string {
 func (*DetachDiskResponse) ProtoMessage() {}
 
 func (x *DetachDiskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[55]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4233,7 +4761,7 @@ func (x *DetachDiskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetachDiskResponse.ProtoReflect.Descriptor instead.
 func (*DetachDiskResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{55}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *DetachDiskResponse) GetMachine() *Machine {
@@ -4256,7 +4784,7 @@ type SetResourcesRequest struct {
 
 func (x *SetResourcesRequest) Reset() {
 	*x = SetResourcesRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[56]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4268,7 +4796,7 @@ func (x *SetResourcesRequest) String() string {
 func (*SetResourcesRequest) ProtoMessage() {}
 
 func (x *SetResourcesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[56]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4281,7 +4809,7 @@ func (x *SetResourcesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetResourcesRequest.ProtoReflect.Descriptor instead.
 func (*SetResourcesRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{56}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *SetResourcesRequest) GetMachineId() string {
@@ -4317,7 +4845,7 @@ type SetResourcesResponse struct {
 
 func (x *SetResourcesResponse) Reset() {
 	*x = SetResourcesResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[57]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4329,7 +4857,7 @@ func (x *SetResourcesResponse) String() string {
 func (*SetResourcesResponse) ProtoMessage() {}
 
 func (x *SetResourcesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[57]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4342,7 +4870,7 @@ func (x *SetResourcesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetResourcesResponse.ProtoReflect.Descriptor instead.
 func (*SetResourcesResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{57}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *SetResourcesResponse) GetResources() *Resources {
@@ -4367,7 +4895,7 @@ type GetRuntimeInfoRequest struct {
 
 func (x *GetRuntimeInfoRequest) Reset() {
 	*x = GetRuntimeInfoRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[58]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4379,7 +4907,7 @@ func (x *GetRuntimeInfoRequest) String() string {
 func (*GetRuntimeInfoRequest) ProtoMessage() {}
 
 func (x *GetRuntimeInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[58]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4392,7 +4920,7 @@ func (x *GetRuntimeInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuntimeInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetRuntimeInfoRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{58}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{66}
 }
 
 type DriverInfo struct {
@@ -4412,7 +4940,7 @@ type DriverInfo struct {
 
 func (x *DriverInfo) Reset() {
 	*x = DriverInfo{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[59]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4424,7 +4952,7 @@ func (x *DriverInfo) String() string {
 func (*DriverInfo) ProtoMessage() {}
 
 func (x *DriverInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[59]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4437,7 +4965,7 @@ func (x *DriverInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DriverInfo.ProtoReflect.Descriptor instead.
 func (*DriverInfo) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{59}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *DriverInfo) GetDriver() *Driver {
@@ -4480,7 +5008,7 @@ type DriverLimits struct {
 
 func (x *DriverLimits) Reset() {
 	*x = DriverLimits{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[60]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4492,7 +5020,7 @@ func (x *DriverLimits) String() string {
 func (*DriverLimits) ProtoMessage() {}
 
 func (x *DriverLimits) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[60]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4505,7 +5033,7 @@ func (x *DriverLimits) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DriverLimits.ProtoReflect.Descriptor instead.
 func (*DriverLimits) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{60}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *DriverLimits) GetMaxVcpus() uint32 {
@@ -4546,7 +5074,7 @@ type NodeCapacity struct {
 
 func (x *NodeCapacity) Reset() {
 	*x = NodeCapacity{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[61]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4558,7 +5086,7 @@ func (x *NodeCapacity) String() string {
 func (*NodeCapacity) ProtoMessage() {}
 
 func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[61]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4571,7 +5099,7 @@ func (x *NodeCapacity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeCapacity.ProtoReflect.Descriptor instead.
 func (*NodeCapacity) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{61}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *NodeCapacity) GetCpus() uint32 {
@@ -4631,7 +5159,7 @@ type NodeKernel struct {
 
 func (x *NodeKernel) Reset() {
 	*x = NodeKernel{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[62]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4643,7 +5171,7 @@ func (x *NodeKernel) String() string {
 func (*NodeKernel) ProtoMessage() {}
 
 func (x *NodeKernel) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[62]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4656,7 +5184,7 @@ func (x *NodeKernel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeKernel.ProtoReflect.Descriptor instead.
 func (*NodeKernel) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{62}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *NodeKernel) GetName() string {
@@ -4697,7 +5225,7 @@ type BootSet struct {
 
 func (x *BootSet) Reset() {
 	*x = BootSet{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[63]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4709,7 +5237,7 @@ func (x *BootSet) String() string {
 func (*BootSet) ProtoMessage() {}
 
 func (x *BootSet) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[63]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4722,7 +5250,7 @@ func (x *BootSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootSet.ProtoReflect.Descriptor instead.
 func (*BootSet) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{63}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *BootSet) GetName() string {
@@ -4770,7 +5298,7 @@ type AddBootSetRequest struct {
 
 func (x *AddBootSetRequest) Reset() {
 	*x = AddBootSetRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[64]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4782,7 +5310,7 @@ func (x *AddBootSetRequest) String() string {
 func (*AddBootSetRequest) ProtoMessage() {}
 
 func (x *AddBootSetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[64]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4795,7 +5323,7 @@ func (x *AddBootSetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddBootSetRequest.ProtoReflect.Descriptor instead.
 func (*AddBootSetRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{64}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *AddBootSetRequest) GetPart() isAddBootSetRequest_Part {
@@ -4868,7 +5396,7 @@ type AddBootSetStart struct {
 
 func (x *AddBootSetStart) Reset() {
 	*x = AddBootSetStart{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[65]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4880,7 +5408,7 @@ func (x *AddBootSetStart) String() string {
 func (*AddBootSetStart) ProtoMessage() {}
 
 func (x *AddBootSetStart) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[65]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4893,7 +5421,7 @@ func (x *AddBootSetStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddBootSetStart.ProtoReflect.Descriptor instead.
 func (*AddBootSetStart) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{65}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *AddBootSetStart) GetName() string {
@@ -4928,7 +5456,7 @@ type AddBootSetResponse struct {
 
 func (x *AddBootSetResponse) Reset() {
 	*x = AddBootSetResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[66]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4940,7 +5468,7 @@ func (x *AddBootSetResponse) String() string {
 func (*AddBootSetResponse) ProtoMessage() {}
 
 func (x *AddBootSetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[66]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4953,7 +5481,7 @@ func (x *AddBootSetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddBootSetResponse.ProtoReflect.Descriptor instead.
 func (*AddBootSetResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{66}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *AddBootSetResponse) GetBootSet() *BootSet {
@@ -4972,7 +5500,7 @@ type RemoveBootSetRequest struct {
 
 func (x *RemoveBootSetRequest) Reset() {
 	*x = RemoveBootSetRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[67]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4984,7 +5512,7 @@ func (x *RemoveBootSetRequest) String() string {
 func (*RemoveBootSetRequest) ProtoMessage() {}
 
 func (x *RemoveBootSetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[67]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4997,7 +5525,7 @@ func (x *RemoveBootSetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveBootSetRequest.ProtoReflect.Descriptor instead.
 func (*RemoveBootSetRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{67}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *RemoveBootSetRequest) GetName() string {
@@ -5015,7 +5543,7 @@ type RemoveBootSetResponse struct {
 
 func (x *RemoveBootSetResponse) Reset() {
 	*x = RemoveBootSetResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[68]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5027,7 +5555,7 @@ func (x *RemoveBootSetResponse) String() string {
 func (*RemoveBootSetResponse) ProtoMessage() {}
 
 func (x *RemoveBootSetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[68]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5040,7 +5568,7 @@ func (x *RemoveBootSetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveBootSetResponse.ProtoReflect.Descriptor instead.
 func (*RemoveBootSetResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{68}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{76}
 }
 
 type GetRuntimeInfoResponse struct {
@@ -5070,7 +5598,7 @@ type GetRuntimeInfoResponse struct {
 
 func (x *GetRuntimeInfoResponse) Reset() {
 	*x = GetRuntimeInfoResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[69]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5082,7 +5610,7 @@ func (x *GetRuntimeInfoResponse) String() string {
 func (*GetRuntimeInfoResponse) ProtoMessage() {}
 
 func (x *GetRuntimeInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[69]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5095,7 +5623,7 @@ func (x *GetRuntimeInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuntimeInfoResponse.ProtoReflect.Descriptor instead.
 func (*GetRuntimeInfoResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{69}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *GetRuntimeInfoResponse) GetApiVersions() []string {
@@ -5159,7 +5687,7 @@ type OrphanedSupervisor struct {
 
 func (x *OrphanedSupervisor) Reset() {
 	*x = OrphanedSupervisor{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[70]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5171,7 +5699,7 @@ func (x *OrphanedSupervisor) String() string {
 func (*OrphanedSupervisor) ProtoMessage() {}
 
 func (x *OrphanedSupervisor) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[70]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5184,7 +5712,7 @@ func (x *OrphanedSupervisor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrphanedSupervisor.ProtoReflect.Descriptor instead.
 func (*OrphanedSupervisor) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{70}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *OrphanedSupervisor) GetMachineId() string {
@@ -5203,7 +5731,7 @@ type InspectMachineRequest struct {
 
 func (x *InspectMachineRequest) Reset() {
 	*x = InspectMachineRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[71]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5215,7 +5743,7 @@ func (x *InspectMachineRequest) String() string {
 func (*InspectMachineRequest) ProtoMessage() {}
 
 func (x *InspectMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[71]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5228,7 +5756,7 @@ func (x *InspectMachineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectMachineRequest.ProtoReflect.Descriptor instead.
 func (*InspectMachineRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{71}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *InspectMachineRequest) GetMachineId() string {
@@ -5247,7 +5775,7 @@ type InspectMachineResponse struct {
 
 func (x *InspectMachineResponse) Reset() {
 	*x = InspectMachineResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[72]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5259,7 +5787,7 @@ func (x *InspectMachineResponse) String() string {
 func (*InspectMachineResponse) ProtoMessage() {}
 
 func (x *InspectMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[72]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5272,7 +5800,7 @@ func (x *InspectMachineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectMachineResponse.ProtoReflect.Descriptor instead.
 func (*InspectMachineResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{72}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *InspectMachineResponse) GetMachine() *Machine {
@@ -5290,7 +5818,7 @@ type ListMachinesRequest struct {
 
 func (x *ListMachinesRequest) Reset() {
 	*x = ListMachinesRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[73]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5302,7 +5830,7 @@ func (x *ListMachinesRequest) String() string {
 func (*ListMachinesRequest) ProtoMessage() {}
 
 func (x *ListMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[73]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5315,7 +5843,7 @@ func (x *ListMachinesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMachinesRequest.ProtoReflect.Descriptor instead.
 func (*ListMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{73}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{81}
 }
 
 type ListMachinesResponse struct {
@@ -5327,7 +5855,7 @@ type ListMachinesResponse struct {
 
 func (x *ListMachinesResponse) Reset() {
 	*x = ListMachinesResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[74]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5339,7 +5867,7 @@ func (x *ListMachinesResponse) String() string {
 func (*ListMachinesResponse) ProtoMessage() {}
 
 func (x *ListMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[74]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5352,7 +5880,7 @@ func (x *ListMachinesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMachinesResponse.ProtoReflect.Descriptor instead.
 func (*ListMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{74}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ListMachinesResponse) GetMachines() []*Machine {
@@ -5372,7 +5900,7 @@ type WatchEventsRequest struct {
 
 func (x *WatchEventsRequest) Reset() {
 	*x = WatchEventsRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[75]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5384,7 +5912,7 @@ func (x *WatchEventsRequest) String() string {
 func (*WatchEventsRequest) ProtoMessage() {}
 
 func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[75]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5397,7 +5925,7 @@ func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{75}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *WatchEventsRequest) GetAfterSequence() uint64 {
@@ -5416,7 +5944,7 @@ type StateChanged struct {
 
 func (x *StateChanged) Reset() {
 	*x = StateChanged{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[76]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5428,7 +5956,7 @@ func (x *StateChanged) String() string {
 func (*StateChanged) ProtoMessage() {}
 
 func (x *StateChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[76]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5441,7 +5969,7 @@ func (x *StateChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateChanged.ProtoReflect.Descriptor instead.
 func (*StateChanged) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{76}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *StateChanged) GetState() MachineState {
@@ -5461,7 +5989,7 @@ type MachineDeleted struct {
 
 func (x *MachineDeleted) Reset() {
 	*x = MachineDeleted{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[77]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5473,7 +6001,7 @@ func (x *MachineDeleted) String() string {
 func (*MachineDeleted) ProtoMessage() {}
 
 func (x *MachineDeleted) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[77]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5486,7 +6014,7 @@ func (x *MachineDeleted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineDeleted.ProtoReflect.Descriptor instead.
 func (*MachineDeleted) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{77}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{85}
 }
 
 type DeadlineEvent struct {
@@ -5498,7 +6026,7 @@ type DeadlineEvent struct {
 
 func (x *DeadlineEvent) Reset() {
 	*x = DeadlineEvent{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[78]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5510,7 +6038,7 @@ func (x *DeadlineEvent) String() string {
 func (*DeadlineEvent) ProtoMessage() {}
 
 func (x *DeadlineEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[78]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5523,7 +6051,7 @@ func (x *DeadlineEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeadlineEvent.ProtoReflect.Descriptor instead.
 func (*DeadlineEvent) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{78}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *DeadlineEvent) GetKind() DeadlineEvent_Kind {
@@ -5543,7 +6071,7 @@ type DriverEvent struct {
 
 func (x *DriverEvent) Reset() {
 	*x = DriverEvent{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[79]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5555,7 +6083,7 @@ func (x *DriverEvent) String() string {
 func (*DriverEvent) ProtoMessage() {}
 
 func (x *DriverEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[79]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5568,7 +6096,7 @@ func (x *DriverEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DriverEvent.ProtoReflect.Descriptor instead.
 func (*DriverEvent) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{79}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *DriverEvent) GetName() string {
@@ -5598,7 +6126,7 @@ type ProbeChanged struct {
 
 func (x *ProbeChanged) Reset() {
 	*x = ProbeChanged{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[80]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5610,7 +6138,7 @@ func (x *ProbeChanged) String() string {
 func (*ProbeChanged) ProtoMessage() {}
 
 func (x *ProbeChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[80]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5623,7 +6151,7 @@ func (x *ProbeChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeChanged.ProtoReflect.Descriptor instead.
 func (*ProbeChanged) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{80}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *ProbeChanged) GetResult() *ProbeResult {
@@ -5644,7 +6172,7 @@ type SupervisorOrphaned struct {
 
 func (x *SupervisorOrphaned) Reset() {
 	*x = SupervisorOrphaned{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[81]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5656,7 +6184,7 @@ func (x *SupervisorOrphaned) String() string {
 func (*SupervisorOrphaned) ProtoMessage() {}
 
 func (x *SupervisorOrphaned) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[81]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5669,7 +6197,7 @@ func (x *SupervisorOrphaned) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SupervisorOrphaned.ProtoReflect.Descriptor instead.
 func (*SupervisorOrphaned) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{81}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{89}
 }
 
 // ResyncRequired says the events after the requested sequence are no longer
@@ -5682,7 +6210,7 @@ type ResyncRequired struct {
 
 func (x *ResyncRequired) Reset() {
 	*x = ResyncRequired{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[82]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5694,7 +6222,7 @@ func (x *ResyncRequired) String() string {
 func (*ResyncRequired) ProtoMessage() {}
 
 func (x *ResyncRequired) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[82]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5707,7 +6235,7 @@ func (x *ResyncRequired) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResyncRequired.ProtoReflect.Descriptor instead.
 func (*ResyncRequired) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{82}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{90}
 }
 
 type WatchEventsResponse struct {
@@ -5732,7 +6260,7 @@ type WatchEventsResponse struct {
 
 func (x *WatchEventsResponse) Reset() {
 	*x = WatchEventsResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[83]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5744,7 +6272,7 @@ func (x *WatchEventsResponse) String() string {
 func (*WatchEventsResponse) ProtoMessage() {}
 
 func (x *WatchEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[83]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5757,7 +6285,7 @@ func (x *WatchEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsResponse.ProtoReflect.Descriptor instead.
 func (*WatchEventsResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{83}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *WatchEventsResponse) GetSequence() uint64 {
@@ -5913,7 +6441,7 @@ type ExecRecord struct {
 
 func (x *ExecRecord) Reset() {
 	*x = ExecRecord{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[84]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5925,7 +6453,7 @@ func (x *ExecRecord) String() string {
 func (*ExecRecord) ProtoMessage() {}
 
 func (x *ExecRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[84]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5938,7 +6466,7 @@ func (x *ExecRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecRecord.ProtoReflect.Descriptor instead.
 func (*ExecRecord) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{84}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *ExecRecord) GetExecId() string {
@@ -5997,7 +6525,7 @@ type ExecRequest struct {
 
 func (x *ExecRequest) Reset() {
 	*x = ExecRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[85]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6009,7 +6537,7 @@ func (x *ExecRequest) String() string {
 func (*ExecRequest) ProtoMessage() {}
 
 func (x *ExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[85]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6022,7 +6550,7 @@ func (x *ExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecRequest.ProtoReflect.Descriptor instead.
 func (*ExecRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{85}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *ExecRequest) GetExecId() string {
@@ -6076,7 +6604,7 @@ type ExecResponse struct {
 
 func (x *ExecResponse) Reset() {
 	*x = ExecResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[86]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6088,7 +6616,7 @@ func (x *ExecResponse) String() string {
 func (*ExecResponse) ProtoMessage() {}
 
 func (x *ExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[86]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6101,7 +6629,7 @@ func (x *ExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecResponse.ProtoReflect.Descriptor instead.
 func (*ExecResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{86}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *ExecResponse) GetRecord() *ExecRecord {
@@ -6128,7 +6656,7 @@ type ReadExecOutputRequest struct {
 
 func (x *ReadExecOutputRequest) Reset() {
 	*x = ReadExecOutputRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[87]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6140,7 +6668,7 @@ func (x *ReadExecOutputRequest) String() string {
 func (*ReadExecOutputRequest) ProtoMessage() {}
 
 func (x *ReadExecOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[87]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6153,7 +6681,7 @@ func (x *ReadExecOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadExecOutputRequest.ProtoReflect.Descriptor instead.
 func (*ReadExecOutputRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{87}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *ReadExecOutputRequest) GetMachineId() string {
@@ -6198,7 +6726,7 @@ type OutputChunk struct {
 
 func (x *OutputChunk) Reset() {
 	*x = OutputChunk{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[88]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6210,7 +6738,7 @@ func (x *OutputChunk) String() string {
 func (*OutputChunk) ProtoMessage() {}
 
 func (x *OutputChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[88]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6223,7 +6751,7 @@ func (x *OutputChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputChunk.ProtoReflect.Descriptor instead.
 func (*OutputChunk) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{88}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *OutputChunk) GetStream() OutputStream {
@@ -6262,7 +6790,7 @@ type ReadExecOutputResponse struct {
 
 func (x *ReadExecOutputResponse) Reset() {
 	*x = ReadExecOutputResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[89]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6274,7 +6802,7 @@ func (x *ReadExecOutputResponse) String() string {
 func (*ReadExecOutputResponse) ProtoMessage() {}
 
 func (x *ReadExecOutputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[89]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6287,7 +6815,7 @@ func (x *ReadExecOutputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadExecOutputResponse.ProtoReflect.Descriptor instead.
 func (*ReadExecOutputResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{89}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *ReadExecOutputResponse) GetPart() isReadExecOutputResponse_Part {
@@ -6344,7 +6872,7 @@ type SignalExecRequest struct {
 
 func (x *SignalExecRequest) Reset() {
 	*x = SignalExecRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[90]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6356,7 +6884,7 @@ func (x *SignalExecRequest) String() string {
 func (*SignalExecRequest) ProtoMessage() {}
 
 func (x *SignalExecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[90]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6369,7 +6897,7 @@ func (x *SignalExecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalExecRequest.ProtoReflect.Descriptor instead.
 func (*SignalExecRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{90}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *SignalExecRequest) GetMachineId() string {
@@ -6401,7 +6929,7 @@ type SignalExecResponse struct {
 
 func (x *SignalExecResponse) Reset() {
 	*x = SignalExecResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[91]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6413,7 +6941,7 @@ func (x *SignalExecResponse) String() string {
 func (*SignalExecResponse) ProtoMessage() {}
 
 func (x *SignalExecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[91]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6426,7 +6954,7 @@ func (x *SignalExecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalExecResponse.ProtoReflect.Descriptor instead.
 func (*SignalExecResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{91}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{99}
 }
 
 type ReadFileRequest struct {
@@ -6439,7 +6967,7 @@ type ReadFileRequest struct {
 
 func (x *ReadFileRequest) Reset() {
 	*x = ReadFileRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[92]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6451,7 +6979,7 @@ func (x *ReadFileRequest) String() string {
 func (*ReadFileRequest) ProtoMessage() {}
 
 func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[92]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6464,7 +6992,7 @@ func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
 func (*ReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{92}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *ReadFileRequest) GetMachineId() string {
@@ -6491,7 +7019,7 @@ type ReadFileResponse struct {
 
 func (x *ReadFileResponse) Reset() {
 	*x = ReadFileResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[93]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6503,7 +7031,7 @@ func (x *ReadFileResponse) String() string {
 func (*ReadFileResponse) ProtoMessage() {}
 
 func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[93]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6516,7 +7044,7 @@ func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileResponse.ProtoReflect.Descriptor instead.
 func (*ReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{93}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *ReadFileResponse) GetChunk() []byte {
@@ -6536,7 +7064,7 @@ type WriteFileStart struct {
 
 func (x *WriteFileStart) Reset() {
 	*x = WriteFileStart{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[94]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6548,7 +7076,7 @@ func (x *WriteFileStart) String() string {
 func (*WriteFileStart) ProtoMessage() {}
 
 func (x *WriteFileStart) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[94]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6561,7 +7089,7 @@ func (x *WriteFileStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileStart.ProtoReflect.Descriptor instead.
 func (*WriteFileStart) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{94}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *WriteFileStart) GetMachineId() string {
@@ -6594,7 +7122,7 @@ type WriteFileRequest struct {
 
 func (x *WriteFileRequest) Reset() {
 	*x = WriteFileRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[95]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6606,7 +7134,7 @@ func (x *WriteFileRequest) String() string {
 func (*WriteFileRequest) ProtoMessage() {}
 
 func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[95]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6619,7 +7147,7 @@ func (x *WriteFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileRequest.ProtoReflect.Descriptor instead.
 func (*WriteFileRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{95}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *WriteFileRequest) GetPart() isWriteFileRequest_Part {
@@ -6671,7 +7199,7 @@ type WriteFileResponse struct {
 
 func (x *WriteFileResponse) Reset() {
 	*x = WriteFileResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[96]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6683,7 +7211,7 @@ func (x *WriteFileResponse) String() string {
 func (*WriteFileResponse) ProtoMessage() {}
 
 func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[96]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6696,7 +7224,7 @@ func (x *WriteFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteFileResponse.ProtoReflect.Descriptor instead.
 func (*WriteFileResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{96}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{104}
 }
 
 type PatchFileRequest struct {
@@ -6713,7 +7241,7 @@ type PatchFileRequest struct {
 
 func (x *PatchFileRequest) Reset() {
 	*x = PatchFileRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[97]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6725,7 +7253,7 @@ func (x *PatchFileRequest) String() string {
 func (*PatchFileRequest) ProtoMessage() {}
 
 func (x *PatchFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[97]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6738,7 +7266,7 @@ func (x *PatchFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PatchFileRequest.ProtoReflect.Descriptor instead.
 func (*PatchFileRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{97}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *PatchFileRequest) GetMachineId() string {
@@ -6784,7 +7312,7 @@ type PatchFileResponse struct {
 
 func (x *PatchFileResponse) Reset() {
 	*x = PatchFileResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[98]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6796,7 +7324,7 @@ func (x *PatchFileResponse) String() string {
 func (*PatchFileResponse) ProtoMessage() {}
 
 func (x *PatchFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[98]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6809,7 +7337,7 @@ func (x *PatchFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PatchFileResponse.ProtoReflect.Descriptor instead.
 func (*PatchFileResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{98}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{106}
 }
 
 type ListFilesRequest struct {
@@ -6823,7 +7351,7 @@ type ListFilesRequest struct {
 
 func (x *ListFilesRequest) Reset() {
 	*x = ListFilesRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[99]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6835,7 +7363,7 @@ func (x *ListFilesRequest) String() string {
 func (*ListFilesRequest) ProtoMessage() {}
 
 func (x *ListFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[99]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6848,7 +7376,7 @@ func (x *ListFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFilesRequest.ProtoReflect.Descriptor instead.
 func (*ListFilesRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{99}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ListFilesRequest) GetMachineId() string {
@@ -6877,7 +7405,7 @@ type FileEntry struct {
 
 func (x *FileEntry) Reset() {
 	*x = FileEntry{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[100]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6889,7 +7417,7 @@ func (x *FileEntry) String() string {
 func (*FileEntry) ProtoMessage() {}
 
 func (x *FileEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[100]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6902,7 +7430,7 @@ func (x *FileEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileEntry.ProtoReflect.Descriptor instead.
 func (*FileEntry) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{100}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *FileEntry) GetPath() string {
@@ -6937,7 +7465,7 @@ type ListFilesResponse struct {
 
 func (x *ListFilesResponse) Reset() {
 	*x = ListFilesResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[101]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6949,7 +7477,7 @@ func (x *ListFilesResponse) String() string {
 func (*ListFilesResponse) ProtoMessage() {}
 
 func (x *ListFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[101]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6962,7 +7490,7 @@ func (x *ListFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFilesResponse.ProtoReflect.Descriptor instead.
 func (*ListFilesResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{101}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *ListFilesResponse) GetEntries() []*FileEntry {
@@ -6988,7 +7516,7 @@ type SearchFilesRequest struct {
 
 func (x *SearchFilesRequest) Reset() {
 	*x = SearchFilesRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[102]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7000,7 +7528,7 @@ func (x *SearchFilesRequest) String() string {
 func (*SearchFilesRequest) ProtoMessage() {}
 
 func (x *SearchFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[102]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7013,7 +7541,7 @@ func (x *SearchFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchFilesRequest.ProtoReflect.Descriptor instead.
 func (*SearchFilesRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{102}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *SearchFilesRequest) GetMachineId() string {
@@ -7048,7 +7576,7 @@ type SearchFilesResponse struct {
 
 func (x *SearchFilesResponse) Reset() {
 	*x = SearchFilesResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[103]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7060,7 +7588,7 @@ func (x *SearchFilesResponse) String() string {
 func (*SearchFilesResponse) ProtoMessage() {}
 
 func (x *SearchFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[103]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7073,7 +7601,7 @@ func (x *SearchFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchFilesResponse.ProtoReflect.Descriptor instead.
 func (*SearchFilesResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{103}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *SearchFilesResponse) GetMatches() []string {
@@ -7095,7 +7623,7 @@ type ConsoleRequest struct {
 
 func (x *ConsoleRequest) Reset() {
 	*x = ConsoleRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[104]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7107,7 +7635,7 @@ func (x *ConsoleRequest) String() string {
 func (*ConsoleRequest) ProtoMessage() {}
 
 func (x *ConsoleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[104]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7120,7 +7648,7 @@ func (x *ConsoleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsoleRequest.ProtoReflect.Descriptor instead.
 func (*ConsoleRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{104}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *ConsoleRequest) GetMachineId() string {
@@ -7146,7 +7674,7 @@ type ConsoleResponse struct {
 
 func (x *ConsoleResponse) Reset() {
 	*x = ConsoleResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[105]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7158,7 +7686,7 @@ func (x *ConsoleResponse) String() string {
 func (*ConsoleResponse) ProtoMessage() {}
 
 func (x *ConsoleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[105]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7171,7 +7699,7 @@ func (x *ConsoleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsoleResponse.ProtoReflect.Descriptor instead.
 func (*ConsoleResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{105}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *ConsoleResponse) GetOutput() []byte {
@@ -7190,7 +7718,7 @@ type PullImageRequest struct {
 
 func (x *PullImageRequest) Reset() {
 	*x = PullImageRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[106]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7202,7 +7730,7 @@ func (x *PullImageRequest) String() string {
 func (*PullImageRequest) ProtoMessage() {}
 
 func (x *PullImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[106]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7215,7 +7743,7 @@ func (x *PullImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullImageRequest.ProtoReflect.Descriptor instead.
 func (*PullImageRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{106}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *PullImageRequest) GetImage() *ImageRef {
@@ -7233,7 +7761,7 @@ type PullImageResponse struct {
 
 func (x *PullImageResponse) Reset() {
 	*x = PullImageResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[107]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7245,7 +7773,7 @@ func (x *PullImageResponse) String() string {
 func (*PullImageResponse) ProtoMessage() {}
 
 func (x *PullImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[107]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7258,7 +7786,7 @@ func (x *PullImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullImageResponse.ProtoReflect.Descriptor instead.
 func (*PullImageResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{107}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{115}
 }
 
 // Image is what the node holds of one image, for a client to decide whether to
@@ -7279,7 +7807,7 @@ type Image struct {
 
 func (x *Image) Reset() {
 	*x = Image{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[108]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7291,7 +7819,7 @@ func (x *Image) String() string {
 func (*Image) ProtoMessage() {}
 
 func (x *Image) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[108]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7304,7 +7832,7 @@ func (x *Image) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Image.ProtoReflect.Descriptor instead.
 func (*Image) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{108}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *Image) GetDigest() string {
@@ -7336,7 +7864,7 @@ type ListImagesRequest struct {
 
 func (x *ListImagesRequest) Reset() {
 	*x = ListImagesRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[109]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7348,7 +7876,7 @@ func (x *ListImagesRequest) String() string {
 func (*ListImagesRequest) ProtoMessage() {}
 
 func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[109]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7361,7 +7889,7 @@ func (x *ListImagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesRequest.ProtoReflect.Descriptor instead.
 func (*ListImagesRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{109}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{117}
 }
 
 type ListImagesResponse struct {
@@ -7374,7 +7902,7 @@ type ListImagesResponse struct {
 
 func (x *ListImagesResponse) Reset() {
 	*x = ListImagesResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[110]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7386,7 +7914,7 @@ func (x *ListImagesResponse) String() string {
 func (*ListImagesResponse) ProtoMessage() {}
 
 func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[110]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7399,7 +7927,7 @@ func (x *ListImagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImagesResponse.ProtoReflect.Descriptor instead.
 func (*ListImagesResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{110}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *ListImagesResponse) GetImages() []*Image {
@@ -7419,7 +7947,7 @@ type RemoveImageRequest struct {
 
 func (x *RemoveImageRequest) Reset() {
 	*x = RemoveImageRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[111]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7431,7 +7959,7 @@ func (x *RemoveImageRequest) String() string {
 func (*RemoveImageRequest) ProtoMessage() {}
 
 func (x *RemoveImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[111]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7444,7 +7972,7 @@ func (x *RemoveImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveImageRequest.ProtoReflect.Descriptor instead.
 func (*RemoveImageRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{111}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *RemoveImageRequest) GetDigest() string {
@@ -7462,7 +7990,7 @@ type RemoveImageResponse struct {
 
 func (x *RemoveImageResponse) Reset() {
 	*x = RemoveImageResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[112]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7474,7 +8002,7 @@ func (x *RemoveImageResponse) String() string {
 func (*RemoveImageResponse) ProtoMessage() {}
 
 func (x *RemoveImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[112]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7487,7 +8015,7 @@ func (x *RemoveImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveImageResponse.ProtoReflect.Descriptor instead.
 func (*RemoveImageResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{112}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{120}
 }
 
 // Snapshot is what the node holds of one snapshot, for a client to decide
@@ -7528,7 +8056,7 @@ type Snapshot struct {
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[113]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7540,7 +8068,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[113]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7553,7 +8081,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{113}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *Snapshot) GetId() string {
@@ -7647,7 +8175,7 @@ type SnapshotDisk struct {
 
 func (x *SnapshotDisk) Reset() {
 	*x = SnapshotDisk{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[114]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7659,7 +8187,7 @@ func (x *SnapshotDisk) String() string {
 func (*SnapshotDisk) ProtoMessage() {}
 
 func (x *SnapshotDisk) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[114]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7672,7 +8200,7 @@ func (x *SnapshotDisk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotDisk.ProtoReflect.Descriptor instead.
 func (*SnapshotDisk) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{114}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *SnapshotDisk) GetDiskId() string {
@@ -7711,7 +8239,7 @@ type ListSnapshotsRequest struct {
 
 func (x *ListSnapshotsRequest) Reset() {
 	*x = ListSnapshotsRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[115]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7723,7 +8251,7 @@ func (x *ListSnapshotsRequest) String() string {
 func (*ListSnapshotsRequest) ProtoMessage() {}
 
 func (x *ListSnapshotsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[115]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7736,7 +8264,7 @@ func (x *ListSnapshotsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSnapshotsRequest.ProtoReflect.Descriptor instead.
 func (*ListSnapshotsRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{115}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{123}
 }
 
 type ListSnapshotsResponse struct {
@@ -7749,7 +8277,7 @@ type ListSnapshotsResponse struct {
 
 func (x *ListSnapshotsResponse) Reset() {
 	*x = ListSnapshotsResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[116]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7761,7 +8289,7 @@ func (x *ListSnapshotsResponse) String() string {
 func (*ListSnapshotsResponse) ProtoMessage() {}
 
 func (x *ListSnapshotsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[116]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7774,7 +8302,7 @@ func (x *ListSnapshotsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSnapshotsResponse.ProtoReflect.Descriptor instead.
 func (*ListSnapshotsResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{116}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *ListSnapshotsResponse) GetSnapshots() []*Snapshot {
@@ -7793,7 +8321,7 @@ type DeleteSnapshotRequest struct {
 
 func (x *DeleteSnapshotRequest) Reset() {
 	*x = DeleteSnapshotRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[117]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7805,7 +8333,7 @@ func (x *DeleteSnapshotRequest) String() string {
 func (*DeleteSnapshotRequest) ProtoMessage() {}
 
 func (x *DeleteSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[117]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7818,7 +8346,7 @@ func (x *DeleteSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{117}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *DeleteSnapshotRequest) GetSnapshotId() string {
@@ -7836,7 +8364,7 @@ type DeleteSnapshotResponse struct {
 
 func (x *DeleteSnapshotResponse) Reset() {
 	*x = DeleteSnapshotResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[118]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7848,7 +8376,7 @@ func (x *DeleteSnapshotResponse) String() string {
 func (*DeleteSnapshotResponse) ProtoMessage() {}
 
 func (x *DeleteSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[118]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7861,7 +8389,7 @@ func (x *DeleteSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{118}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{126}
 }
 
 type DeadlineStatus struct {
@@ -7876,7 +8404,7 @@ type DeadlineStatus struct {
 
 func (x *DeadlineStatus) Reset() {
 	*x = DeadlineStatus{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[119]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7888,7 +8416,7 @@ func (x *DeadlineStatus) String() string {
 func (*DeadlineStatus) ProtoMessage() {}
 
 func (x *DeadlineStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[119]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7901,7 +8429,7 @@ func (x *DeadlineStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeadlineStatus.ProtoReflect.Descriptor instead.
 func (*DeadlineStatus) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{119}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *DeadlineStatus) GetPhase() DeadlinePhase {
@@ -7945,7 +8473,7 @@ type RenewDeadlineRequest struct {
 
 func (x *RenewDeadlineRequest) Reset() {
 	*x = RenewDeadlineRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[120]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7957,7 +8485,7 @@ func (x *RenewDeadlineRequest) String() string {
 func (*RenewDeadlineRequest) ProtoMessage() {}
 
 func (x *RenewDeadlineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[120]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7970,7 +8498,7 @@ func (x *RenewDeadlineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewDeadlineRequest.ProtoReflect.Descriptor instead.
 func (*RenewDeadlineRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{120}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *RenewDeadlineRequest) GetLength() *durationpb.Duration {
@@ -8003,7 +8531,7 @@ type RenewDeadlineResponse struct {
 
 func (x *RenewDeadlineResponse) Reset() {
 	*x = RenewDeadlineResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[121]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8015,7 +8543,7 @@ func (x *RenewDeadlineResponse) String() string {
 func (*RenewDeadlineResponse) ProtoMessage() {}
 
 func (x *RenewDeadlineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[121]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8028,7 +8556,7 @@ func (x *RenewDeadlineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenewDeadlineResponse.ProtoReflect.Descriptor instead.
 func (*RenewDeadlineResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{121}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *RenewDeadlineResponse) GetStatus() *DeadlineStatus {
@@ -8049,7 +8577,7 @@ type InspectDeadlineRequest struct {
 
 func (x *InspectDeadlineRequest) Reset() {
 	*x = InspectDeadlineRequest{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[122]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8061,7 +8589,7 @@ func (x *InspectDeadlineRequest) String() string {
 func (*InspectDeadlineRequest) ProtoMessage() {}
 
 func (x *InspectDeadlineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[122]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8074,7 +8602,7 @@ func (x *InspectDeadlineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectDeadlineRequest.ProtoReflect.Descriptor instead.
 func (*InspectDeadlineRequest) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{122}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *InspectDeadlineRequest) GetMachineId() string {
@@ -8093,7 +8621,7 @@ type InspectDeadlineResponse struct {
 
 func (x *InspectDeadlineResponse) Reset() {
 	*x = InspectDeadlineResponse{}
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[123]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8105,7 +8633,7 @@ func (x *InspectDeadlineResponse) String() string {
 func (*InspectDeadlineResponse) ProtoMessage() {}
 
 func (x *InspectDeadlineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[123]
+	mi := &file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8118,7 +8646,7 @@ func (x *InspectDeadlineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectDeadlineResponse.ProtoReflect.Descriptor instead.
 func (*InspectDeadlineResponse) Descriptor() ([]byte, []int) {
-	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{123}
+	return file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *InspectDeadlineResponse) GetStatus() *DeadlineStatus {
@@ -8372,7 +8900,44 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x19DeleteDiskSnapshotRequest\x12\x1f\n" +
 	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
 	"snapshotId\"\x1c\n" +
-	"\x1aDeleteDiskSnapshotResponse\",\n" +
+	"\x1aDeleteDiskSnapshotResponse\"K\n" +
+	"\x0fReadDiskRequest\x12\x17\n" +
+	"\adisk_id\x18\x01 \x01(\tR\x06diskId\x12\x1f\n" +
+	"\vsnapshot_id\x18\x02 \x01(\tR\n" +
+	"snapshotId\"\xdd\x01\n" +
+	"\x10ReadDiskResponse\x12A\n" +
+	"\x06header\x18\x01 \x01(\v2'.mvmd.runtime.v1alpha2.DiskStreamHeaderH\x00R\x06header\x12;\n" +
+	"\x06extent\x18\x02 \x01(\v2!.mvmd.runtime.v1alpha2.DiskExtentH\x00R\x06extent\x12A\n" +
+	"\x06digest\x18\x03 \x01(\v2'.mvmd.runtime.v1alpha2.DiskStreamDigestH\x00R\x06digestB\x06\n" +
+	"\x04part\"t\n" +
+	"\x10DiskStreamHeader\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x01 \x01(\x04R\tsizeBytes\x12A\n" +
+	"\n" +
+	"filesystem\x18\x02 \x01(\x0e2!.mvmd.runtime.v1alpha2.FilesystemR\n" +
+	"filesystem\"8\n" +
+	"\n" +
+	"DiskExtent\x12\x16\n" +
+	"\x06offset\x18\x01 \x01(\x04R\x06offset\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"*\n" +
+	"\x10DiskStreamDigest\x12\x16\n" +
+	"\x06sha256\x18\x01 \x01(\tR\x06sha256\"\xac\x01\n" +
+	"\x1bCreateDiskFromStreamRequest\x12H\n" +
+	"\x05start\x18\x01 \x01(\v20.mvmd.runtime.v1alpha2.CreateDiskFromStreamStartH\x00R\x05start\x12;\n" +
+	"\x06extent\x18\x02 \x01(\v2!.mvmd.runtime.v1alpha2.DiskExtentH\x00R\x06extentB\x06\n" +
+	"\x04part\"\xcd\x01\n" +
+	"\x19CreateDiskFromStreamStart\x12\x17\n" +
+	"\adisk_id\x18\x01 \x01(\tR\x06diskId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x03 \x01(\x04R\tsizeBytes\x12A\n" +
+	"\n" +
+	"filesystem\x18\x04 \x01(\x0e2!.mvmd.runtime.v1alpha2.FilesystemR\n" +
+	"filesystem\x12\x16\n" +
+	"\x06sha256\x18\x05 \x01(\tR\x06sha256\"O\n" +
+	"\x1cCreateDiskFromStreamResponse\x12/\n" +
+	"\x04disk\x18\x01 \x01(\v2\x1b.mvmd.runtime.v1alpha2.DiskR\x04disk\",\n" +
 	"\x11DeleteDiskRequest\x12\x17\n" +
 	"\adisk_id\x18\x01 \x01(\tR\x06diskId\"\x14\n" +
 	"\x12DeleteDiskResponse\"m\n" +
@@ -8711,7 +9276,7 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x18DEADLINE_PHASE_NOT_ARMED\x10\x01\x12\x18\n" +
 	"\x14DEADLINE_PHASE_ARMED\x10\x02\x12\x1a\n" +
 	"\x16DEADLINE_PHASE_EXPIRED\x10\x03\x12%\n" +
-	"!DEADLINE_PHASE_STOPPED_EVERYTHING\x10\x042\xd1 \n" +
+	"!DEADLINE_PHASE_STOPPED_EVERYTHING\x10\x042\xb4\"\n" +
 	"\x0eRuntimeService\x12j\n" +
 	"\rCreateMachine\x12+.mvmd.runtime.v1alpha2.CreateMachineRequest\x1a,.mvmd.runtime.v1alpha2.CreateMachineResponse\x12g\n" +
 	"\fStartMachine\x12*.mvmd.runtime.v1alpha2.StartMachineRequest\x1a+.mvmd.runtime.v1alpha2.StartMachineResponse\x12d\n" +
@@ -8730,7 +9295,9 @@ const file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc = "" +
 	"\x11ListDiskSnapshots\x12/.mvmd.runtime.v1alpha2.ListDiskSnapshotsRequest\x1a0.mvmd.runtime.v1alpha2.ListDiskSnapshotsResponse\x12y\n" +
 	"\x12DeleteDiskSnapshot\x120.mvmd.runtime.v1alpha2.DeleteDiskSnapshotRequest\x1a1.mvmd.runtime.v1alpha2.DeleteDiskSnapshotResponse\x12a\n" +
 	"\n" +
-	"DeleteDisk\x12(.mvmd.runtime.v1alpha2.DeleteDiskRequest\x1a).mvmd.runtime.v1alpha2.DeleteDiskResponse\x12a\n" +
+	"DeleteDisk\x12(.mvmd.runtime.v1alpha2.DeleteDiskRequest\x1a).mvmd.runtime.v1alpha2.DeleteDiskResponse\x12]\n" +
+	"\bReadDisk\x12&.mvmd.runtime.v1alpha2.ReadDiskRequest\x1a'.mvmd.runtime.v1alpha2.ReadDiskResponse0\x01\x12\x81\x01\n" +
+	"\x14CreateDiskFromStream\x122.mvmd.runtime.v1alpha2.CreateDiskFromStreamRequest\x1a3.mvmd.runtime.v1alpha2.CreateDiskFromStreamResponse(\x01\x12a\n" +
 	"\n" +
 	"AttachDisk\x12(.mvmd.runtime.v1alpha2.AttachDiskRequest\x1a).mvmd.runtime.v1alpha2.AttachDiskResponse\x12a\n" +
 	"\n" +
@@ -8775,147 +9342,155 @@ func file_mvmd_runtime_v1alpha2_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_mvmd_runtime_v1alpha2_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
-var file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 125)
+var file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 133)
 var file_mvmd_runtime_v1alpha2_runtime_proto_goTypes = []any{
-	(OutcomeKind)(0),                   // 0: mvmd.runtime.v1alpha2.OutcomeKind
-	(MachineState)(0),                  // 1: mvmd.runtime.v1alpha2.MachineState
-	(Capability)(0),                    // 2: mvmd.runtime.v1alpha2.Capability
-	(Protocol)(0),                      // 3: mvmd.runtime.v1alpha2.Protocol
-	(ProbeStatus)(0),                   // 4: mvmd.runtime.v1alpha2.ProbeStatus
-	(Filesystem)(0),                    // 5: mvmd.runtime.v1alpha2.Filesystem
-	(BootSetOrigin)(0),                 // 6: mvmd.runtime.v1alpha2.BootSetOrigin
-	(ExecStatus)(0),                    // 7: mvmd.runtime.v1alpha2.ExecStatus
-	(OutputStream)(0),                  // 8: mvmd.runtime.v1alpha2.OutputStream
-	(EntryKind)(0),                     // 9: mvmd.runtime.v1alpha2.EntryKind
-	(DeadlinePhase)(0),                 // 10: mvmd.runtime.v1alpha2.DeadlinePhase
-	(DeadlineEvent_Kind)(0),            // 11: mvmd.runtime.v1alpha2.DeadlineEvent.Kind
-	(*Failure)(nil),                    // 12: mvmd.runtime.v1alpha2.Failure
-	(*OutputGone)(nil),                 // 13: mvmd.runtime.v1alpha2.OutputGone
-	(*ImageRef)(nil),                   // 14: mvmd.runtime.v1alpha2.ImageRef
-	(*NetworkPolicy)(nil),              // 15: mvmd.runtime.v1alpha2.NetworkPolicy
-	(*PortRange)(nil),                  // 16: mvmd.runtime.v1alpha2.PortRange
-	(*NetworkRule)(nil),                // 17: mvmd.runtime.v1alpha2.NetworkRule
-	(*Resources)(nil),                  // 18: mvmd.runtime.v1alpha2.Resources
-	(*DiskAttachment)(nil),             // 19: mvmd.runtime.v1alpha2.DiskAttachment
-	(*Driver)(nil),                     // 20: mvmd.runtime.v1alpha2.Driver
-	(*Machine)(nil),                    // 21: mvmd.runtime.v1alpha2.Machine
-	(*OsBoot)(nil),                     // 22: mvmd.runtime.v1alpha2.OsBoot
-	(*Probe)(nil),                      // 23: mvmd.runtime.v1alpha2.Probe
-	(*ExecProbe)(nil),                  // 24: mvmd.runtime.v1alpha2.ExecProbe
-	(*TcpProbe)(nil),                   // 25: mvmd.runtime.v1alpha2.TcpProbe
-	(*HttpGetProbe)(nil),               // 26: mvmd.runtime.v1alpha2.HttpGetProbe
-	(*ProbeResult)(nil),                // 27: mvmd.runtime.v1alpha2.ProbeResult
-	(*EnvVar)(nil),                     // 28: mvmd.runtime.v1alpha2.EnvVar
-	(*File)(nil),                       // 29: mvmd.runtime.v1alpha2.File
-	(*FileInfo)(nil),                   // 30: mvmd.runtime.v1alpha2.FileInfo
-	(*CreateMachineRequest)(nil),       // 31: mvmd.runtime.v1alpha2.CreateMachineRequest
-	(*CreateMachineResponse)(nil),      // 32: mvmd.runtime.v1alpha2.CreateMachineResponse
-	(*RunUpdate)(nil),                  // 33: mvmd.runtime.v1alpha2.RunUpdate
-	(*StartMachineRequest)(nil),        // 34: mvmd.runtime.v1alpha2.StartMachineRequest
-	(*StartMachineResponse)(nil),       // 35: mvmd.runtime.v1alpha2.StartMachineResponse
-	(*StopMachineRequest)(nil),         // 36: mvmd.runtime.v1alpha2.StopMachineRequest
-	(*StopMachineResponse)(nil),        // 37: mvmd.runtime.v1alpha2.StopMachineResponse
-	(*PauseMachineRequest)(nil),        // 38: mvmd.runtime.v1alpha2.PauseMachineRequest
-	(*PauseMachineResponse)(nil),       // 39: mvmd.runtime.v1alpha2.PauseMachineResponse
-	(*ResumeMachineRequest)(nil),       // 40: mvmd.runtime.v1alpha2.ResumeMachineRequest
-	(*ResumeMachineResponse)(nil),      // 41: mvmd.runtime.v1alpha2.ResumeMachineResponse
-	(*SnapshotMachineRequest)(nil),     // 42: mvmd.runtime.v1alpha2.SnapshotMachineRequest
-	(*SnapshotMachineResponse)(nil),    // 43: mvmd.runtime.v1alpha2.SnapshotMachineResponse
-	(*RestoreMachineRequest)(nil),      // 44: mvmd.runtime.v1alpha2.RestoreMachineRequest
-	(*RestoreMachineResponse)(nil),     // 45: mvmd.runtime.v1alpha2.RestoreMachineResponse
-	(*DeleteMachineRequest)(nil),       // 46: mvmd.runtime.v1alpha2.DeleteMachineRequest
-	(*DeleteMachineResponse)(nil),      // 47: mvmd.runtime.v1alpha2.DeleteMachineResponse
-	(*CreateDiskRequest)(nil),          // 48: mvmd.runtime.v1alpha2.CreateDiskRequest
-	(*CreateDiskResponse)(nil),         // 49: mvmd.runtime.v1alpha2.CreateDiskResponse
-	(*Disk)(nil),                       // 50: mvmd.runtime.v1alpha2.Disk
-	(*ListDisksRequest)(nil),           // 51: mvmd.runtime.v1alpha2.ListDisksRequest
-	(*ListDisksResponse)(nil),          // 52: mvmd.runtime.v1alpha2.ListDisksResponse
-	(*ResizeDiskRequest)(nil),          // 53: mvmd.runtime.v1alpha2.ResizeDiskRequest
-	(*ResizeDiskResponse)(nil),         // 54: mvmd.runtime.v1alpha2.ResizeDiskResponse
-	(*SnapshotDiskRequest)(nil),        // 55: mvmd.runtime.v1alpha2.SnapshotDiskRequest
-	(*SnapshotDiskResponse)(nil),       // 56: mvmd.runtime.v1alpha2.SnapshotDiskResponse
-	(*DiskSnapshot)(nil),               // 57: mvmd.runtime.v1alpha2.DiskSnapshot
-	(*ListDiskSnapshotsRequest)(nil),   // 58: mvmd.runtime.v1alpha2.ListDiskSnapshotsRequest
-	(*ListDiskSnapshotsResponse)(nil),  // 59: mvmd.runtime.v1alpha2.ListDiskSnapshotsResponse
-	(*DeleteDiskSnapshotRequest)(nil),  // 60: mvmd.runtime.v1alpha2.DeleteDiskSnapshotRequest
-	(*DeleteDiskSnapshotResponse)(nil), // 61: mvmd.runtime.v1alpha2.DeleteDiskSnapshotResponse
-	(*DeleteDiskRequest)(nil),          // 62: mvmd.runtime.v1alpha2.DeleteDiskRequest
-	(*DeleteDiskResponse)(nil),         // 63: mvmd.runtime.v1alpha2.DeleteDiskResponse
-	(*AttachDiskRequest)(nil),          // 64: mvmd.runtime.v1alpha2.AttachDiskRequest
-	(*AttachDiskResponse)(nil),         // 65: mvmd.runtime.v1alpha2.AttachDiskResponse
-	(*DetachDiskRequest)(nil),          // 66: mvmd.runtime.v1alpha2.DetachDiskRequest
-	(*DetachDiskResponse)(nil),         // 67: mvmd.runtime.v1alpha2.DetachDiskResponse
-	(*SetResourcesRequest)(nil),        // 68: mvmd.runtime.v1alpha2.SetResourcesRequest
-	(*SetResourcesResponse)(nil),       // 69: mvmd.runtime.v1alpha2.SetResourcesResponse
-	(*GetRuntimeInfoRequest)(nil),      // 70: mvmd.runtime.v1alpha2.GetRuntimeInfoRequest
-	(*DriverInfo)(nil),                 // 71: mvmd.runtime.v1alpha2.DriverInfo
-	(*DriverLimits)(nil),               // 72: mvmd.runtime.v1alpha2.DriverLimits
-	(*NodeCapacity)(nil),               // 73: mvmd.runtime.v1alpha2.NodeCapacity
-	(*NodeKernel)(nil),                 // 74: mvmd.runtime.v1alpha2.NodeKernel
-	(*BootSet)(nil),                    // 75: mvmd.runtime.v1alpha2.BootSet
-	(*AddBootSetRequest)(nil),          // 76: mvmd.runtime.v1alpha2.AddBootSetRequest
-	(*AddBootSetStart)(nil),            // 77: mvmd.runtime.v1alpha2.AddBootSetStart
-	(*AddBootSetResponse)(nil),         // 78: mvmd.runtime.v1alpha2.AddBootSetResponse
-	(*RemoveBootSetRequest)(nil),       // 79: mvmd.runtime.v1alpha2.RemoveBootSetRequest
-	(*RemoveBootSetResponse)(nil),      // 80: mvmd.runtime.v1alpha2.RemoveBootSetResponse
-	(*GetRuntimeInfoResponse)(nil),     // 81: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse
-	(*OrphanedSupervisor)(nil),         // 82: mvmd.runtime.v1alpha2.OrphanedSupervisor
-	(*InspectMachineRequest)(nil),      // 83: mvmd.runtime.v1alpha2.InspectMachineRequest
-	(*InspectMachineResponse)(nil),     // 84: mvmd.runtime.v1alpha2.InspectMachineResponse
-	(*ListMachinesRequest)(nil),        // 85: mvmd.runtime.v1alpha2.ListMachinesRequest
-	(*ListMachinesResponse)(nil),       // 86: mvmd.runtime.v1alpha2.ListMachinesResponse
-	(*WatchEventsRequest)(nil),         // 87: mvmd.runtime.v1alpha2.WatchEventsRequest
-	(*StateChanged)(nil),               // 88: mvmd.runtime.v1alpha2.StateChanged
-	(*MachineDeleted)(nil),             // 89: mvmd.runtime.v1alpha2.MachineDeleted
-	(*DeadlineEvent)(nil),              // 90: mvmd.runtime.v1alpha2.DeadlineEvent
-	(*DriverEvent)(nil),                // 91: mvmd.runtime.v1alpha2.DriverEvent
-	(*ProbeChanged)(nil),               // 92: mvmd.runtime.v1alpha2.ProbeChanged
-	(*SupervisorOrphaned)(nil),         // 93: mvmd.runtime.v1alpha2.SupervisorOrphaned
-	(*ResyncRequired)(nil),             // 94: mvmd.runtime.v1alpha2.ResyncRequired
-	(*WatchEventsResponse)(nil),        // 95: mvmd.runtime.v1alpha2.WatchEventsResponse
-	(*ExecRecord)(nil),                 // 96: mvmd.runtime.v1alpha2.ExecRecord
-	(*ExecRequest)(nil),                // 97: mvmd.runtime.v1alpha2.ExecRequest
-	(*ExecResponse)(nil),               // 98: mvmd.runtime.v1alpha2.ExecResponse
-	(*ReadExecOutputRequest)(nil),      // 99: mvmd.runtime.v1alpha2.ReadExecOutputRequest
-	(*OutputChunk)(nil),                // 100: mvmd.runtime.v1alpha2.OutputChunk
-	(*ReadExecOutputResponse)(nil),     // 101: mvmd.runtime.v1alpha2.ReadExecOutputResponse
-	(*SignalExecRequest)(nil),          // 102: mvmd.runtime.v1alpha2.SignalExecRequest
-	(*SignalExecResponse)(nil),         // 103: mvmd.runtime.v1alpha2.SignalExecResponse
-	(*ReadFileRequest)(nil),            // 104: mvmd.runtime.v1alpha2.ReadFileRequest
-	(*ReadFileResponse)(nil),           // 105: mvmd.runtime.v1alpha2.ReadFileResponse
-	(*WriteFileStart)(nil),             // 106: mvmd.runtime.v1alpha2.WriteFileStart
-	(*WriteFileRequest)(nil),           // 107: mvmd.runtime.v1alpha2.WriteFileRequest
-	(*WriteFileResponse)(nil),          // 108: mvmd.runtime.v1alpha2.WriteFileResponse
-	(*PatchFileRequest)(nil),           // 109: mvmd.runtime.v1alpha2.PatchFileRequest
-	(*PatchFileResponse)(nil),          // 110: mvmd.runtime.v1alpha2.PatchFileResponse
-	(*ListFilesRequest)(nil),           // 111: mvmd.runtime.v1alpha2.ListFilesRequest
-	(*FileEntry)(nil),                  // 112: mvmd.runtime.v1alpha2.FileEntry
-	(*ListFilesResponse)(nil),          // 113: mvmd.runtime.v1alpha2.ListFilesResponse
-	(*SearchFilesRequest)(nil),         // 114: mvmd.runtime.v1alpha2.SearchFilesRequest
-	(*SearchFilesResponse)(nil),        // 115: mvmd.runtime.v1alpha2.SearchFilesResponse
-	(*ConsoleRequest)(nil),             // 116: mvmd.runtime.v1alpha2.ConsoleRequest
-	(*ConsoleResponse)(nil),            // 117: mvmd.runtime.v1alpha2.ConsoleResponse
-	(*PullImageRequest)(nil),           // 118: mvmd.runtime.v1alpha2.PullImageRequest
-	(*PullImageResponse)(nil),          // 119: mvmd.runtime.v1alpha2.PullImageResponse
-	(*Image)(nil),                      // 120: mvmd.runtime.v1alpha2.Image
-	(*ListImagesRequest)(nil),          // 121: mvmd.runtime.v1alpha2.ListImagesRequest
-	(*ListImagesResponse)(nil),         // 122: mvmd.runtime.v1alpha2.ListImagesResponse
-	(*RemoveImageRequest)(nil),         // 123: mvmd.runtime.v1alpha2.RemoveImageRequest
-	(*RemoveImageResponse)(nil),        // 124: mvmd.runtime.v1alpha2.RemoveImageResponse
-	(*Snapshot)(nil),                   // 125: mvmd.runtime.v1alpha2.Snapshot
-	(*SnapshotDisk)(nil),               // 126: mvmd.runtime.v1alpha2.SnapshotDisk
-	(*ListSnapshotsRequest)(nil),       // 127: mvmd.runtime.v1alpha2.ListSnapshotsRequest
-	(*ListSnapshotsResponse)(nil),      // 128: mvmd.runtime.v1alpha2.ListSnapshotsResponse
-	(*DeleteSnapshotRequest)(nil),      // 129: mvmd.runtime.v1alpha2.DeleteSnapshotRequest
-	(*DeleteSnapshotResponse)(nil),     // 130: mvmd.runtime.v1alpha2.DeleteSnapshotResponse
-	(*DeadlineStatus)(nil),             // 131: mvmd.runtime.v1alpha2.DeadlineStatus
-	(*RenewDeadlineRequest)(nil),       // 132: mvmd.runtime.v1alpha2.RenewDeadlineRequest
-	(*RenewDeadlineResponse)(nil),      // 133: mvmd.runtime.v1alpha2.RenewDeadlineResponse
-	(*InspectDeadlineRequest)(nil),     // 134: mvmd.runtime.v1alpha2.InspectDeadlineRequest
-	(*InspectDeadlineResponse)(nil),    // 135: mvmd.runtime.v1alpha2.InspectDeadlineResponse
-	nil,                                // 136: mvmd.runtime.v1alpha2.ExecRequest.EnvEntry
-	(*timestamppb.Timestamp)(nil),      // 137: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),        // 138: google.protobuf.Duration
+	(OutcomeKind)(0),                     // 0: mvmd.runtime.v1alpha2.OutcomeKind
+	(MachineState)(0),                    // 1: mvmd.runtime.v1alpha2.MachineState
+	(Capability)(0),                      // 2: mvmd.runtime.v1alpha2.Capability
+	(Protocol)(0),                        // 3: mvmd.runtime.v1alpha2.Protocol
+	(ProbeStatus)(0),                     // 4: mvmd.runtime.v1alpha2.ProbeStatus
+	(Filesystem)(0),                      // 5: mvmd.runtime.v1alpha2.Filesystem
+	(BootSetOrigin)(0),                   // 6: mvmd.runtime.v1alpha2.BootSetOrigin
+	(ExecStatus)(0),                      // 7: mvmd.runtime.v1alpha2.ExecStatus
+	(OutputStream)(0),                    // 8: mvmd.runtime.v1alpha2.OutputStream
+	(EntryKind)(0),                       // 9: mvmd.runtime.v1alpha2.EntryKind
+	(DeadlinePhase)(0),                   // 10: mvmd.runtime.v1alpha2.DeadlinePhase
+	(DeadlineEvent_Kind)(0),              // 11: mvmd.runtime.v1alpha2.DeadlineEvent.Kind
+	(*Failure)(nil),                      // 12: mvmd.runtime.v1alpha2.Failure
+	(*OutputGone)(nil),                   // 13: mvmd.runtime.v1alpha2.OutputGone
+	(*ImageRef)(nil),                     // 14: mvmd.runtime.v1alpha2.ImageRef
+	(*NetworkPolicy)(nil),                // 15: mvmd.runtime.v1alpha2.NetworkPolicy
+	(*PortRange)(nil),                    // 16: mvmd.runtime.v1alpha2.PortRange
+	(*NetworkRule)(nil),                  // 17: mvmd.runtime.v1alpha2.NetworkRule
+	(*Resources)(nil),                    // 18: mvmd.runtime.v1alpha2.Resources
+	(*DiskAttachment)(nil),               // 19: mvmd.runtime.v1alpha2.DiskAttachment
+	(*Driver)(nil),                       // 20: mvmd.runtime.v1alpha2.Driver
+	(*Machine)(nil),                      // 21: mvmd.runtime.v1alpha2.Machine
+	(*OsBoot)(nil),                       // 22: mvmd.runtime.v1alpha2.OsBoot
+	(*Probe)(nil),                        // 23: mvmd.runtime.v1alpha2.Probe
+	(*ExecProbe)(nil),                    // 24: mvmd.runtime.v1alpha2.ExecProbe
+	(*TcpProbe)(nil),                     // 25: mvmd.runtime.v1alpha2.TcpProbe
+	(*HttpGetProbe)(nil),                 // 26: mvmd.runtime.v1alpha2.HttpGetProbe
+	(*ProbeResult)(nil),                  // 27: mvmd.runtime.v1alpha2.ProbeResult
+	(*EnvVar)(nil),                       // 28: mvmd.runtime.v1alpha2.EnvVar
+	(*File)(nil),                         // 29: mvmd.runtime.v1alpha2.File
+	(*FileInfo)(nil),                     // 30: mvmd.runtime.v1alpha2.FileInfo
+	(*CreateMachineRequest)(nil),         // 31: mvmd.runtime.v1alpha2.CreateMachineRequest
+	(*CreateMachineResponse)(nil),        // 32: mvmd.runtime.v1alpha2.CreateMachineResponse
+	(*RunUpdate)(nil),                    // 33: mvmd.runtime.v1alpha2.RunUpdate
+	(*StartMachineRequest)(nil),          // 34: mvmd.runtime.v1alpha2.StartMachineRequest
+	(*StartMachineResponse)(nil),         // 35: mvmd.runtime.v1alpha2.StartMachineResponse
+	(*StopMachineRequest)(nil),           // 36: mvmd.runtime.v1alpha2.StopMachineRequest
+	(*StopMachineResponse)(nil),          // 37: mvmd.runtime.v1alpha2.StopMachineResponse
+	(*PauseMachineRequest)(nil),          // 38: mvmd.runtime.v1alpha2.PauseMachineRequest
+	(*PauseMachineResponse)(nil),         // 39: mvmd.runtime.v1alpha2.PauseMachineResponse
+	(*ResumeMachineRequest)(nil),         // 40: mvmd.runtime.v1alpha2.ResumeMachineRequest
+	(*ResumeMachineResponse)(nil),        // 41: mvmd.runtime.v1alpha2.ResumeMachineResponse
+	(*SnapshotMachineRequest)(nil),       // 42: mvmd.runtime.v1alpha2.SnapshotMachineRequest
+	(*SnapshotMachineResponse)(nil),      // 43: mvmd.runtime.v1alpha2.SnapshotMachineResponse
+	(*RestoreMachineRequest)(nil),        // 44: mvmd.runtime.v1alpha2.RestoreMachineRequest
+	(*RestoreMachineResponse)(nil),       // 45: mvmd.runtime.v1alpha2.RestoreMachineResponse
+	(*DeleteMachineRequest)(nil),         // 46: mvmd.runtime.v1alpha2.DeleteMachineRequest
+	(*DeleteMachineResponse)(nil),        // 47: mvmd.runtime.v1alpha2.DeleteMachineResponse
+	(*CreateDiskRequest)(nil),            // 48: mvmd.runtime.v1alpha2.CreateDiskRequest
+	(*CreateDiskResponse)(nil),           // 49: mvmd.runtime.v1alpha2.CreateDiskResponse
+	(*Disk)(nil),                         // 50: mvmd.runtime.v1alpha2.Disk
+	(*ListDisksRequest)(nil),             // 51: mvmd.runtime.v1alpha2.ListDisksRequest
+	(*ListDisksResponse)(nil),            // 52: mvmd.runtime.v1alpha2.ListDisksResponse
+	(*ResizeDiskRequest)(nil),            // 53: mvmd.runtime.v1alpha2.ResizeDiskRequest
+	(*ResizeDiskResponse)(nil),           // 54: mvmd.runtime.v1alpha2.ResizeDiskResponse
+	(*SnapshotDiskRequest)(nil),          // 55: mvmd.runtime.v1alpha2.SnapshotDiskRequest
+	(*SnapshotDiskResponse)(nil),         // 56: mvmd.runtime.v1alpha2.SnapshotDiskResponse
+	(*DiskSnapshot)(nil),                 // 57: mvmd.runtime.v1alpha2.DiskSnapshot
+	(*ListDiskSnapshotsRequest)(nil),     // 58: mvmd.runtime.v1alpha2.ListDiskSnapshotsRequest
+	(*ListDiskSnapshotsResponse)(nil),    // 59: mvmd.runtime.v1alpha2.ListDiskSnapshotsResponse
+	(*DeleteDiskSnapshotRequest)(nil),    // 60: mvmd.runtime.v1alpha2.DeleteDiskSnapshotRequest
+	(*DeleteDiskSnapshotResponse)(nil),   // 61: mvmd.runtime.v1alpha2.DeleteDiskSnapshotResponse
+	(*ReadDiskRequest)(nil),              // 62: mvmd.runtime.v1alpha2.ReadDiskRequest
+	(*ReadDiskResponse)(nil),             // 63: mvmd.runtime.v1alpha2.ReadDiskResponse
+	(*DiskStreamHeader)(nil),             // 64: mvmd.runtime.v1alpha2.DiskStreamHeader
+	(*DiskExtent)(nil),                   // 65: mvmd.runtime.v1alpha2.DiskExtent
+	(*DiskStreamDigest)(nil),             // 66: mvmd.runtime.v1alpha2.DiskStreamDigest
+	(*CreateDiskFromStreamRequest)(nil),  // 67: mvmd.runtime.v1alpha2.CreateDiskFromStreamRequest
+	(*CreateDiskFromStreamStart)(nil),    // 68: mvmd.runtime.v1alpha2.CreateDiskFromStreamStart
+	(*CreateDiskFromStreamResponse)(nil), // 69: mvmd.runtime.v1alpha2.CreateDiskFromStreamResponse
+	(*DeleteDiskRequest)(nil),            // 70: mvmd.runtime.v1alpha2.DeleteDiskRequest
+	(*DeleteDiskResponse)(nil),           // 71: mvmd.runtime.v1alpha2.DeleteDiskResponse
+	(*AttachDiskRequest)(nil),            // 72: mvmd.runtime.v1alpha2.AttachDiskRequest
+	(*AttachDiskResponse)(nil),           // 73: mvmd.runtime.v1alpha2.AttachDiskResponse
+	(*DetachDiskRequest)(nil),            // 74: mvmd.runtime.v1alpha2.DetachDiskRequest
+	(*DetachDiskResponse)(nil),           // 75: mvmd.runtime.v1alpha2.DetachDiskResponse
+	(*SetResourcesRequest)(nil),          // 76: mvmd.runtime.v1alpha2.SetResourcesRequest
+	(*SetResourcesResponse)(nil),         // 77: mvmd.runtime.v1alpha2.SetResourcesResponse
+	(*GetRuntimeInfoRequest)(nil),        // 78: mvmd.runtime.v1alpha2.GetRuntimeInfoRequest
+	(*DriverInfo)(nil),                   // 79: mvmd.runtime.v1alpha2.DriverInfo
+	(*DriverLimits)(nil),                 // 80: mvmd.runtime.v1alpha2.DriverLimits
+	(*NodeCapacity)(nil),                 // 81: mvmd.runtime.v1alpha2.NodeCapacity
+	(*NodeKernel)(nil),                   // 82: mvmd.runtime.v1alpha2.NodeKernel
+	(*BootSet)(nil),                      // 83: mvmd.runtime.v1alpha2.BootSet
+	(*AddBootSetRequest)(nil),            // 84: mvmd.runtime.v1alpha2.AddBootSetRequest
+	(*AddBootSetStart)(nil),              // 85: mvmd.runtime.v1alpha2.AddBootSetStart
+	(*AddBootSetResponse)(nil),           // 86: mvmd.runtime.v1alpha2.AddBootSetResponse
+	(*RemoveBootSetRequest)(nil),         // 87: mvmd.runtime.v1alpha2.RemoveBootSetRequest
+	(*RemoveBootSetResponse)(nil),        // 88: mvmd.runtime.v1alpha2.RemoveBootSetResponse
+	(*GetRuntimeInfoResponse)(nil),       // 89: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse
+	(*OrphanedSupervisor)(nil),           // 90: mvmd.runtime.v1alpha2.OrphanedSupervisor
+	(*InspectMachineRequest)(nil),        // 91: mvmd.runtime.v1alpha2.InspectMachineRequest
+	(*InspectMachineResponse)(nil),       // 92: mvmd.runtime.v1alpha2.InspectMachineResponse
+	(*ListMachinesRequest)(nil),          // 93: mvmd.runtime.v1alpha2.ListMachinesRequest
+	(*ListMachinesResponse)(nil),         // 94: mvmd.runtime.v1alpha2.ListMachinesResponse
+	(*WatchEventsRequest)(nil),           // 95: mvmd.runtime.v1alpha2.WatchEventsRequest
+	(*StateChanged)(nil),                 // 96: mvmd.runtime.v1alpha2.StateChanged
+	(*MachineDeleted)(nil),               // 97: mvmd.runtime.v1alpha2.MachineDeleted
+	(*DeadlineEvent)(nil),                // 98: mvmd.runtime.v1alpha2.DeadlineEvent
+	(*DriverEvent)(nil),                  // 99: mvmd.runtime.v1alpha2.DriverEvent
+	(*ProbeChanged)(nil),                 // 100: mvmd.runtime.v1alpha2.ProbeChanged
+	(*SupervisorOrphaned)(nil),           // 101: mvmd.runtime.v1alpha2.SupervisorOrphaned
+	(*ResyncRequired)(nil),               // 102: mvmd.runtime.v1alpha2.ResyncRequired
+	(*WatchEventsResponse)(nil),          // 103: mvmd.runtime.v1alpha2.WatchEventsResponse
+	(*ExecRecord)(nil),                   // 104: mvmd.runtime.v1alpha2.ExecRecord
+	(*ExecRequest)(nil),                  // 105: mvmd.runtime.v1alpha2.ExecRequest
+	(*ExecResponse)(nil),                 // 106: mvmd.runtime.v1alpha2.ExecResponse
+	(*ReadExecOutputRequest)(nil),        // 107: mvmd.runtime.v1alpha2.ReadExecOutputRequest
+	(*OutputChunk)(nil),                  // 108: mvmd.runtime.v1alpha2.OutputChunk
+	(*ReadExecOutputResponse)(nil),       // 109: mvmd.runtime.v1alpha2.ReadExecOutputResponse
+	(*SignalExecRequest)(nil),            // 110: mvmd.runtime.v1alpha2.SignalExecRequest
+	(*SignalExecResponse)(nil),           // 111: mvmd.runtime.v1alpha2.SignalExecResponse
+	(*ReadFileRequest)(nil),              // 112: mvmd.runtime.v1alpha2.ReadFileRequest
+	(*ReadFileResponse)(nil),             // 113: mvmd.runtime.v1alpha2.ReadFileResponse
+	(*WriteFileStart)(nil),               // 114: mvmd.runtime.v1alpha2.WriteFileStart
+	(*WriteFileRequest)(nil),             // 115: mvmd.runtime.v1alpha2.WriteFileRequest
+	(*WriteFileResponse)(nil),            // 116: mvmd.runtime.v1alpha2.WriteFileResponse
+	(*PatchFileRequest)(nil),             // 117: mvmd.runtime.v1alpha2.PatchFileRequest
+	(*PatchFileResponse)(nil),            // 118: mvmd.runtime.v1alpha2.PatchFileResponse
+	(*ListFilesRequest)(nil),             // 119: mvmd.runtime.v1alpha2.ListFilesRequest
+	(*FileEntry)(nil),                    // 120: mvmd.runtime.v1alpha2.FileEntry
+	(*ListFilesResponse)(nil),            // 121: mvmd.runtime.v1alpha2.ListFilesResponse
+	(*SearchFilesRequest)(nil),           // 122: mvmd.runtime.v1alpha2.SearchFilesRequest
+	(*SearchFilesResponse)(nil),          // 123: mvmd.runtime.v1alpha2.SearchFilesResponse
+	(*ConsoleRequest)(nil),               // 124: mvmd.runtime.v1alpha2.ConsoleRequest
+	(*ConsoleResponse)(nil),              // 125: mvmd.runtime.v1alpha2.ConsoleResponse
+	(*PullImageRequest)(nil),             // 126: mvmd.runtime.v1alpha2.PullImageRequest
+	(*PullImageResponse)(nil),            // 127: mvmd.runtime.v1alpha2.PullImageResponse
+	(*Image)(nil),                        // 128: mvmd.runtime.v1alpha2.Image
+	(*ListImagesRequest)(nil),            // 129: mvmd.runtime.v1alpha2.ListImagesRequest
+	(*ListImagesResponse)(nil),           // 130: mvmd.runtime.v1alpha2.ListImagesResponse
+	(*RemoveImageRequest)(nil),           // 131: mvmd.runtime.v1alpha2.RemoveImageRequest
+	(*RemoveImageResponse)(nil),          // 132: mvmd.runtime.v1alpha2.RemoveImageResponse
+	(*Snapshot)(nil),                     // 133: mvmd.runtime.v1alpha2.Snapshot
+	(*SnapshotDisk)(nil),                 // 134: mvmd.runtime.v1alpha2.SnapshotDisk
+	(*ListSnapshotsRequest)(nil),         // 135: mvmd.runtime.v1alpha2.ListSnapshotsRequest
+	(*ListSnapshotsResponse)(nil),        // 136: mvmd.runtime.v1alpha2.ListSnapshotsResponse
+	(*DeleteSnapshotRequest)(nil),        // 137: mvmd.runtime.v1alpha2.DeleteSnapshotRequest
+	(*DeleteSnapshotResponse)(nil),       // 138: mvmd.runtime.v1alpha2.DeleteSnapshotResponse
+	(*DeadlineStatus)(nil),               // 139: mvmd.runtime.v1alpha2.DeadlineStatus
+	(*RenewDeadlineRequest)(nil),         // 140: mvmd.runtime.v1alpha2.RenewDeadlineRequest
+	(*RenewDeadlineResponse)(nil),        // 141: mvmd.runtime.v1alpha2.RenewDeadlineResponse
+	(*InspectDeadlineRequest)(nil),       // 142: mvmd.runtime.v1alpha2.InspectDeadlineRequest
+	(*InspectDeadlineResponse)(nil),      // 143: mvmd.runtime.v1alpha2.InspectDeadlineResponse
+	nil,                                  // 144: mvmd.runtime.v1alpha2.ExecRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),        // 145: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),          // 146: google.protobuf.Duration
 }
 var file_mvmd_runtime_v1alpha2_runtime_proto_depIdxs = []int32{
 	0,   // 0: mvmd.runtime.v1alpha2.Failure.kind:type_name -> mvmd.runtime.v1alpha2.OutcomeKind
@@ -8932,15 +9507,15 @@ var file_mvmd_runtime_v1alpha2_runtime_proto_depIdxs = []int32{
 	30,  // 11: mvmd.runtime.v1alpha2.Machine.files:type_name -> mvmd.runtime.v1alpha2.FileInfo
 	27,  // 12: mvmd.runtime.v1alpha2.Machine.probes:type_name -> mvmd.runtime.v1alpha2.ProbeResult
 	22,  // 13: mvmd.runtime.v1alpha2.Machine.os_boot:type_name -> mvmd.runtime.v1alpha2.OsBoot
-	137, // 14: mvmd.runtime.v1alpha2.Machine.fence_lapsed_at:type_name -> google.protobuf.Timestamp
+	145, // 14: mvmd.runtime.v1alpha2.Machine.fence_lapsed_at:type_name -> google.protobuf.Timestamp
 	24,  // 15: mvmd.runtime.v1alpha2.Probe.exec:type_name -> mvmd.runtime.v1alpha2.ExecProbe
 	25,  // 16: mvmd.runtime.v1alpha2.Probe.tcp:type_name -> mvmd.runtime.v1alpha2.TcpProbe
 	26,  // 17: mvmd.runtime.v1alpha2.Probe.http_get:type_name -> mvmd.runtime.v1alpha2.HttpGetProbe
-	138, // 18: mvmd.runtime.v1alpha2.Probe.initial_delay:type_name -> google.protobuf.Duration
-	138, // 19: mvmd.runtime.v1alpha2.Probe.period:type_name -> google.protobuf.Duration
-	138, // 20: mvmd.runtime.v1alpha2.Probe.timeout:type_name -> google.protobuf.Duration
+	146, // 18: mvmd.runtime.v1alpha2.Probe.initial_delay:type_name -> google.protobuf.Duration
+	146, // 19: mvmd.runtime.v1alpha2.Probe.period:type_name -> google.protobuf.Duration
+	146, // 20: mvmd.runtime.v1alpha2.Probe.timeout:type_name -> google.protobuf.Duration
 	4,   // 21: mvmd.runtime.v1alpha2.ProbeResult.status:type_name -> mvmd.runtime.v1alpha2.ProbeStatus
-	137, // 22: mvmd.runtime.v1alpha2.ProbeResult.changed_at:type_name -> google.protobuf.Timestamp
+	145, // 22: mvmd.runtime.v1alpha2.ProbeResult.changed_at:type_name -> google.protobuf.Timestamp
 	18,  // 23: mvmd.runtime.v1alpha2.CreateMachineRequest.resources:type_name -> mvmd.runtime.v1alpha2.Resources
 	19,  // 24: mvmd.runtime.v1alpha2.CreateMachineRequest.disks:type_name -> mvmd.runtime.v1alpha2.DiskAttachment
 	15,  // 25: mvmd.runtime.v1alpha2.CreateMachineRequest.network_policy:type_name -> mvmd.runtime.v1alpha2.NetworkPolicy
@@ -8954,7 +9529,7 @@ var file_mvmd_runtime_v1alpha2_runtime_proto_depIdxs = []int32{
 	29,  // 33: mvmd.runtime.v1alpha2.RunUpdate.files:type_name -> mvmd.runtime.v1alpha2.File
 	33,  // 34: mvmd.runtime.v1alpha2.StartMachineRequest.run_update:type_name -> mvmd.runtime.v1alpha2.RunUpdate
 	21,  // 35: mvmd.runtime.v1alpha2.StartMachineResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
-	138, // 36: mvmd.runtime.v1alpha2.StopMachineRequest.grace_period:type_name -> google.protobuf.Duration
+	146, // 36: mvmd.runtime.v1alpha2.StopMachineRequest.grace_period:type_name -> google.protobuf.Duration
 	21,  // 37: mvmd.runtime.v1alpha2.StopMachineResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
 	21,  // 38: mvmd.runtime.v1alpha2.PauseMachineResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
 	21,  // 39: mvmd.runtime.v1alpha2.ResumeMachineResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
@@ -8966,146 +9541,158 @@ var file_mvmd_runtime_v1alpha2_runtime_proto_depIdxs = []int32{
 	50,  // 45: mvmd.runtime.v1alpha2.ListDisksResponse.disks:type_name -> mvmd.runtime.v1alpha2.Disk
 	57,  // 46: mvmd.runtime.v1alpha2.SnapshotDiskResponse.disk_snapshot:type_name -> mvmd.runtime.v1alpha2.DiskSnapshot
 	5,   // 47: mvmd.runtime.v1alpha2.DiskSnapshot.filesystem:type_name -> mvmd.runtime.v1alpha2.Filesystem
-	137, // 48: mvmd.runtime.v1alpha2.DiskSnapshot.created_at:type_name -> google.protobuf.Timestamp
+	145, // 48: mvmd.runtime.v1alpha2.DiskSnapshot.created_at:type_name -> google.protobuf.Timestamp
 	57,  // 49: mvmd.runtime.v1alpha2.ListDiskSnapshotsResponse.disk_snapshots:type_name -> mvmd.runtime.v1alpha2.DiskSnapshot
-	19,  // 50: mvmd.runtime.v1alpha2.AttachDiskRequest.disk:type_name -> mvmd.runtime.v1alpha2.DiskAttachment
-	21,  // 51: mvmd.runtime.v1alpha2.AttachDiskResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
-	21,  // 52: mvmd.runtime.v1alpha2.DetachDiskResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
-	18,  // 53: mvmd.runtime.v1alpha2.SetResourcesRequest.target:type_name -> mvmd.runtime.v1alpha2.Resources
-	18,  // 54: mvmd.runtime.v1alpha2.SetResourcesRequest.resource_ceiling:type_name -> mvmd.runtime.v1alpha2.Resources
-	18,  // 55: mvmd.runtime.v1alpha2.SetResourcesResponse.resources:type_name -> mvmd.runtime.v1alpha2.Resources
-	18,  // 56: mvmd.runtime.v1alpha2.SetResourcesResponse.resource_ceiling:type_name -> mvmd.runtime.v1alpha2.Resources
-	20,  // 57: mvmd.runtime.v1alpha2.DriverInfo.driver:type_name -> mvmd.runtime.v1alpha2.Driver
-	2,   // 58: mvmd.runtime.v1alpha2.DriverInfo.capabilities:type_name -> mvmd.runtime.v1alpha2.Capability
-	72,  // 59: mvmd.runtime.v1alpha2.DriverInfo.limits:type_name -> mvmd.runtime.v1alpha2.DriverLimits
-	6,   // 60: mvmd.runtime.v1alpha2.BootSet.origin:type_name -> mvmd.runtime.v1alpha2.BootSetOrigin
-	77,  // 61: mvmd.runtime.v1alpha2.AddBootSetRequest.start:type_name -> mvmd.runtime.v1alpha2.AddBootSetStart
-	75,  // 62: mvmd.runtime.v1alpha2.AddBootSetResponse.boot_set:type_name -> mvmd.runtime.v1alpha2.BootSet
-	71,  // 63: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.drivers:type_name -> mvmd.runtime.v1alpha2.DriverInfo
-	73,  // 64: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.capacity:type_name -> mvmd.runtime.v1alpha2.NodeCapacity
-	74,  // 65: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.kernels:type_name -> mvmd.runtime.v1alpha2.NodeKernel
-	75,  // 66: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.boot_sets:type_name -> mvmd.runtime.v1alpha2.BootSet
-	82,  // 67: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.orphaned_supervisors:type_name -> mvmd.runtime.v1alpha2.OrphanedSupervisor
-	21,  // 68: mvmd.runtime.v1alpha2.InspectMachineResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
-	21,  // 69: mvmd.runtime.v1alpha2.ListMachinesResponse.machines:type_name -> mvmd.runtime.v1alpha2.Machine
-	1,   // 70: mvmd.runtime.v1alpha2.StateChanged.state:type_name -> mvmd.runtime.v1alpha2.MachineState
-	11,  // 71: mvmd.runtime.v1alpha2.DeadlineEvent.kind:type_name -> mvmd.runtime.v1alpha2.DeadlineEvent.Kind
-	27,  // 72: mvmd.runtime.v1alpha2.ProbeChanged.result:type_name -> mvmd.runtime.v1alpha2.ProbeResult
-	88,  // 73: mvmd.runtime.v1alpha2.WatchEventsResponse.state_changed:type_name -> mvmd.runtime.v1alpha2.StateChanged
-	90,  // 74: mvmd.runtime.v1alpha2.WatchEventsResponse.deadline:type_name -> mvmd.runtime.v1alpha2.DeadlineEvent
-	91,  // 75: mvmd.runtime.v1alpha2.WatchEventsResponse.driver:type_name -> mvmd.runtime.v1alpha2.DriverEvent
-	94,  // 76: mvmd.runtime.v1alpha2.WatchEventsResponse.resync_required:type_name -> mvmd.runtime.v1alpha2.ResyncRequired
-	89,  // 77: mvmd.runtime.v1alpha2.WatchEventsResponse.machine_deleted:type_name -> mvmd.runtime.v1alpha2.MachineDeleted
-	92,  // 78: mvmd.runtime.v1alpha2.WatchEventsResponse.probe_changed:type_name -> mvmd.runtime.v1alpha2.ProbeChanged
-	93,  // 79: mvmd.runtime.v1alpha2.WatchEventsResponse.supervisor_orphaned:type_name -> mvmd.runtime.v1alpha2.SupervisorOrphaned
-	7,   // 80: mvmd.runtime.v1alpha2.ExecRecord.status:type_name -> mvmd.runtime.v1alpha2.ExecStatus
-	137, // 81: mvmd.runtime.v1alpha2.ExecRecord.ended_at:type_name -> google.protobuf.Timestamp
-	136, // 82: mvmd.runtime.v1alpha2.ExecRequest.env:type_name -> mvmd.runtime.v1alpha2.ExecRequest.EnvEntry
-	96,  // 83: mvmd.runtime.v1alpha2.ExecResponse.record:type_name -> mvmd.runtime.v1alpha2.ExecRecord
-	8,   // 84: mvmd.runtime.v1alpha2.OutputChunk.stream:type_name -> mvmd.runtime.v1alpha2.OutputStream
-	100, // 85: mvmd.runtime.v1alpha2.ReadExecOutputResponse.chunk:type_name -> mvmd.runtime.v1alpha2.OutputChunk
-	96,  // 86: mvmd.runtime.v1alpha2.ReadExecOutputResponse.record:type_name -> mvmd.runtime.v1alpha2.ExecRecord
-	106, // 87: mvmd.runtime.v1alpha2.WriteFileRequest.start:type_name -> mvmd.runtime.v1alpha2.WriteFileStart
-	9,   // 88: mvmd.runtime.v1alpha2.FileEntry.kind:type_name -> mvmd.runtime.v1alpha2.EntryKind
-	112, // 89: mvmd.runtime.v1alpha2.ListFilesResponse.entries:type_name -> mvmd.runtime.v1alpha2.FileEntry
-	14,  // 90: mvmd.runtime.v1alpha2.PullImageRequest.image:type_name -> mvmd.runtime.v1alpha2.ImageRef
-	137, // 91: mvmd.runtime.v1alpha2.Image.created_at:type_name -> google.protobuf.Timestamp
-	120, // 92: mvmd.runtime.v1alpha2.ListImagesResponse.images:type_name -> mvmd.runtime.v1alpha2.Image
-	20,  // 93: mvmd.runtime.v1alpha2.Snapshot.driver:type_name -> mvmd.runtime.v1alpha2.Driver
-	126, // 94: mvmd.runtime.v1alpha2.Snapshot.disks:type_name -> mvmd.runtime.v1alpha2.SnapshotDisk
-	137, // 95: mvmd.runtime.v1alpha2.Snapshot.created_at:type_name -> google.protobuf.Timestamp
-	125, // 96: mvmd.runtime.v1alpha2.ListSnapshotsResponse.snapshots:type_name -> mvmd.runtime.v1alpha2.Snapshot
-	10,  // 97: mvmd.runtime.v1alpha2.DeadlineStatus.phase:type_name -> mvmd.runtime.v1alpha2.DeadlinePhase
-	138, // 98: mvmd.runtime.v1alpha2.DeadlineStatus.length:type_name -> google.protobuf.Duration
-	138, // 99: mvmd.runtime.v1alpha2.DeadlineStatus.remaining:type_name -> google.protobuf.Duration
-	138, // 100: mvmd.runtime.v1alpha2.RenewDeadlineRequest.length:type_name -> google.protobuf.Duration
-	131, // 101: mvmd.runtime.v1alpha2.RenewDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
-	131, // 102: mvmd.runtime.v1alpha2.InspectDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
-	31,  // 103: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:input_type -> mvmd.runtime.v1alpha2.CreateMachineRequest
-	34,  // 104: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:input_type -> mvmd.runtime.v1alpha2.StartMachineRequest
-	36,  // 105: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:input_type -> mvmd.runtime.v1alpha2.StopMachineRequest
-	38,  // 106: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:input_type -> mvmd.runtime.v1alpha2.PauseMachineRequest
-	40,  // 107: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:input_type -> mvmd.runtime.v1alpha2.ResumeMachineRequest
-	42,  // 108: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:input_type -> mvmd.runtime.v1alpha2.SnapshotMachineRequest
-	44,  // 109: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:input_type -> mvmd.runtime.v1alpha2.RestoreMachineRequest
-	46,  // 110: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:input_type -> mvmd.runtime.v1alpha2.DeleteMachineRequest
-	48,  // 111: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:input_type -> mvmd.runtime.v1alpha2.CreateDiskRequest
-	51,  // 112: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:input_type -> mvmd.runtime.v1alpha2.ListDisksRequest
-	53,  // 113: mvmd.runtime.v1alpha2.RuntimeService.ResizeDisk:input_type -> mvmd.runtime.v1alpha2.ResizeDiskRequest
-	55,  // 114: mvmd.runtime.v1alpha2.RuntimeService.SnapshotDisk:input_type -> mvmd.runtime.v1alpha2.SnapshotDiskRequest
-	58,  // 115: mvmd.runtime.v1alpha2.RuntimeService.ListDiskSnapshots:input_type -> mvmd.runtime.v1alpha2.ListDiskSnapshotsRequest
-	60,  // 116: mvmd.runtime.v1alpha2.RuntimeService.DeleteDiskSnapshot:input_type -> mvmd.runtime.v1alpha2.DeleteDiskSnapshotRequest
-	62,  // 117: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:input_type -> mvmd.runtime.v1alpha2.DeleteDiskRequest
-	64,  // 118: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:input_type -> mvmd.runtime.v1alpha2.AttachDiskRequest
-	66,  // 119: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:input_type -> mvmd.runtime.v1alpha2.DetachDiskRequest
-	68,  // 120: mvmd.runtime.v1alpha2.RuntimeService.SetResources:input_type -> mvmd.runtime.v1alpha2.SetResourcesRequest
-	70,  // 121: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:input_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoRequest
-	83,  // 122: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:input_type -> mvmd.runtime.v1alpha2.InspectMachineRequest
-	85,  // 123: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:input_type -> mvmd.runtime.v1alpha2.ListMachinesRequest
-	87,  // 124: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:input_type -> mvmd.runtime.v1alpha2.WatchEventsRequest
-	97,  // 125: mvmd.runtime.v1alpha2.RuntimeService.Exec:input_type -> mvmd.runtime.v1alpha2.ExecRequest
-	99,  // 126: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:input_type -> mvmd.runtime.v1alpha2.ReadExecOutputRequest
-	102, // 127: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:input_type -> mvmd.runtime.v1alpha2.SignalExecRequest
-	104, // 128: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:input_type -> mvmd.runtime.v1alpha2.ReadFileRequest
-	107, // 129: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:input_type -> mvmd.runtime.v1alpha2.WriteFileRequest
-	109, // 130: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:input_type -> mvmd.runtime.v1alpha2.PatchFileRequest
-	111, // 131: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:input_type -> mvmd.runtime.v1alpha2.ListFilesRequest
-	114, // 132: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:input_type -> mvmd.runtime.v1alpha2.SearchFilesRequest
-	116, // 133: mvmd.runtime.v1alpha2.RuntimeService.Console:input_type -> mvmd.runtime.v1alpha2.ConsoleRequest
-	118, // 134: mvmd.runtime.v1alpha2.RuntimeService.PullImage:input_type -> mvmd.runtime.v1alpha2.PullImageRequest
-	121, // 135: mvmd.runtime.v1alpha2.RuntimeService.ListImages:input_type -> mvmd.runtime.v1alpha2.ListImagesRequest
-	123, // 136: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:input_type -> mvmd.runtime.v1alpha2.RemoveImageRequest
-	76,  // 137: mvmd.runtime.v1alpha2.RuntimeService.AddBootSet:input_type -> mvmd.runtime.v1alpha2.AddBootSetRequest
-	79,  // 138: mvmd.runtime.v1alpha2.RuntimeService.RemoveBootSet:input_type -> mvmd.runtime.v1alpha2.RemoveBootSetRequest
-	127, // 139: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:input_type -> mvmd.runtime.v1alpha2.ListSnapshotsRequest
-	129, // 140: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:input_type -> mvmd.runtime.v1alpha2.DeleteSnapshotRequest
-	132, // 141: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:input_type -> mvmd.runtime.v1alpha2.RenewDeadlineRequest
-	134, // 142: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:input_type -> mvmd.runtime.v1alpha2.InspectDeadlineRequest
-	32,  // 143: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:output_type -> mvmd.runtime.v1alpha2.CreateMachineResponse
-	35,  // 144: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:output_type -> mvmd.runtime.v1alpha2.StartMachineResponse
-	37,  // 145: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:output_type -> mvmd.runtime.v1alpha2.StopMachineResponse
-	39,  // 146: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:output_type -> mvmd.runtime.v1alpha2.PauseMachineResponse
-	41,  // 147: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:output_type -> mvmd.runtime.v1alpha2.ResumeMachineResponse
-	43,  // 148: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:output_type -> mvmd.runtime.v1alpha2.SnapshotMachineResponse
-	45,  // 149: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:output_type -> mvmd.runtime.v1alpha2.RestoreMachineResponse
-	47,  // 150: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:output_type -> mvmd.runtime.v1alpha2.DeleteMachineResponse
-	49,  // 151: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:output_type -> mvmd.runtime.v1alpha2.CreateDiskResponse
-	52,  // 152: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:output_type -> mvmd.runtime.v1alpha2.ListDisksResponse
-	54,  // 153: mvmd.runtime.v1alpha2.RuntimeService.ResizeDisk:output_type -> mvmd.runtime.v1alpha2.ResizeDiskResponse
-	56,  // 154: mvmd.runtime.v1alpha2.RuntimeService.SnapshotDisk:output_type -> mvmd.runtime.v1alpha2.SnapshotDiskResponse
-	59,  // 155: mvmd.runtime.v1alpha2.RuntimeService.ListDiskSnapshots:output_type -> mvmd.runtime.v1alpha2.ListDiskSnapshotsResponse
-	61,  // 156: mvmd.runtime.v1alpha2.RuntimeService.DeleteDiskSnapshot:output_type -> mvmd.runtime.v1alpha2.DeleteDiskSnapshotResponse
-	63,  // 157: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:output_type -> mvmd.runtime.v1alpha2.DeleteDiskResponse
-	65,  // 158: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:output_type -> mvmd.runtime.v1alpha2.AttachDiskResponse
-	67,  // 159: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:output_type -> mvmd.runtime.v1alpha2.DetachDiskResponse
-	69,  // 160: mvmd.runtime.v1alpha2.RuntimeService.SetResources:output_type -> mvmd.runtime.v1alpha2.SetResourcesResponse
-	81,  // 161: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:output_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoResponse
-	84,  // 162: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:output_type -> mvmd.runtime.v1alpha2.InspectMachineResponse
-	86,  // 163: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:output_type -> mvmd.runtime.v1alpha2.ListMachinesResponse
-	95,  // 164: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:output_type -> mvmd.runtime.v1alpha2.WatchEventsResponse
-	98,  // 165: mvmd.runtime.v1alpha2.RuntimeService.Exec:output_type -> mvmd.runtime.v1alpha2.ExecResponse
-	101, // 166: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:output_type -> mvmd.runtime.v1alpha2.ReadExecOutputResponse
-	103, // 167: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:output_type -> mvmd.runtime.v1alpha2.SignalExecResponse
-	105, // 168: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:output_type -> mvmd.runtime.v1alpha2.ReadFileResponse
-	108, // 169: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:output_type -> mvmd.runtime.v1alpha2.WriteFileResponse
-	110, // 170: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:output_type -> mvmd.runtime.v1alpha2.PatchFileResponse
-	113, // 171: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:output_type -> mvmd.runtime.v1alpha2.ListFilesResponse
-	115, // 172: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:output_type -> mvmd.runtime.v1alpha2.SearchFilesResponse
-	117, // 173: mvmd.runtime.v1alpha2.RuntimeService.Console:output_type -> mvmd.runtime.v1alpha2.ConsoleResponse
-	119, // 174: mvmd.runtime.v1alpha2.RuntimeService.PullImage:output_type -> mvmd.runtime.v1alpha2.PullImageResponse
-	122, // 175: mvmd.runtime.v1alpha2.RuntimeService.ListImages:output_type -> mvmd.runtime.v1alpha2.ListImagesResponse
-	124, // 176: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:output_type -> mvmd.runtime.v1alpha2.RemoveImageResponse
-	78,  // 177: mvmd.runtime.v1alpha2.RuntimeService.AddBootSet:output_type -> mvmd.runtime.v1alpha2.AddBootSetResponse
-	80,  // 178: mvmd.runtime.v1alpha2.RuntimeService.RemoveBootSet:output_type -> mvmd.runtime.v1alpha2.RemoveBootSetResponse
-	128, // 179: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:output_type -> mvmd.runtime.v1alpha2.ListSnapshotsResponse
-	130, // 180: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:output_type -> mvmd.runtime.v1alpha2.DeleteSnapshotResponse
-	133, // 181: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:output_type -> mvmd.runtime.v1alpha2.RenewDeadlineResponse
-	135, // 182: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:output_type -> mvmd.runtime.v1alpha2.InspectDeadlineResponse
-	143, // [143:183] is the sub-list for method output_type
-	103, // [103:143] is the sub-list for method input_type
-	103, // [103:103] is the sub-list for extension type_name
-	103, // [103:103] is the sub-list for extension extendee
-	0,   // [0:103] is the sub-list for field type_name
+	64,  // 50: mvmd.runtime.v1alpha2.ReadDiskResponse.header:type_name -> mvmd.runtime.v1alpha2.DiskStreamHeader
+	65,  // 51: mvmd.runtime.v1alpha2.ReadDiskResponse.extent:type_name -> mvmd.runtime.v1alpha2.DiskExtent
+	66,  // 52: mvmd.runtime.v1alpha2.ReadDiskResponse.digest:type_name -> mvmd.runtime.v1alpha2.DiskStreamDigest
+	5,   // 53: mvmd.runtime.v1alpha2.DiskStreamHeader.filesystem:type_name -> mvmd.runtime.v1alpha2.Filesystem
+	68,  // 54: mvmd.runtime.v1alpha2.CreateDiskFromStreamRequest.start:type_name -> mvmd.runtime.v1alpha2.CreateDiskFromStreamStart
+	65,  // 55: mvmd.runtime.v1alpha2.CreateDiskFromStreamRequest.extent:type_name -> mvmd.runtime.v1alpha2.DiskExtent
+	5,   // 56: mvmd.runtime.v1alpha2.CreateDiskFromStreamStart.filesystem:type_name -> mvmd.runtime.v1alpha2.Filesystem
+	50,  // 57: mvmd.runtime.v1alpha2.CreateDiskFromStreamResponse.disk:type_name -> mvmd.runtime.v1alpha2.Disk
+	19,  // 58: mvmd.runtime.v1alpha2.AttachDiskRequest.disk:type_name -> mvmd.runtime.v1alpha2.DiskAttachment
+	21,  // 59: mvmd.runtime.v1alpha2.AttachDiskResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
+	21,  // 60: mvmd.runtime.v1alpha2.DetachDiskResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
+	18,  // 61: mvmd.runtime.v1alpha2.SetResourcesRequest.target:type_name -> mvmd.runtime.v1alpha2.Resources
+	18,  // 62: mvmd.runtime.v1alpha2.SetResourcesRequest.resource_ceiling:type_name -> mvmd.runtime.v1alpha2.Resources
+	18,  // 63: mvmd.runtime.v1alpha2.SetResourcesResponse.resources:type_name -> mvmd.runtime.v1alpha2.Resources
+	18,  // 64: mvmd.runtime.v1alpha2.SetResourcesResponse.resource_ceiling:type_name -> mvmd.runtime.v1alpha2.Resources
+	20,  // 65: mvmd.runtime.v1alpha2.DriverInfo.driver:type_name -> mvmd.runtime.v1alpha2.Driver
+	2,   // 66: mvmd.runtime.v1alpha2.DriverInfo.capabilities:type_name -> mvmd.runtime.v1alpha2.Capability
+	80,  // 67: mvmd.runtime.v1alpha2.DriverInfo.limits:type_name -> mvmd.runtime.v1alpha2.DriverLimits
+	6,   // 68: mvmd.runtime.v1alpha2.BootSet.origin:type_name -> mvmd.runtime.v1alpha2.BootSetOrigin
+	85,  // 69: mvmd.runtime.v1alpha2.AddBootSetRequest.start:type_name -> mvmd.runtime.v1alpha2.AddBootSetStart
+	83,  // 70: mvmd.runtime.v1alpha2.AddBootSetResponse.boot_set:type_name -> mvmd.runtime.v1alpha2.BootSet
+	79,  // 71: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.drivers:type_name -> mvmd.runtime.v1alpha2.DriverInfo
+	81,  // 72: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.capacity:type_name -> mvmd.runtime.v1alpha2.NodeCapacity
+	82,  // 73: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.kernels:type_name -> mvmd.runtime.v1alpha2.NodeKernel
+	83,  // 74: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.boot_sets:type_name -> mvmd.runtime.v1alpha2.BootSet
+	90,  // 75: mvmd.runtime.v1alpha2.GetRuntimeInfoResponse.orphaned_supervisors:type_name -> mvmd.runtime.v1alpha2.OrphanedSupervisor
+	21,  // 76: mvmd.runtime.v1alpha2.InspectMachineResponse.machine:type_name -> mvmd.runtime.v1alpha2.Machine
+	21,  // 77: mvmd.runtime.v1alpha2.ListMachinesResponse.machines:type_name -> mvmd.runtime.v1alpha2.Machine
+	1,   // 78: mvmd.runtime.v1alpha2.StateChanged.state:type_name -> mvmd.runtime.v1alpha2.MachineState
+	11,  // 79: mvmd.runtime.v1alpha2.DeadlineEvent.kind:type_name -> mvmd.runtime.v1alpha2.DeadlineEvent.Kind
+	27,  // 80: mvmd.runtime.v1alpha2.ProbeChanged.result:type_name -> mvmd.runtime.v1alpha2.ProbeResult
+	96,  // 81: mvmd.runtime.v1alpha2.WatchEventsResponse.state_changed:type_name -> mvmd.runtime.v1alpha2.StateChanged
+	98,  // 82: mvmd.runtime.v1alpha2.WatchEventsResponse.deadline:type_name -> mvmd.runtime.v1alpha2.DeadlineEvent
+	99,  // 83: mvmd.runtime.v1alpha2.WatchEventsResponse.driver:type_name -> mvmd.runtime.v1alpha2.DriverEvent
+	102, // 84: mvmd.runtime.v1alpha2.WatchEventsResponse.resync_required:type_name -> mvmd.runtime.v1alpha2.ResyncRequired
+	97,  // 85: mvmd.runtime.v1alpha2.WatchEventsResponse.machine_deleted:type_name -> mvmd.runtime.v1alpha2.MachineDeleted
+	100, // 86: mvmd.runtime.v1alpha2.WatchEventsResponse.probe_changed:type_name -> mvmd.runtime.v1alpha2.ProbeChanged
+	101, // 87: mvmd.runtime.v1alpha2.WatchEventsResponse.supervisor_orphaned:type_name -> mvmd.runtime.v1alpha2.SupervisorOrphaned
+	7,   // 88: mvmd.runtime.v1alpha2.ExecRecord.status:type_name -> mvmd.runtime.v1alpha2.ExecStatus
+	145, // 89: mvmd.runtime.v1alpha2.ExecRecord.ended_at:type_name -> google.protobuf.Timestamp
+	144, // 90: mvmd.runtime.v1alpha2.ExecRequest.env:type_name -> mvmd.runtime.v1alpha2.ExecRequest.EnvEntry
+	104, // 91: mvmd.runtime.v1alpha2.ExecResponse.record:type_name -> mvmd.runtime.v1alpha2.ExecRecord
+	8,   // 92: mvmd.runtime.v1alpha2.OutputChunk.stream:type_name -> mvmd.runtime.v1alpha2.OutputStream
+	108, // 93: mvmd.runtime.v1alpha2.ReadExecOutputResponse.chunk:type_name -> mvmd.runtime.v1alpha2.OutputChunk
+	104, // 94: mvmd.runtime.v1alpha2.ReadExecOutputResponse.record:type_name -> mvmd.runtime.v1alpha2.ExecRecord
+	114, // 95: mvmd.runtime.v1alpha2.WriteFileRequest.start:type_name -> mvmd.runtime.v1alpha2.WriteFileStart
+	9,   // 96: mvmd.runtime.v1alpha2.FileEntry.kind:type_name -> mvmd.runtime.v1alpha2.EntryKind
+	120, // 97: mvmd.runtime.v1alpha2.ListFilesResponse.entries:type_name -> mvmd.runtime.v1alpha2.FileEntry
+	14,  // 98: mvmd.runtime.v1alpha2.PullImageRequest.image:type_name -> mvmd.runtime.v1alpha2.ImageRef
+	145, // 99: mvmd.runtime.v1alpha2.Image.created_at:type_name -> google.protobuf.Timestamp
+	128, // 100: mvmd.runtime.v1alpha2.ListImagesResponse.images:type_name -> mvmd.runtime.v1alpha2.Image
+	20,  // 101: mvmd.runtime.v1alpha2.Snapshot.driver:type_name -> mvmd.runtime.v1alpha2.Driver
+	134, // 102: mvmd.runtime.v1alpha2.Snapshot.disks:type_name -> mvmd.runtime.v1alpha2.SnapshotDisk
+	145, // 103: mvmd.runtime.v1alpha2.Snapshot.created_at:type_name -> google.protobuf.Timestamp
+	133, // 104: mvmd.runtime.v1alpha2.ListSnapshotsResponse.snapshots:type_name -> mvmd.runtime.v1alpha2.Snapshot
+	10,  // 105: mvmd.runtime.v1alpha2.DeadlineStatus.phase:type_name -> mvmd.runtime.v1alpha2.DeadlinePhase
+	146, // 106: mvmd.runtime.v1alpha2.DeadlineStatus.length:type_name -> google.protobuf.Duration
+	146, // 107: mvmd.runtime.v1alpha2.DeadlineStatus.remaining:type_name -> google.protobuf.Duration
+	146, // 108: mvmd.runtime.v1alpha2.RenewDeadlineRequest.length:type_name -> google.protobuf.Duration
+	139, // 109: mvmd.runtime.v1alpha2.RenewDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
+	139, // 110: mvmd.runtime.v1alpha2.InspectDeadlineResponse.status:type_name -> mvmd.runtime.v1alpha2.DeadlineStatus
+	31,  // 111: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:input_type -> mvmd.runtime.v1alpha2.CreateMachineRequest
+	34,  // 112: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:input_type -> mvmd.runtime.v1alpha2.StartMachineRequest
+	36,  // 113: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:input_type -> mvmd.runtime.v1alpha2.StopMachineRequest
+	38,  // 114: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:input_type -> mvmd.runtime.v1alpha2.PauseMachineRequest
+	40,  // 115: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:input_type -> mvmd.runtime.v1alpha2.ResumeMachineRequest
+	42,  // 116: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:input_type -> mvmd.runtime.v1alpha2.SnapshotMachineRequest
+	44,  // 117: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:input_type -> mvmd.runtime.v1alpha2.RestoreMachineRequest
+	46,  // 118: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:input_type -> mvmd.runtime.v1alpha2.DeleteMachineRequest
+	48,  // 119: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:input_type -> mvmd.runtime.v1alpha2.CreateDiskRequest
+	51,  // 120: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:input_type -> mvmd.runtime.v1alpha2.ListDisksRequest
+	53,  // 121: mvmd.runtime.v1alpha2.RuntimeService.ResizeDisk:input_type -> mvmd.runtime.v1alpha2.ResizeDiskRequest
+	55,  // 122: mvmd.runtime.v1alpha2.RuntimeService.SnapshotDisk:input_type -> mvmd.runtime.v1alpha2.SnapshotDiskRequest
+	58,  // 123: mvmd.runtime.v1alpha2.RuntimeService.ListDiskSnapshots:input_type -> mvmd.runtime.v1alpha2.ListDiskSnapshotsRequest
+	60,  // 124: mvmd.runtime.v1alpha2.RuntimeService.DeleteDiskSnapshot:input_type -> mvmd.runtime.v1alpha2.DeleteDiskSnapshotRequest
+	70,  // 125: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:input_type -> mvmd.runtime.v1alpha2.DeleteDiskRequest
+	62,  // 126: mvmd.runtime.v1alpha2.RuntimeService.ReadDisk:input_type -> mvmd.runtime.v1alpha2.ReadDiskRequest
+	67,  // 127: mvmd.runtime.v1alpha2.RuntimeService.CreateDiskFromStream:input_type -> mvmd.runtime.v1alpha2.CreateDiskFromStreamRequest
+	72,  // 128: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:input_type -> mvmd.runtime.v1alpha2.AttachDiskRequest
+	74,  // 129: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:input_type -> mvmd.runtime.v1alpha2.DetachDiskRequest
+	76,  // 130: mvmd.runtime.v1alpha2.RuntimeService.SetResources:input_type -> mvmd.runtime.v1alpha2.SetResourcesRequest
+	78,  // 131: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:input_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoRequest
+	91,  // 132: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:input_type -> mvmd.runtime.v1alpha2.InspectMachineRequest
+	93,  // 133: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:input_type -> mvmd.runtime.v1alpha2.ListMachinesRequest
+	95,  // 134: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:input_type -> mvmd.runtime.v1alpha2.WatchEventsRequest
+	105, // 135: mvmd.runtime.v1alpha2.RuntimeService.Exec:input_type -> mvmd.runtime.v1alpha2.ExecRequest
+	107, // 136: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:input_type -> mvmd.runtime.v1alpha2.ReadExecOutputRequest
+	110, // 137: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:input_type -> mvmd.runtime.v1alpha2.SignalExecRequest
+	112, // 138: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:input_type -> mvmd.runtime.v1alpha2.ReadFileRequest
+	115, // 139: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:input_type -> mvmd.runtime.v1alpha2.WriteFileRequest
+	117, // 140: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:input_type -> mvmd.runtime.v1alpha2.PatchFileRequest
+	119, // 141: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:input_type -> mvmd.runtime.v1alpha2.ListFilesRequest
+	122, // 142: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:input_type -> mvmd.runtime.v1alpha2.SearchFilesRequest
+	124, // 143: mvmd.runtime.v1alpha2.RuntimeService.Console:input_type -> mvmd.runtime.v1alpha2.ConsoleRequest
+	126, // 144: mvmd.runtime.v1alpha2.RuntimeService.PullImage:input_type -> mvmd.runtime.v1alpha2.PullImageRequest
+	129, // 145: mvmd.runtime.v1alpha2.RuntimeService.ListImages:input_type -> mvmd.runtime.v1alpha2.ListImagesRequest
+	131, // 146: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:input_type -> mvmd.runtime.v1alpha2.RemoveImageRequest
+	84,  // 147: mvmd.runtime.v1alpha2.RuntimeService.AddBootSet:input_type -> mvmd.runtime.v1alpha2.AddBootSetRequest
+	87,  // 148: mvmd.runtime.v1alpha2.RuntimeService.RemoveBootSet:input_type -> mvmd.runtime.v1alpha2.RemoveBootSetRequest
+	135, // 149: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:input_type -> mvmd.runtime.v1alpha2.ListSnapshotsRequest
+	137, // 150: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:input_type -> mvmd.runtime.v1alpha2.DeleteSnapshotRequest
+	140, // 151: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:input_type -> mvmd.runtime.v1alpha2.RenewDeadlineRequest
+	142, // 152: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:input_type -> mvmd.runtime.v1alpha2.InspectDeadlineRequest
+	32,  // 153: mvmd.runtime.v1alpha2.RuntimeService.CreateMachine:output_type -> mvmd.runtime.v1alpha2.CreateMachineResponse
+	35,  // 154: mvmd.runtime.v1alpha2.RuntimeService.StartMachine:output_type -> mvmd.runtime.v1alpha2.StartMachineResponse
+	37,  // 155: mvmd.runtime.v1alpha2.RuntimeService.StopMachine:output_type -> mvmd.runtime.v1alpha2.StopMachineResponse
+	39,  // 156: mvmd.runtime.v1alpha2.RuntimeService.PauseMachine:output_type -> mvmd.runtime.v1alpha2.PauseMachineResponse
+	41,  // 157: mvmd.runtime.v1alpha2.RuntimeService.ResumeMachine:output_type -> mvmd.runtime.v1alpha2.ResumeMachineResponse
+	43,  // 158: mvmd.runtime.v1alpha2.RuntimeService.SnapshotMachine:output_type -> mvmd.runtime.v1alpha2.SnapshotMachineResponse
+	45,  // 159: mvmd.runtime.v1alpha2.RuntimeService.RestoreMachine:output_type -> mvmd.runtime.v1alpha2.RestoreMachineResponse
+	47,  // 160: mvmd.runtime.v1alpha2.RuntimeService.DeleteMachine:output_type -> mvmd.runtime.v1alpha2.DeleteMachineResponse
+	49,  // 161: mvmd.runtime.v1alpha2.RuntimeService.CreateDisk:output_type -> mvmd.runtime.v1alpha2.CreateDiskResponse
+	52,  // 162: mvmd.runtime.v1alpha2.RuntimeService.ListDisks:output_type -> mvmd.runtime.v1alpha2.ListDisksResponse
+	54,  // 163: mvmd.runtime.v1alpha2.RuntimeService.ResizeDisk:output_type -> mvmd.runtime.v1alpha2.ResizeDiskResponse
+	56,  // 164: mvmd.runtime.v1alpha2.RuntimeService.SnapshotDisk:output_type -> mvmd.runtime.v1alpha2.SnapshotDiskResponse
+	59,  // 165: mvmd.runtime.v1alpha2.RuntimeService.ListDiskSnapshots:output_type -> mvmd.runtime.v1alpha2.ListDiskSnapshotsResponse
+	61,  // 166: mvmd.runtime.v1alpha2.RuntimeService.DeleteDiskSnapshot:output_type -> mvmd.runtime.v1alpha2.DeleteDiskSnapshotResponse
+	71,  // 167: mvmd.runtime.v1alpha2.RuntimeService.DeleteDisk:output_type -> mvmd.runtime.v1alpha2.DeleteDiskResponse
+	63,  // 168: mvmd.runtime.v1alpha2.RuntimeService.ReadDisk:output_type -> mvmd.runtime.v1alpha2.ReadDiskResponse
+	69,  // 169: mvmd.runtime.v1alpha2.RuntimeService.CreateDiskFromStream:output_type -> mvmd.runtime.v1alpha2.CreateDiskFromStreamResponse
+	73,  // 170: mvmd.runtime.v1alpha2.RuntimeService.AttachDisk:output_type -> mvmd.runtime.v1alpha2.AttachDiskResponse
+	75,  // 171: mvmd.runtime.v1alpha2.RuntimeService.DetachDisk:output_type -> mvmd.runtime.v1alpha2.DetachDiskResponse
+	77,  // 172: mvmd.runtime.v1alpha2.RuntimeService.SetResources:output_type -> mvmd.runtime.v1alpha2.SetResourcesResponse
+	89,  // 173: mvmd.runtime.v1alpha2.RuntimeService.GetRuntimeInfo:output_type -> mvmd.runtime.v1alpha2.GetRuntimeInfoResponse
+	92,  // 174: mvmd.runtime.v1alpha2.RuntimeService.InspectMachine:output_type -> mvmd.runtime.v1alpha2.InspectMachineResponse
+	94,  // 175: mvmd.runtime.v1alpha2.RuntimeService.ListMachines:output_type -> mvmd.runtime.v1alpha2.ListMachinesResponse
+	103, // 176: mvmd.runtime.v1alpha2.RuntimeService.WatchEvents:output_type -> mvmd.runtime.v1alpha2.WatchEventsResponse
+	106, // 177: mvmd.runtime.v1alpha2.RuntimeService.Exec:output_type -> mvmd.runtime.v1alpha2.ExecResponse
+	109, // 178: mvmd.runtime.v1alpha2.RuntimeService.ReadExecOutput:output_type -> mvmd.runtime.v1alpha2.ReadExecOutputResponse
+	111, // 179: mvmd.runtime.v1alpha2.RuntimeService.SignalExec:output_type -> mvmd.runtime.v1alpha2.SignalExecResponse
+	113, // 180: mvmd.runtime.v1alpha2.RuntimeService.ReadFile:output_type -> mvmd.runtime.v1alpha2.ReadFileResponse
+	116, // 181: mvmd.runtime.v1alpha2.RuntimeService.WriteFile:output_type -> mvmd.runtime.v1alpha2.WriteFileResponse
+	118, // 182: mvmd.runtime.v1alpha2.RuntimeService.PatchFile:output_type -> mvmd.runtime.v1alpha2.PatchFileResponse
+	121, // 183: mvmd.runtime.v1alpha2.RuntimeService.ListFiles:output_type -> mvmd.runtime.v1alpha2.ListFilesResponse
+	123, // 184: mvmd.runtime.v1alpha2.RuntimeService.SearchFiles:output_type -> mvmd.runtime.v1alpha2.SearchFilesResponse
+	125, // 185: mvmd.runtime.v1alpha2.RuntimeService.Console:output_type -> mvmd.runtime.v1alpha2.ConsoleResponse
+	127, // 186: mvmd.runtime.v1alpha2.RuntimeService.PullImage:output_type -> mvmd.runtime.v1alpha2.PullImageResponse
+	130, // 187: mvmd.runtime.v1alpha2.RuntimeService.ListImages:output_type -> mvmd.runtime.v1alpha2.ListImagesResponse
+	132, // 188: mvmd.runtime.v1alpha2.RuntimeService.RemoveImage:output_type -> mvmd.runtime.v1alpha2.RemoveImageResponse
+	86,  // 189: mvmd.runtime.v1alpha2.RuntimeService.AddBootSet:output_type -> mvmd.runtime.v1alpha2.AddBootSetResponse
+	88,  // 190: mvmd.runtime.v1alpha2.RuntimeService.RemoveBootSet:output_type -> mvmd.runtime.v1alpha2.RemoveBootSetResponse
+	136, // 191: mvmd.runtime.v1alpha2.RuntimeService.ListSnapshots:output_type -> mvmd.runtime.v1alpha2.ListSnapshotsResponse
+	138, // 192: mvmd.runtime.v1alpha2.RuntimeService.DeleteSnapshot:output_type -> mvmd.runtime.v1alpha2.DeleteSnapshotResponse
+	141, // 193: mvmd.runtime.v1alpha2.RuntimeService.RenewDeadline:output_type -> mvmd.runtime.v1alpha2.RenewDeadlineResponse
+	143, // 194: mvmd.runtime.v1alpha2.RuntimeService.InspectDeadline:output_type -> mvmd.runtime.v1alpha2.InspectDeadlineResponse
+	153, // [153:195] is the sub-list for method output_type
+	111, // [111:153] is the sub-list for method input_type
+	111, // [111:111] is the sub-list for extension type_name
+	111, // [111:111] is the sub-list for extension extendee
+	0,   // [0:111] is the sub-list for field type_name
 }
 
 func init() { file_mvmd_runtime_v1alpha2_runtime_proto_init() }
@@ -9118,12 +9705,21 @@ func file_mvmd_runtime_v1alpha2_runtime_proto_init() {
 		(*Probe_Tcp)(nil),
 		(*Probe_HttpGet)(nil),
 	}
-	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[64].OneofWrappers = []any{
+	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[51].OneofWrappers = []any{
+		(*ReadDiskResponse_Header)(nil),
+		(*ReadDiskResponse_Extent)(nil),
+		(*ReadDiskResponse_Digest)(nil),
+	}
+	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[55].OneofWrappers = []any{
+		(*CreateDiskFromStreamRequest_Start)(nil),
+		(*CreateDiskFromStreamRequest_Extent)(nil),
+	}
+	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[72].OneofWrappers = []any{
 		(*AddBootSetRequest_Start)(nil),
 		(*AddBootSetRequest_KernelChunk)(nil),
 		(*AddBootSetRequest_InitrdChunk)(nil),
 	}
-	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[83].OneofWrappers = []any{
+	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[91].OneofWrappers = []any{
 		(*WatchEventsResponse_StateChanged)(nil),
 		(*WatchEventsResponse_Deadline)(nil),
 		(*WatchEventsResponse_Driver)(nil),
@@ -9132,11 +9728,11 @@ func file_mvmd_runtime_v1alpha2_runtime_proto_init() {
 		(*WatchEventsResponse_ProbeChanged)(nil),
 		(*WatchEventsResponse_SupervisorOrphaned)(nil),
 	}
-	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[89].OneofWrappers = []any{
+	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[97].OneofWrappers = []any{
 		(*ReadExecOutputResponse_Chunk)(nil),
 		(*ReadExecOutputResponse_Record)(nil),
 	}
-	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[95].OneofWrappers = []any{
+	file_mvmd_runtime_v1alpha2_runtime_proto_msgTypes[103].OneofWrappers = []any{
 		(*WriteFileRequest_Start)(nil),
 		(*WriteFileRequest_Chunk)(nil),
 	}
@@ -9146,7 +9742,7 @@ func file_mvmd_runtime_v1alpha2_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc), len(file_mvmd_runtime_v1alpha2_runtime_proto_rawDesc)),
 			NumEnums:      12,
-			NumMessages:   125,
+			NumMessages:   133,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

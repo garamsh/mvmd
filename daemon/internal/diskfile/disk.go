@@ -193,6 +193,17 @@ func (d *Disk) Create(ctx context.Context, entry machine.DiskEntry) error {
 	return d.create(ctx, entry, nil)
 }
 
+// CreateFromExtents is Create for a disk whose bytes the extents are: the
+// file is cut to the entry's size, the extents are written as they come, with
+// the blocks of zeros left as holes, and the SHA-256 of the whole is compared
+// with the entry's ContentsDigest before the file is published. The bytes
+// carry the filesystem, so nothing is formatted.
+func (d *Disk) CreateFromExtents(ctx context.Context, entry machine.DiskEntry, extents machine.DiskExtents) error {
+	return d.create(ctx, entry, func(tmp *os.File) error {
+		return fillFromExtents(tmp, entry, extents)
+	})
+}
+
 // CreateWithContents is Create for a disk with no filesystem that holds
 // contents from offset 0, written and synced before the disk is published, with
 // the entry's ContentsDigest recorded beside the request.
@@ -203,10 +214,16 @@ func (d *Disk) CreateWithContents(ctx context.Context, entry machine.DiskEntry, 
 	case uint64(len(contents)) > entry.SizeBytes:
 		return fmt.Errorf("%w: %d bytes of contents do not fit in %d", machine.ErrDiskInvalid, len(contents), entry.SizeBytes)
 	}
-	return d.create(ctx, entry, contents)
+	return d.create(ctx, entry, func(tmp *os.File) error {
+		_, err := tmp.WriteAt(contents, 0)
+		return err
+	})
 }
 
-func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, contents []byte) error {
+// create makes the disk of the entry in a temporary file and publishes it. A
+// fill, when there is one, puts the disk's bytes in the file in place of a
+// format, and the entry's ContentsDigest is recorded with them.
+func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, fill func(*os.File) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -238,13 +255,13 @@ func (d *Disk) create(ctx context.Context, entry machine.DiskEntry, contents []b
 	if err := tmp.Truncate(int64(entry.SizeBytes)); err != nil {
 		return fail("set size", err)
 	}
-	if fs == machine.FilesystemExt4 {
+	if fs == machine.FilesystemExt4 && fill == nil {
 		if err := runMKFS(d.mkfs, tmpName, uuid); err != nil {
 			return fail("format", err)
 		}
 	}
-	if contents != nil {
-		if _, err := tmp.WriteAt(contents, 0); err != nil {
+	if fill != nil {
+		if err := fill(tmp); err != nil {
 			return fail("write the contents", err)
 		}
 		if err := unix.Fsetxattr(int(tmp.Fd()), contentsAttr, []byte(entry.ContentsDigest), 0); err != nil {

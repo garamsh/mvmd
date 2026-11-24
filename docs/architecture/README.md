@@ -103,5 +103,6 @@ Decisions:
 - [ADR 0069](./adr/0069-a-client-asks-for-a-machines-address-at-create-and-the-node-gives-it-or-refuses-naming-it.md) — a client asks for a Machine's address at Create, and the node gives it or refuses naming it (it adds to the addressing of ADR 0011)
 - [ADR 0070](./adr/0070-mvmd-speaks-the-supervisor-api-of-its-own-release-and-refuses-to-start-beside-a-supervisor-that-speaks-another.md) — mvmd speaks the supervisor API of its own release, and refuses to start beside a supervisor that speaks another (it answers the open question of ADR 0003's upgrade)
 - [ADR 0071](./adr/0071-a-start-reconciles-what-it-finds-and-leaves-a-supervisor-no-record-holds-running-as-an-orphan.md) — a start reconciles what it finds, and leaves a supervisor no record holds running as an orphan (it amends ADR 0003's and ADR 0033's end of an unclaimed supervisor)
+- [ADR 0072](./adr/0072-a-client-reads-a-disk-no-machine-is-running-or-a-disk-snapshot-as-a-stream-and-creates-a-disk-from-one.md) — a client reads a disk no Machine is running, or a disk snapshot, as a stream, and creates a disk from one (it adds to ADR 0060's Create disk and ADR 0056's snapshots)
 
 The template for a new ADR is [adr/0000-template.md](./adr/0000-template.md).
